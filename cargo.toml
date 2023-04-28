@@ -1,5 +1,5 @@
 [workspace]
-members = ["trust-model", "trust-core", "trust-cli"]
+members = ["trust-model", "trust", "trust-cli"]
 
 [workspace.package]
 name = "trust"
