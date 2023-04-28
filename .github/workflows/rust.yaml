@@ -33,13 +33,13 @@ jobs:
       run: cargo build -p trust-model --locked --release
 
     - name: Run cargo build trust
-      run: cargo build -p trust --locked --release
+      run: cargo build -p trust-core --locked --release
 
     - name: Run cargo build cli
       run: cargo build -p trust-cli --locked --release
 
     - name: Run cargo build main
-      run: cargo build --all --locked --release && strip target/release/trust
+      run: cargo build --all --locked --release
 
   test:
     runs-on: ubuntu-latest
