@@ -50,4 +50,9 @@ mod tests {
         let result = Currency::from_str("BTC").expect("Failed to parse Currency from string");
         assert_eq!(result, Currency::BTC);
     }
+
+    #[test]
+    fn test_currency_from_invalid_string() {
+        Currency::from_str("FOO").expect_err("Created a Currency from an invalid string");
+    }
 }
