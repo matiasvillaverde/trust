@@ -4,9 +4,11 @@
         "clippy",
         "dialoguer",
         "dotenv",
+        "isin",
         "Matias",
         "Rustfmt",
         "rustup",
+        "TSLA",
         "Villaverde"
     ]
 }
