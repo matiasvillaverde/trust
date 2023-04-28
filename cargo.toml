@@ -1,0 +1,26 @@
+[workspace]
+members = ["trust-model", "trust-core", "trust-cli"]
+
+[workspace.package]
+name = "trust"
+version = "0.1.0"
+authors = ["Matias Villaverde <matiasvillaverde@protonmail.com>"]
+rust-version = "1.68.2"
+license = "MIT"
+repository = "https://github.com/integer256/trust"
+readme = "README.md"
+
+[workspace.dependencies]
+chrono = "0.4.24"
+diesel = { version = "2.0.3", features = ["sqlite", "returning_clauses_for_sqlite_3_35", "chrono"] }
+diesel_migrations = "2.0.0"
+diesel-derive-enum = { version = "2.0.1", features = ["sqlite"] }
+dotenv = "0.15.0"
+uuid = { version = "1.3.1", features = [
+    "v4",                # Lets you generate random UUIDs
+    "fast-rng",          # Use a faster (but still sufficiently random) RNG
+    "macro-diagnostics", # Enable better diagnostics for compile-time UUIDs
+] }
+clap = { version = "4.2.4", features = ["derive"] }
+tabled = { version = "0.12", features = ["color"] }
+dialoguer = { version = "0.10.4", features = ["fuzzy-select"] }
