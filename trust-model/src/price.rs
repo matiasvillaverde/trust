@@ -22,12 +22,6 @@ pub struct Price {
 // Implementations
 impl fmt::Display for Price {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "Price: {} {} {}",
-            self.id,
-            self.currency,
-            self.amount.to_string()
-        )
+        write!(f, "Price: {} {} {}", self.id, self.currency, self.amount)
     }
 }

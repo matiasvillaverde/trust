@@ -4,6 +4,10 @@ use chrono::NaiveDateTime;
 use uuid::Uuid;
 
 /// Account entity
+/// It represents a single account that want to be used to trade.
+///
+/// For example: Binance account, Kraken account, etc.
+/// It doesn't need to be a real account. It can be a paper trading account.
 #[derive(PartialEq, Debug)]
 pub struct Account {
     pub id: Uuid,
@@ -20,10 +24,13 @@ pub struct Account {
 
 /// AccountOverview entity (read-only)
 /// This entity is used to display the account overview
-/// This entity is read-only
 /// This entity is a cached calculation of all the transactions that an account have.
+/// This entity is read-only
 /// It is not used to create or update an account
 /// Each account has one AccountOverview per currency
+///
+/// WARNING: This entity can be out of sync with the actual account.
+/// If your feature is important, consider recalculating the account overview.
 #[derive(PartialEq, Debug)]
 pub struct AccountOverview {
     pub id: Uuid,

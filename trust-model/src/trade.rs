@@ -42,6 +42,9 @@ pub struct Trade {
     /// The account that the trade is associated with
     pub account_id: Uuid,
 
+    /// Strategy that the trade is based on
+    pub strategy_id: Uuid,
+
     /// The transactions that are associated with the trade.
     /// In case the trade is approved and executed, the transactions are used to update the account balance.
     pub transactions: Vec<Transaction>,
@@ -55,12 +58,17 @@ pub struct Trade {
     pub overview: TradeOverview,
 }
 
+/// The category of the trade - Being a bull or a bear
 #[derive(PartialEq, Debug)]
 pub enum TradeCategory {
+    /// Long trade - Bull - buy an asset and sell it later at a higher price
     Long,
+
+    /// Short trade - Bear - sell an asset and buy it later at a lower price
     Short,
 }
 
+/// The lifecycle of the trade - approved, rejected, executed, failed, closed
 #[derive(PartialEq, Debug)]
 pub struct TradeLifecycle {
     pub id: Uuid,
@@ -71,12 +79,23 @@ pub struct TradeLifecycle {
     pub deleted_at: Option<NaiveDateTime>,
 
     // Entity fields
+    /// When the trade was approved by applying the rules of the account
     pub approved_at: Option<NaiveDateTime>,
+
+    /// When the trade was rejected by applying the rules of the account
     pub rejected_at: Option<NaiveDateTime>,
+
+    /// When the trade started to be executed by the broker
     pub executed_at: Option<NaiveDateTime>,
+
+    /// When the trade failed to be executed by the broker
     pub failed_at: Option<NaiveDateTime>,
+
+    /// When the trade was closed by the broker. All their orders were executed.
     pub closed_at: Option<NaiveDateTime>,
-    // pub rejected_by_rule_uuid: Option<Rule>, TODO: Implement Rule entity
+
+    /// The rule that rejected the trade. It has to be a rule of type error.
+    pub rejected_by_rule_id: Uuid,
 }
 
 #[derive(PartialEq, Debug)]
