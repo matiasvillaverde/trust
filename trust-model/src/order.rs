@@ -2,6 +2,9 @@ use crate::price::Price;
 use chrono::NaiveDateTime;
 use uuid::Uuid;
 
+/// Order entity - represents a single order. Orders can be part of a trade.
+/// Orders can be entries to the market or exits from the market.
+/// Orders are part of a trade entries and exits.
 #[derive(PartialEq, Debug)]
 pub struct Order {
     pub id: Uuid,
