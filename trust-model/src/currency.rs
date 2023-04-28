@@ -11,13 +11,18 @@ pub enum Currency {
 
 // Implementations
 
-impl Currency {
-    pub fn from_str(currency: &str) -> Currency {
+#[derive(PartialEq, Debug)]
+pub struct CurrencyError;
+
+impl std::str::FromStr for Currency {
+    type Err = CurrencyError;
+
+    fn from_str(currency: &str) -> Result<Self, Self::Err> {
         match currency {
-            "USD" => Currency::USD,
-            "EUR" => Currency::EUR,
-            "BTC" => Currency::BTC,
-            _ => panic!("Unknown Currency: {}", currency),
+            "USD" => Ok(Currency::USD),
+            "EUR" => Ok(Currency::EUR),
+            "BTC" => Ok(Currency::BTC),
+            _ => Err(CurrencyError),
         }
     }
 }
@@ -31,18 +36,23 @@ impl fmt::Display for Currency {
         }
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::str::FromStr;
 
     #[test]
     fn test_currency_from_string() {
-        let result = Currency::from_str("USD");
+        let result = Currency::from_str("USD").expect("Failed to parse Currency from string");
         assert_eq!(result, Currency::USD);
-        let result = Currency::from_str("EUR");
+        let result = Currency::from_str("EUR").expect("Failed to parse Currency from string");
         assert_eq!(result, Currency::EUR);
-        let result = Currency::from_str("BTC");
+        let result = Currency::from_str("BTC").expect("Failed to parse Currency from string");
         assert_eq!(result, Currency::BTC);
+    }
+
+    #[test]
+    fn test_currency_from_invalid_string() {
+        Currency::from_str("FOO").expect_err("Created a Currency from an invalid string");
     }
 }

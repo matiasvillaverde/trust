@@ -4,6 +4,7 @@
         "clippy",
         "dialoguer",
         "dotenv",
+        "dtolnay",
         "isin",
         "Matias",
         "Rustfmt",

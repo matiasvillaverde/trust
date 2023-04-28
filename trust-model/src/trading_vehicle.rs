@@ -44,14 +44,18 @@ pub enum TradingVehicleCategory {
 
 // Implementations
 
-impl TradingVehicleCategory {
-    pub fn from_str(category: &str) -> TradingVehicleCategory {
+#[derive(PartialEq, Debug)]
+pub struct TradingVehicleCategoryParseError;
+
+impl std::str::FromStr for TradingVehicleCategory {
+    type Err = TradingVehicleCategoryParseError;
+    fn from_str(category: &str) -> Result<Self, Self::Err> {
         match category {
-            "Crypto" => TradingVehicleCategory::Crypto,
-            "Fiat" => TradingVehicleCategory::Fiat,
-            "Stock" => TradingVehicleCategory::Stock,
-            "Future" => TradingVehicleCategory::Future,
-            _ => panic!("Unknown TradingVehicleCategory: {}", category),
+            "Crypto" => Ok(TradingVehicleCategory::Crypto),
+            "Fiat" => Ok(TradingVehicleCategory::Fiat),
+            "Stock" => Ok(TradingVehicleCategory::Stock),
+            "Future" => Ok(TradingVehicleCategory::Future),
+            _ => Err(TradingVehicleCategoryParseError),
         }
     }
 }
@@ -70,16 +74,27 @@ impl std::fmt::Display for TradingVehicleCategory {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::str::FromStr;
 
     #[test]
-    fn test_from_string() {
-        let result = TradingVehicleCategory::from_str("Crypto");
+    fn test_trading_vehicle_from_string() {
+        let result = TradingVehicleCategory::from_str("Crypto")
+            .expect("Failed to parse TradingVehicleCategory from string");
         assert_eq!(result, TradingVehicleCategory::Crypto);
-        let result = TradingVehicleCategory::from_str("Fiat");
+        let result = TradingVehicleCategory::from_str("Fiat")
+            .expect("Failed to parse TradingVehicleCategory from string");
         assert_eq!(result, TradingVehicleCategory::Fiat);
-        let result = TradingVehicleCategory::from_str("Stock");
+        let result = TradingVehicleCategory::from_str("Stock")
+            .expect("Failed to parse TradingVehicleCategory from string");
         assert_eq!(result, TradingVehicleCategory::Stock);
-        let result = TradingVehicleCategory::from_str("Future");
+        let result = TradingVehicleCategory::from_str("Future")
+            .expect("Failed to parse TradingVehicleCategory from string");
         assert_eq!(result, TradingVehicleCategory::Future);
+    }
+
+    #[test]
+    fn test_trading_vehicle_from_invalid_string() {
+        TradingVehicleCategory::from_str("FOO")
+            .expect_err("Created a TradingVehicleCategory from an invalid string");
     }
 }

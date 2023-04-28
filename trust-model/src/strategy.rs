@@ -29,11 +29,11 @@ pub struct Strategy {
     pub version: u16,
 
     /// The entry condition of the strategy. For example: Buy in pullback.
-    pub entry: String,
+    pub entry_description: String,
 
     /// The exit condition of the strategy. For example: Set a stop loss at 10% below the entry price.
-    pub stop: String,
+    pub stop_description: String,
 
     /// The target condition of the strategy. For example: How to set target A, B, C.
-    pub target: String,
+    pub target_description: String,
 }

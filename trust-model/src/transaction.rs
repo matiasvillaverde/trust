@@ -59,16 +59,20 @@ impl std::fmt::Display for TransactionCategory {
         }
     }
 }
+#[derive(PartialEq, Debug)]
+pub struct TransactionCategoryParseError;
 
-impl TransactionCategory {
-    pub fn from_str(s: &str) -> TransactionCategory {
+impl std::str::FromStr for TransactionCategory {
+    type Err = TransactionCategoryParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "Deposit" => TransactionCategory::Deposit,
-            "Withdrawal" => TransactionCategory::Withdrawal,
-            "Input" => TransactionCategory::Input,
-            "Output" => TransactionCategory::Output,
-            "InputTax" => TransactionCategory::InputTax,
-            _ => panic!("Unknown TransactionCategory: {}", s),
+            "Deposit" => Ok(TransactionCategory::Deposit),
+            "Withdrawal" => Ok(TransactionCategory::Withdrawal),
+            "Input" => Ok(TransactionCategory::Input),
+            "Output" => Ok(TransactionCategory::Output),
+            "InputTax" => Ok(TransactionCategory::InputTax),
+            _ => Err(TransactionCategoryParseError),
         }
     }
 }
@@ -76,18 +80,30 @@ impl TransactionCategory {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::str::FromStr;
 
     #[test]
-    fn test_from_string() {
-        let result = TransactionCategory::from_str("Deposit");
+    fn test_transaction_category_from_string() {
+        let result = TransactionCategory::from_str("Deposit")
+            .expect("Failed to parse TransactionCategory from string");
         assert_eq!(result, TransactionCategory::Deposit);
-        let result = TransactionCategory::from_str("Withdrawal");
+        let result = TransactionCategory::from_str("Withdrawal")
+            .expect("Failed to parse TransactionCategory from string");
         assert_eq!(result, TransactionCategory::Withdrawal);
-        let result = TransactionCategory::from_str("Input");
+        let result = TransactionCategory::from_str("Input")
+            .expect("Failed to parse TransactionCategory from string");
         assert_eq!(result, TransactionCategory::Input);
-        let result = TransactionCategory::from_str("Output");
+        let result = TransactionCategory::from_str("Output")
+            .expect("Failed to parse TransactionCategory from string");
         assert_eq!(result, TransactionCategory::Output);
-        let result = TransactionCategory::from_str("InputTax");
+        let result = TransactionCategory::from_str("InputTax")
+            .expect("Failed to parse TransactionCategory from string");
         assert_eq!(result, TransactionCategory::InputTax);
+    }
+
+    #[test]
+    fn test_transaction_category_from_invalid_string() {
+        TransactionCategory::from_str("Invalid")
+            .expect_err("Failed to parse TransactionCategory from string"); // Invalid
     }
 }
