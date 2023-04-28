@@ -1,6 +1,7 @@
 use crate::price::Price;
 use chrono::NaiveDateTime;
 use uuid::Uuid;
+use crate::order::Order;
 
 /// Target entity - represents a target price for a trade. Trades can have multiple targets.
 #[derive(PartialEq, Debug)]
