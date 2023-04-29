@@ -1180,6 +1180,7 @@ dependencies = [
  "clap",
  "dialoguer",
  "tabled",
+ "trust-core",
  "trust-db-sqlite",
  "trust-model",
 ]
@@ -1187,6 +1188,9 @@ dependencies = [
 [[package]]
 name = "trust-core"
 version = "0.1.0"
+dependencies = [
+ "trust-model",
+]
 
 [[package]]
 name = "trust-db-sqlite"

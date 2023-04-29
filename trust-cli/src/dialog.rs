@@ -2,7 +2,8 @@ use std::error::Error;
 
 use crate::view::AccountView;
 use dialoguer::{theme::ColorfulTheme, Input};
-use trust_model::{Account, Database};
+use trust_core::Trust;
+use trust_model::Account;
 
 pub struct AccountDialogBuilder {
     name: String,
@@ -19,8 +20,8 @@ impl AccountDialogBuilder {
         }
     }
 
-    pub fn build(mut self, database: &mut Box<dyn Database>) -> AccountDialogBuilder {
-        self.result = Some(database.create_account(&self.name, &self.description));
+    pub fn build(mut self, trust: &mut Trust) -> AccountDialogBuilder {
+        self.result = Some(trust.create_account(&self.name, &self.description));
         self
     }
 

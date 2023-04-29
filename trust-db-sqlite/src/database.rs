@@ -20,7 +20,7 @@ impl SqliteDatabase {
     /// ```
     /// use trust_db_sqlite::SqliteDatabase;
     ///
-    /// let database = SqliteDatabase::new("sqlite://test.db");
+    /// let database = SqliteDatabase::new("sqlite://production.db");
     /// ```
     pub fn new(url: &str) -> Self {
         let connection: SqliteConnection = Self::establish_connection(url);

@@ -1,14 +1,22 @@
-pub fn add(left: usize, right: usize) -> usize {
-    left + right
+use trust_model::{Account, Database};
+
+pub struct Trust {
+    database: Box<dyn Database>,
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+impl Trust {
+    pub fn new(database: Box<dyn Database>) -> Self {
+        Trust { database: database }
+    }
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
+    pub fn create_account(
+        &mut self,
+        name: &str,
+        description: &str,
+    ) -> Result<Account, Box<dyn std::error::Error>> {
+        let account = self.database.create_account(name, description);
+        account
     }
 }
+
+// TODO: Add tests
