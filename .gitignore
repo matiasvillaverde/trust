@@ -8,3 +8,6 @@ target/
 
 # MSVC Windows builds of rustc generate these, which store debugging information
 *.pdb
+
+# Ignore all database files
+trust-db-sqlite/*.db

@@ -5,6 +5,7 @@
         "dialoguer",
         "dotenv",
         "dtolnay",
+        "Insertable",
         "isin",
         "Matias",
         "Rustfmt",
