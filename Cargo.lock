@@ -580,6 +580,10 @@ name = "trust-core"
 version = "0.1.0"
 
 [[package]]
+name = "trust-db-sqlite"
+version = "0.1.0"
+
+[[package]]
 name = "trust-model"
 version = "0.1.0"
 dependencies = [
