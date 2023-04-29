@@ -40,7 +40,7 @@ impl SqliteDatabase {
     /// Establish a connection to the SQLite database.
     fn establish_connection(database_url: &str) -> SqliteConnection {
         // Use the database URL to establish a connection to the SQLite database
-        SqliteConnection::establish(&database_url)
+        SqliteConnection::establish(database_url)
             .unwrap_or_else(|_| panic!("Error connecting to {}", database_url))
     }
 }

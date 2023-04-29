@@ -1,10 +1,5 @@
 use crate::account::{Account, AccountOverview};
-use crate::currency::Currency;
-use crate::price::Price;
-use crate::strategy::Strategy;
-use crate::trading_vehicle::{TradingVehicle, TradingVehicleCategory};
-use crate::transaction::{Transaction, TransactionCategory};
-use rust_decimal::Decimal;
+
 use std::error::Error;
 
 /// Database trait with all the methods that are needed to interact with the database.

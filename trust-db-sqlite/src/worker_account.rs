@@ -33,10 +33,10 @@ impl WorkerAccount {
         let account = diesel::insert_into(accounts::table)
             .values(&new_account)
             .get_result::<AccountSQLite>(connection)
-            .map(|account| account.to_domain_model())
+            .map(|account| account.domain_model())
             .map_err(|error| {
                 error!("Error creating account: {:?}", error);
-                return error;
+                error
             })?;
         Ok(account)
     }
@@ -48,10 +48,10 @@ impl WorkerAccount {
         let account = accounts::table
             .filter(accounts::name.eq(name.to_lowercase()))
             .first::<AccountSQLite>(connection)
-            .map(|account| account.to_domain_model())
+            .map(|account| account.domain_model())
             .map_err(|error| {
                 error!("Error reading account: {:?}", error);
-                return error;
+                error
             })?;
         Ok(account)
     }
@@ -65,12 +65,12 @@ impl WorkerAccount {
             .map(|accounts| {
                 accounts
                     .into_iter()
-                    .map(|account| account.to_domain_model())
+                    .map(|account| account.domain_model())
                     .collect()
             })
             .map_err(|error| {
                 error!("Error reading all accounts: {:?}", error);
-                return error;
+                error
             })?;
         Ok(accounts)
     }
@@ -90,7 +90,7 @@ pub struct AccountSQLite {
 }
 
 impl AccountSQLite {
-    fn to_domain_model(self) -> Account {
+    fn domain_model(self) -> Account {
         Account {
             id: Uuid::parse_str(&self.id).unwrap(),
             created_at: self.created_at,
@@ -131,19 +131,15 @@ mod tests {
     }
 
     fn create_accounts(conn: &mut SqliteConnection) -> Vec<Account> {
-        let mut created_accounts = Vec::new();
-        created_accounts.push(
+        let created_accounts = vec![
             WorkerAccount::create_account(conn, "Test Account 1", "This is a test account")
                 .expect("Error creating account"),
-        );
-        created_accounts.push(
             WorkerAccount::create_account(conn, "Test Account 2", "This is a test account")
                 .expect("Error creating account"),
-        );
-        created_accounts.push(
             WorkerAccount::create_account(conn, "Test Account 3", "This is a test account")
                 .expect("Error creating account"),
-        );
+        ];
+
         created_accounts
     }
 
