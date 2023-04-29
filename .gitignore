@@ -11,3 +11,4 @@ target/
 
 # Ignore all database files
 trust-db-sqlite/*.db
+*.db

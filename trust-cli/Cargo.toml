@@ -6,3 +6,9 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+trust-model = { path = "../trust-model", version = "0.1.0" }
+trust-db-sqlite = { path = "../trust-db-sqlite", version = "0.1.0" }
+
+clap = {workspace = true}
+dialoguer = {workspace = true}
+tabled = {workspace = true}
