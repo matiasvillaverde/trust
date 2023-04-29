@@ -1,8 +1,17 @@
 [package]
 name = "trust-db-sqlite"
-version = "0.1.0"
 edition = "2021"
+description = "A concrete implementation of the Trust database using sqlite"
+
+version = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
+repository = { workspace = true }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+
+trust-model = { path = "../trust-model", version = "0.1.0" }
+rust_decimal = {workspace = true}
+rust_decimal_macros = {workspace = true}

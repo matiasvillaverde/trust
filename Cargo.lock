@@ -582,6 +582,11 @@ version = "0.1.0"
 [[package]]
 name = "trust-db-sqlite"
 version = "0.1.0"
+dependencies = [
+ "rust_decimal",
+ "rust_decimal_macros",
+ "trust-model",
+]
 
 [[package]]
 name = "trust-model"
