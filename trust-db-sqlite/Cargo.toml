@@ -1,0 +1,26 @@
+[package]
+name = "trust-db-sqlite"
+edition = "2021"
+description = "A concrete implementation of the Trust database using sqlite"
+
+version = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
+repository = { workspace = true }
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+
+trust-model = { path = "../trust-model", version = "0.1.0" }
+
+
+rust_decimal = {workspace = true}
+rust_decimal_macros = {workspace = true}
+diesel = {workspace = true}
+diesel_migrations = {workspace = true}
+diesel-derive-enum = {workspace = true}
+chrono = {workspace = true}
+uuid =  {workspace = true}
+tracing =  {workspace = true}
+tracing-subscriber =  {workspace = true}

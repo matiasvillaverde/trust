@@ -29,16 +29,16 @@ pub struct TradingVehicle {
 #[derive(PartialEq, Debug)]
 #[non_exhaustive] // This enum may be extended in the future
 pub enum TradingVehicleCategory {
-    /// Crypto - cryptocurrency like BTC, ETH, etc.
+    /// Cryptocurrency like BTC, ETH, etc.
     Crypto,
 
-    /// Fiat - fiat currency like USD, EUR, etc.
+    /// Fiat currency like USD, EUR, etc.
     Fiat,
 
-    /// Stock - stock like AAPL, TSLA, etc.
+    /// Stock like AAPL, TSLA, etc.
     Stock,
 
-    /// Future - future like BTC-USD-210625, etc.
+    /// Future like BTC-USD-210625, etc.
     Future,
 }
 
