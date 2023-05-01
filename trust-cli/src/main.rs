@@ -1,4 +1,5 @@
 use crate::commands::account_command::AccountCommandBuilder;
+use crate::commands::transaction_command::TransactionCommandBuilder;
 use crate::dispatcher::ArgDispatcher;
 use clap::Command;
 mod commands;
@@ -15,6 +16,12 @@ fn main() {
             AccountCommandBuilder::new()
                 .create_account()
                 .read_account()
+                .build(),
+        )
+        .subcommand(
+            TransactionCommandBuilder::new()
+                .deposit()
+                .withdraw()
                 .build(),
         )
         .get_matches();
