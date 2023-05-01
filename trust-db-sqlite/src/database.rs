@@ -1,7 +1,7 @@
-use crate::worker_account::WorkerAccount;
+use crate::workers::worker_account::WorkerAccount;
 use diesel::prelude::*;
 use std::error::Error;
-use trust_model::{Account, AccountOverview, Database};
+use trust_model::{Account, AccountOverview, Currency, Database, TransactionCategory};
 
 /// SqliteDatabase is a struct that contains methods for interacting with the
 /// SQLite database.

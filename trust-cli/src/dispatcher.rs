@@ -23,6 +23,11 @@ impl ArgDispatcher {
                 Some(("search", _)) => self.search_account(),
                 _ => unreachable!("No subcommand provided"),
             },
+            Some(("transaction", sub_matches)) => match sub_matches.subcommand() {
+                Some(("deposit", _)) => self.deposit(),
+                Some(("withdraw", _)) => self.withdraw(),
+                _ => unreachable!("No subcommand provided"),
+            },
             Some((ext, sub_matches)) => {
                 let args = sub_matches
                     .get_many::<OsString>("")
@@ -34,7 +39,10 @@ impl ArgDispatcher {
             _ => unreachable!(), // If all subcommands are defined above, anything else is unreachable!()
         }
     }
+}
 
+// Account
+impl ArgDispatcher {
     fn create_account(&mut self) {
         AccountDialogBuilder::new()
             .name()
@@ -44,6 +52,21 @@ impl ArgDispatcher {
     }
 
     fn search_account(&mut self) {
+        AccountSearchDialog::new().search(&mut self.trust).display();
+    }
+}
+
+// Transaction
+impl ArgDispatcher {
+    fn deposit(&mut self) {
+        AccountDialogBuilder::new()
+            .name()
+            .description()
+            .build(&mut self.trust)
+            .display();
+    }
+
+    fn withdraw(&mut self) {
         AccountSearchDialog::new().search(&mut self.trust).display();
     }
 }

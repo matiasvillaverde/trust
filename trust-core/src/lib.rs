@@ -1,4 +1,5 @@
-use trust_model::{Account, Database};
+use rust_decimal::Decimal;
+use trust_model::{Account, Currency, Database};
 
 pub struct Trust {
     database: Box<dyn Database>,
@@ -31,5 +32,14 @@ impl Trust {
     pub fn search_all_accounts(&mut self) -> Result<Vec<Account>, Box<dyn std::error::Error>> {
         let accounts = self.database.read_all_accounts();
         accounts
+    }
+
+    pub fn create_transaction(
+        &mut self,
+        account: &Account,
+        amount: Decimal,
+        currency: Currency,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        Ok(())
     }
 }
