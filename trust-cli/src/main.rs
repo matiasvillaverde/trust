@@ -1,10 +1,10 @@
-use crate::command::AccountCommandBuilder;
+use crate::commands::account_command::AccountCommandBuilder;
 use crate::dispatcher::ArgDispatcher;
 use clap::Command;
-mod command;
-mod dialog;
+mod commands;
+mod dialogs;
 mod dispatcher;
-mod view;
+mod views;
 
 fn main() {
     let matches = Command::new("trust")

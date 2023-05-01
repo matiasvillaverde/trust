@@ -1,6 +1,6 @@
 use std::error::Error;
 
-use crate::view::AccountView;
+use crate::views::account_view::AccountView;
 use dialoguer::{theme::ColorfulTheme, Input, Select};
 use trust_core::Trust;
 use trust_model::Account;

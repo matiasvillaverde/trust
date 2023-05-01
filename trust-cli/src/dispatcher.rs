@@ -1,4 +1,4 @@
-use crate::dialog::{AccountDialogBuilder, AccountSearchDialog};
+use crate::dialogs::account_dialog::{AccountDialogBuilder, AccountSearchDialog};
 use clap::ArgMatches;
 use std::ffi::OsString;
 use trust_core::Trust;
