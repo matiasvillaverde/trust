@@ -37,6 +37,19 @@ impl WorkerPrice {
             })?;
         Ok(price)
     }
+
+    pub fn read(connection: &mut SqliteConnection, id: Uuid) -> Result<Price, Box<dyn Error>> {
+        let price = prices::table
+            .filter(prices::id.eq(id.to_string()))
+            .first::<PriceSQLite>(connection)
+            .map(|price| price.domain_model())
+            .map_err(|error| {
+                error!("Error reading price: {:?}", error);
+                error
+            })?;
+        Ok(price)
+    }
+
 }
 
 #[derive(Queryable, Identifiable, AsChangeset, Insertable)]
@@ -107,56 +120,16 @@ mod tests {
         assert_eq!(price.deleted_at, None);
     }
 
-    // #[test]
-    // fn test_read_price() {
-    //     let mut conn = establish_connection();
-    //     let now = Utc::now().naive_utc();
-    //     let uuid = Uuid::new_v4();
+    #[test]
+    fn test_read_price() {
+        let mut conn = establish_connection();
 
-    //     // Create a new price record
-    //     let new_price = NewPrice {
-    //         uuid: uuid.to_string(),
-    //         currency: Currency::USD,
-    //         digit: 10,
-    //         decimal: 99,
-    //         created_at: now,
-    //         updated_at: now,
-    //         deleted_at: None,
-    //     };
-    //     let price = diesel::insert_into(prices::table)
-    //         .values(&new_price)
-    //         .get_result::<PriceSQLite>(&mut conn)
-    //         .unwrap();
+        // Create a new price record
+        let price = WorkerPrice::new(&mut conn, Currency::USD, dec!(10.99)).unwrap();
 
-    //     // Read the price record by id
-    //     let read_price = Price::read(&mut conn, uuid).expect("Error reading price");
+        // Read the price record by id
+        let read_price = WorkerPrice::read(&mut conn, price.id).expect("Error reading price");
 
-    //     assert_eq!(read_price.uuid, uuid);
-    //     assert_eq!(read_price.currency, Currency::USD);
-    //     assert_eq!(read_price.digit, 10);
-    //     assert_eq!(read_price.decimal, 99);
-    //     assert_eq!(read_price.created_at, now);
-    //     assert_eq!(read_price.updated_at, now);
-    //     assert_eq!(price.deleted_at, None);
-    // }
-
-    // #[test]
-    // fn test_delete_price() {
-    //     let mut conn = establish_connection();
-
-    //     // Create a new price record
-    //     let price = Price::new(&mut conn, Currency::USD, 10, 99);
-    //     let expected_price = price.clone();
-
-    //     // Delete the price record
-    //     let deleted_price = price.delete(&mut conn);
-
-    //     assert_eq!(deleted_price.uuid, expected_price.uuid);
-    //     assert_eq!(deleted_price.currency, expected_price.currency);
-    //     assert_eq!(deleted_price.digit, expected_price.digit);
-    //     assert_eq!(deleted_price.decimal, expected_price.decimal);
-    //     assert_eq!(deleted_price.created_at, expected_price.created_at);
-    //     assert_ne!(deleted_price.updated_at, expected_price.updated_at); // updated_at should be different because it was updated
-    //     assert_ne!(deleted_price.deleted_at, None); // deleted_at should be different because it was deleted
-    // }
+        assert_eq!(read_price, price);
+    }
 }
