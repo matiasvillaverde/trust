@@ -8,7 +8,7 @@ use uuid::Uuid;
 ///
 /// For example: Binance account, Kraken account, etc.
 /// It doesn't need to be a real account. It can be a paper trading account.
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub struct Account {
     pub id: Uuid,
 

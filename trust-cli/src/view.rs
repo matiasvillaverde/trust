@@ -1,5 +1,6 @@
 use tabled::settings::style::Style;
-use tabled::{Table, Tabled};
+use tabled::Table;
+use tabled::Tabled;
 use trust_model::Account;
 
 #[derive(Tabled)]
@@ -21,7 +22,7 @@ impl AccountView {
     }
 
     pub fn display_accounts(accounts: Vec<Account>) {
-        let views: Vec<AccountView> = accounts.into_iter().map(AccountView::new).collect();
+        let views: Vec<AccountView> = accounts.into_iter().map(|x| AccountView::new(x)).collect();
         let mut table = Table::new(views);
         table.with(Style::modern());
         println!("{}", table);

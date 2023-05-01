@@ -1,4 +1,4 @@
-use crate::dialog::AccountDialogBuilder;
+use crate::dialog::{AccountDialogBuilder, AccountSearchDialog};
 use clap::ArgMatches;
 use std::ffi::OsString;
 use trust_core::Trust;
@@ -20,6 +20,7 @@ impl ArgDispatcher {
         match matches.subcommand() {
             Some(("account", sub_matches)) => match sub_matches.subcommand() {
                 Some(("create", _)) => self.create_account(),
+                Some(("search", _)) => self.search_account(),
                 _ => unreachable!("No subcommand provided"),
             },
             Some((ext, sub_matches)) => {
@@ -40,5 +41,9 @@ impl ArgDispatcher {
             .description()
             .build(&mut self.trust)
             .display();
+    }
+
+    fn search_account(&mut self) {
+        AccountSearchDialog::new().search(&mut self.trust).display();
     }
 }

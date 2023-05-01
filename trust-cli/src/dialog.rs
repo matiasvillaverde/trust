@@ -1,7 +1,7 @@
 use std::error::Error;
 
 use crate::view::AccountView;
-use dialoguer::{theme::ColorfulTheme, Input};
+use dialoguer::{theme::ColorfulTheme, Input, Select};
 use trust_core::Trust;
 use trust_model::Account;
 
@@ -48,6 +48,47 @@ impl AccountDialogBuilder {
             .with_prompt("How would you describe your account?")
             .interact_text()
             .unwrap();
+        self
+    }
+}
+
+pub struct AccountSearchDialog {
+    result: Option<Result<Account, Box<dyn Error>>>,
+}
+
+impl AccountSearchDialog {
+    pub fn new() -> Self {
+        AccountSearchDialog { result: None }
+    }
+
+    pub fn display(self) {
+        match self
+            .result
+            .expect("No result found, did you forget to call search?")
+        {
+            Ok(account) => AccountView::display_account(account),
+            Err(error) => println!("Error searching account: {:?}", error),
+        }
+    }
+
+    pub fn search(mut self, trust: &mut Trust) -> Self {
+        let accounts = trust.search_all_accounts();
+        match accounts {
+            Ok(accounts) => {
+                let account = Select::with_theme(&ColorfulTheme::default())
+                    .with_prompt("Which account do you want to see?")
+                    .default(0)
+                    .items(&accounts[..])
+                    .interact_opt()
+                    .unwrap()
+                    .map(|index| accounts.get(index).unwrap())
+                    .unwrap();
+
+                self.result = Some(Ok(account.to_owned()));
+            }
+            Err(error) => self.result = Some(Err(error)),
+        }
+
         self
     }
 }

@@ -39,9 +39,19 @@ impl SqliteDatabase {
 
     /// Establish a connection to the SQLite database.
     fn establish_connection(database_url: &str) -> SqliteConnection {
+        let db_exists = std::path::Path::new(database_url).exists();
         // Use the database URL to establish a connection to the SQLite database
-        SqliteConnection::establish(database_url)
-            .unwrap_or_else(|_| panic!("Error connecting to {}", database_url))
+        let mut connection = SqliteConnection::establish(database_url)
+            .unwrap_or_else(|_| panic!("Error connecting to {}", database_url));
+
+        // Run migrations only if it is a new DB
+        if !db_exists {
+            use diesel_migrations::*;
+            pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
+            connection.run_pending_migrations(MIGRATIONS).unwrap();
+        }
+
+        connection
     }
 }
 

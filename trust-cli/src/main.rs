@@ -11,7 +11,12 @@ fn main() {
         .about("A tool for managing tradings")
         .subcommand_required(true)
         .arg_required_else_help(true)
-        .subcommands(AccountCommandBuilder::new().create_account().build())
+        .subcommand(
+            AccountCommandBuilder::new()
+                .create_account()
+                .read_account()
+                .build(),
+        )
         .get_matches();
 
     let dispatcher = ArgDispatcher::new_sqlite();

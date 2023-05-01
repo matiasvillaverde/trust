@@ -1,24 +1,33 @@
 use clap::Command;
 
 pub struct AccountCommandBuilder {
-    command: Vec<Command>,
+    command: Command,
+    subcommands: Vec<Command>,
 }
 
 impl AccountCommandBuilder {
     pub fn new() -> Self {
-        AccountCommandBuilder { command: vec![] }
+        AccountCommandBuilder {
+            command: Command::new("account")
+                .about("Manage the trading account information")
+                .arg_required_else_help(true),
+            subcommands: Vec::new(),
+        }
     }
 
-    pub fn build(self) -> Vec<Command> {
-        self.command
+    pub fn build(self) -> Command {
+        self.command.subcommands(self.subcommands)
     }
 
     pub fn create_account(mut self) -> Self {
-        let command = Command::new("account")
-            .about("Manage the trading account information")
-            .arg_required_else_help(true)
-            .subcommand(Command::new("create").about("Create a new account"));
-        self.command.push(command);
+        self.subcommands
+            .push(Command::new("create").about("Create a new account"));
+        self
+    }
+
+    pub fn read_account(mut self) -> Self {
+        self.subcommands
+            .push(Command::new("search").about("search an account by name"));
         self
     }
 }
