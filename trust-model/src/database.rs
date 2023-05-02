@@ -1,7 +1,7 @@
-use crate::{Account, AccountOverview};
 use crate::Currency;
-use rust_decimal::Decimal;
 use crate::Price;
+use crate::{Account, AccountOverview};
+use rust_decimal::Decimal;
 
 use std::error::Error;
 
@@ -24,7 +24,11 @@ pub trait Database {
     fn read_all_accounts(&mut self) -> Result<Vec<Account>, Box<dyn Error>>;
 
     // Prices
-    fn create_price(&mut self, currency: Currency, amount: Decimal) -> Result<Price, Box<dyn Error>>;
+    fn create_price(
+        &mut self,
+        currency: Currency,
+        amount: Decimal,
+    ) -> Result<Price, Box<dyn Error>>;
 
     // // Strategy
     // fn create_strategy(
