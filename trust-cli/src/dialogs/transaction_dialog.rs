@@ -1,24 +1,28 @@
-use std::error::Error;
-
-use crate::views::account_view::AccountView;
+use crate::dialogs::account_dialog::AccountSearchDialog;
+use crate::views::account_view::AccountOverviewView;
 use dialoguer::{theme::ColorfulTheme, Input, Select};
+use rust_decimal::Decimal;
+use std::error::Error;
 use trust_core::Trust;
 use trust_model::Account;
+use trust_model::AccountOverview;
+use trust_model::Currency;
+use trust_model::Transaction;
 use trust_model::TransactionCategory;
 
 pub struct TransactionDialogBuilder {
-    amount: Decimal,
-    currency: Currency,
+    amount: Option<Decimal>,
+    currency: Option<Currency>,
     account: Option<Account>,
-    category: Option<TransactionCategory>,
-    result: Option<Result<Transaction, Box<dyn Error>>>,
+    category: TransactionCategory,
+    result: Option<Result<(Transaction, AccountOverview), Box<dyn Error>>>,
 }
 
 impl TransactionDialogBuilder {
     pub fn new(category: TransactionCategory) -> Self {
         TransactionDialogBuilder {
-            amount: Decimal::new(0, 0),
-            currency: Currency::USD,
+            amount: None,
+            currency: None,
             account: None,
             category: category,
             result: None,
@@ -26,7 +30,20 @@ impl TransactionDialogBuilder {
     }
 
     pub fn build(mut self, trust: &mut Trust) -> TransactionDialogBuilder {
-        //self.result = Some(trust.create_ account(&self.name, &self.description));
+        self.result = Some(
+            trust.create_transaction(
+                &self
+                    .account
+                    .clone()
+                    .expect("No account found, did you forget to call account?"),
+                &self.category,
+                self.amount
+                    .expect("No amount found, did you forget to call amount?"),
+                &self
+                    .currency
+                    .expect("No currency found, did you forget to call currency?"),
+            ),
+        );
         self
     }
 
@@ -35,75 +52,100 @@ impl TransactionDialogBuilder {
             .result
             .expect("No result found, did you forget to call build?")
         {
-            Ok(account) => AccountView::display_account(account),
+            Ok((transaction, overview)) => {
+                AccountOverviewView::display(&overview, &self.account.unwrap());
+                // TODO: Display Transaction.
+            }
             Err(error) => println!("Error creating account: {:?}", error),
         }
     }
 
-    pub fn amount(mut self) -> Self {
+    pub fn amount(mut self, trust: &mut Trust) -> Self {
+        let message = format!("How much do you want to {}?", self.category.to_string());
 
-        // TODO: Show available amounts.
-        self.name = Input::with_theme(&ColorfulTheme::default())
-            .with_prompt("How do you want to {?}?", self.category.to_string())
+        // Show available if withdrawal.
+        if self.category == TransactionCategory::Withdrawal {
+            let account_id = self
+                .account
+                .clone()
+                .expect("No account found, did you forget to call account?")
+                .id;
+            let currency = self
+                .currency
+                .expect("No currency found, did you forget to call currency?");
+            let overview = trust.search_overview(account_id, &currency);
+            match overview {
+                Ok(overview) => {
+                    println!(
+                        "Available: {} {}",
+                        overview.total_available, overview.currency
+                    );
+                }
+                Err(error) => println!("Error searching account: {:?}", error),
+            }
+        }
+
+        let amount = Input::with_theme(&ColorfulTheme::default())
+            .with_prompt(message)
+            .validate_with({
+                |input: &String| -> Result<(), &str> {
+                    match input.parse::<Decimal>() {
+                        Ok(_) => Ok(()),
+                        Err(_) => Err("Please enter a valid number."),
+                    }
+                }
+            })
             .interact_text()
+            .unwrap()
+            .parse::<Decimal>()
             .unwrap();
+        self.amount = Some(amount);
         self
     }
 
-    pub fn currency(mut self) -> Self {
-        self.description = Input::with_theme(&ColorfulTheme::default())
-            .with_prompt("In which currency your would like to {?} ?", self.category.to_string())
-            .interact_text()
+    pub fn currency(mut self, trust: &mut Trust) -> Self {
+        let mut currencies = Vec::new();
+
+        if self.category == TransactionCategory::Withdrawal {
+            let account_id = self
+                .account
+                .clone()
+                .expect("No account found, did you forget to call account?")
+                .id;
+            let overviews = trust.search_all_overviews(account_id);
+            match overviews {
+                Ok(overviews) => {
+                    for overview in overviews {
+                        currencies.push(overview.currency);
+                    }
+                }
+                Err(error) => println!("Error searching account: {:?}", error),
+            }
+        } else {
+            currencies = Currency::all();
+        }
+
+        let message = format!("How currency do you want to {}?", self.category.to_string());
+
+        let selected_currency = Select::with_theme(&ColorfulTheme::default())
+            .with_prompt(message)
+            .default(0)
+            .items(&currencies[..])
+            .interact_opt()
+            .unwrap()
+            .map(|index| currencies.get(index).unwrap())
             .unwrap();
+
+        self.currency = Some(*selected_currency);
         self
     }
 
-    pub fn account(mut self) -> Self {
-        self.description = Input::with_theme(&ColorfulTheme::default())
-            .with_prompt("Which account do you want to use for { }?", self.category.to_string())
-            .interact_text()
-            .unwrap();
-        self
-    }
-}
-
-pub struct AccountSearchDialog {
-    result: Option<Result<Account, Box<dyn Error>>>,
-}
-
-impl AccountSearchDialog {
-    pub fn new() -> Self {
-        AccountSearchDialog { result: None }
-    }
-
-    pub fn display(self) {
-        match self
-            .result
-            .expect("No result found, did you forget to call search?")
-        {
-            Ok(account) => AccountView::display_account(account),
+    pub fn account(mut self, trust: &mut Trust) -> Self {
+        let account = AccountSearchDialog::new().search(trust).build();
+        match account {
+            Ok(account) => self.account = Some(account),
             Err(error) => println!("Error searching account: {:?}", error),
         }
-    }
-
-    pub fn search(mut self, trust: &mut Trust) -> Self {
-        let accounts = trust.search_all_accounts();
-        match accounts {
-            Ok(accounts) => {
-                let account = Select::with_theme(&ColorfulTheme::default())
-                    .with_prompt("Which account do you want to see?")
-                    .default(0)
-                    .items(&accounts[..])
-                    .interact_opt()
-                    .unwrap()
-                    .map(|index| accounts.get(index).unwrap())
-                    .unwrap();
-
-                self.result = Some(Ok(account.to_owned()));
-            }
-            Err(error) => self.result = Some(Err(error)),
-        }
-
         self
     }
 }

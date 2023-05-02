@@ -61,6 +61,11 @@ impl AccountSearchDialog {
         AccountSearchDialog { result: None }
     }
 
+    pub fn build(mut self) -> Result<Account, Box<dyn Error>> {
+        self.result
+            .expect("No result found, did you forget to call search?")
+    }
+
     pub fn display(self) {
         match self
             .result
@@ -76,7 +81,7 @@ impl AccountSearchDialog {
         match accounts {
             Ok(accounts) => {
                 let account = Select::with_theme(&ColorfulTheme::default())
-                    .with_prompt("Which account do you want to see?")
+                    .with_prompt("Which account do you want to use?")
                     .default(0)
                     .items(&accounts[..])
                     .interact_opt()

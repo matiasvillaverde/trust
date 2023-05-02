@@ -1,5 +1,7 @@
 use rust_decimal::Decimal;
-use trust_model::{Account, Currency, Database};
+use transaction_worker::TransactionWorker;
+use trust_model::{Account, AccountOverview, Currency, Database, Transaction, TransactionCategory};
+use uuid::Uuid;
 
 pub struct Trust {
     database: Box<dyn Database>,
@@ -20,7 +22,7 @@ impl Trust {
         name: &str,
         description: &str,
     ) -> Result<Account, Box<dyn std::error::Error>> {
-        self.database.create_account(name, description)
+        self.database.new_account(name, description)
     }
 
     pub fn search_account(&mut self, name: &str) -> Result<Account, Box<dyn std::error::Error>> {
@@ -34,10 +36,27 @@ impl Trust {
     pub fn create_transaction(
         &mut self,
         account: &Account,
+        category: &TransactionCategory,
         amount: Decimal,
-        currency: Currency,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        unimplemented!();
+        currency: &Currency,
+    ) -> Result<(Transaction, AccountOverview), Box<dyn std::error::Error>> {
+        TransactionWorker::new(&mut *self.database, category, amount, currency, account.id)
+    }
+
+    pub fn search_overview(
+        &mut self,
+        account_id: Uuid,
+        currency: &Currency,
+    ) -> Result<AccountOverview, Box<dyn std::error::Error>> {
+        self.database
+            .read_account_overview_currency(account_id, currency)
+    }
+
+    pub fn search_all_overviews(
+        &mut self,
+        account_id: Uuid,
+    ) -> Result<Vec<AccountOverview>, Box<dyn std::error::Error>> {
+        self.database.read_account_overview(account_id)
     }
 }
 

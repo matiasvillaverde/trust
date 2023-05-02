@@ -2,6 +2,7 @@ use crate::schema::account_overviews;
 use chrono::{NaiveDateTime, Utc};
 use diesel::prelude::*;
 use diesel::SqliteConnection;
+use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use std::error::Error;
 use tracing::error;
@@ -13,10 +14,10 @@ use super::worker_price::WorkerPrice;
 pub struct WorkerAccountOverview;
 
 impl WorkerAccountOverview {
-    fn new(
+    pub fn new(
         connection: &mut SqliteConnection,
         account: &Account,
-        currency: Currency,
+        currency: &Currency,
     ) -> Result<AccountOverview, Box<dyn Error>> {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().naive_utc();
@@ -50,12 +51,12 @@ impl WorkerAccountOverview {
         Ok(overview)
     }
 
-    fn read(
+    pub fn read(
         connection: &mut SqliteConnection,
-        account: &Account,
+        account_id: Uuid,
     ) -> Result<Vec<AccountOverview>, Box<dyn Error>> {
         let overviews = account_overviews::table
-            .filter(account_overviews::account_id.eq(account.id.to_string()))
+            .filter(account_overviews::account_id.eq(account_id.to_string()))
             .filter(account_overviews::deleted_at.is_null())
             .load::<AccountOverviewSQLite>(connection)
             .map(|overviews| {
@@ -66,6 +67,24 @@ impl WorkerAccountOverview {
             })
             .map_err(|error| {
                 error!("Error reading overviews: {:?}", error);
+                error
+            })?;
+        Ok(overviews)
+    }
+
+    pub fn read_for_currency(
+        connection: &mut SqliteConnection,
+        account_id: Uuid,
+        currency: &Currency,
+    ) -> Result<AccountOverview, Box<dyn Error>> {
+        let overviews = account_overviews::table
+            .filter(account_overviews::account_id.eq(account_id.to_string()))
+            .filter(account_overviews::currency.eq(currency.to_string()))
+            .filter(account_overviews::deleted_at.is_null())
+            .first::<AccountOverviewSQLite>(connection)
+            .map(|overview| overview.domain_model(connection))
+            .map_err(|error| {
+                error!("Error creating overview: {:?}", error);
                 error
             })?;
         Ok(overviews)
@@ -86,32 +105,23 @@ impl WorkerAccountOverview {
         Ok(overviews)
     }
 
-    pub fn deposit_or_withdraw_transaction(
-        overview: AccountOverview,
+    pub fn update_total_balance(
         connection: &mut SqliteConnection,
-        transaction: &Transaction,
+        overview: AccountOverview,
+        new_amount: Decimal,
     ) -> Result<AccountOverview, Box<dyn Error>> {
-        assert!(
-            transaction.price.currency == overview.currency,
-            "Currency mismatch"
-        );
-        assert!(
-            !transaction.price.amount.is_zero(),
-            "Price of transaction must be different than 0"
-        );
-        assert!(
-            transaction.category == TransactionCategory::Deposit
-                || transaction.category == TransactionCategory::Withdrawal,
-            "Transaction must be of category Deposit or Withdrawal"
-        );
+        // We update the price entity of the total balance
+        WorkerPrice::add(connection, overview.total_balance, new_amount)?;
+        WorkerAccountOverview::read_id(connection, overview.id)
+    }
 
-        WorkerPrice::add(
-            connection,
-            overview.total_available,
-            transaction.price.amount,
-        )?;
-        WorkerPrice::add(connection, overview.total_balance, transaction.price.amount)?;
-
+    pub fn update_total_available(
+        connection: &mut SqliteConnection,
+        overview: AccountOverview,
+        new_amount: Decimal,
+    ) -> Result<AccountOverview, Box<dyn Error>> {
+        // We update the price entity of the total balance
+        WorkerPrice::add(connection, overview.total_available, new_amount)?;
         WorkerAccountOverview::read_id(connection, overview.id)
     }
 }
@@ -204,7 +214,7 @@ mod tests {
 
         let account = WorkerAccount::create_account(&mut conn, "Test Account", "Some description")
             .expect("Failed to create account");
-        let overview = WorkerAccountOverview::new(&mut conn, &account, Currency::BTC)
+        let overview = WorkerAccountOverview::new(&mut conn, &account, &Currency::BTC)
             .expect("Failed to create overview");
 
         assert_eq!(overview.account_id, account.id);
@@ -226,14 +236,14 @@ mod tests {
         let account = WorkerAccount::create_account(&mut conn, "Test Account", "Some description")
             .expect("Failed to create account");
         let overview_btc: AccountOverview =
-            WorkerAccountOverview::new(&mut conn, &account, Currency::BTC)
+            WorkerAccountOverview::new(&mut conn, &account, &Currency::BTC)
                 .expect("Failed to create overview");
         let overview_usd: AccountOverview =
-            WorkerAccountOverview::new(&mut conn, &account, Currency::USD)
+            WorkerAccountOverview::new(&mut conn, &account, &Currency::USD)
                 .expect("Failed to create overview");
 
         let overviews =
-            WorkerAccountOverview::read(&mut conn, &account).expect("Failed to read overviews");
+            WorkerAccountOverview::read(&mut conn, account.id).expect("Failed to read overviews");
 
         assert_eq!(overviews.len(), 2);
         assert_eq!(overviews[0], overview_btc);
@@ -241,5 +251,25 @@ mod tests {
     }
 
     #[test]
-    fn test_update_overview() {}
+    fn test_update() {
+        let mut conn = establish_connection();
+
+        let account = WorkerAccount::create_account(&mut conn, "Test Account", "Some description")
+            .expect("Failed to create account");
+        let overview_btc: AccountOverview =
+            WorkerAccountOverview::new(&mut conn, &account, &Currency::BTC)
+                .expect("Failed to create overview");
+
+        let updated_overview =
+            WorkerAccountOverview::update_total_balance(&mut conn, overview_btc, dec!(10))
+                .expect("Should fail to update total balance");
+
+        assert_eq!(updated_overview.total_balance.amount, dec!(10));
+
+        let updated_overview =
+            WorkerAccountOverview::update_total_available(&mut conn, updated_overview, dec!(9))
+                .expect("Should fail to update total available");
+
+        assert_eq!(updated_overview.total_available.amount, dec!(9));
+    }
 }

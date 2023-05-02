@@ -16,7 +16,7 @@ impl WorkerTransaction {
         connection: &mut SqliteConnection,
         account_id: Uuid,
         amount: Decimal,
-        currency: Currency,
+        currency: &Currency,
         category: TransactionCategory,
     ) -> Result<Transaction, Box<dyn Error>> {
         let now = Utc::now().naive_utc();
@@ -127,7 +127,7 @@ mod tests {
             &mut conn,
             account.id,
             dec!(10.99),
-            Currency::BTC,
+            &Currency::BTC,
             TransactionCategory::Deposit,
         )
         .expect("Error creating transaction");
@@ -151,7 +151,7 @@ mod tests {
             &mut conn,
             account.id,
             dec!(10.99),
-            Currency::BTC,
+            &Currency::BTC,
             TransactionCategory::Output(trade_id),
         )
         .expect("Error creating transaction");

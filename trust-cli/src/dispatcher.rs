@@ -1,8 +1,10 @@
 use crate::dialogs::account_dialog::{AccountDialogBuilder, AccountSearchDialog};
+use crate::dialogs::transaction_dialog::TransactionDialogBuilder;
 use clap::ArgMatches;
 use std::ffi::OsString;
 use trust_core::Trust;
 use trust_db_sqlite::SqliteDatabase;
+use trust_model::TransactionCategory;
 
 pub struct ArgDispatcher {
     trust: Trust,
@@ -59,14 +61,20 @@ impl ArgDispatcher {
 // Transaction
 impl ArgDispatcher {
     fn deposit(&mut self) {
-        AccountDialogBuilder::new()
-            .name()
-            .description()
+        TransactionDialogBuilder::new(TransactionCategory::Deposit)
+            .account(&mut self.trust)
+            .currency(&mut self.trust)
+            .amount(&mut self.trust)
             .build(&mut self.trust)
             .display();
     }
 
     fn withdraw(&mut self) {
-        AccountSearchDialog::new().search(&mut self.trust).display();
+        TransactionDialogBuilder::new(TransactionCategory::Withdrawal)
+            .account(&mut self.trust)
+            .currency(&mut self.trust)
+            .amount(&mut self.trust)
+            .build(&mut self.trust)
+            .display();
     }
 }

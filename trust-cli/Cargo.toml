@@ -13,3 +13,5 @@ trust-db-sqlite = { path = "../trust-db-sqlite", version = "0.1.0" }
 clap = {workspace = true}
 dialoguer = {workspace = true}
 tabled = {workspace = true}
+rust_decimal_macros = {workspace = true}
+rust_decimal = {workspace = true}

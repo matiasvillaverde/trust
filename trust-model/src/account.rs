@@ -31,7 +31,7 @@ pub struct Account {
 ///
 /// WARNING: This entity can be out of sync with the actual account.
 /// If your feature is important, consider recalculating the account overview.
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone, Copy)]
 pub struct AccountOverview {
     pub id: Uuid,
 
