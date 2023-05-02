@@ -2,6 +2,7 @@ use crate::Currency;
 use crate::Price;
 use crate::{Account, AccountOverview};
 use rust_decimal::Decimal;
+use uuid::Uuid;
 
 use std::error::Error;
 
@@ -29,6 +30,8 @@ pub trait Database {
         currency: Currency,
         amount: Decimal,
     ) -> Result<Price, Box<dyn Error>>;
+
+    fn read_price(&mut self, id: Uuid) -> Result<Price, Box<dyn Error>>;
 
     // // Strategy
     // fn create_strategy(

@@ -141,4 +141,8 @@ impl Database for SqliteDatabase {
     ) -> Result<Price, Box<dyn Error>> {
         WorkerPrice::new(&mut self.connection, currency, amount)
     }
+
+    fn read_price(&mut self, id: uuid::Uuid) -> Result<Price, Box<dyn Error>> {
+        WorkerPrice::read(&mut self.connection, id)
+    }
 }
