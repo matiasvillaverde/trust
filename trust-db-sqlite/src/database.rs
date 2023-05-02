@@ -1,7 +1,11 @@
-use crate::workers::{worker_account::WorkerAccount, worker_price::WorkerPrice};
+use crate::workers::{
+    worker_account::WorkerAccount, worker_price::WorkerPrice, worker_transaction::WorkerTransaction,
+};
 use diesel::prelude::*;
 use std::error::Error;
-use trust_model::{Account, AccountOverview, Currency, Database, Price, TransactionCategory};
+use trust_model::{
+    Account, AccountOverview, Currency, Database, Price, Transaction, TransactionCategory,
+};
 
 /// SqliteDatabase is a struct that contains methods for interacting with the
 /// SQLite database.
@@ -144,5 +148,21 @@ impl Database for SqliteDatabase {
 
     fn read_price(&mut self, id: uuid::Uuid) -> Result<Price, Box<dyn Error>> {
         WorkerPrice::read(&mut self.connection, id)
+    }
+
+    fn create_transaction(
+        &mut self,
+        account: &Account,
+        amount: rust_decimal::Decimal,
+        currency: Currency,
+        category: TransactionCategory,
+    ) -> Result<Transaction, Box<dyn Error>> {
+        WorkerTransaction::create_transaction(
+            &mut self.connection,
+            account.id,
+            amount,
+            currency,
+            category,
+        )
     }
 }

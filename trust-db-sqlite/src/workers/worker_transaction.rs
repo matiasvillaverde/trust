@@ -18,7 +18,6 @@ impl WorkerTransaction {
         amount: Decimal,
         currency: Currency,
         category: TransactionCategory,
-        trade_id: Option<Uuid>,
     ) -> Result<Transaction, Box<dyn Error>> {
         let now = Utc::now().naive_utc();
         let price = WorkerPrice::new(connection, currency, amount).unwrap();
@@ -31,7 +30,7 @@ impl WorkerTransaction {
             account_id: account_id.to_string(),
             price_id: price.id.to_string(),
             category: category.to_string(),
-            trade_id: trade_id.map(|uuid| uuid.to_string()),
+            trade_id: category.trade_id().map(|uuid| uuid.to_string()),
         };
 
         let transaction = diesel::insert_into(transactions::table)
@@ -130,7 +129,6 @@ mod tests {
             dec!(10.99),
             Currency::BTC,
             TransactionCategory::Deposit,
-            None,
         )
         .expect("Error creating transaction");
 
@@ -138,6 +136,30 @@ mod tests {
         assert_eq!(tx.price.amount, dec!(10.99));
         assert_eq!(tx.price.currency, Currency::BTC);
         assert_eq!(tx.category, TransactionCategory::Deposit);
+        assert_eq!(tx.deleted_at, None);
+    }
+
+    fn test_create_transaction_with_trade_id() {
+        let mut conn: SqliteConnection = establish_connection();
+
+        let trade_id = Uuid::new_v4();
+        // Create a new account record
+        let account =
+            WorkerAccount::create_account(&mut conn, "Test Account", "This is a test account")
+                .expect("Error creating account");
+        let tx = WorkerTransaction::create_transaction(
+            &mut conn,
+            account.id,
+            dec!(10.99),
+            Currency::BTC,
+            TransactionCategory::Output(trade_id),
+        )
+        .expect("Error creating transaction");
+
+        assert_eq!(tx.account_id, account.id);
+        assert_eq!(tx.price.amount, dec!(10.99));
+        assert_eq!(tx.price.currency, Currency::BTC);
+        assert_eq!(tx.category, TransactionCategory::Output(trade_id));
         assert_eq!(tx.deleted_at, None);
     }
 }

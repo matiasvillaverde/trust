@@ -51,7 +51,7 @@ pub enum TransactionCategory {
 }
 
 impl TransactionCategory {
-    fn trade_id(&self) -> Option<Uuid> {
+    pub fn trade_id(&self) -> Option<Uuid> {
         match self {
             TransactionCategory::Deposit => None,
             TransactionCategory::Withdrawal => None,

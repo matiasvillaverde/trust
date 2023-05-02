@@ -1,5 +1,7 @@
 use crate::Currency;
 use crate::Price;
+use crate::Transaction;
+use crate::TransactionCategory;
 use crate::{Account, AccountOverview};
 use rust_decimal::Decimal;
 use uuid::Uuid;
@@ -33,16 +35,12 @@ pub trait Database {
 
     fn read_price(&mut self, id: Uuid) -> Result<Price, Box<dyn Error>>;
 
-    // // Strategy
-    // fn create_strategy(
-    //     &mut self,
-    //     name: &str,
-    //     description: &str,
-    //     version: u16,
-    //     entry_description: &str,
-    //     stop_description: &str,
-    //     target_description: &str,
-    // ) -> Strategy;
-    // fn read_strategy(&mut self, name: &str, version: u16) -> Strategy;
-    // fn read_all_strategies(&mut self) -> Vec<Strategy>;
+    // Transaction
+    fn create_transaction(
+        &mut self,
+        account: &Account,
+        amount: Decimal,
+        currency: Currency,
+        category: TransactionCategory,
+    ) -> Result<Transaction, Box<dyn Error>>;
 }
