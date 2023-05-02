@@ -26,7 +26,7 @@ impl TransactionDialogBuilder {
     }
 
     pub fn build(mut self, trust: &mut Trust) -> TransactionDialogBuilder {
-        self.result = Some(trust.create_ account(&self.name, &self.description));
+        //self.result = Some(trust.create_ account(&self.name, &self.description));
         self
     }
 

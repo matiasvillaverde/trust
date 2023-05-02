@@ -49,7 +49,6 @@ impl WorkerPrice {
             })?;
         Ok(price)
     }
-
 }
 
 #[derive(Queryable, Identifiable, AsChangeset, Insertable)]
