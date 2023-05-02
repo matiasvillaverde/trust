@@ -27,7 +27,7 @@ impl TransactionCommandBuilder {
 
     pub fn withdraw(mut self) -> Self {
         self.subcommands
-            .push(Command::new("search").about("Withdraw money from an account"));
+            .push(Command::new("withdraw").about("Withdraw money from an account"));
         self
     }
 }

@@ -14,7 +14,7 @@ use super::worker_price::WorkerPrice;
 pub struct WorkerAccountOverview;
 
 impl WorkerAccountOverview {
-    pub fn new(
+    pub fn create(
         connection: &mut SqliteConnection,
         account: &Account,
         currency: &Currency,
@@ -22,10 +22,10 @@ impl WorkerAccountOverview {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().naive_utc();
 
-        let total_balance = WorkerPrice::new(connection, currency, dec!(0))?;
-        let total_in_trade = WorkerPrice::new(connection, currency, dec!(0))?;
-        let total_available = WorkerPrice::new(connection, currency, dec!(0))?;
-        let total_taxable = WorkerPrice::new(connection, currency, dec!(0))?;
+        let total_balance = WorkerPrice::create(connection, currency, dec!(0))?;
+        let total_in_trade = WorkerPrice::create(connection, currency, dec!(0))?;
+        let total_available = WorkerPrice::create(connection, currency, dec!(0))?;
+        let total_taxable = WorkerPrice::create(connection, currency, dec!(0))?;
 
         let new_account_overview = NewAccountOverview {
             id,
@@ -111,7 +111,7 @@ impl WorkerAccountOverview {
         new_amount: Decimal,
     ) -> Result<AccountOverview, Box<dyn Error>> {
         // We update the price entity of the total balance
-        WorkerPrice::add(connection, overview.total_balance, new_amount)?;
+        WorkerPrice::update(connection, overview.total_balance, new_amount)?;
         WorkerAccountOverview::read_id(connection, overview.id)
     }
 
@@ -120,8 +120,7 @@ impl WorkerAccountOverview {
         overview: AccountOverview,
         new_amount: Decimal,
     ) -> Result<AccountOverview, Box<dyn Error>> {
-        // We update the price entity of the total balance
-        WorkerPrice::add(connection, overview.total_available, new_amount)?;
+        WorkerPrice::update(connection, overview.total_available, new_amount)?;
         WorkerAccountOverview::read_id(connection, overview.id)
     }
 }
@@ -214,7 +213,7 @@ mod tests {
 
         let account = WorkerAccount::create_account(&mut conn, "Test Account", "Some description")
             .expect("Failed to create account");
-        let overview = WorkerAccountOverview::new(&mut conn, &account, &Currency::BTC)
+        let overview = WorkerAccountOverview::create(&mut conn, &account, &Currency::BTC)
             .expect("Failed to create overview");
 
         assert_eq!(overview.account_id, account.id);
@@ -236,10 +235,10 @@ mod tests {
         let account = WorkerAccount::create_account(&mut conn, "Test Account", "Some description")
             .expect("Failed to create account");
         let overview_btc: AccountOverview =
-            WorkerAccountOverview::new(&mut conn, &account, &Currency::BTC)
+            WorkerAccountOverview::create(&mut conn, &account, &Currency::BTC)
                 .expect("Failed to create overview");
         let overview_usd: AccountOverview =
-            WorkerAccountOverview::new(&mut conn, &account, &Currency::USD)
+            WorkerAccountOverview::create(&mut conn, &account, &Currency::USD)
                 .expect("Failed to create overview");
 
         let overviews =
@@ -257,7 +256,7 @@ mod tests {
         let account = WorkerAccount::create_account(&mut conn, "Test Account", "Some description")
             .expect("Failed to create account");
         let overview_btc: AccountOverview =
-            WorkerAccountOverview::new(&mut conn, &account, &Currency::BTC)
+            WorkerAccountOverview::create(&mut conn, &account, &Currency::BTC)
                 .expect("Failed to create overview");
 
         let updated_overview =

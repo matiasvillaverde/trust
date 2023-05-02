@@ -1,7 +1,7 @@
 use std::error::Error;
 
-use crate::views::account_view::AccountView;
-use dialoguer::{theme::ColorfulTheme, Input, Select};
+use crate::views::account_view::{AccountOverviewView, AccountView};
+use dialoguer::{theme::ColorfulTheme, FuzzySelect, Input};
 use trust_core::Trust;
 use trust_model::Account;
 
@@ -66,12 +66,19 @@ impl AccountSearchDialog {
             .expect("No result found, did you forget to call search?")
     }
 
-    pub fn display(self) {
+    pub fn display(self, trust: &mut Trust) {
         match self
             .result
             .expect("No result found, did you forget to call search?")
         {
-            Ok(account) => AccountView::display_account(account),
+            Ok(account) => {
+                let overviews = trust
+                    .search_all_overviews(account.id)
+                    .expect("Error searching account overviews");
+                let name = account.name.clone();
+                AccountView::display_account(account);
+                AccountOverviewView::display_overviews(overviews, &name)
+            }
             Err(error) => println!("Error searching account: {:?}", error),
         }
     }
@@ -80,10 +87,10 @@ impl AccountSearchDialog {
         let accounts = trust.search_all_accounts();
         match accounts {
             Ok(accounts) => {
-                let account = Select::with_theme(&ColorfulTheme::default())
+                let account = FuzzySelect::with_theme(&ColorfulTheme::default())
                     .with_prompt("Which account do you want to use?")
-                    .default(0)
                     .items(&accounts[..])
+                    .default(0)
                     .interact_opt()
                     .unwrap()
                     .map(|index| accounts.get(index).unwrap())

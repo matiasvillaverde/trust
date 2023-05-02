@@ -20,7 +20,7 @@ impl WorkerTransaction {
         category: TransactionCategory,
     ) -> Result<Transaction, Box<dyn Error>> {
         let now = Utc::now().naive_utc();
-        let price = WorkerPrice::new(connection, currency, amount).unwrap();
+        let price = WorkerPrice::create(connection, currency, amount).unwrap();
 
         let new_transaction = NewTransaction {
             id: Uuid::new_v4().to_string(),

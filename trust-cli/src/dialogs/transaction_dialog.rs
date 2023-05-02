@@ -1,7 +1,7 @@
 use crate::dialogs::account_dialog::AccountSearchDialog;
 use crate::views::account_view::AccountOverviewView;
 use crate::views::transaction_view::TransactionView;
-use dialoguer::{theme::ColorfulTheme, Input, Select};
+use dialoguer::{theme::ColorfulTheme, FuzzySelect, Input};
 use rust_decimal::Decimal;
 use std::error::Error;
 use trust_core::Trust;
@@ -58,7 +58,7 @@ impl TransactionDialogBuilder {
                 println!("Transaction created in account:  {}", name);
                 TransactionView::display(&transaction, &name);
                 println!("Now the account {} overview is:", name);
-                AccountOverviewView::display(&overview, &name);
+                AccountOverviewView::display(overview, &name);
             }
             Err(error) => println!("Error creating account: {:?}", error),
         }
@@ -81,8 +81,8 @@ impl TransactionDialogBuilder {
             match overview {
                 Ok(overview) => {
                     println!(
-                        "Available: {} {}",
-                        overview.total_available, overview.currency
+                        "Available for withdrawal: {} {}",
+                        overview.total_available.amount, overview.currency
                     );
                 }
                 Err(error) => println!("Error searching account: {:?}", error),
@@ -131,12 +131,10 @@ impl TransactionDialogBuilder {
 
         let message = format!("How currency do you want to {}?", self.category);
 
-        let selected_currency = Select::with_theme(&ColorfulTheme::default())
+        let selected_currency = FuzzySelect::with_theme(&ColorfulTheme::default())
             .with_prompt(message)
-            .default(0)
             .items(&currencies[..])
-            .interact_opt()
-            .unwrap()
+            .interact()
             .map(|index| currencies.get(index).unwrap())
             .unwrap();
 

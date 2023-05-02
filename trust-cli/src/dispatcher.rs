@@ -54,7 +54,9 @@ impl ArgDispatcher {
     }
 
     fn search_account(&mut self) {
-        AccountSearchDialog::new().search(&mut self.trust).display();
+        AccountSearchDialog::new()
+            .search(&mut self.trust)
+            .display(&mut self.trust);
     }
 }
 

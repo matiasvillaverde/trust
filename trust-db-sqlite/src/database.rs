@@ -82,7 +82,7 @@ impl Database for SqliteDatabase {
         account: &Account,
         currency: &Currency,
     ) -> Result<AccountOverview, Box<dyn Error>> {
-        let overview = WorkerAccountOverview::new(&mut self.connection, account, currency)?;
+        let overview = WorkerAccountOverview::create(&mut self.connection, account, currency)?;
         Ok(overview)
     }
 
@@ -118,7 +118,7 @@ impl Database for SqliteDatabase {
         currency: Currency,
         amount: rust_decimal::Decimal,
     ) -> Result<Price, Box<dyn Error>> {
-        WorkerPrice::new(&mut self.connection, &currency, amount)
+        WorkerPrice::create(&mut self.connection, &currency, amount)
     }
 
     fn read_price(&mut self, id: uuid::Uuid) -> Result<Price, Box<dyn Error>> {

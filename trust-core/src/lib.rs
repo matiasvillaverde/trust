@@ -40,7 +40,7 @@ impl Trust {
         amount: Decimal,
         currency: &Currency,
     ) -> Result<(Transaction, AccountOverview), Box<dyn std::error::Error>> {
-        TransactionWorker::new(&mut *self.database, category, amount, currency, account.id)
+        TransactionWorker::create(&mut *self.database, category, amount, currency, account.id)
     }
 
     pub fn search_overview(

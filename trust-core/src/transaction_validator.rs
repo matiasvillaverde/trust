@@ -24,7 +24,7 @@ impl TransactionValidator {
             | TransactionCategory::Output(_)
             | TransactionCategory::InputTax(_)
             | TransactionCategory::OutputTax => Err(Box::new(TransactionValidationError {
-                code: TransactionValidationErrorCode::NotImplemented,
+                code: TransactionValidationErrorCode::NotAuthorized,
                 message: "Manually creating transaction is not allowed".to_string(),
             })),
         }
@@ -55,26 +55,40 @@ fn validate_deposit(
 
 fn validate_withdraw(
     amount: Decimal,
-    _currency: &Currency,
-    _account_id: Uuid,
-    _database: &mut dyn Database,
+    currency: &Currency,
+    account_id: Uuid,
+    database: &mut dyn Database,
 ) -> TransactionValidationResult {
-    if amount.is_sign_negative() {
+    if amount.is_sign_negative() | amount.is_zero() {
         Err(Box::new(TransactionValidationError {
-            code: TransactionValidationErrorCode::AmountOfWithdrawalMustBeNegative,
-            message: "Amount of withdrawal must be negative".to_string(),
+            code: TransactionValidationErrorCode::AmountOfWithdrawalMustBePositive,
+            message: "Amount of withdrawal must be positive".to_string(),
         }))
     } else {
-        // TODO: validate that the amount is valid
-        Ok(())
+        let overview = database.read_account_overview_currency(account_id, currency);
+        match overview {
+            Ok(overview) => {
+                if overview.total_available.amount >= amount {
+                    Ok(())
+                } else {
+                    Err(Box::new(TransactionValidationError {
+                        code: TransactionValidationErrorCode::WithdrawalAmountIsGreaterThanAvailableAmount,
+                        message: "Withdrawal amount is greater than available amount".to_string(),
+                    }))
+                }
+            },
+            Err(_) => Err(Box::new(TransactionValidationError {
+                code: TransactionValidationErrorCode::OverviewForWithdrawNotFound,
+                message: "Overview not found. It can be that the user never created a deposit on this currency".to_string(),
+            })),
+        }
     }
 }
 
 #[derive(Debug, PartialEq)]
 pub enum TransactionValidationErrorCode {
-    NotImplemented,
     NotAuthorized,
-    AmountOfWithdrawalMustBeNegative,
+    AmountOfWithdrawalMustBePositive,
     AmountOfDepositMustBePositive,
     WithdrawalAmountIsGreaterThanAvailableAmount,
     OverviewNotFound,

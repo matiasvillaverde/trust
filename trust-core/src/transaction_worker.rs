@@ -12,7 +12,7 @@ use crate::transaction_validator::{TransactionValidationErrorCode, TransactionVa
 pub struct TransactionWorker;
 
 impl TransactionWorker {
-    pub fn new(
+    pub fn create(
         database: &mut dyn Database,
         category: &TransactionCategory,
         amount: Decimal,
@@ -24,7 +24,7 @@ impl TransactionWorker {
                 return Self::deposit(database, amount, currency, account_id);
             }
             TransactionCategory::Withdrawal => {
-                unimplemented!("Withdrawal is not implemented yet");
+                return Self::withdraw(database, amount, currency, account_id);
             }
             TransactionCategory::Input(_)
             | TransactionCategory::Output(_)
@@ -84,6 +84,43 @@ impl TransactionWorker {
                     Err(error)
                 }
             }
+        }
+    }
+
+    fn withdraw(
+        database: &mut dyn Database,
+        amount: Decimal,
+        currency: &Currency,
+        account_id: Uuid,
+    ) -> Result<(Transaction, AccountOverview), Box<dyn Error>> {
+        let account = database.read_account_id(account_id)?;
+
+        match TransactionValidator::validate(
+            TransactionCategory::Withdrawal,
+            amount,
+            currency,
+            account_id,
+            database,
+        ) {
+            Ok(_) => {
+                let transaction = database.new_transaction(
+                    &account,
+                    amount,
+                    currency,
+                    TransactionCategory::Withdrawal,
+                )?;
+                let overview = database.read_account_overview_currency(account.id, currency)?;
+                let total_available = overview.total_available.amount - amount;
+                let total_balance = overview.total_balance.amount - amount;
+                let updated_overview = database.update_account_overview(
+                    &account,
+                    currency,
+                    total_available,
+                    total_balance,
+                )?;
+                Ok((transaction, updated_overview))
+            }
+            Err(error) => Err(error),
         }
     }
 }

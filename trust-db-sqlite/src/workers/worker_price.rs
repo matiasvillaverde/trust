@@ -11,7 +11,7 @@ use uuid::Uuid;
 pub struct WorkerPrice;
 
 impl WorkerPrice {
-    pub fn new(
+    pub fn create(
         connection: &mut SqliteConnection,
         currency: &Currency,
         amount: Decimal,
@@ -50,16 +50,14 @@ impl WorkerPrice {
         Ok(price)
     }
 
-    pub fn add(
+    pub fn update(
         connection: &mut SqliteConnection,
         price: Price,
         decimal: Decimal,
     ) -> Result<Price, Box<dyn Error>> {
-        let result = price.amount + decimal;
-
         let updated_price = diesel::update(prices::table.find(price.id.to_string()))
             .set((
-                prices::amount.eq(result.to_string()),
+                prices::amount.eq(decimal.to_string()),
                 prices::updated_at.eq(Utc::now().naive_utc()),
             ))
             .get_result::<PriceSQLite>(connection)
@@ -127,7 +125,7 @@ mod tests {
         let mut conn = establish_connection();
 
         // Create a new price record
-        let price = WorkerPrice::new(&mut conn, &Currency::USD, dec!(10.99)).unwrap();
+        let price = WorkerPrice::create(&mut conn, &Currency::USD, dec!(10.99)).unwrap();
 
         assert_eq!(price.currency, Currency::USD);
         assert_eq!(price.amount, dec!(10.99));
@@ -141,7 +139,7 @@ mod tests {
         let mut conn = establish_connection();
 
         // Create a new price record
-        let price = WorkerPrice::new(&mut conn, &Currency::USD, dec!(10.99)).unwrap();
+        let price = WorkerPrice::create(&mut conn, &Currency::USD, dec!(10.99)).unwrap();
 
         // Read the price record by id
         let read_price = WorkerPrice::read(&mut conn, price.id).expect("Error reading price");
@@ -154,12 +152,12 @@ mod tests {
         let mut conn = establish_connection();
 
         // Create a new price record
-        let price = WorkerPrice::new(&mut conn, &Currency::USD, dec!(10.99)).unwrap();
+        let price = WorkerPrice::create(&mut conn, &Currency::USD, dec!(10.99)).unwrap();
 
         // Add to the price record
         let updated_price =
-            WorkerPrice::add(&mut conn, price, dec!(1.01)).expect("Error adding to price");
+            WorkerPrice::update(&mut conn, price, dec!(1.01)).expect("Error adding to price");
 
-        assert_eq!(updated_price.amount, dec!(12.00));
+        assert_eq!(updated_price.amount, dec!(1.01));
     }
 }
