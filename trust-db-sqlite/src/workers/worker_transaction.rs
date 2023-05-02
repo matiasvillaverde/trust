@@ -96,3 +96,48 @@ pub struct NewTransaction {
     pub account_id: String,
     pub trade_id: Option<String>,
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::workers::worker_account::WorkerAccount;
+    use rust_decimal_macros::dec;
+
+    use super::*;
+    use diesel_migrations::*;
+
+    pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
+
+    // Declare a test database connection
+    fn establish_connection() -> SqliteConnection {
+        let mut connection = SqliteConnection::establish(":memory:").unwrap();
+        // This will run the necessary migrations.
+        connection.run_pending_migrations(MIGRATIONS).unwrap();
+        connection.begin_test_transaction().unwrap();
+        connection
+    }
+
+    #[test]
+    fn test_create_transaction() {
+        let mut conn: SqliteConnection = establish_connection();
+
+        // Create a new account record
+        let account =
+            WorkerAccount::create_account(&mut conn, "Test Account", "This is a test account")
+                .expect("Error creating account");
+        let tx = WorkerTransaction::create_transaction(
+            &mut conn,
+            account.id,
+            dec!(10.99),
+            Currency::BTC,
+            TransactionCategory::Deposit,
+            None,
+        )
+        .expect("Error creating transaction");
+
+        assert_eq!(tx.account_id, account.id);
+        assert_eq!(tx.price.amount, dec!(10.99));
+        assert_eq!(tx.price.currency, Currency::BTC);
+        assert_eq!(tx.category, TransactionCategory::Deposit);
+        assert_eq!(tx.deleted_at, None);
+    }
+}

@@ -68,12 +68,12 @@ impl TransactionCategory {
 impl std::fmt::Display for TransactionCategory {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match *self {
-            TransactionCategory::Deposit => write!(f, "Deposit"),
-            TransactionCategory::Withdrawal => write!(f, "Withdrawal"),
-            TransactionCategory::Input(_) => write!(f, "Input"),
-            TransactionCategory::Output(_) => write!(f, "Output"),
-            TransactionCategory::InputTax(_) => write!(f, "InputTax"),
-            TransactionCategory::OutputTax => write!(f, "OutputTax"),
+            TransactionCategory::Deposit => write!(f, "deposit"),
+            TransactionCategory::Withdrawal => write!(f, "withdrawal"),
+            TransactionCategory::Input(_) => write!(f, "input"),
+            TransactionCategory::Output(_) => write!(f, "output"),
+            TransactionCategory::InputTax(_) => write!(f, "input_tax"),
+            TransactionCategory::OutputTax => write!(f, "output_tax"),
         }
     }
 }
@@ -83,24 +83,24 @@ pub struct TransactionCategoryParseError;
 impl TransactionCategory {
     pub fn parse(s: &str, trade_id: Option<Uuid>) -> Result<Self, TransactionCategoryParseError> {
         match s {
-            "Deposit" => Ok(TransactionCategory::Deposit),
-            "Withdrawal" => Ok(TransactionCategory::Withdrawal),
-            "OutputTax" => Ok(TransactionCategory::OutputTax),
-            "Input" => {
+            "deposit" => Ok(TransactionCategory::Deposit),
+            "withdrawal" => Ok(TransactionCategory::Withdrawal),
+            "output_tax" => Ok(TransactionCategory::OutputTax),
+            "input" => {
                 if let Some(trade_id) = trade_id {
                     Ok(TransactionCategory::Input(trade_id))
                 } else {
                     Err(TransactionCategoryParseError)
                 }
             }
-            "Output" => {
+            "output" => {
                 if let Some(trade_id) = trade_id {
                     Ok(TransactionCategory::Output(trade_id))
                 } else {
                     Err(TransactionCategoryParseError)
                 }
             }
-            "InputTax" => {
+            "input_tax" => {
                 if let Some(trade_id) = trade_id {
                     Ok(TransactionCategory::InputTax(trade_id))
                 } else {
@@ -118,23 +118,23 @@ mod tests {
 
     #[test]
     fn test_transaction_category_from_string() {
-        let result = TransactionCategory::parse("Deposit", None)
+        let result = TransactionCategory::parse("deposit", None)
             .expect("Failed to parse TransactionCategory from string");
         assert_eq!(result, TransactionCategory::Deposit);
-        let result = TransactionCategory::parse("Withdrawal", None)
+        let result = TransactionCategory::parse("withdrawal", None)
             .expect("Failed to parse TransactionCategory from string");
         assert_eq!(result, TransactionCategory::Withdrawal);
-        let result = TransactionCategory::parse("OutputTax", None)
+        let result = TransactionCategory::parse("output_tax", None)
             .expect("Failed to parse TransactionCategory from string");
         assert_eq!(result, TransactionCategory::OutputTax);
         let id = Uuid::new_v4();
-        let result = TransactionCategory::parse("Input", Some(id))
+        let result = TransactionCategory::parse("input", Some(id))
             .expect("Failed to parse TransactionCategory from string");
         assert_eq!(result, TransactionCategory::Input(id));
-        let result = TransactionCategory::parse("Output", Some(id))
+        let result = TransactionCategory::parse("output", Some(id))
             .expect("Failed to parse TransactionCategory from string");
         assert_eq!(result, TransactionCategory::Output(id));
-        let result = TransactionCategory::parse("InputTax", Some(id))
+        let result = TransactionCategory::parse("input_tax", Some(id))
             .expect("Failed to parse TransactionCategory from string");
         assert_eq!(result, TransactionCategory::InputTax(id));
     }
