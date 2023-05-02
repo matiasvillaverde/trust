@@ -13,7 +13,7 @@ use super::worker_price::WorkerPrice;
 pub struct WorkerAccountOverview;
 
 impl WorkerAccountOverview {
-    fn new_account_overview(
+    fn new(
         connection: &mut SqliteConnection,
         account: &Account,
         currency: Currency,
@@ -50,18 +50,25 @@ impl WorkerAccountOverview {
         Ok(overview)
     }
 
-    fn update_account_overview(
-        &mut self,
+    fn read(
+        connection: &mut SqliteConnection,
         account: &Account,
-        overview: &AccountOverview,
-    ) -> Result<(), Box<dyn Error>> {
-        unimplemented!()
-    }
-    fn read_account_overview(
-        &mut self,
-        account: &Account,
-    ) -> Result<AccountOverview, Box<dyn Error>> {
-        unimplemented!()
+    ) -> Result<Vec<AccountOverview>, Box<dyn Error>> {
+        let overviews = account_overviews::table
+            .filter(account_overviews::account_id.eq(account.id.to_string()))
+            .filter(account_overviews::deleted_at.is_null())
+            .load::<AccountOverviewSQLite>(connection)
+            .map(|overviews| {
+                overviews
+                    .into_iter()
+                    .map(|overview| overview.domain_model(connection))
+                    .collect()
+            })
+            .map_err(|error| {
+                error!("Error reading overviews: {:?}", error);
+                error
+            })?;
+        Ok(overviews)
     }
 }
 
@@ -128,4 +135,64 @@ pub struct NewAccountOverview {
     total_available_id: String,
     total_taxable_id: String,
     currency: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::workers::worker_account::WorkerAccount;
+
+    use super::*;
+    use diesel_migrations::*;
+
+    pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
+
+    fn establish_connection() -> SqliteConnection {
+        let mut connection = SqliteConnection::establish(":memory:").unwrap();
+        // This will run the necessary migrations.
+        connection.run_pending_migrations(MIGRATIONS).unwrap();
+        connection.begin_test_transaction().unwrap();
+        connection
+    }
+
+    #[test]
+    fn test_create_overview() {
+        let mut conn = establish_connection();
+
+        let account = WorkerAccount::create_account(&mut conn, "Test Account", "Some description")
+            .expect("Failed to create account");
+        let overview = WorkerAccountOverview::new(&mut conn, &account, Currency::BTC)
+            .expect("Failed to create overview");
+
+        assert_eq!(overview.account_id, account.id);
+        assert_eq!(overview.currency, Currency::BTC);
+        assert_eq!(overview.total_balance.amount, dec!(0));
+        assert_eq!(overview.total_in_trade.amount, dec!(0));
+        assert_eq!(overview.total_available.amount, dec!(0));
+        assert_eq!(overview.total_taxable.amount, dec!(0));
+        assert_eq!(overview.total_balance.currency, Currency::BTC);
+        assert_eq!(overview.total_in_trade.currency, Currency::BTC);
+        assert_eq!(overview.total_available.currency, Currency::BTC);
+        assert_eq!(overview.total_taxable.currency, Currency::BTC);
+    }
+
+    #[test]
+    fn test_read_overviews() {
+        let mut conn = establish_connection();
+
+        let account = WorkerAccount::create_account(&mut conn, "Test Account", "Some description")
+            .expect("Failed to create account");
+        let overview_btc: AccountOverview =
+            WorkerAccountOverview::new(&mut conn, &account, Currency::BTC)
+                .expect("Failed to create overview");
+        let overview_usd: AccountOverview =
+            WorkerAccountOverview::new(&mut conn, &account, Currency::USD)
+                .expect("Failed to create overview");
+
+        let overviews =
+            WorkerAccountOverview::read(&mut conn, &account).expect("Failed to read overviews");
+
+        assert_eq!(overviews.len(), 2);
+        assert_eq!(overviews[0], overview_btc);
+        assert_eq!(overviews[1], overview_usd);
+    }
 }
