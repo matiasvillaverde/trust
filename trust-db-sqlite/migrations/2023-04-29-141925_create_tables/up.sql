@@ -7,6 +7,20 @@ CREATE TABLE accounts (
 	description		TEXT NOT NULL
 );
 
+CREATE TABLE account_overviews (
+	id 				TEXT NOT NULL PRIMARY KEY,
+	created_at			DATETIME NOT NULL,
+	updated_at			DATETIME NOT NULL,
+	deleted_at			DATETIME,
+	account_id 			TEXT NOT NULL REFERENCES accounts(id),
+	total_balance_id	TEXT NOT NULL REFERENCES price (id),
+	total_in_trade_id	TEXT NOT NULL REFERENCES price (id),
+	total_available_id	TEXT NOT NULL REFERENCES price (id),
+	total_taxable_id	TEXT NOT NULL REFERENCES price (id),
+	currency	 		TEXT CHECK(currency IN ('EUR', 'USD', 'BTC')) NOT NULL
+);
+
+
 CREATE TABLE prices (
 	id 			TEXT NOT NULL PRIMARY KEY,
 	created_at		DATETIME NOT NULL,

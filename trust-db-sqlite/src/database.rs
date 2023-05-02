@@ -6,6 +6,7 @@ use std::error::Error;
 use trust_model::{
     Account, AccountOverview, Currency, Database, Price, Transaction, TransactionCategory,
 };
+use uuid::Uuid;
 
 /// SqliteDatabase is a struct that contains methods for interacting with the
 /// SQLite database.
@@ -110,10 +111,28 @@ impl Database for SqliteDatabase {
         account
     }
 
+    fn read_account_id(&mut self, id: Uuid) -> Result<Account, Box<dyn Error>> {
+        WorkerAccount::read(&mut self.connection, id)
+    }
+
     fn read_account_overview(
         &mut self,
         _account: Account,
     ) -> Result<Vec<AccountOverview>, Box<dyn Error>> {
+        unimplemented!();
+    }
+
+    fn new_account_overview(
+        &mut self,
+        account: &Account,
+    ) -> Result<AccountOverview, Box<dyn Error>> {
+        unimplemented!();
+    }
+    fn update_account_overview(
+        &mut self,
+        account: &Account,
+        overview: &AccountOverview,
+    ) -> Result<(), Box<dyn Error>> {
         unimplemented!();
     }
 
@@ -143,7 +162,7 @@ impl Database for SqliteDatabase {
         currency: Currency,
         amount: rust_decimal::Decimal,
     ) -> Result<Price, Box<dyn Error>> {
-        WorkerPrice::new(&mut self.connection, currency, amount)
+        WorkerPrice::new(&mut self.connection, &currency, amount)
     }
 
     fn read_price(&mut self, id: uuid::Uuid) -> Result<Price, Box<dyn Error>> {

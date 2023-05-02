@@ -20,18 +20,15 @@ impl Trust {
         name: &str,
         description: &str,
     ) -> Result<Account, Box<dyn std::error::Error>> {
-        let account = self.database.create_account(name, description);
-        account
+        self.database.create_account(name, description)
     }
 
     pub fn search_account(&mut self, name: &str) -> Result<Account, Box<dyn std::error::Error>> {
-        let account = self.database.read_account(name);
-        account
+        self.database.read_account(name)
     }
 
     pub fn search_all_accounts(&mut self) -> Result<Vec<Account>, Box<dyn std::error::Error>> {
-        let accounts = self.database.read_all_accounts();
-        accounts
+        self.database.read_all_accounts()
     }
 
     pub fn create_transaction(
@@ -40,6 +37,9 @@ impl Trust {
         amount: Decimal,
         currency: Currency,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        Ok(())
+        unimplemented!();
     }
 }
+
+mod transaction_validator;
+mod transaction_worker;

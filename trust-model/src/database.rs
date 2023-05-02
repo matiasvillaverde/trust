@@ -19,7 +19,17 @@ use std::error::Error;
 pub trait Database {
     // Accounts
     fn create_account(&mut self, name: &str, description: &str) -> Result<Account, Box<dyn Error>>;
+    fn new_account_overview(
+        &mut self,
+        account: &Account,
+    ) -> Result<AccountOverview, Box<dyn Error>>;
+    fn update_account_overview(
+        &mut self,
+        account: &Account,
+        overview: &AccountOverview,
+    ) -> Result<(), Box<dyn Error>>;
     fn read_account(&mut self, name: &str) -> Result<Account, Box<dyn Error>>;
+    fn read_account_id(&mut self, id: Uuid) -> Result<Account, Box<dyn Error>>;
     fn read_account_overview(
         &mut self,
         account: Account,

@@ -13,7 +13,7 @@ pub struct WorkerPrice;
 impl WorkerPrice {
     pub fn new(
         connection: &mut SqliteConnection,
-        currency: Currency,
+        currency: &Currency,
         amount: Decimal,
     ) -> Result<Price, Box<dyn Error>> {
         let now = Utc::now().naive_utc();
@@ -110,7 +110,7 @@ mod tests {
         let mut conn = establish_connection();
 
         // Create a new price record
-        let price = WorkerPrice::new(&mut conn, Currency::USD, dec!(10.99)).unwrap();
+        let price = WorkerPrice::new(&mut conn, &Currency::USD, dec!(10.99)).unwrap();
 
         assert_eq!(price.currency, Currency::USD);
         assert_eq!(price.amount, dec!(10.99));
@@ -124,7 +124,7 @@ mod tests {
         let mut conn = establish_connection();
 
         // Create a new price record
-        let price = WorkerPrice::new(&mut conn, Currency::USD, dec!(10.99)).unwrap();
+        let price = WorkerPrice::new(&mut conn, &Currency::USD, dec!(10.99)).unwrap();
 
         // Read the price record by id
         let read_price = WorkerPrice::read(&mut conn, price.id).expect("Error reading price");

@@ -2,4 +2,4 @@
 DROP TABLE "accounts";
 DROP TABLE "prices";
 DROP TABLE "transactions";
-```
+DROP TABLE "account_overviews";

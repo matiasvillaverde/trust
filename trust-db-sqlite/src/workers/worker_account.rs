@@ -1,7 +1,7 @@
 use crate::schema::accounts;
 use chrono::{NaiveDateTime, Utc};
 use diesel::prelude::*;
-use std::error::Error;
+use std::{error::Error, str::FromStr};
 use tracing::error;
 use trust_model::Account;
 use uuid::Uuid;
@@ -47,6 +47,18 @@ impl WorkerAccount {
     ) -> Result<Account, Box<dyn Error>> {
         let account = accounts::table
             .filter(accounts::name.eq(name.to_lowercase()))
+            .first::<AccountSQLite>(connection)
+            .map(|account| account.domain_model())
+            .map_err(|error| {
+                error!("Error reading account: {:?}", error);
+                error
+            })?;
+        Ok(account)
+    }
+
+    pub fn read(connection: &mut SqliteConnection, id: Uuid) -> Result<Account, Box<dyn Error>> {
+        let account = accounts::table
+            .filter(accounts::id.eq(id.to_string()))
             .first::<AccountSQLite>(connection)
             .map(|account| account.domain_model())
             .map_err(|error| {
@@ -169,6 +181,22 @@ mod tests {
         // Read the account record by name
         let read_account = WorkerAccount::read_account(&mut conn, "Test Account")
             .expect("Account should be found");
+
+        assert_eq!(read_account, created_account);
+    }
+
+    #[test]
+    fn test_read_account_id() {
+        let mut conn = establish_connection();
+
+        // Create a new account record
+        let created_account =
+            WorkerAccount::create_account(&mut conn, "Test Account", "This is a test account")
+                .expect("Error creating account");
+
+        // Read the account record by name
+        let read_account =
+            WorkerAccount::read(&mut conn, created_account.id).expect("Account should be found");
 
         assert_eq!(read_account, created_account);
     }
