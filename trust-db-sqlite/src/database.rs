@@ -82,7 +82,7 @@ impl Database for SqliteDatabase {
         account: &Account,
         currency: &Currency,
     ) -> Result<AccountOverview, Box<dyn Error>> {
-        let overview = WorkerAccountOverview::new(&mut self.connection, account, &currency)?;
+        let overview = WorkerAccountOverview::new(&mut self.connection, account, currency)?;
         Ok(overview)
     }
 
@@ -94,7 +94,7 @@ impl Database for SqliteDatabase {
         total_available: rust_decimal::Decimal,
     ) -> Result<AccountOverview, Box<dyn Error>> {
         let overview =
-            WorkerAccountOverview::read_for_currency(&mut self.connection, account.id, &currency)?;
+            WorkerAccountOverview::read_for_currency(&mut self.connection, account.id, currency)?;
         let updated_overview = WorkerAccountOverview::update_total_available(
             &mut self.connection,
             overview,

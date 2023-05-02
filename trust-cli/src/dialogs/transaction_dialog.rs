@@ -1,5 +1,6 @@
 use crate::dialogs::account_dialog::AccountSearchDialog;
 use crate::views::account_view::AccountOverviewView;
+use crate::views::transaction_view::TransactionView;
 use dialoguer::{theme::ColorfulTheme, Input, Select};
 use rust_decimal::Decimal;
 use std::error::Error;
@@ -24,7 +25,7 @@ impl TransactionDialogBuilder {
             amount: None,
             currency: None,
             account: None,
-            category: category,
+            category,
             result: None,
         }
     }
@@ -53,15 +54,18 @@ impl TransactionDialogBuilder {
             .expect("No result found, did you forget to call build?")
         {
             Ok((transaction, overview)) => {
-                AccountOverviewView::display(&overview, &self.account.unwrap());
-                // TODO: Display Transaction.
+                let name = self.account.unwrap().name;
+                println!("Transaction created in account:  {}", name);
+                TransactionView::display(&transaction, &name);
+                println!("Now the account {} overview is:", name);
+                AccountOverviewView::display(&overview, &name);
             }
             Err(error) => println!("Error creating account: {:?}", error),
         }
     }
 
     pub fn amount(mut self, trust: &mut Trust) -> Self {
-        let message = format!("How much do you want to {}?", self.category.to_string());
+        let message = format!("How much do you want to {}?", self.category);
 
         // Show available if withdrawal.
         if self.category == TransactionCategory::Withdrawal {
@@ -125,7 +129,7 @@ impl TransactionDialogBuilder {
             currencies = Currency::all();
         }
 
-        let message = format!("How currency do you want to {}?", self.category.to_string());
+        let message = format!("How currency do you want to {}?", self.category);
 
         let selected_currency = Select::with_theme(&ColorfulTheme::default())
             .with_prompt(message)

@@ -15,20 +15,18 @@ impl TransactionValidator {
     ) -> TransactionValidationResult {
         match category {
             TransactionCategory::Deposit => {
-                return validate_deposit(amount, &currency, account_id, database);
+                validate_deposit(amount, currency, account_id, database)
             }
             TransactionCategory::Withdrawal => {
-                return validate_withdraw(amount, &currency, account_id, database);
+                validate_withdraw(amount, currency, account_id, database)
             }
             TransactionCategory::Input(_)
             | TransactionCategory::Output(_)
             | TransactionCategory::InputTax(_)
-            | TransactionCategory::OutputTax => {
-                return Err(Box::new(TransactionValidationError {
-                    code: TransactionValidationErrorCode::NotImplemented,
-                    message: "Manually creating transaction is not allowed".to_string(),
-                }));
-            }
+            | TransactionCategory::OutputTax => Err(Box::new(TransactionValidationError {
+                code: TransactionValidationErrorCode::NotImplemented,
+                message: "Manually creating transaction is not allowed".to_string(),
+            })),
         }
     }
 }
@@ -40,10 +38,10 @@ fn validate_deposit(
     database: &mut dyn Database,
 ) -> TransactionValidationResult {
     if amount.is_sign_negative() {
-        return Err(Box::new(TransactionValidationError {
+        Err(Box::new(TransactionValidationError {
             code: TransactionValidationErrorCode::AmountOfDepositMustBePositive,
             message: "Amount of deposit must be positive".to_string(),
-        }));
+        }))
     } else {
         match database.read_account_overview_currency(account_id, currency) {
             Ok(_) => Ok(()),
@@ -57,15 +55,15 @@ fn validate_deposit(
 
 fn validate_withdraw(
     amount: Decimal,
-    currency: &Currency,
-    account_id: Uuid,
-    database: &mut dyn Database,
+    _currency: &Currency,
+    _account_id: Uuid,
+    _database: &mut dyn Database,
 ) -> TransactionValidationResult {
     if amount.is_sign_negative() {
-        return Err(Box::new(TransactionValidationError {
+        Err(Box::new(TransactionValidationError {
             code: TransactionValidationErrorCode::AmountOfWithdrawalMustBeNegative,
             message: "Amount of withdrawal must be negative".to_string(),
-        }));
+        }))
     } else {
         // TODO: validate that the amount is valid
         Ok(())

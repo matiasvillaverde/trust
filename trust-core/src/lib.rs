@@ -13,7 +13,7 @@ pub struct Trust {
 impl Trust {
     /// Creates a new instance of Trust.
     pub fn new(database: Box<dyn Database>) -> Self {
-        Trust { database: database }
+        Trust { database }
     }
 
     /// Creates a new account.

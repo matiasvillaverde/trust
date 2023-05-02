@@ -1,7 +1,7 @@
 use crate::schema::accounts;
 use chrono::{NaiveDateTime, Utc};
 use diesel::prelude::*;
-use std::{error::Error, str::FromStr};
+use std::error::Error;
 use tracing::error;
 use trust_model::Account;
 use uuid::Uuid;

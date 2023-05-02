@@ -46,7 +46,7 @@ impl TransactionWorker {
         match TransactionValidator::validate(
             TransactionCategory::Deposit,
             amount,
-            &currency,
+            currency,
             account_id,
             database,
         ) {
@@ -54,36 +54,36 @@ impl TransactionWorker {
                 let transaction = database.new_transaction(
                     &account,
                     amount,
-                    &currency,
+                    currency,
                     TransactionCategory::Deposit,
                 )?;
-                let overview = database.read_account_overview_currency(account.id, &currency)?;
+                let overview = database.read_account_overview_currency(account.id, currency)?;
                 let total_available = overview.total_available.amount + amount;
                 let total_balance = overview.total_balance.amount + amount;
                 let updated_overview = database.update_account_overview(
                     &account,
-                    &currency,
+                    currency,
                     total_available,
                     total_balance,
                 )?;
-                return Ok((transaction, updated_overview));
+                Ok((transaction, updated_overview))
             }
             Err(error) => {
                 if error.code == TransactionValidationErrorCode::OverviewNotFound {
                     let transaction = database.new_transaction(
                         &account,
                         amount,
-                        &currency,
+                        currency,
                         TransactionCategory::Deposit,
                     )?;
-                    database.new_account_overview(&account, &currency)?;
+                    database.new_account_overview(&account, currency)?;
                     let overview =
-                        database.update_account_overview(&account, &currency, amount, amount)?;
-                    return Ok((transaction, overview));
+                        database.update_account_overview(&account, currency, amount, amount)?;
+                    Ok((transaction, overview))
                 } else {
-                    return Err(error);
+                    Err(error)
                 }
             }
-        };
+        }
     }
 }

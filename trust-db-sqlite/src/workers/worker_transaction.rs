@@ -20,7 +20,7 @@ impl WorkerTransaction {
         category: TransactionCategory,
     ) -> Result<Transaction, Box<dyn Error>> {
         let now = Utc::now().naive_utc();
-        let price = WorkerPrice::new(connection, &currency, amount).unwrap();
+        let price = WorkerPrice::new(connection, currency, amount).unwrap();
 
         let new_transaction = NewTransaction {
             id: Uuid::new_v4().to_string(),
@@ -76,7 +76,7 @@ impl TransactionSQLite {
             created_at: self.created_at,
             updated_at: self.updated_at,
             deleted_at: self.deleted_at,
-            category: category,
+            category,
             price,
             account_id: Uuid::parse_str(&self.account_id).unwrap(),
         }
@@ -139,6 +139,7 @@ mod tests {
         assert_eq!(tx.deleted_at, None);
     }
 
+    #[test]
     fn test_create_transaction_with_trade_id() {
         let mut conn: SqliteConnection = establish_connection();
 

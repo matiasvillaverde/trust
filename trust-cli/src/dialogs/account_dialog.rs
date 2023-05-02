@@ -61,7 +61,7 @@ impl AccountSearchDialog {
         AccountSearchDialog { result: None }
     }
 
-    pub fn build(mut self) -> Result<Account, Box<dyn Error>> {
+    pub fn build(self) -> Result<Account, Box<dyn Error>> {
         self.result
             .expect("No result found, did you forget to call search?")
     }

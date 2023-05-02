@@ -6,7 +6,7 @@ use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use std::error::Error;
 use tracing::error;
-use trust_model::{Account, AccountOverview, Currency, Price, Transaction, TransactionCategory};
+use trust_model::{Account, AccountOverview, Currency};
 use uuid::Uuid;
 
 use super::worker_price::WorkerPrice;
@@ -22,10 +22,10 @@ impl WorkerAccountOverview {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().naive_utc();
 
-        let total_balance = WorkerPrice::new(connection, &currency, dec!(0))?;
-        let total_in_trade = WorkerPrice::new(connection, &currency, dec!(0))?;
-        let total_available = WorkerPrice::new(connection, &currency, dec!(0))?;
-        let total_taxable = WorkerPrice::new(connection, &currency, dec!(0))?;
+        let total_balance = WorkerPrice::new(connection, currency, dec!(0))?;
+        let total_in_trade = WorkerPrice::new(connection, currency, dec!(0))?;
+        let total_available = WorkerPrice::new(connection, currency, dec!(0))?;
+        let total_taxable = WorkerPrice::new(connection, currency, dec!(0))?;
 
         let new_account_overview = NewAccountOverview {
             id,
