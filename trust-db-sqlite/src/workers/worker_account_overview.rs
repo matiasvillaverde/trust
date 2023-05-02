@@ -5,7 +5,7 @@ use diesel::SqliteConnection;
 use rust_decimal_macros::dec;
 use std::error::Error;
 use tracing::error;
-use trust_model::{Account, AccountOverview, Currency, Price};
+use trust_model::{Account, AccountOverview, Currency, Price, Transaction, TransactionCategory};
 use uuid::Uuid;
 
 use super::worker_price::WorkerPrice;
@@ -69,6 +69,50 @@ impl WorkerAccountOverview {
                 error
             })?;
         Ok(overviews)
+    }
+
+    fn read_id(
+        connection: &mut SqliteConnection,
+        id: Uuid,
+    ) -> Result<AccountOverview, Box<dyn Error>> {
+        let overviews = account_overviews::table
+            .filter(account_overviews::id.eq(id.to_string()))
+            .first::<AccountOverviewSQLite>(connection)
+            .map(|overview| overview.domain_model(connection))
+            .map_err(|error| {
+                error!("Error creating overview: {:?}", error);
+                error
+            })?;
+        Ok(overviews)
+    }
+
+    pub fn deposit_or_withdraw_transaction(
+        overview: AccountOverview,
+        connection: &mut SqliteConnection,
+        transaction: &Transaction,
+    ) -> Result<AccountOverview, Box<dyn Error>> {
+        assert!(
+            transaction.price.currency == overview.currency,
+            "Currency mismatch"
+        );
+        assert!(
+            !transaction.price.amount.is_zero(),
+            "Price of transaction must be different than 0"
+        );
+        assert!(
+            transaction.category == TransactionCategory::Deposit
+                || transaction.category == TransactionCategory::Withdrawal,
+            "Transaction must be of category Deposit or Withdrawal"
+        );
+
+        WorkerPrice::add(
+            connection,
+            overview.total_available,
+            transaction.price.amount,
+        )?;
+        WorkerPrice::add(connection, overview.total_balance, transaction.price.amount)?;
+
+        WorkerAccountOverview::read_id(connection, overview.id)
     }
 }
 
@@ -195,4 +239,7 @@ mod tests {
         assert_eq!(overviews[0], overview_btc);
         assert_eq!(overviews[1], overview_usd);
     }
+
+    #[test]
+    fn test_update_overview() {}
 }

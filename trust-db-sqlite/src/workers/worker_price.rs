@@ -49,6 +49,23 @@ impl WorkerPrice {
             })?;
         Ok(price)
     }
+
+    pub fn add(
+        connection: &mut SqliteConnection,
+        price: Price,
+        decimal: Decimal,
+    ) -> Result<Price, Box<dyn Error>> {
+        let result = price.amount + decimal;
+
+        let updated_price = diesel::update(prices::table.find(price.id.to_string()))
+            .set((
+                prices::amount.eq(result.to_string()),
+                prices::updated_at.eq(Utc::now().naive_utc()),
+            ))
+            .get_result::<PriceSQLite>(connection)
+            .map(|price| price.domain_model())?;
+        Ok(updated_price)
+    }
 }
 
 #[derive(Queryable, Identifiable, AsChangeset, Insertable)]
@@ -130,5 +147,19 @@ mod tests {
         let read_price = WorkerPrice::read(&mut conn, price.id).expect("Error reading price");
 
         assert_eq!(read_price, price);
+    }
+
+    #[test]
+    fn test_add_price() {
+        let mut conn = establish_connection();
+
+        // Create a new price record
+        let price = WorkerPrice::new(&mut conn, &Currency::USD, dec!(10.99)).unwrap();
+
+        // Add to the price record
+        let updated_price =
+            WorkerPrice::add(&mut conn, price, dec!(1.01)).expect("Error adding to price");
+
+        assert_eq!(updated_price.amount, dec!(12.00));
     }
 }
