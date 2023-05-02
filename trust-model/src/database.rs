@@ -1,4 +1,7 @@
-use crate::account::{Account, AccountOverview};
+use crate::{Account, AccountOverview};
+use crate::Currency;
+use rust_decimal::Decimal;
+use crate::Price;
 
 use std::error::Error;
 
@@ -20,29 +23,8 @@ pub trait Database {
     ) -> Result<Vec<AccountOverview>, Box<dyn Error>>;
     fn read_all_accounts(&mut self) -> Result<Vec<Account>, Box<dyn Error>>;
 
-    // // Transactions
-    // fn read_all_transactions(&mut self, account: Account) -> Vec<Transaction>;
-    // fn create_transaction(
-    //     &mut self,
-    //     account: &Account,
-    //     amount: &str,
-    //     currency: &str,
-    //     category: TransactionCategory,
-    // ) -> Transaction;
-
-    // // Prices
-    // fn create_price(&mut self, amount: Decimal, currency: Currency) -> Price;
-
-    // // Transaction Vehicles
-    // fn create_trading_vehicle(
-    //     &mut self,
-    //     symbol: &str,
-    //     isin: &str,
-    //     category: TradingVehicleCategory,
-    //     broker: &str,
-    // ) -> TradingVehicle;
-    // fn read_all_trading_vehicles(&mut self) -> Vec<TradingVehicle>;
-    // fn read_trading_vehicle(&mut self, symbol: &str) -> TradingVehicle;
+    // Prices
+    fn create_price(&mut self, currency: Currency, amount: Decimal) -> Result<Price, Box<dyn Error>>;
 
     // // Strategy
     // fn create_strategy(
