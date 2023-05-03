@@ -27,7 +27,23 @@ impl RuleDialogBuilder {
     }
 
     pub fn build(mut self, trust: &mut Trust) -> RuleDialogBuilder {
-        unimplemented!();
+        self.result = Some(
+            trust.create_rule(
+                &self
+                    .account
+                    .clone()
+                    .expect("Did you forget to setup an account?"),
+                &self
+                    .name
+                    .expect("Did you forget to select the rule name first?"),
+                &self
+                    .description
+                    .clone()
+                    .expect("Did you forget to enter a description?"),
+                self.priority.expect("Did you forget to enter a priority?"),
+                &self.level.expect("Did you forget to enter a level?"),
+            ),
+        );
         self
     }
 

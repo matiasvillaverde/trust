@@ -70,11 +70,8 @@ pub enum RuleName {
 impl fmt::Display for RuleName {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            RuleName::RiskPerTrade(_) => write!(f, "Trade: define a maximum risk per trade"),
-            RuleName::RiskPerMonth(_) => write!(
-                f,
-                "Month: define a maximum risk of your total account per 30 days"
-            ),
+            RuleName::RiskPerTrade(_) => write!(f, "risk_per_trade"),
+            RuleName::RiskPerMonth(_) => write!(f, "risk_per_month"),
         }
     }
 }
@@ -82,6 +79,28 @@ impl fmt::Display for RuleName {
 impl RuleName {
     pub fn all() -> Vec<RuleName> {
         vec![RuleName::RiskPerTrade(0), RuleName::RiskPerMonth(0)]
+    }
+}
+
+impl RuleName {
+    pub fn risk(&self) -> u32 {
+        match self {
+            RuleName::RiskPerTrade(value) => value.clone(),
+            RuleName::RiskPerMonth(value) => value.clone(),
+        }
+    }
+}
+
+#[derive(PartialEq, Debug)]
+pub struct RuleNameParseError;
+
+impl RuleName {
+    pub fn parse(s: &str, risk: u32) -> Result<Self, RuleNameParseError> {
+        match s {
+            "risk_per_trade" => Ok(RuleName::RiskPerTrade(risk)),
+            "risk_per_month" => Ok(RuleName::RiskPerMonth(risk)),
+            _ => Err(RuleNameParseError),
+        }
     }
 }
 
@@ -107,9 +126,39 @@ impl RuleLevel {
 impl fmt::Display for RuleLevel {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            RuleLevel::Advice => write!(f, "Advice - Just a friendly reminder"),
-            RuleLevel::Warning => write!(f, "Warning - Please consider this"),
-            RuleLevel::Error => write!(f, "Error - This is not allowed"),
+            RuleLevel::Advice => write!(f, "advice"),
+            RuleLevel::Warning => write!(f, "warning"),
+            RuleLevel::Error => write!(f, "error"),
         }
+    }
+}
+
+#[derive(Debug)]
+pub struct RuleLevelParseError;
+impl std::str::FromStr for RuleLevel {
+    type Err = RuleLevelParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "advice" => Ok(RuleLevel::Advice),
+            "warning" => Ok(RuleLevel::Warning),
+            "error" => Ok(RuleLevel::Error),
+            _ => Err(RuleLevelParseError),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_from_string() {
+        let result = RuleName::parse("risk-per-trade", 2);
+        assert_eq!(result, Ok(RuleName::RiskPerTrade(2)));
+        let result = RuleName::parse("risk-per-month", 2);
+        assert_eq!(result, Ok(RuleName::RiskPerMonth(2)));
+        let result = RuleName::parse("invalid", 0);
+        assert_eq!(result, Err(RuleNameParseError));
     }
 }

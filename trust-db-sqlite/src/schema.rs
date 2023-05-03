@@ -10,7 +10,6 @@ diesel::table! {
 }
 
 diesel::table! {
-
     account_overviews (id) {
         id -> Text,
         created_at -> Timestamp,
@@ -26,6 +25,22 @@ diesel::table! {
 }
 
 diesel::table! {
+    rules (id) {
+        id -> Text,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        deleted_at -> Nullable<Timestamp>,
+        name -> Text,
+        risk -> Integer,
+        description -> Text,
+        priority -> Integer,
+        level -> Text,
+        account_id -> Text,
+        active -> Bool,
+    }
+}
+
+diesel::table! {
     prices(id) {
         id -> Text,
         created_at -> Timestamp,
@@ -37,7 +52,6 @@ diesel::table! {
 }
 
 diesel::table! {
-
     transactions (id) {
         id -> Text,
         created_at -> Timestamp,

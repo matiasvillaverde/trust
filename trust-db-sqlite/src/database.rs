@@ -1,4 +1,6 @@
-use crate::workers::{WorkerAccount, WorkerAccountOverview, WorkerPrice, WorkerTransaction};
+use crate::workers::{
+    WorkerAccount, WorkerAccountOverview, WorkerPrice, WorkerRule, WorkerTransaction,
+};
 use diesel::prelude::*;
 use std::error::Error;
 use trust_model::{
@@ -149,6 +151,13 @@ impl Database for SqliteDatabase {
         priority: u32,
         level: &trust_model::RuleLevel,
     ) -> Result<trust_model::Rule, Box<dyn Error>> {
-        unimplemented!();
+        WorkerRule::create(
+            &mut self.connection,
+            name,
+            description,
+            priority,
+            level,
+            account,
+        )
     }
 }

@@ -20,6 +20,19 @@ CREATE TABLE account_overviews (
 	currency	 		TEXT CHECK(currency IN ('EUR', 'USD', 'BTC')) NOT NULL
 );
 
+CREATE TABLE rules (
+	id 			TEXT NOT NULL PRIMARY KEY,
+	created_at		DATETIME NOT NULL,
+	updated_at		DATETIME NOT NULL,
+	deleted_at		DATETIME,
+	name 			TEXT CHECK(name IN ('risk_per_trade', 'risk_per_month')) NOT NULL,
+	risk			INTEGER NOT NULL,
+	description		TEXT NOT NULL,
+	priority		INTEGER NOT NULL,
+	level 			TEXT CHECK(level IN ('advice', 'warning', 'error')) NOT NULL,
+	account_id 		TEXT NOT NULL REFERENCES accounts(id),
+	active			BOOLEAN NOT NULL
+);
 
 CREATE TABLE prices (
 	id 			TEXT NOT NULL PRIMARY KEY,
