@@ -2,6 +2,7 @@ use crate::commands::account_command::AccountCommandBuilder;
 use crate::commands::transaction_command::TransactionCommandBuilder;
 use crate::dispatcher::ArgDispatcher;
 use clap::Command;
+use commands::RuleCommandBuilder;
 mod commands;
 mod dialogs;
 mod dispatcher;
@@ -22,6 +23,12 @@ fn main() {
             TransactionCommandBuilder::new()
                 .deposit()
                 .withdraw()
+                .build(),
+        )
+        .subcommand(
+            RuleCommandBuilder::new()
+                .create_rule()
+                .remove_rule()
                 .build(),
         )
         .get_matches();
