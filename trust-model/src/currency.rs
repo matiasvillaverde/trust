@@ -1,12 +1,18 @@
 use std::fmt;
 
 /// Currency entity
-#[derive(PartialEq, Debug, Hash, Eq)]
+#[derive(PartialEq, Debug, Hash, Eq, Clone, Copy)]
 #[non_exhaustive] // This enum may be extended in the future
 pub enum Currency {
     USD,
     EUR,
     BTC,
+}
+
+impl Currency {
+    pub fn all() -> Vec<Currency> {
+        vec![Currency::USD, Currency::EUR, Currency::BTC]
+    }
 }
 
 // Implementations

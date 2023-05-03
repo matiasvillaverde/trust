@@ -8,7 +8,7 @@ use uuid::Uuid;
 ///
 /// For example: Binance account, Kraken account, etc.
 /// It doesn't need to be a real account. It can be a paper trading account.
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub struct Account {
     pub id: Uuid,
 
@@ -31,7 +31,7 @@ pub struct Account {
 ///
 /// WARNING: This entity can be out of sync with the actual account.
 /// If your feature is important, consider recalculating the account overview.
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone, Copy)]
 pub struct AccountOverview {
     pub id: Uuid,
 

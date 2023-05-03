@@ -1,5 +1,5 @@
 mod database;
 mod schema;
-mod worker_account;
+mod workers;
 
 pub use database::SqliteDatabase;

@@ -5,7 +5,7 @@ use std::fmt;
 use uuid::Uuid;
 
 /// Price entity
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone, Copy)]
 pub struct Price {
     pub id: Uuid,
 
