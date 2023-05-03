@@ -21,7 +21,7 @@ impl RuleCommandBuilder {
 
     pub fn create_rule(mut self) -> Self {
         self.subcommands
-            .push(Command::new("add").about("Add a new rule to your account"));
+            .push(Command::new("create").about("Create a new rule to your account"));
         self
     }
 

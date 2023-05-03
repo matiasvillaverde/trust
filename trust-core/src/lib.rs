@@ -1,6 +1,9 @@
 use rust_decimal::Decimal;
 use transaction_worker::TransactionWorker;
-use trust_model::{Account, AccountOverview, Currency, Database, Transaction, TransactionCategory};
+use trust_model::{
+    Account, AccountOverview, Currency, Database, Rule, RuleLevel, RuleName, Transaction,
+    TransactionCategory,
+};
 use uuid::Uuid;
 
 pub struct Trust {
@@ -57,6 +60,18 @@ impl Trust {
         account_id: Uuid,
     ) -> Result<Vec<AccountOverview>, Box<dyn std::error::Error>> {
         self.database.read_account_overview(account_id)
+    }
+
+    pub fn create_rule(
+        &mut self,
+        account: &Account,
+        name: &RuleName,
+        description: &str,
+        priority: u32,
+        level: &RuleLevel,
+    ) -> Result<Rule, Box<dyn std::error::Error>> {
+        self.database
+            .create_rule(account, name, description, priority, level) // TODO: Validate if the rule doesn't exist for this account.
     }
 }
 

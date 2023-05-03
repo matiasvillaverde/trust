@@ -3,6 +3,7 @@ use crate::Price;
 use crate::Transaction;
 use crate::TransactionCategory;
 use crate::{Account, AccountOverview};
+use crate::{Rule, RuleLevel, RuleName};
 use rust_decimal::Decimal;
 use uuid::Uuid;
 
@@ -66,4 +67,14 @@ pub trait Database {
         currency: &Currency,
         category: TransactionCategory,
     ) -> Result<Transaction, Box<dyn Error>>;
+
+    // Rules
+    fn create_rule(
+        &mut self,
+        account: &Account,
+        name: &RuleName,
+        description: &str,
+        priority: u32,
+        level: &RuleLevel,
+    ) -> Result<Rule, Box<dyn Error>>;
 }

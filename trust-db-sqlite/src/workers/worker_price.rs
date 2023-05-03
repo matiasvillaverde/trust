@@ -148,13 +148,11 @@ mod tests {
     }
 
     #[test]
-    fn test_add_price() {
+    fn test_update_price() {
         let mut conn = establish_connection();
 
-        // Create a new price record
         let price = WorkerPrice::create(&mut conn, &Currency::USD, dec!(10.99)).unwrap();
 
-        // Add to the price record
         let updated_price =
             WorkerPrice::update(&mut conn, price, dec!(1.01)).expect("Error adding to price");
 

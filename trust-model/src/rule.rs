@@ -1,3 +1,5 @@
+use std::fmt;
+
 use chrono::NaiveDateTime;
 use uuid::Uuid;
 
@@ -35,7 +37,7 @@ pub struct Rule {
 }
 
 /// RuleName entity - represents the name of a rule
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone, Copy)]
 pub enum RuleName {
     /// The maximum risk per trade defined in percentage
     /// This rule is used to limit the risk per trade
@@ -64,8 +66,27 @@ pub enum RuleName {
     RiskPerMonth(u32),
 }
 
+// Implementations
+impl fmt::Display for RuleName {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            RuleName::RiskPerTrade(_) => write!(f, "Trade: define a maximum risk per trade"),
+            RuleName::RiskPerMonth(_) => write!(
+                f,
+                "Month: define a maximum risk of your total account per 30 days"
+            ),
+        }
+    }
+}
+
+impl RuleName {
+    pub fn all() -> Vec<RuleName> {
+        vec![RuleName::RiskPerTrade(0), RuleName::RiskPerMonth(0)]
+    }
+}
+
 /// RuleLevel entity - represents the level of a rule
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone, Copy)]
 pub enum RuleLevel {
     /// Just print a message in the logs to warn the user about something
     Advice,
@@ -75,4 +96,20 @@ pub enum RuleLevel {
 
     /// This will stop the trade from being executed
     Error,
+}
+
+impl RuleLevel {
+    pub fn all() -> Vec<RuleLevel> {
+        vec![RuleLevel::Advice, RuleLevel::Warning, RuleLevel::Error]
+    }
+}
+
+impl fmt::Display for RuleLevel {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            RuleLevel::Advice => write!(f, "Advice - Just a friendly reminder"),
+            RuleLevel::Warning => write!(f, "Warning - Please consider this"),
+            RuleLevel::Error => write!(f, "Error - This is not allowed"),
+        }
+    }
 }

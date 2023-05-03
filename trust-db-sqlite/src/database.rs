@@ -140,4 +140,15 @@ impl Database for SqliteDatabase {
             category,
         )
     }
+
+    fn create_rule(
+        &mut self,
+        account: &Account,
+        name: &trust_model::RuleName,
+        description: &str,
+        priority: u32,
+        level: &trust_model::RuleLevel,
+    ) -> Result<trust_model::Rule, Box<dyn Error>> {
+        unimplemented!();
+    }
 }
