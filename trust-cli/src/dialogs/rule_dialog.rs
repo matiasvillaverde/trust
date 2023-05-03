@@ -52,7 +52,7 @@ impl RuleDialogBuilder {
             .result
             .expect("No result found, did you forget to call build?")
         {
-            Ok(rule) => RuleView::display_rule(&rule, &self.account.unwrap().name),
+            Ok(rule) => RuleView::display_rule(rule, &self.account.unwrap().name),
             Err(error) => println!("Error creating rule: {:?}", error),
         }
     }
@@ -167,6 +167,44 @@ impl RuleDialogBuilder {
             .unwrap();
 
         self.level = Some(*selected_level);
+        self
+    }
+}
+
+pub struct RuleRemoveDialog {
+    account: Option<Account>,
+    result: Option<Result<Rule, Box<dyn Error>>>,
+}
+
+impl RuleRemoveDialog {
+    pub fn new() -> Self {
+        RuleRemoveDialog {
+            result: None,
+            account: None,
+        }
+    }
+
+    pub fn build(self) -> Result<Rule, Box<dyn Error>> {
+        self.result
+            .expect("No result found, did you forget to call search?")
+    }
+
+    pub fn display(self) {
+        match self
+            .result
+            .expect("No result found, did you forget to call build?")
+        {
+            Ok(rule) => RuleView::display_rule(rule, &self.account.unwrap().name),
+            Err(error) => println!("Error creating rule: {:?}", error),
+        }
+    }
+
+    pub fn account(mut self, trust: &mut Trust) -> Self {
+        let account = AccountSearchDialog::new().search(trust).build();
+        match account {
+            Ok(account) => self.account = Some(account),
+            Err(error) => println!("Error searching account: {:?}", error),
+        }
         self
     }
 }

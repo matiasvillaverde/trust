@@ -15,7 +15,7 @@ pub struct RuleView {
 }
 
 impl RuleView {
-    fn new(rule: &Rule, account_name: &str) -> RuleView {
+    fn new(rule: Rule, account_name: &str) -> RuleView {
         RuleView {
             account: crate::views::uppercase_first(account_name),
             name: rule.name.to_string(),
@@ -27,14 +27,14 @@ impl RuleView {
         }
     }
 
-    pub fn display_rule(r: &Rule, account_name: &str) {
+    pub fn display_rule(r: Rule, account_name: &str) {
         RuleView::display_rules(vec![r], account_name);
     }
 
-    pub fn display_rules(rules: Vec<&Rule>, account_name: &str) {
+    pub fn display_rules(rules: Vec<Rule>, account_name: &str) {
         let views: Vec<RuleView> = rules
             .into_iter()
-            .map(|r: &Rule| RuleView::new(r, account_name))
+            .map(|r: Rule| RuleView::new(r, account_name))
             .collect();
         let mut table = Table::new(views);
         table.with(Style::modern());

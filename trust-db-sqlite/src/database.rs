@@ -4,7 +4,7 @@ use crate::workers::{
 use diesel::prelude::*;
 use std::error::Error;
 use trust_model::{
-    Account, AccountOverview, Currency, Database, Price, Transaction, TransactionCategory,
+    Account, AccountOverview, Currency, Database, Price, Rule, Transaction, TransactionCategory,
 };
 use uuid::Uuid;
 
@@ -159,5 +159,9 @@ impl Database for SqliteDatabase {
             level,
             account,
         )
+    }
+
+    fn read_all_rules(&mut self, account_id: Uuid) -> Result<Vec<Rule>, Box<dyn Error>> {
+        WorkerRule::read_all(&mut self.connection, account_id)
     }
 }

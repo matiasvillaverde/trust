@@ -77,4 +77,6 @@ pub trait Database {
         priority: u32,
         level: &RuleLevel,
     ) -> Result<Rule, Box<dyn Error>>;
+
+    fn read_all_rules(&mut self, account_id: Uuid) -> Result<Vec<Rule>, Box<dyn Error>>;
 }

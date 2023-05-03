@@ -36,6 +36,13 @@ impl Trust {
         self.database.read_all_accounts()
     }
 
+    pub fn search_all_rules(
+        &mut self,
+        account_id: Uuid,
+    ) -> Result<Vec<Rule>, Box<dyn std::error::Error>> {
+        self.database.read_all_rules(account_id)
+    }
+
     pub fn create_transaction(
         &mut self,
         account: &Account,
@@ -72,6 +79,13 @@ impl Trust {
     ) -> Result<Rule, Box<dyn std::error::Error>> {
         self.database
             .create_rule(account, name, description, priority, level) // TODO: Validate if the rule doesn't exist for this account.
+    }
+
+    pub fn read_all_rules(
+        &mut self,
+        account_id: Uuid,
+    ) -> Result<Vec<Rule>, Box<dyn std::error::Error>> {
+        self.database.read_all_rules(account_id)
     }
 }
 

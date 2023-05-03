@@ -43,6 +43,27 @@ impl WorkerRule {
             })?;
         Ok(inserted_rule)
     }
+
+    pub fn read_all(
+        connection: &mut SqliteConnection,
+        account_id: Uuid,
+    ) -> Result<Vec<Rule>, Box<dyn Error>> {
+        let rules = rules::table
+            .filter(rules::account_id.eq(account_id.to_string()))
+            .filter(rules::deleted_at.is_null())
+            .load::<RuleSQLite>(connection)
+            .map(|rules| {
+                rules
+                    .into_iter()
+                    .map(|rule| rule.domain_model())
+                    .collect::<Vec<Rule>>()
+            })
+            .map_err(|error| {
+                error!("Error reading rules: {:?}", error);
+                error
+            })?;
+        Ok(rules)
+    }
 }
 
 #[derive(Queryable, Identifiable, AsChangeset, Insertable)]
