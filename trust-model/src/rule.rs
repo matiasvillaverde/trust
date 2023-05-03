@@ -85,8 +85,8 @@ impl RuleName {
 impl RuleName {
     pub fn risk(&self) -> u32 {
         match self {
-            RuleName::RiskPerTrade(value) => value.clone(),
-            RuleName::RiskPerMonth(value) => value.clone(),
+            RuleName::RiskPerTrade(value) => *value,
+            RuleName::RiskPerMonth(value) => *value,
         }
     }
 }

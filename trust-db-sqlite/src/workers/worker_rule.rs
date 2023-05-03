@@ -43,18 +43,6 @@ impl WorkerRule {
             })?;
         Ok(inserted_rule)
     }
-
-    pub fn read(connection: &mut SqliteConnection, id: Uuid) -> Result<Rule, Box<dyn Error>> {
-        let rule = rules::table
-            .filter(rules::id.eq(&id.to_string()))
-            .first::<RuleSQLite>(connection)
-            .map(|rule| rule.domain_model())
-            .map_err(|error| {
-                error!("Error reading rule: {:?}", error);
-                error
-            })?;
-        Ok(rule)
-    }
 }
 
 #[derive(Queryable, Identifiable, AsChangeset, Insertable)]
@@ -83,7 +71,7 @@ impl RuleSQLite {
             created_at: self.created_at,
             updated_at: self.updated_at,
             deleted_at: self.deleted_at,
-            name: name,
+            name,
             description: self.description,
             priority: self.priority as u32,
             level: RuleLevel::from_str(&self.level).unwrap(),

@@ -1,6 +1,6 @@
 use std::error::Error;
 
-use crate::dialogs::AccountSearchDialog;
+use crate::{dialogs::AccountSearchDialog, views::RuleView};
 use dialoguer::{theme::ColorfulTheme, FuzzySelect, Input};
 use trust_core::Trust;
 use trust_model::{Account, Rule, RuleLevel, RuleName};
@@ -52,7 +52,7 @@ impl RuleDialogBuilder {
             .result
             .expect("No result found, did you forget to call build?")
         {
-            Ok(rule) => unimplemented!(),
+            Ok(rule) => RuleView::display_rule(&rule, &self.account.unwrap().name),
             Err(error) => println!("Error creating rule: {:?}", error),
         }
     }
@@ -72,7 +72,7 @@ impl RuleDialogBuilder {
         let available_rules = RuleName::all(); //TODO: Only show the rules that can be added.
 
         let selected_rule = FuzzySelect::with_theme(&ColorfulTheme::default())
-            .with_prompt("Which rule would you like to add?")
+            .with_prompt("Rule:")
             .items(&available_rules[..])
             .interact()
             .map(|index| available_rules.get(index).unwrap())
@@ -85,7 +85,7 @@ impl RuleDialogBuilder {
     pub fn description(mut self) -> Self {
         self.description = Some(
             Input::with_theme(&ColorfulTheme::default())
-                .with_prompt("How would you describe your rule?")
+                .with_prompt("Description:")
                 .validate_with({
                     |input: &String| -> Result<(), &str> {
                         match input.parse::<String>() {
@@ -105,13 +105,8 @@ impl RuleDialogBuilder {
             .name
             .expect("Did you forget to select the rule name first?");
 
-        let message = match name {
-            RuleName::RiskPerMonth(_) => "Which is the maximum percentage that your account can loose in one single Month? For example: 6% of an account with $1000, you can maximum loose $60.",
-            RuleName::RiskPerTrade(_) => "Which is the maximum percentage that your account can you loose per one single trade? For example: 2% of an account with $1000, in one trade you can maximum loose $20.",
-        };
-
         let risk = Input::with_theme(&ColorfulTheme::default())
-            .with_prompt(message)
+            .with_prompt("% of risk")
             .validate_with({
                 |input: &String| -> Result<(), &str> {
                     match input.parse::<u32>() {
@@ -139,7 +134,7 @@ impl RuleDialogBuilder {
 
     pub fn priority(mut self) -> Self {
         let priority = Input::with_theme(&ColorfulTheme::default())
-            .with_prompt("Which priority do you want your rule to have? The rule with higher priority will be applied first.")
+            .with_prompt("Priority")
             .validate_with({
                 |input: &String| -> Result<(), &str> {
                     match input.parse::<u32>() {
@@ -148,7 +143,7 @@ impl RuleDialogBuilder {
                                 return Err("Please enter a number below 1000");
                             }
                             Ok(())
-                        },
+                        }
                         Err(_) => Err("Please enter a valid number from 0 to 1000."),
                     }
                 }
@@ -165,7 +160,7 @@ impl RuleDialogBuilder {
         let available_levels = RuleLevel::all();
 
         let selected_level = FuzzySelect::with_theme(&ColorfulTheme::default())
-            .with_prompt("Which rule would you like to add?")
+            .with_prompt("Level:")
             .items(&available_levels[..])
             .interact()
             .map(|index| available_levels.get(index).unwrap())
