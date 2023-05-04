@@ -164,4 +164,8 @@ impl Database for SqliteDatabase {
     fn read_all_rules(&mut self, account_id: Uuid) -> Result<Vec<Rule>, Box<dyn Error>> {
         WorkerRule::read_all(&mut self.connection, account_id)
     }
+
+    fn make_rule_inactive(&mut self, rule: &Rule) -> Result<Rule, Box<dyn Error>> {
+        WorkerRule::make_inactive(&mut self.connection, rule)
+    }
 }

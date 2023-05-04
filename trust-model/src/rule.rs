@@ -7,7 +7,7 @@ use uuid::Uuid;
 /// Rules can be used to limit the risk per trade or per month.
 /// Rules are a core functionality of Trust given that they are used to limit the risk.
 /// For more information about the rules, please check the documentation about rule names.
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub struct Rule {
     pub id: Uuid,
 
@@ -67,6 +67,13 @@ pub enum RuleName {
 }
 
 // Implementations
+
+impl fmt::Display for Rule {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Name: {}, Description: {}", self.name, self.description)
+    }
+}
+
 impl fmt::Display for RuleName {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
@@ -154,9 +161,9 @@ mod tests {
 
     #[test]
     fn test_parse_from_string() {
-        let result = RuleName::parse("risk-per-trade", 2);
+        let result = RuleName::parse("risk_per_trade", 2);
         assert_eq!(result, Ok(RuleName::RiskPerTrade(2)));
-        let result = RuleName::parse("risk-per-month", 2);
+        let result = RuleName::parse("risk_per_month", 2);
         assert_eq!(result, Ok(RuleName::RiskPerMonth(2)));
         let result = RuleName::parse("invalid", 0);
         assert_eq!(result, Err(RuleNameParseError));

@@ -81,6 +81,10 @@ impl Trust {
             .create_rule(account, name, description, priority, level) // TODO: Validate if the rule doesn't exist for this account.
     }
 
+    pub fn make_rule_inactive(&mut self, rule: &Rule) -> Result<Rule, Box<dyn std::error::Error>> {
+        self.database.make_rule_inactive(rule)
+    }
+
     pub fn read_all_rules(
         &mut self,
         account_id: Uuid,

@@ -51,6 +51,7 @@ impl WorkerRule {
         let rules = rules::table
             .filter(rules::account_id.eq(account_id.to_string()))
             .filter(rules::deleted_at.is_null())
+            .filter(rules::active.eq(true))
             .load::<RuleSQLite>(connection)
             .map(|rules| {
                 rules
@@ -63,6 +64,22 @@ impl WorkerRule {
                 error
             })?;
         Ok(rules)
+    }
+
+    pub fn make_inactive(
+        connection: &mut SqliteConnection,
+        rule: &Rule,
+    ) -> Result<Rule, Box<dyn Error>> {
+        let rule = diesel::update(rules::table)
+            .filter(rules::id.eq(rule.id.to_string()))
+            .set(rules::active.eq(false))
+            .get_result::<RuleSQLite>(connection)
+            .map(|rule| rule.domain_model())
+            .map_err(|error| {
+                error!("Error making rule inactive: {:?}", error);
+                error
+            })?;
+        Ok(rule)
     }
 }
 

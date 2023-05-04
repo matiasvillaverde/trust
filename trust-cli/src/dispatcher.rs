@@ -1,6 +1,6 @@
 use crate::dialogs::account_dialog::{AccountDialogBuilder, AccountSearchDialog};
 use crate::dialogs::transaction_dialog::TransactionDialogBuilder;
-use crate::dialogs::RuleDialogBuilder;
+use crate::dialogs::{RuleDialogBuilder, RuleRemoveDialogBuilder};
 use clap::ArgMatches;
 use std::ffi::OsString;
 use trust_core::Trust;
@@ -102,6 +102,10 @@ impl ArgDispatcher {
     }
 
     fn remove_rule(&mut self) {
-        unimplemented!()
+        RuleRemoveDialogBuilder::new()
+            .account(&mut self.trust)
+            .select_rule(&mut self.trust)
+            .build(&mut self.trust)
+            .display();
     }
 }

@@ -171,22 +171,25 @@ impl RuleDialogBuilder {
     }
 }
 
-pub struct RuleRemoveDialog {
+pub struct RuleRemoveDialogBuilder {
     account: Option<Account>,
+    rule_to_remove: Option<Rule>,
     result: Option<Result<Rule, Box<dyn Error>>>,
 }
 
-impl RuleRemoveDialog {
+impl RuleRemoveDialogBuilder {
     pub fn new() -> Self {
-        RuleRemoveDialog {
+        RuleRemoveDialogBuilder {
             result: None,
+            rule_to_remove: None,
             account: None,
         }
     }
 
-    pub fn build(self) -> Result<Rule, Box<dyn Error>> {
-        self.result
-            .expect("No result found, did you forget to call search?")
+    pub fn build(mut self, trust: &mut Trust) -> RuleRemoveDialogBuilder {
+        let selected_rule = self.rule_to_remove.clone().expect("Select a rule first");
+        self.result = Some(trust.make_rule_inactive(&selected_rule));
+        self
     }
 
     pub fn display(self) {
@@ -205,6 +208,24 @@ impl RuleRemoveDialog {
             Ok(account) => self.account = Some(account),
             Err(error) => println!("Error searching account: {:?}", error),
         }
+        self
+    }
+
+    pub fn select_rule(mut self, trust: &mut Trust) -> Self {
+        let account_id = self.account.clone().expect("Select an account first").id;
+        let rules = trust.read_all_rules(account_id).unwrap_or_else(|error| {
+            println!("Error reading rules: {:?}", error);
+            vec![]
+        });
+
+        let selected_rule = FuzzySelect::with_theme(&ColorfulTheme::default())
+            .with_prompt("Rule:")
+            .items(&rules[..])
+            .interact()
+            .map(|index| rules[index].clone())
+            .unwrap();
+
+        self.rule_to_remove = Some(selected_rule);
         self
     }
 }
