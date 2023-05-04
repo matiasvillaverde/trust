@@ -80,4 +80,9 @@ pub trait Database {
 
     fn read_all_rules(&mut self, account_id: Uuid) -> Result<Vec<Rule>, Box<dyn Error>>;
     fn make_rule_inactive(&mut self, rule: &Rule) -> Result<Rule, Box<dyn Error>>;
+    fn rule_for_account(
+        &mut self,
+        account_id: Uuid,
+        name: &RuleName,
+    ) -> Result<Rule, Box<dyn Error>>;
 }

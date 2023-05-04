@@ -1,10 +1,10 @@
 use rust_decimal::Decimal;
-use transaction_worker::TransactionWorker;
 use trust_model::{
     Account, AccountOverview, Currency, Database, Rule, RuleLevel, RuleName, Transaction,
     TransactionCategory,
 };
 use uuid::Uuid;
+use workers::{RuleWorker, TransactionWorker};
 
 pub struct Trust {
     database: Box<dyn Database>,
@@ -77,8 +77,14 @@ impl Trust {
         priority: u32,
         level: &RuleLevel,
     ) -> Result<Rule, Box<dyn std::error::Error>> {
-        self.database
-            .create_rule(account, name, description, priority, level) // TODO: Validate if the rule doesn't exist for this account.
+        RuleWorker::create_rule(
+            &mut *self.database,
+            account,
+            name,
+            description,
+            priority,
+            level,
+        )
     }
 
     pub fn make_rule_inactive(&mut self, rule: &Rule) -> Result<Rule, Box<dyn std::error::Error>> {
@@ -93,5 +99,5 @@ impl Trust {
     }
 }
 
-mod transaction_validator;
-mod transaction_worker;
+mod validators;
+mod workers;

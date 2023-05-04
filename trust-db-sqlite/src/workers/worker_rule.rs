@@ -81,6 +81,25 @@ impl WorkerRule {
             })?;
         Ok(rule)
     }
+
+    pub fn read_for_account_with_name(
+        connection: &mut SqliteConnection,
+        account_id: Uuid,
+        name: &RuleName,
+    ) -> Result<Rule, Box<dyn Error>> {
+        let rule = rules::table
+            .filter(rules::account_id.eq(account_id.to_string()))
+            .filter(rules::deleted_at.is_null())
+            .filter(rules::active.eq(true))
+            .filter(rules::name.eq(name.to_string()))
+            .first::<RuleSQLite>(connection)
+            .map_err(|error| {
+                error!("Error reading rule: {:?}", error);
+                error
+            })
+            .map(|rule| rule.domain_model())?;
+        Ok(rule)
+    }
 }
 
 #[derive(Queryable, Identifiable, AsChangeset, Insertable)]

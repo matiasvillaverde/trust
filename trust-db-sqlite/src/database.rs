@@ -4,7 +4,8 @@ use crate::workers::{
 use diesel::prelude::*;
 use std::error::Error;
 use trust_model::{
-    Account, AccountOverview, Currency, Database, Price, Rule, Transaction, TransactionCategory,
+    Account, AccountOverview, Currency, Database, Price, Rule, RuleName, Transaction,
+    TransactionCategory,
 };
 use uuid::Uuid;
 
@@ -167,5 +168,13 @@ impl Database for SqliteDatabase {
 
     fn make_rule_inactive(&mut self, rule: &Rule) -> Result<Rule, Box<dyn Error>> {
         WorkerRule::make_inactive(&mut self.connection, rule)
+    }
+
+    fn rule_for_account(
+        &mut self,
+        account_id: Uuid,
+        name: &RuleName,
+    ) -> Result<Rule, Box<dyn Error>> {
+        WorkerRule::read_for_account_with_name(&mut self.connection, account_id, name)
     }
 }
