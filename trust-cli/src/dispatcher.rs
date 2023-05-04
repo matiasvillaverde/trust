@@ -1,5 +1,6 @@
 use crate::dialogs::account_dialog::{AccountDialogBuilder, AccountSearchDialog};
 use crate::dialogs::transaction_dialog::TransactionDialogBuilder;
+use crate::dialogs::{RuleDialogBuilder, RuleRemoveDialogBuilder};
 use clap::ArgMatches;
 use std::ffi::OsString;
 use trust_core::Trust;
@@ -28,6 +29,11 @@ impl ArgDispatcher {
             Some(("transaction", sub_matches)) => match sub_matches.subcommand() {
                 Some(("deposit", _)) => self.deposit(),
                 Some(("withdraw", _)) => self.withdraw(),
+                _ => unreachable!("No subcommand provided"),
+            },
+            Some(("rule", sub_matches)) => match sub_matches.subcommand() {
+                Some(("create", _)) => self.create_rule(),
+                Some(("remove", _)) => self.remove_rule(),
                 _ => unreachable!("No subcommand provided"),
             },
             Some((ext, sub_matches)) => {
@@ -76,6 +82,29 @@ impl ArgDispatcher {
             .account(&mut self.trust)
             .currency(&mut self.trust)
             .amount(&mut self.trust)
+            .build(&mut self.trust)
+            .display();
+    }
+}
+
+// Rules
+impl ArgDispatcher {
+    fn create_rule(&mut self) {
+        RuleDialogBuilder::new()
+            .account(&mut self.trust)
+            .name()
+            .risk()
+            .description()
+            .level()
+            .priority()
+            .build(&mut self.trust)
+            .display();
+    }
+
+    fn remove_rule(&mut self) {
+        RuleRemoveDialogBuilder::new()
+            .account(&mut self.trust)
+            .select_rule(&mut self.trust)
             .build(&mut self.trust)
             .display();
     }

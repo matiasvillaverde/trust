@@ -7,7 +7,7 @@ use std::error::Error;
 use trust_model::{AccountOverview, Currency, Database, Transaction, TransactionCategory};
 use uuid::Uuid;
 
-use crate::transaction_validator::{TransactionValidationErrorCode, TransactionValidator};
+use crate::validators::{TransactionValidationErrorCode, TransactionValidator};
 
 pub struct TransactionWorker;
 

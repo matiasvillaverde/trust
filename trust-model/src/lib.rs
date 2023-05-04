@@ -17,7 +17,7 @@ pub use currency::Currency;
 pub use database::Database;
 pub use order::Order;
 pub use price::Price;
-pub use rule::Rule;
+pub use rule::{Rule, RuleLevel, RuleName};
 pub use strategy::Strategy;
 pub use target::Target;
 pub use trade::Trade;

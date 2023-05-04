@@ -1,3 +1,5 @@
+use std::fmt;
+
 use chrono::NaiveDateTime;
 use uuid::Uuid;
 
@@ -5,7 +7,7 @@ use uuid::Uuid;
 /// Rules can be used to limit the risk per trade or per month.
 /// Rules are a core functionality of Trust given that they are used to limit the risk.
 /// For more information about the rules, please check the documentation about rule names.
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub struct Rule {
     pub id: Uuid,
 
@@ -35,7 +37,7 @@ pub struct Rule {
 }
 
 /// RuleName entity - represents the name of a rule
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone, Copy)]
 pub enum RuleName {
     /// The maximum risk per trade defined in percentage
     /// This rule is used to limit the risk per trade
@@ -64,8 +66,53 @@ pub enum RuleName {
     RiskPerMonth(u32),
 }
 
-/// RuleLevel entity - represents the level of a rule
+// Implementations
+
+impl fmt::Display for Rule {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Name: {}, Description: {}", self.name, self.description)
+    }
+}
+
+impl fmt::Display for RuleName {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            RuleName::RiskPerTrade(_) => write!(f, "risk_per_trade"),
+            RuleName::RiskPerMonth(_) => write!(f, "risk_per_month"),
+        }
+    }
+}
+
+impl RuleName {
+    pub fn all() -> Vec<RuleName> {
+        vec![RuleName::RiskPerTrade(0), RuleName::RiskPerMonth(0)]
+    }
+}
+
+impl RuleName {
+    pub fn risk(&self) -> u32 {
+        match self {
+            RuleName::RiskPerTrade(value) => *value,
+            RuleName::RiskPerMonth(value) => *value,
+        }
+    }
+}
+
 #[derive(PartialEq, Debug)]
+pub struct RuleNameParseError;
+
+impl RuleName {
+    pub fn parse(s: &str, risk: u32) -> Result<Self, RuleNameParseError> {
+        match s {
+            "risk_per_trade" => Ok(RuleName::RiskPerTrade(risk)),
+            "risk_per_month" => Ok(RuleName::RiskPerMonth(risk)),
+            _ => Err(RuleNameParseError),
+        }
+    }
+}
+
+/// RuleLevel entity - represents the level of a rule
+#[derive(PartialEq, Debug, Clone, Copy)]
 pub enum RuleLevel {
     /// Just print a message in the logs to warn the user about something
     Advice,
@@ -75,4 +122,50 @@ pub enum RuleLevel {
 
     /// This will stop the trade from being executed
     Error,
+}
+
+impl RuleLevel {
+    pub fn all() -> Vec<RuleLevel> {
+        vec![RuleLevel::Advice, RuleLevel::Warning, RuleLevel::Error]
+    }
+}
+
+impl fmt::Display for RuleLevel {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            RuleLevel::Advice => write!(f, "advice"),
+            RuleLevel::Warning => write!(f, "warning"),
+            RuleLevel::Error => write!(f, "error"),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct RuleLevelParseError;
+impl std::str::FromStr for RuleLevel {
+    type Err = RuleLevelParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "advice" => Ok(RuleLevel::Advice),
+            "warning" => Ok(RuleLevel::Warning),
+            "error" => Ok(RuleLevel::Error),
+            _ => Err(RuleLevelParseError),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_from_string() {
+        let result = RuleName::parse("risk_per_trade", 2);
+        assert_eq!(result, Ok(RuleName::RiskPerTrade(2)));
+        let result = RuleName::parse("risk_per_month", 2);
+        assert_eq!(result, Ok(RuleName::RiskPerMonth(2)));
+        let result = RuleName::parse("invalid", 0);
+        assert_eq!(result, Err(RuleNameParseError));
+    }
 }

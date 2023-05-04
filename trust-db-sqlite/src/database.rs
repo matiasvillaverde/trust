@@ -1,8 +1,11 @@
-use crate::workers::{WorkerAccount, WorkerAccountOverview, WorkerPrice, WorkerTransaction};
+use crate::workers::{
+    WorkerAccount, WorkerAccountOverview, WorkerPrice, WorkerRule, WorkerTransaction,
+};
 use diesel::prelude::*;
 use std::error::Error;
 use trust_model::{
-    Account, AccountOverview, Currency, Database, Price, Transaction, TransactionCategory,
+    Account, AccountOverview, Currency, Database, Price, Rule, RuleName, Transaction,
+    TransactionCategory,
 };
 use uuid::Uuid;
 
@@ -139,5 +142,39 @@ impl Database for SqliteDatabase {
             currency,
             category,
         )
+    }
+
+    fn create_rule(
+        &mut self,
+        account: &Account,
+        name: &trust_model::RuleName,
+        description: &str,
+        priority: u32,
+        level: &trust_model::RuleLevel,
+    ) -> Result<trust_model::Rule, Box<dyn Error>> {
+        WorkerRule::create(
+            &mut self.connection,
+            name,
+            description,
+            priority,
+            level,
+            account,
+        )
+    }
+
+    fn read_all_rules(&mut self, account_id: Uuid) -> Result<Vec<Rule>, Box<dyn Error>> {
+        WorkerRule::read_all(&mut self.connection, account_id)
+    }
+
+    fn make_rule_inactive(&mut self, rule: &Rule) -> Result<Rule, Box<dyn Error>> {
+        WorkerRule::make_inactive(&mut self.connection, rule)
+    }
+
+    fn rule_for_account(
+        &mut self,
+        account_id: Uuid,
+        name: &RuleName,
+    ) -> Result<Rule, Box<dyn Error>> {
+        WorkerRule::read_for_account_with_name(&mut self.connection, account_id, name)
     }
 }

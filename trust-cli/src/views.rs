@@ -1,5 +1,8 @@
 pub mod account_view;
+pub mod rule_view;
 pub mod transaction_view;
+
+pub use rule_view::RuleView;
 
 fn uppercase_first(data: &str) -> String {
     // Uppercase first letter.

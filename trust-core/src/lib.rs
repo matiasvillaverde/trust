@@ -1,7 +1,10 @@
 use rust_decimal::Decimal;
-use transaction_worker::TransactionWorker;
-use trust_model::{Account, AccountOverview, Currency, Database, Transaction, TransactionCategory};
+use trust_model::{
+    Account, AccountOverview, Currency, Database, Rule, RuleLevel, RuleName, Transaction,
+    TransactionCategory,
+};
 use uuid::Uuid;
+use workers::{RuleWorker, TransactionWorker};
 
 pub struct Trust {
     database: Box<dyn Database>,
@@ -33,6 +36,13 @@ impl Trust {
         self.database.read_all_accounts()
     }
 
+    pub fn search_all_rules(
+        &mut self,
+        account_id: Uuid,
+    ) -> Result<Vec<Rule>, Box<dyn std::error::Error>> {
+        self.database.read_all_rules(account_id)
+    }
+
     pub fn create_transaction(
         &mut self,
         account: &Account,
@@ -58,7 +68,36 @@ impl Trust {
     ) -> Result<Vec<AccountOverview>, Box<dyn std::error::Error>> {
         self.database.read_account_overview(account_id)
     }
+
+    pub fn create_rule(
+        &mut self,
+        account: &Account,
+        name: &RuleName,
+        description: &str,
+        priority: u32,
+        level: &RuleLevel,
+    ) -> Result<Rule, Box<dyn std::error::Error>> {
+        RuleWorker::create_rule(
+            &mut *self.database,
+            account,
+            name,
+            description,
+            priority,
+            level,
+        )
+    }
+
+    pub fn make_rule_inactive(&mut self, rule: &Rule) -> Result<Rule, Box<dyn std::error::Error>> {
+        self.database.make_rule_inactive(rule)
+    }
+
+    pub fn read_all_rules(
+        &mut self,
+        account_id: Uuid,
+    ) -> Result<Vec<Rule>, Box<dyn std::error::Error>> {
+        self.database.read_all_rules(account_id)
+    }
 }
 
-mod transaction_validator;
-mod transaction_worker;
+mod validators;
+mod workers;
