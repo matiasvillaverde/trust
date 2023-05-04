@@ -44,13 +44,18 @@ impl WorkerTradingVehicle {
 
     pub fn read_all(
         connection: &mut SqliteConnection,
-    ) -> Result<Vec<TradingVehicle>, diesel::result::Error> {
-        trading_vehicles::table
+    ) -> Result<Vec<TradingVehicle>, Box<dyn Error>> {
+        let tvs = trading_vehicles::table
             .filter(trading_vehicles::deleted_at.is_null())
             .load::<TradingVehicleSQLite>(connection)
             .map(|tv: Vec<TradingVehicleSQLite>| {
                 tv.into_iter().map(|tv| tv.domain_model()).collect()
             })
+            .map_err(|error| {
+                error!("Error creating price: {:?}", error);
+                error
+            })?;
+        Ok(tvs)
     }
 }
 

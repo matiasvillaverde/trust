@@ -188,4 +188,8 @@ impl Database for SqliteDatabase {
     ) -> Result<TradingVehicle, Box<dyn Error>> {
         WorkerTradingVehicle::create(&mut self.connection, symbol, isin, category, broker)
     }
+
+    fn read_all_trading_vehicles(&mut self) -> Result<Vec<TradingVehicle>, Box<dyn Error>> {
+        WorkerTradingVehicle::read_all(&mut self.connection)
+    }
 }
