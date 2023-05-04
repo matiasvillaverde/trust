@@ -1,5 +1,7 @@
 use crate::Currency;
 use crate::Price;
+use crate::TradingVehicle;
+use crate::TradingVehicleCategory;
 use crate::Transaction;
 use crate::TransactionCategory;
 use crate::{Account, AccountOverview};
@@ -85,4 +87,13 @@ pub trait Database {
         account_id: Uuid,
         name: &RuleName,
     ) -> Result<Rule, Box<dyn Error>>;
+
+    // Trading Vehicles
+    fn create_trading_vehicle(
+        &mut self,
+        symbol: &str,
+        isin: &str,
+        category: &TradingVehicleCategory,
+        broker: &str,
+    ) -> Result<TradingVehicle, Box<dyn Error>>;
 }

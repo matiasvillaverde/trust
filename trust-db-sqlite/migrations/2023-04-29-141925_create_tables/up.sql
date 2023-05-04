@@ -53,3 +53,14 @@ CREATE TABLE transactions (
 	account_id 		TEXT NOT NULL REFERENCES accounts(id),
 	trade_id		TEXT REFERENCES trades (uuid)
 );
+
+CREATE TABLE "trading_vehicles" (
+	id 			TEXT NOT NULL PRIMARY KEY,
+	created_at		DATETIME NOT NULL,
+	updated_at		DATETIME NOT NULL,
+	deleted_at		DATETIME,
+	symbol			TEXT NOT NULL,
+	isin			TEXT NOT NULL UNIQUE,
+	category 		TEXT CHECK(category IN ('crypto', 'fiat', 'stock')) NOT NULL,
+	broker 			TEXT NOT NULL
+);
