@@ -1,5 +1,4 @@
-use crate::commands::account_command::AccountCommandBuilder;
-use crate::commands::transaction_command::TransactionCommandBuilder;
+use crate::commands::{AccountCommandBuilder, TradeCommandBuilder, TransactionCommandBuilder};
 use crate::dispatcher::ArgDispatcher;
 use clap::Command;
 use commands::RuleCommandBuilder;
@@ -31,6 +30,7 @@ fn main() {
                 .remove_rule()
                 .build(),
         )
+        .subcommand(TradeCommandBuilder::new().create_trade().build())
         .get_matches();
 
     let dispatcher = ArgDispatcher::new_sqlite();
