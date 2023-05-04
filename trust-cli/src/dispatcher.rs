@@ -1,5 +1,4 @@
-use crate::dialogs::account_dialog::{AccountDialogBuilder, AccountSearchDialog};
-use crate::dialogs::transaction_dialog::TransactionDialogBuilder;
+use crate::dialogs::{AccountDialogBuilder, AccountSearchDialog, TransactionDialogBuilder};
 use crate::dialogs::{RuleDialogBuilder, RuleRemoveDialogBuilder};
 use clap::ArgMatches;
 use std::ffi::OsString;
