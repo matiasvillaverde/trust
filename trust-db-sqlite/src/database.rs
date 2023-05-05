@@ -1,11 +1,12 @@
 use crate::workers::{
-    WorkerAccount, WorkerAccountOverview, WorkerPrice, WorkerRule, WorkerTransaction,
+    WorkerAccount, WorkerAccountOverview, WorkerPrice, WorkerRule, WorkerTradingVehicle,
+    WorkerTransaction,
 };
 use diesel::prelude::*;
 use std::error::Error;
 use trust_model::{
-    Account, AccountOverview, Currency, Database, Price, Rule, RuleName, Transaction,
-    TransactionCategory,
+    Account, AccountOverview, Currency, Database, Price, Rule, RuleName, TradingVehicle,
+    TradingVehicleCategory, Transaction, TransactionCategory,
 };
 use uuid::Uuid;
 
@@ -176,5 +177,19 @@ impl Database for SqliteDatabase {
         name: &RuleName,
     ) -> Result<Rule, Box<dyn Error>> {
         WorkerRule::read_for_account_with_name(&mut self.connection, account_id, name)
+    }
+
+    fn create_trading_vehicle(
+        &mut self,
+        symbol: &str,
+        isin: &str,
+        category: &TradingVehicleCategory,
+        broker: &str,
+    ) -> Result<TradingVehicle, Box<dyn Error>> {
+        WorkerTradingVehicle::create(&mut self.connection, symbol, isin, category, broker)
+    }
+
+    fn read_all_trading_vehicles(&mut self) -> Result<Vec<TradingVehicle>, Box<dyn Error>> {
+        WorkerTradingVehicle::read_all(&mut self.connection)
     }
 }

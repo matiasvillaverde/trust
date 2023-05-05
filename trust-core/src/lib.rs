@@ -1,7 +1,7 @@
 use rust_decimal::Decimal;
 use trust_model::{
-    Account, AccountOverview, Currency, Database, Rule, RuleLevel, RuleName, Transaction,
-    TransactionCategory,
+    Account, AccountOverview, Currency, Database, Rule, RuleLevel, RuleName, TradingVehicle,
+    TradingVehicleCategory, Transaction, TransactionCategory,
 };
 use uuid::Uuid;
 use workers::{RuleWorker, TransactionWorker};
@@ -96,6 +96,23 @@ impl Trust {
         account_id: Uuid,
     ) -> Result<Vec<Rule>, Box<dyn std::error::Error>> {
         self.database.read_all_rules(account_id)
+    }
+
+    pub fn create_trading_vehicle(
+        &mut self,
+        symbol: &str,
+        isin: &str,
+        category: &TradingVehicleCategory,
+        broker: &str,
+    ) -> Result<TradingVehicle, Box<dyn std::error::Error>> {
+        self.database
+            .create_trading_vehicle(symbol, isin, category, broker)
+    }
+
+    pub fn read_all_trading_vehicles(
+        &mut self,
+    ) -> Result<Vec<TradingVehicle>, Box<dyn std::error::Error>> {
+        self.database.read_all_trading_vehicles()
     }
 }
 

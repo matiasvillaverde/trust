@@ -1,5 +1,7 @@
-use crate::dialogs::account_dialog::{AccountDialogBuilder, AccountSearchDialog};
-use crate::dialogs::transaction_dialog::TransactionDialogBuilder;
+use crate::dialogs::{
+    AccountDialogBuilder, AccountSearchDialog, TradingVehicleDialogBuilder,
+    TradingVehicleSearchDialogBuilder, TransactionDialogBuilder,
+};
 use crate::dialogs::{RuleDialogBuilder, RuleRemoveDialogBuilder};
 use clap::ArgMatches;
 use std::ffi::OsString;
@@ -34,6 +36,11 @@ impl ArgDispatcher {
             Some(("rule", sub_matches)) => match sub_matches.subcommand() {
                 Some(("create", _)) => self.create_rule(),
                 Some(("remove", _)) => self.remove_rule(),
+                _ => unreachable!("No subcommand provided"),
+            },
+            Some(("trading-vehicle", sub_matches)) => match sub_matches.subcommand() {
+                Some(("create", _)) => self.create_trading_vehicle(),
+                Some(("search", _)) => self.search_trading_vehicle(),
                 _ => unreachable!("No subcommand provided"),
             },
             Some((ext, sub_matches)) => {
@@ -106,6 +113,26 @@ impl ArgDispatcher {
             .account(&mut self.trust)
             .select_rule(&mut self.trust)
             .build(&mut self.trust)
+            .display();
+    }
+}
+
+// Trading Vehicle
+impl ArgDispatcher {
+    fn create_trading_vehicle(&mut self) {
+        TradingVehicleDialogBuilder::new()
+            .category()
+            .symbol()
+            .broker()
+            .isin()
+            .build(&mut self.trust)
+            .display();
+    }
+
+    fn search_trading_vehicle(&mut self) {
+        TradingVehicleSearchDialogBuilder::new()
+            .search(&mut self.trust)
+            .build()
             .display();
     }
 }

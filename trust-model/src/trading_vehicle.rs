@@ -2,7 +2,7 @@ use chrono::NaiveDateTime;
 use uuid::Uuid;
 
 /// TradingVehicle entity. Like a Stock, Crypto, Fiat, Future, etc.
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub struct TradingVehicle {
     pub id: Uuid,
 
@@ -26,7 +26,7 @@ pub struct TradingVehicle {
 }
 
 /// TradingVehicleCategory enum - represents the type of the trading vehicle
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone, Copy)]
 #[non_exhaustive] // This enum may be extended in the future
 pub enum TradingVehicleCategory {
     /// Cryptocurrency like BTC, ETH, etc.
@@ -37,9 +37,16 @@ pub enum TradingVehicleCategory {
 
     /// Stock like AAPL, TSLA, etc.
     Stock,
+}
 
-    /// Future like BTC-USD-210625, etc.
-    Future,
+impl TradingVehicleCategory {
+    pub fn all() -> Vec<TradingVehicleCategory> {
+        vec![
+            TradingVehicleCategory::Crypto,
+            TradingVehicleCategory::Fiat,
+            TradingVehicleCategory::Stock,
+        ]
+    }
 }
 
 // Implementations
@@ -51,10 +58,9 @@ impl std::str::FromStr for TradingVehicleCategory {
     type Err = TradingVehicleCategoryParseError;
     fn from_str(category: &str) -> Result<Self, Self::Err> {
         match category {
-            "Crypto" => Ok(TradingVehicleCategory::Crypto),
-            "Fiat" => Ok(TradingVehicleCategory::Fiat),
-            "Stock" => Ok(TradingVehicleCategory::Stock),
-            "Future" => Ok(TradingVehicleCategory::Future),
+            "crypto" => Ok(TradingVehicleCategory::Crypto),
+            "fiat" => Ok(TradingVehicleCategory::Fiat),
+            "stock" => Ok(TradingVehicleCategory::Stock),
             _ => Err(TradingVehicleCategoryParseError),
         }
     }
@@ -63,11 +69,23 @@ impl std::str::FromStr for TradingVehicleCategory {
 impl std::fmt::Display for TradingVehicleCategory {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match *self {
-            TradingVehicleCategory::Crypto => write!(f, "Crypto"),
-            TradingVehicleCategory::Fiat => write!(f, "Fiat"),
-            TradingVehicleCategory::Stock => write!(f, "Stock"),
-            TradingVehicleCategory::Future => write!(f, "Future"),
+            TradingVehicleCategory::Crypto => write!(f, "crypto"),
+            TradingVehicleCategory::Fiat => write!(f, "fiat"),
+            TradingVehicleCategory::Stock => write!(f, "stock"),
         }
+    }
+}
+
+impl std::fmt::Display for TradingVehicle {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "{}: {} traded in {} with ISIN: {}",
+            self.symbol.to_uppercase(),
+            self.category,
+            self.broker.to_uppercase(),
+            self.isin.to_uppercase(),
+        )
     }
 }
 
@@ -78,18 +96,15 @@ mod tests {
 
     #[test]
     fn test_trading_vehicle_from_string() {
-        let result = TradingVehicleCategory::from_str("Crypto")
+        let result = TradingVehicleCategory::from_str("crypto")
             .expect("Failed to parse TradingVehicleCategory from string");
         assert_eq!(result, TradingVehicleCategory::Crypto);
-        let result = TradingVehicleCategory::from_str("Fiat")
+        let result = TradingVehicleCategory::from_str("fiat")
             .expect("Failed to parse TradingVehicleCategory from string");
         assert_eq!(result, TradingVehicleCategory::Fiat);
-        let result = TradingVehicleCategory::from_str("Stock")
+        let result = TradingVehicleCategory::from_str("stock")
             .expect("Failed to parse TradingVehicleCategory from string");
         assert_eq!(result, TradingVehicleCategory::Stock);
-        let result = TradingVehicleCategory::from_str("Future")
-            .expect("Failed to parse TradingVehicleCategory from string");
-        assert_eq!(result, TradingVehicleCategory::Future);
     }
 
     #[test]
