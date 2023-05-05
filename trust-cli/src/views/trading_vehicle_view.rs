@@ -26,10 +26,7 @@ impl TradingVehicleView {
     }
 
     pub fn display_table(tvs: Vec<TradingVehicle>) {
-        let views: Vec<TradingVehicleView> = tvs
-            .into_iter()
-            .map(TradingVehicleView::new)
-            .collect();
+        let views: Vec<TradingVehicleView> = tvs.into_iter().map(TradingVehicleView::new).collect();
         let mut table = Table::new(views);
         table.with(Style::modern());
         println!("{}", table);

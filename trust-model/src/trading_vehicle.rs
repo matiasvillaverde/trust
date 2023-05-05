@@ -80,8 +80,11 @@ impl std::fmt::Display for TradingVehicle {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(
             f,
-            "({}, isin: {}, category: {}, broker: {})",
-            self.symbol, self.isin, self.category, self.broker,
+            "{}: {} traded in {} with ISIN: {}",
+            self.symbol.to_uppercase(),
+            self.category,
+            self.broker.to_uppercase(),
+            self.isin.to_uppercase(),
         )
     }
 }

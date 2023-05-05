@@ -98,7 +98,7 @@ impl TradingVehicleDialogBuilder {
     pub fn broker(mut self) -> Self {
         self.broker = Some(
             Input::with_theme(&ColorfulTheme::default())
-                .with_prompt("ISIN: ")
+                .with_prompt("Broker: ")
                 .validate_with({
                     |input: &String| -> Result<(), &str> {
                         match input.parse::<String>() {
