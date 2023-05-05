@@ -1,7 +1,7 @@
 use rust_decimal::Decimal;
 use trust_model::{
-    Account, AccountOverview, Currency, Database, Rule, RuleLevel, RuleName, TradingVehicle,
-    TradingVehicleCategory, Transaction, TransactionCategory,
+    Account, AccountOverview, Currency, Database, Rule, RuleLevel, RuleName, TradeCategory,
+    TradingVehicle, TradingVehicleCategory, Transaction, TransactionCategory,
 };
 use uuid::Uuid;
 use workers::{RuleWorker, TransactionWorker};
@@ -113,6 +113,16 @@ impl Trust {
         &mut self,
     ) -> Result<Vec<TradingVehicle>, Box<dyn std::error::Error>> {
         self.database.read_all_trading_vehicles()
+    }
+
+    pub fn maximum_quantity(
+        &mut self,
+        account_id: Uuid,
+        entry_price: Decimal,
+        stop_price: Decimal,
+        TradeCategory: &TradeCategory,
+    ) -> Result<u64, Box<dyn std::error::Error>> {
+        unimplemented!("maximum_quantity")
     }
 }
 

@@ -59,13 +59,40 @@ pub struct Trade {
 }
 
 /// The category of the trade - Being a bull or a bear
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone, Copy)]
 pub enum TradeCategory {
     /// Long trade - Bull - buy an asset and sell it later at a higher price
     Long,
 
     /// Short trade - Bear - sell an asset and buy it later at a lower price
     Short,
+}
+
+impl TradeCategory {
+    pub fn all() -> Vec<TradeCategory> {
+        vec![TradeCategory::Long, TradeCategory::Short]
+    }
+}
+
+impl std::fmt::Display for TradeCategory {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TradeCategory::Long => write!(f, "long"),
+            TradeCategory::Short => write!(f, "short"),
+        }
+    }
+}
+
+pub struct TradeCategoryParseError;
+impl std::str::FromStr for TradeCategory {
+    type Err = TradeCategoryParseError;
+    fn from_str(category: &str) -> Result<Self, Self::Err> {
+        match category {
+            "long" => Ok(TradeCategory::Long),
+            "short" => Ok(TradeCategory::Short),
+            _ => Err(TradeCategoryParseError),
+        }
+    }
 }
 
 /// The lifecycle of the trade - approved, rejected, executed, failed, closed

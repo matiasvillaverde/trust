@@ -123,11 +123,9 @@ impl TradingVehicleSearchDialogBuilder {
         TradingVehicleSearchDialogBuilder { result: None }
     }
 
-    pub fn build(self) -> Self {
-        if self.result.is_none() {
-            panic!("No result found, did you forget to call search?")
-        }
-        self
+    pub fn build(self) -> Result<TradingVehicle, Box<dyn Error>> {
+        self.result
+            .expect("No result found, did you forget to call search?")
     }
 
     pub fn display(self) {

@@ -37,7 +37,7 @@ impl AccountDialogBuilder {
 
     pub fn name(mut self) -> Self {
         self.name = Input::with_theme(&ColorfulTheme::default())
-            .with_prompt("How is the name of your trading account? For example: 'Robin Hood'")
+            .with_prompt("Name: ")
             .interact_text()
             .unwrap();
         self
@@ -45,7 +45,7 @@ impl AccountDialogBuilder {
 
     pub fn description(mut self) -> Self {
         self.description = Input::with_theme(&ColorfulTheme::default())
-            .with_prompt("How would you describe your account?")
+            .with_prompt("Description: ")
             .interact_text()
             .unwrap();
         self
