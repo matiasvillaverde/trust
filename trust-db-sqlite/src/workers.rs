@@ -1,5 +1,6 @@
 mod worker_account;
 mod worker_account_overview;
+mod worker_order;
 mod worker_price;
 mod worker_rule;
 mod worker_trading_vehicle;

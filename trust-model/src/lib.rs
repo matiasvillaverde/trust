@@ -15,7 +15,7 @@ pub mod database;
 pub use account::{Account, AccountOverview};
 pub use currency::Currency;
 pub use database::Database;
-pub use order::Order;
+pub use order::{Order, OrderAction, OrderCategory};
 pub use price::Price;
 pub use rule::{Rule, RuleLevel, RuleName};
 pub use strategy::Strategy;

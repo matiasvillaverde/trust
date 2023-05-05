@@ -33,7 +33,7 @@ pub struct Order {
 
     // Lifecycle fields
     /// When the order was opened in an exchange
-    pub open_at: Option<NaiveDateTime>,
+    pub opened_at: Option<NaiveDateTime>,
 
     /// When the order was closed in an exchange
     pub closed_at: Option<NaiveDateTime>,
@@ -63,4 +63,55 @@ pub enum OrderAction {
 
     /// Sell an asset that you don't own
     Short,
+}
+
+impl std::fmt::Display for OrderCategory {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            OrderCategory::Market => write!(f, "market"),
+            OrderCategory::Limit => write!(f, "limit"),
+            OrderCategory::Stop => write!(f, "stop"),
+        }
+    }
+}
+
+#[derive(PartialEq, Debug)]
+pub struct OrderCategoryParseError;
+impl std::str::FromStr for OrderCategory {
+    type Err = OrderCategoryParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "market" => Ok(OrderCategory::Market),
+            "limit" => Ok(OrderCategory::Limit),
+            "stop" => Ok(OrderCategory::Stop),
+            _ => Err(OrderCategoryParseError),
+        }
+    }
+}
+
+// Implementations
+impl std::fmt::Display for OrderAction {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            OrderAction::Sell => write!(f, "sell"),
+            OrderAction::Buy => write!(f, "buy"),
+            OrderAction::Short => write!(f, "short"),
+        }
+    }
+}
+
+#[derive(PartialEq, Debug)]
+pub struct OrderActionParseError;
+impl std::str::FromStr for OrderAction {
+    type Err = OrderActionParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "sell" => Ok(OrderAction::Sell),
+            "buy" => Ok(OrderAction::Buy),
+            "short" => Ok(OrderAction::Short),
+            _ => Err(OrderActionParseError),
+        }
+    }
 }
