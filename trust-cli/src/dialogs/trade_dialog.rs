@@ -3,7 +3,7 @@ use dialoguer::{theme::ColorfulTheme, FuzzySelect, Input};
 use rust_decimal::Decimal;
 use std::error::Error;
 use trust_core::Trust;
-use trust_model::{Account, Order, Target, Trade, TradeCategory, TradingVehicle};
+use trust_model::{Account, Currency, Order, Target, Trade, TradeCategory, TradingVehicle};
 
 pub struct TradeDialogBuilder {
     account: Option<Account>,
@@ -11,6 +11,7 @@ pub struct TradeDialogBuilder {
     category: Option<TradeCategory>,
     entry_price: Option<Decimal>,
     stop_price: Option<Decimal>,
+    currency: Option<Currency>,
     quantity: Option<u64>,
     target_price: Option<Decimal>,
     result: Option<Result<Trade, Box<dyn Error>>>,
@@ -24,6 +25,7 @@ impl TradeDialogBuilder {
             category: None,
             entry_price: None,
             stop_price: None,
+            currency: None,
             quantity: None,
             target_price: None,
             result: None,
@@ -96,6 +98,20 @@ impl TradeDialogBuilder {
         self
     }
 
+    pub fn currency(mut self) -> Self {
+        let currencies = Currency::all();
+
+        let selected_currency = FuzzySelect::with_theme(&ColorfulTheme::default())
+            .with_prompt("Currency:")
+            .items(&currencies[..])
+            .interact()
+            .map(|index| currencies.get(index).unwrap())
+            .unwrap();
+
+        self.currency = Some(*selected_currency);
+        self
+    }
+
     pub fn quantity(mut self, trust: &mut Trust) -> Self {
         let maximum = trust
             .maximum_quantity(
@@ -103,6 +119,7 @@ impl TradeDialogBuilder {
                 self.entry_price.unwrap(),
                 self.stop_price.unwrap(),
                 &self.category.unwrap(),
+                &self.currency.unwrap(),
             )
             .unwrap_or_else(|error| {
                 println!("Error calculating maximum quantity {}", error);
@@ -112,7 +129,7 @@ impl TradeDialogBuilder {
         println!("Maximum quantity: {}", maximum);
 
         let quantity = Input::new()
-            .with_prompt("Quantity:")
+            .with_prompt("Quantity")
             .interact() // TODO: Validate it.
             .unwrap();
 

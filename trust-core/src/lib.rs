@@ -1,4 +1,5 @@
-use rust_decimal::Decimal;
+use rust_decimal::{prelude::ToPrimitive, Decimal};
+use rust_decimal_macros::dec;
 use trust_model::{
     Account, AccountOverview, Currency, Database, Rule, RuleLevel, RuleName, TradeCategory,
     TradingVehicle, TradingVehicleCategory, Transaction, TransactionCategory,
@@ -121,8 +122,14 @@ impl Trust {
         entry_price: Decimal,
         stop_price: Decimal,
         TradeCategory: &TradeCategory,
-    ) -> Result<u64, Box<dyn std::error::Error>> {
-        unimplemented!("maximum_quantity")
+        currency: &Currency,
+    ) -> Result<i64, Box<dyn std::error::Error>> {
+        let overview = self
+            .database
+            .read_account_overview_currency(account_id, currency)?;
+        let available = overview.total_available.amount;
+        let maximum = dec!(-1.0) * ((available * dec!(0.02)) / (stop_price - entry_price));
+        Ok(maximum.to_i64().unwrap())
     }
 }
 

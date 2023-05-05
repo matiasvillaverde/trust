@@ -149,6 +149,7 @@ impl ArgDispatcher {
             .category()
             .entry_price()
             .stop_price()
+            .currency()
             .quantity(&mut self.trust)
             .target_price()
             .build()
