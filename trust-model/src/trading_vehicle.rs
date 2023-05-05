@@ -2,7 +2,7 @@ use chrono::NaiveDateTime;
 use uuid::Uuid;
 
 /// TradingVehicle entity. Like a Stock, Crypto, Fiat, Future, etc.
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub struct TradingVehicle {
     pub id: Uuid,
 
@@ -26,7 +26,7 @@ pub struct TradingVehicle {
 }
 
 /// TradingVehicleCategory enum - represents the type of the trading vehicle
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone, Copy)]
 #[non_exhaustive] // This enum may be extended in the future
 pub enum TradingVehicleCategory {
     /// Cryptocurrency like BTC, ETH, etc.
@@ -37,6 +37,16 @@ pub enum TradingVehicleCategory {
 
     /// Stock like AAPL, TSLA, etc.
     Stock,
+}
+
+impl TradingVehicleCategory {
+    pub fn all() -> Vec<TradingVehicleCategory> {
+        vec![
+            TradingVehicleCategory::Crypto,
+            TradingVehicleCategory::Fiat,
+            TradingVehicleCategory::Stock,
+        ]
+    }
 }
 
 // Implementations
@@ -63,6 +73,16 @@ impl std::fmt::Display for TradingVehicleCategory {
             TradingVehicleCategory::Fiat => write!(f, "fiat"),
             TradingVehicleCategory::Stock => write!(f, "stock"),
         }
+    }
+}
+
+impl std::fmt::Display for TradingVehicle {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "({}, isin: {}, category: {}, broker: {})",
+            self.symbol, self.isin, self.category, self.broker,
+        )
     }
 }
 

@@ -98,7 +98,7 @@ impl Trust {
         self.database.read_all_rules(account_id)
     }
 
-    fn create_trading_vehicle(
+    pub fn create_trading_vehicle(
         &mut self,
         symbol: &str,
         isin: &str,
@@ -109,7 +109,7 @@ impl Trust {
             .create_trading_vehicle(symbol, isin, category, broker)
     }
 
-    fn read_all_trading_vehicles(
+    pub fn read_all_trading_vehicles(
         &mut self,
     ) -> Result<Vec<TradingVehicle>, Box<dyn std::error::Error>> {
         self.database.read_all_trading_vehicles()
