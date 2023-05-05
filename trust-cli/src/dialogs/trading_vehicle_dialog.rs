@@ -4,6 +4,8 @@ use dialoguer::{theme::ColorfulTheme, FuzzySelect, Input};
 use trust_core::Trust;
 use trust_model::{TradingVehicle, TradingVehicleCategory};
 
+use crate::views::TradingVehicleView;
+
 pub struct TradingVehicleDialogBuilder {
     symbol: Option<String>,
     isin: Option<String>,
@@ -38,7 +40,7 @@ impl TradingVehicleDialogBuilder {
             .result
             .expect("No result found, did you forget to call build?")
         {
-            Ok(tv) => unimplemented!(),
+            Ok(tv) => TradingVehicleView::display(tv),
             Err(error) => println!("Error creating trading vehicle: {:?}", error),
         }
     }
@@ -128,13 +130,13 @@ impl TradingVehicleSearchDialogBuilder {
         self
     }
 
-    pub fn display(self, trust: &mut Trust) {
+    pub fn display(self) {
         match self
             .result
             .expect("No result found, did you forget to call search?")
         {
             Ok(tv) => {
-                unimplemented!("Display TV")
+                TradingVehicleView::display(tv);
             }
             Err(error) => println!("Error searching Trading Vehicles: {:?}", error),
         }

@@ -133,6 +133,6 @@ impl ArgDispatcher {
         TradingVehicleSearchDialogBuilder::new()
             .search(&mut self.trust)
             .build()
-            .display(&mut self.trust);
+            .display();
     }
 }

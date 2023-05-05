@@ -1,6 +1,5 @@
 use crate::dialogs::account_dialog::AccountSearchDialog;
-use crate::views::account_view::AccountOverviewView;
-use crate::views::transaction_view::TransactionView;
+use crate::views::{AccountOverviewView, TransactionView};
 use dialoguer::{theme::ColorfulTheme, FuzzySelect, Input};
 use rust_decimal::Decimal;
 use std::error::Error;

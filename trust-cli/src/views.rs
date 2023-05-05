@@ -1,8 +1,12 @@
-pub mod account_view;
-pub mod rule_view;
-pub mod transaction_view;
+mod account_view;
+mod rule_view;
+mod trading_vehicle_view;
+mod transaction_view;
 
+pub use account_view::{AccountOverviewView, AccountView};
 pub use rule_view::RuleView;
+pub use trading_vehicle_view::TradingVehicleView;
+pub use transaction_view::TransactionView;
 
 fn uppercase_first(data: &str) -> String {
     // Uppercase first letter.
