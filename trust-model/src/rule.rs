@@ -51,7 +51,7 @@ pub enum RuleName {
     /// 4. In this case the rule will be applied and the trade will be approved.
     ///
     /// As well, this rule can be used to calculate how many shares you can buy.
-    RiskPerTrade(u32),
+    RiskPerTrade(f32),
 
     /// The maximum risk per month defined in percentage
     /// This rule is used to limit the risk per month of an entire account
@@ -63,7 +63,7 @@ pub enum RuleName {
     /// 2. If you lose 5000 in a month, all the trades will be rejected until the next month.
     ///
     /// It is recommended not to set this rule to more than 6% of the account.
-    RiskPerMonth(u32),
+    RiskPerMonth(f32),
 }
 
 // Implementations
@@ -85,12 +85,12 @@ impl fmt::Display for RuleName {
 
 impl RuleName {
     pub fn all() -> Vec<RuleName> {
-        vec![RuleName::RiskPerTrade(0), RuleName::RiskPerMonth(0)]
+        vec![RuleName::RiskPerTrade(0.0), RuleName::RiskPerMonth(0.0)]
     }
 }
 
 impl RuleName {
-    pub fn risk(&self) -> u32 {
+    pub fn risk(&self) -> f32 {
         match self {
             RuleName::RiskPerTrade(value) => *value,
             RuleName::RiskPerMonth(value) => *value,
@@ -102,7 +102,7 @@ impl RuleName {
 pub struct RuleNameParseError;
 
 impl RuleName {
-    pub fn parse(s: &str, risk: u32) -> Result<Self, RuleNameParseError> {
+    pub fn parse(s: &str, risk: f32) -> Result<Self, RuleNameParseError> {
         match s {
             "risk_per_trade" => Ok(RuleName::RiskPerTrade(risk)),
             "risk_per_month" => Ok(RuleName::RiskPerMonth(risk)),
@@ -161,11 +161,11 @@ mod tests {
 
     #[test]
     fn test_parse_from_string() {
-        let result = RuleName::parse("risk_per_trade", 2);
-        assert_eq!(result, Ok(RuleName::RiskPerTrade(2)));
-        let result = RuleName::parse("risk_per_month", 2);
-        assert_eq!(result, Ok(RuleName::RiskPerMonth(2)));
-        let result = RuleName::parse("invalid", 0);
+        let result = RuleName::parse("risk_per_trade", 2.0);
+        assert_eq!(result, Ok(RuleName::RiskPerTrade(2.0)));
+        let result = RuleName::parse("risk_per_month", 2.0);
+        assert_eq!(result, Ok(RuleName::RiskPerMonth(2.0)));
+        let result = RuleName::parse("invalid", 0.0);
         assert_eq!(result, Err(RuleNameParseError));
     }
 }

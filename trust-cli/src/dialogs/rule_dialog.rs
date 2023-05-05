@@ -109,10 +109,12 @@ impl RuleDialogBuilder {
             .with_prompt("% of risk")
             .validate_with({
                 |input: &String| -> Result<(), &str> {
-                    match input.parse::<u32>() {
+                    match input.parse::<f32>() {
                         Ok(parsed) => {
-                            if parsed > 100 {
+                            if parsed > 100.0 {
                                 return Err("Please enter a number below 100%");
+                            } else if parsed < 0.0 {
+                                return Err("Please enter a number above 0%");
                             }
                             Ok(())
                         }
@@ -122,7 +124,7 @@ impl RuleDialogBuilder {
             })
             .interact_text()
             .unwrap()
-            .parse::<u32>()
+            .parse::<f32>()
             .unwrap();
 
         self.name = Some(match name {
