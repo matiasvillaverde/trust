@@ -144,6 +144,9 @@ impl TradingVehicleSearchDialogBuilder {
         let trading_vehicles = trust.read_all_trading_vehicles();
         match trading_vehicles {
             Ok(tvs) => {
+                if tvs.is_empty() {
+                    panic!("No trading vehicles found, did you forget to add one?")
+                }
                 let selected_tv = FuzzySelect::with_theme(&ColorfulTheme::default())
                     .with_prompt("Trading Vehicle: ")
                     .items(&tvs[..])

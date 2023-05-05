@@ -83,14 +83,14 @@ impl TradeDialogBuilder {
     }
 
     pub fn entry_price(mut self) -> Self {
-        let entry_price = Input::new().with_prompt("Entry price:").interact().unwrap();
+        let entry_price = Input::new().with_prompt("Entry price").interact().unwrap();
 
         self.entry_price = Some(entry_price);
         self
     }
 
     pub fn stop_price(mut self) -> Self {
-        let stop_price = Input::new().with_prompt("Stop price:").interact().unwrap();
+        let stop_price = Input::new().with_prompt("Stop price").interact().unwrap();
 
         self.stop_price = Some(stop_price);
         self

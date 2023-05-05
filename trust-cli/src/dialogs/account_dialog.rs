@@ -98,6 +98,9 @@ impl AccountSearchDialog {
         let accounts = trust.search_all_accounts();
         match accounts {
             Ok(accounts) => {
+                if accounts.is_empty() {
+                    panic!("No accounts found, did you forget to create one?")
+                }
                 let account = FuzzySelect::with_theme(&ColorfulTheme::default())
                     .with_prompt("Which account do you want to use?")
                     .items(&accounts[..])
