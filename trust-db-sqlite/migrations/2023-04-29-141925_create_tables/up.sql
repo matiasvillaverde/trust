@@ -64,3 +64,17 @@ CREATE TABLE "trading_vehicles" (
 	category 		TEXT CHECK(category IN ('crypto', 'fiat', 'stock')) NOT NULL,
 	broker 			TEXT NOT NULL
 );
+
+CREATE TABLE "orders" (
+	id 			TEXT NOT NULL PRIMARY KEY,
+	created_at			DATETIME NOT NULL,
+	updated_at			DATETIME NOT NULL,
+	deleted_at			DATETIME,
+	price_id			TEXT NOT NULL REFERENCES prices (id),
+	quantity			INTEGER NOT NULL,
+	trading_vehicle_id	TEXT NOT NULL REFERENCES trading_vehicles (id),
+	action 				TEXT CHECK(action IN ('sell', 'buy', 'short')) NOT NULL,
+	category 			TEXT CHECK(category IN ('market', 'limit', 'stop')) NOT NULL,
+	opened_at				DATETIME,
+	closed_at			DATETIME
+);

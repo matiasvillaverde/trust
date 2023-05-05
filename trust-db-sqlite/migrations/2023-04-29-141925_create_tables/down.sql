@@ -5,3 +5,4 @@ DROP TABLE "transactions";
 DROP TABLE "account_overviews";
 DROP TABLE "rules";
 DROP TABLE "trading_vehicles";
+DROP TABLE "orders";

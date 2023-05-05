@@ -77,6 +77,24 @@ diesel::table! {
     }
 }
 
+diesel::table! {
+    orders (id) {
+        id -> Text,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        deleted_at -> Nullable<Timestamp>,
+        price_id -> Text,
+        quantity -> Integer,
+        trading_vehicle_id -> Text,
+        action -> Text,
+        category -> Text,
+        opened_at -> Nullable<Timestamp>,
+        closed_at -> Nullable<Timestamp>,
+    }
+}
+
 diesel::joinable!(transactions -> accounts (account_id));
 diesel::joinable!(account_overviews -> accounts (account_id));
 diesel::joinable!(account_overviews -> prices (total_balance_id));
+diesel::joinable!(orders -> prices (price_id));
+diesel::joinable!(orders -> trading_vehicles (trading_vehicle_id));
