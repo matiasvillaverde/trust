@@ -3,7 +3,7 @@ use dialoguer::{theme::ColorfulTheme, FuzzySelect, Input};
 use rust_decimal::Decimal;
 use std::error::Error;
 use trust_core::Trust;
-use trust_model::{Account, Currency, Order, Target, Trade, TradeCategory, TradingVehicle};
+use trust_model::{Account, Currency, Trade, TradeCategory, TradingVehicle};
 
 pub struct TradeDialogBuilder {
     account: Option<Account>,
@@ -99,7 +99,7 @@ impl TradeDialogBuilder {
     }
 
     pub fn currency(mut self) -> Self {
-        let currencies = Currency::all();
+        let currencies = Currency::all(); // TODO: Show only currencies available
 
         let selected_currency = FuzzySelect::with_theme(&ColorfulTheme::default())
             .with_prompt("Currency:")
@@ -130,7 +130,24 @@ impl TradeDialogBuilder {
 
         let quantity = Input::new()
             .with_prompt("Quantity")
-            .interact() // TODO: Validate it.
+            .validate_with({
+                |input: &String| -> Result<(), &str> {
+                    match input.parse::<u64>() {
+                        Ok(parsed) => {
+                            if parsed > maximum as u64 {
+                                return Err("Please enter a number below your maximum allowed");
+                            } else if parsed == 0 {
+                                return Err("Please enter a number above 0");
+                            }
+                            Ok(())
+                        }
+                        Err(_) => Err("Please enter a valid number."),
+                    }
+                }
+            })
+            .interact()
+            .unwrap()
+            .parse::<u64>()
             .unwrap();
 
         self.quantity = Some(quantity);

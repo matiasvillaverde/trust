@@ -121,15 +121,48 @@ impl Trust {
         account_id: Uuid,
         entry_price: Decimal,
         stop_price: Decimal,
-        TradeCategory: &TradeCategory,
+        _TradeCategory: &TradeCategory,
         currency: &Currency,
     ) -> Result<i64, Box<dyn std::error::Error>> {
         let overview = self
             .database
             .read_account_overview_currency(account_id, currency)?;
         let available = overview.total_available.amount;
-        let maximum = dec!(-1.0) * ((available * dec!(0.02)) / (stop_price - entry_price));
-        Ok(maximum.to_i64().unwrap())
+
+        // Get rules by priority
+        let mut rules = self.database.read_all_rules(account_id)?;
+        rules.sort_by(|a, b| a.priority.cmp(&b.priority));
+
+        // match rules by name
+
+        for rule in rules {
+            match rule.name {
+                RuleName::RiskPerMonth(_risk) => {
+                    unimplemented!("risk_per_month")
+                }
+                RuleName::RiskPerTrade(risk) => {
+                    let risk_per_trade =
+                        self.risk_per_trade(available, entry_price, stop_price, risk)?;
+                    return Ok(risk_per_trade);
+                }
+            }
+        }
+
+        // If there are no rules, return the maximum quantity based on available funds
+        Ok((available / entry_price).to_i64().unwrap())
+    }
+
+    fn risk_per_trade(
+        &mut self,
+        available: Decimal,
+        entry_price: Decimal,
+        stop_price: Decimal,
+        risk: f32,
+    ) -> Result<i64, Box<dyn std::error::Error>> {
+        let risk = available * (Decimal::from_f32_retain(risk).unwrap() / dec!(100.0));
+        let risk_per_trade = risk / (entry_price - stop_price);
+        let risk_per_trade = risk_per_trade.to_i64().unwrap();
+        Ok(risk_per_trade)
     }
 }
 
