@@ -12,7 +12,7 @@ pub struct TradeDialogBuilder {
     entry_price: Option<Decimal>,
     stop_price: Option<Decimal>,
     currency: Option<Currency>,
-    quantity: Option<u64>,
+    quantity: Option<i64>,
     target_price: Option<Decimal>,
     result: Option<Result<Trade, Box<dyn Error>>>,
 }
@@ -32,8 +32,17 @@ impl TradeDialogBuilder {
         }
     }
 
-    pub fn build(self) -> Self {
-        // TODO: Create Stop
+    pub fn build(self, trust: &mut Trust) -> Self {
+        let stop = trust.create_stop(
+            self.trading_vehicle.unwrap().id,
+            self.quantity.expect("Did you forget to specify quantity") as i64,
+            self.stop_price
+                .expect("Did you forget to specify stop price"),
+            &self.category.expect("Did you forget to specify category"),
+            &self.currency.expect("Did you forget to specify currency"),
+        );
+
+        unimplemented!();
         // TODO: Create Entry
         // TODO: Create Target
         // TODO: Create Trade
@@ -131,9 +140,9 @@ impl TradeDialogBuilder {
             .with_prompt("Quantity")
             .validate_with({
                 |input: &String| -> Result<(), &str> {
-                    match input.parse::<u64>() {
+                    match input.parse::<i64>() {
                         Ok(parsed) => {
-                            if parsed > maximum as u64 {
+                            if parsed > maximum as i64 {
                                 return Err("Please enter a number below your maximum allowed");
                             } else if parsed == 0 {
                                 return Err("Please enter a number above 0");
@@ -146,7 +155,7 @@ impl TradeDialogBuilder {
             })
             .interact()
             .unwrap()
-            .parse::<u64>()
+            .parse::<i64>()
             .unwrap();
 
         self.quantity = Some(quantity);
