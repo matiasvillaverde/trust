@@ -24,5 +24,5 @@ pub struct Target {
     pub order: Order,
 
     /// The trade that the target is associated with.
-    pub trade_uuid: Uuid,
+    pub trade_id: Uuid,
 }

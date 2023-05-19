@@ -50,6 +50,16 @@ impl WorkerOrder {
             })?;
         Ok(order)
     }
+
+    pub fn read(
+        connection: &mut SqliteConnection,
+        id: Uuid,
+    ) -> Result<Order, diesel::result::Error> {
+        orders::table
+            .filter(orders::id.eq(&id.to_string()))
+            .first(connection)
+            .map(|order: OrderSQLite| order.domain_model(connection))
+    }
 }
 
 #[derive(Queryable, Identifiable, AsChangeset, Insertable)]
