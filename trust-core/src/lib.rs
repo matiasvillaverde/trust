@@ -1,10 +1,10 @@
 use rust_decimal::Decimal;
 use trust_model::{
-    Account, AccountOverview, Currency, Database, Rule, RuleLevel, RuleName, TradingVehicle,
-    TradingVehicleCategory, Transaction, TransactionCategory,
+    Account, AccountOverview, Currency, Database, Order, Rule, RuleLevel, RuleName, TradeCategory,
+    TradingVehicle, TradingVehicleCategory, Transaction, TransactionCategory,
 };
 use uuid::Uuid;
-use workers::{QuantityWorker, RuleWorker, TransactionWorker};
+use workers::{OrderWorker, QuantityWorker, RuleWorker, TransactionWorker};
 
 pub struct Trust {
     database: Box<dyn Database>,
@@ -119,6 +119,24 @@ impl Trust {
             entry_price,
             stop_price,
             currency,
+            &mut *self.database,
+        )
+    }
+
+    pub fn create_stop(
+        &mut self,
+        trading_vehicle_id: Uuid,
+        quantity: i64,
+        price: Decimal,
+        category: &TradeCategory,
+        currency: &Currency,
+    ) -> Result<Order, Box<dyn std::error::Error>> {
+        OrderWorker::create_stop(
+            trading_vehicle_id,
+            quantity,
+            price,
+            currency,
+            category,
             &mut *self.database,
         )
     }

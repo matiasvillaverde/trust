@@ -57,6 +57,22 @@ impl WorkerTradingVehicle {
             })?;
         Ok(tvs)
     }
+
+    pub fn read(
+        connection: &mut SqliteConnection,
+        id: Uuid,
+    ) -> Result<TradingVehicle, Box<dyn Error>> {
+        let tv = trading_vehicles::table
+            .filter(trading_vehicles::id.eq(id.to_string()))
+            .filter(trading_vehicles::deleted_at.is_null())
+            .first::<TradingVehicleSQLite>(connection)
+            .map(|tv| tv.domain_model())
+            .map_err(|error| {
+                error!("Error reading trading vehicle: {:?}", error);
+                error
+            })?;
+        Ok(tv)
+    }
 }
 
 #[derive(Queryable, Identifiable, AsChangeset, Insertable)]

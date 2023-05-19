@@ -8,6 +8,7 @@ mod worker_transaction;
 
 pub use worker_account::WorkerAccount;
 pub use worker_account_overview::WorkerAccountOverview;
+pub use worker_order::WorkerOrder;
 pub use worker_price::WorkerPrice;
 pub use worker_rule::WorkerRule;
 pub use worker_trading_vehicle::WorkerTradingVehicle;

@@ -1,26 +1,30 @@
 use crate::schema::orders;
 use chrono::{NaiveDateTime, Utc};
 use diesel::prelude::*;
+use rust_decimal::Decimal;
 use std::error::Error;
 use std::str::FromStr;
 use tracing::error;
-use trust_model::{Order, OrderAction, OrderCategory, Price, TradingVehicle};
+use trust_model::{Currency, Order, OrderAction, OrderCategory, TradingVehicle};
 use uuid::Uuid;
 
 use super::WorkerPrice;
 
-struct WorkerOrder;
+pub struct WorkerOrder;
 impl WorkerOrder {
-    pub fn new(
+    pub fn create(
         connection: &mut SqliteConnection,
-        price: &Price,
-        quantity: i32,
-        action: OrderAction,
-        category: OrderCategory,
+        price: Decimal,
+        currency: &Currency,
+        quantity: i64,
+        action: &OrderAction,
+        category: &OrderCategory,
         trading_vehicle: &TradingVehicle,
     ) -> Result<Order, Box<dyn Error>> {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().naive_utc();
+
+        let price = WorkerPrice::create(connection, currency, price)?;
 
         let new_order = NewOrder {
             id,
@@ -56,7 +60,7 @@ struct OrderSQLite {
     updated_at: NaiveDateTime,
     deleted_at: Option<NaiveDateTime>,
     price_id: String,
-    quantity: i32,
+    quantity: i64,
     trading_vehicle_id: String,
     action: String,
     category: String,
@@ -92,7 +96,7 @@ struct NewOrder {
     updated_at: NaiveDateTime,
     deleted_at: Option<NaiveDateTime>,
     price_id: String,
-    quantity: i32,
+    quantity: i64,
     trading_vehicle_id: String,
     action: String,
     category: String,
@@ -124,7 +128,6 @@ mod tests {
     fn test_create_order() {
         let mut conn = establish_connection();
 
-        let price = WorkerPrice::create(&mut conn, &Currency::USD, dec!(100.00)).unwrap();
         let trading_vehicle = WorkerTradingVehicle::create(
             &mut conn,
             "AAPL",
@@ -135,17 +138,19 @@ mod tests {
         .unwrap();
 
         // Create a new order record
-        let order = WorkerOrder::new(
+        let order = WorkerOrder::create(
             &mut conn,
-            &price,
+            dec!(100.00),
+            &Currency::USD,
             100,
-            OrderAction::Buy,
-            OrderCategory::Limit,
+            &OrderAction::Buy,
+            &OrderCategory::Limit,
             &trading_vehicle,
         )
         .expect("Error creating order");
 
-        assert_eq!(order.unit_price, price);
+        assert_eq!(order.unit_price.amount, dec!(100.00));
+        assert_eq!(order.unit_price.currency, Currency::USD);
         assert_eq!(order.quantity, 100);
         assert_eq!(order.action, OrderAction::Buy);
         assert_eq!(order.category, OrderCategory::Limit);

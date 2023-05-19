@@ -154,10 +154,7 @@ impl TradeDialogBuilder {
     }
 
     pub fn target_price(mut self) -> Self {
-        let target_price = Input::new()
-            .with_prompt("Target price:")
-            .interact()
-            .unwrap();
+        let target_price = Input::new().with_prompt("Target price").interact().unwrap();
 
         self.target_price = Some(target_price);
         self

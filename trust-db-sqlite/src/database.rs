@@ -1,12 +1,13 @@
 use crate::workers::{
-    WorkerAccount, WorkerAccountOverview, WorkerPrice, WorkerRule, WorkerTradingVehicle,
-    WorkerTransaction,
+    WorkerAccount, WorkerAccountOverview, WorkerOrder, WorkerPrice, WorkerRule,
+    WorkerTradingVehicle, WorkerTransaction,
 };
 use diesel::prelude::*;
+use rust_decimal::Decimal;
 use std::error::Error;
 use trust_model::{
-    Account, AccountOverview, Currency, Database, Price, Rule, RuleName, TradingVehicle,
-    TradingVehicleCategory, Transaction, TransactionCategory,
+    Account, AccountOverview, Currency, Database, Order, OrderAction, OrderCategory, Price, Rule,
+    RuleName, TradingVehicle, TradingVehicleCategory, Transaction, TransactionCategory,
 };
 use uuid::Uuid;
 
@@ -191,5 +192,28 @@ impl Database for SqliteDatabase {
 
     fn read_all_trading_vehicles(&mut self) -> Result<Vec<TradingVehicle>, Box<dyn Error>> {
         WorkerTradingVehicle::read_all(&mut self.connection)
+    }
+
+    fn read_trading_vehicle(&mut self, id: Uuid) -> Result<TradingVehicle, Box<dyn Error>> {
+        WorkerTradingVehicle::read(&mut self.connection, id)
+    }
+
+    fn create_stop(
+        &mut self,
+        trading_vehicle: &TradingVehicle,
+        quantity: i64,
+        price: Decimal,
+        currency: &Currency,
+        action: &OrderAction,
+    ) -> Result<Order, Box<dyn Error>> {
+        WorkerOrder::create(
+            &mut self.connection,
+            price,
+            currency,
+            quantity,
+            action,
+            &OrderCategory::Market, // All stops should be market to go out as fast as possible
+            trading_vehicle,
+        )
     }
 }

@@ -1,10 +1,11 @@
 use crate::Currency;
+use crate::OrderAction;
 use crate::Price;
 use crate::TradingVehicle;
 use crate::TradingVehicleCategory;
 use crate::Transaction;
 use crate::TransactionCategory;
-use crate::{Account, AccountOverview};
+use crate::{Account, AccountOverview, Order};
 use crate::{Rule, RuleLevel, RuleName};
 use rust_decimal::Decimal;
 use uuid::Uuid;
@@ -98,4 +99,16 @@ pub trait Database {
     ) -> Result<TradingVehicle, Box<dyn Error>>;
 
     fn read_all_trading_vehicles(&mut self) -> Result<Vec<TradingVehicle>, Box<dyn Error>>;
+
+    fn read_trading_vehicle(&mut self, id: Uuid) -> Result<TradingVehicle, Box<dyn Error>>;
+
+    // Orders
+    fn create_stop(
+        &mut self,
+        trading_vehicle: &TradingVehicle,
+        quantity: i64,
+        price: Decimal,
+        currency: &Currency,
+        action: &OrderAction,
+    ) -> Result<Order, Box<dyn Error>>;
 }
