@@ -118,7 +118,6 @@ impl TradeDialogBuilder {
                 self.account.clone().unwrap().id,
                 self.entry_price.unwrap(),
                 self.stop_price.unwrap(),
-                &self.category.unwrap(),
                 &self.currency.unwrap(),
             )
             .unwrap_or_else(|error| {
