@@ -149,7 +149,7 @@ impl Trust {
         category: &TradeCategory,
         currency: &Currency,
     ) -> Result<Order, Box<dyn std::error::Error>> {
-        OrderWorker::create_stop(
+        OrderWorker::create_entry(
             trading_vehicle_id,
             quantity,
             price,

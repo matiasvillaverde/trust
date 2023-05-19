@@ -33,8 +33,13 @@ impl TradeDialogBuilder {
     }
 
     pub fn build(self, trust: &mut Trust) -> Self {
+        let trading_vehicle_id = self
+            .trading_vehicle
+            .expect("Did you forget to specify trading vehicle")
+            .id;
+
         let stop = trust.create_stop(
-            self.trading_vehicle.unwrap().id,
+            trading_vehicle_id,
             self.quantity.expect("Did you forget to specify quantity") as i64,
             self.stop_price
                 .expect("Did you forget to specify stop price"),
@@ -42,8 +47,16 @@ impl TradeDialogBuilder {
             &self.currency.expect("Did you forget to specify currency"),
         );
 
+        let entry = trust.create_entry(
+            trading_vehicle_id,
+            self.quantity.expect("Did you forget to specify quantity") as i64,
+            self.entry_price
+                .expect("Did you forget to specify entry price"),
+            &self.category.expect("Did you forget to specify category"),
+            &self.currency.expect("Did you forget to specify currency"),
+        );
+
         unimplemented!();
-        // TODO: Create Entry
         // TODO: Create Target
         // TODO: Create Trade
         self
