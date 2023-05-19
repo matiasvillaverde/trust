@@ -140,6 +140,24 @@ impl Trust {
             &mut *self.database,
         )
     }
+
+    pub fn create_entry(
+        &mut self,
+        trading_vehicle_id: Uuid,
+        quantity: i64,
+        price: Decimal,
+        category: &TradeCategory,
+        currency: &Currency,
+    ) -> Result<Order, Box<dyn std::error::Error>> {
+        OrderWorker::create_stop(
+            trading_vehicle_id,
+            quantity,
+            price,
+            currency,
+            category,
+            &mut *self.database,
+        )
+    }
 }
 
 mod validators;

@@ -198,7 +198,7 @@ impl Database for SqliteDatabase {
         WorkerTradingVehicle::read(&mut self.connection, id)
     }
 
-    fn create_stop(
+    fn create_order(
         &mut self,
         trading_vehicle: &TradingVehicle,
         quantity: i64,

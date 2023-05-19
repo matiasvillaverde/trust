@@ -103,7 +103,7 @@ pub trait Database {
     fn read_trading_vehicle(&mut self, id: Uuid) -> Result<TradingVehicle, Box<dyn Error>>;
 
     // Orders
-    fn create_stop(
+    fn create_order(
         &mut self,
         trading_vehicle: &TradingVehicle,
         quantity: i64,
