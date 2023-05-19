@@ -115,12 +115,9 @@ mod tests {
         connection
     }
 
-    #[test]
-    fn test_create_target() {
-        let mut conn = establish_connection();
-
+    fn create_target(conn: &mut SqliteConnection) -> (Target, Order) {
         let tv = WorkerTradingVehicle::create(
-            &mut conn,
+            conn,
             "AAPL",
             "US0378331005",
             &TradingVehicleCategory::Stock,
@@ -129,7 +126,7 @@ mod tests {
         .unwrap();
 
         let order = WorkerOrder::create(
-            &mut conn,
+            conn,
             dec!(9),
             &Currency::USD,
             99,
@@ -139,7 +136,16 @@ mod tests {
         )
         .unwrap();
 
-        let target = WorkerTarget::create(&mut conn, dec!(10), &Currency::USD, &order).unwrap();
+        let target = WorkerTarget::create(conn, dec!(10), &Currency::USD, &order).unwrap();
+
+        return (target, order);
+    }
+
+    #[test]
+    fn test_create_target() {
+        let mut conn = establish_connection();
+
+        let (target, order) = create_target(&mut conn);
 
         assert_eq!(target.order, order);
         assert_eq!(target.target_price.amount, dec!(10));
@@ -149,5 +155,17 @@ mod tests {
     }
 
     #[test]
-    fn test_read_target() {}
+    fn test_read_target() {
+        let mut conn = establish_connection();
+
+        let (target, order) = create_target(&mut conn);
+
+        let read_target = WorkerTarget::read(&mut conn, target.id).unwrap();
+
+        assert_eq!(read_target.order, order);
+        assert_eq!(read_target.target_price.amount, dec!(10));
+        assert_eq!(read_target.target_price.currency, Currency::USD);
+        assert_eq!(read_target.created_at, read_target.updated_at);
+        assert_eq!(read_target.deleted_at, None);
+    }
 }
