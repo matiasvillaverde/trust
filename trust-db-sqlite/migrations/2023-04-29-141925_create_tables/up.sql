@@ -78,3 +78,12 @@ CREATE TABLE "orders" (
 	opened_at				DATETIME,
 	closed_at			DATETIME
 );
+
+CREATE TABLE "targets" (
+	id 			TEXT NOT NULL PRIMARY KEY,
+	created_at			DATETIME NOT NULL,
+	updated_at			DATETIME NOT NULL,
+	deleted_at			DATETIME,
+	target_price_id		TEXT NOT NULL REFERENCES prices (id),
+	order_id			TEXT NOT NULL REFERENCES orders (id)
+);
