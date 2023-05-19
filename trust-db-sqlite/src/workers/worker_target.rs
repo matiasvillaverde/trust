@@ -5,7 +5,7 @@ use diesel::prelude::*;
 use rust_decimal::Decimal;
 use std::error::Error;
 use tracing::error;
-use trust_model::{Currency, Order, OrderCategory, Target, TradingVehicle};
+use trust_model::{Currency, Order, Target};
 use uuid::Uuid;
 
 pub struct WorkerTarget;
@@ -97,12 +97,9 @@ struct NewTarget {
 mod tests {
     use super::*;
     use crate::workers::WorkerTradingVehicle;
-    use chrono::{NaiveDateTime, Utc};
-    use diesel::prelude::*;
     use diesel_migrations::*;
-    use rust_decimal::Decimal;
     use rust_decimal_macros::dec;
-    use trust_model::{OrderAction, TradingVehicleCategory};
+    use trust_model::{OrderAction, OrderCategory, TradingVehicleCategory};
 
     pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
 

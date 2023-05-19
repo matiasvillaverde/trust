@@ -14,6 +14,7 @@ pub struct TradeDialogBuilder {
     currency: Option<Currency>,
     quantity: Option<i64>,
     target_price: Option<Decimal>,
+    target_order_price: Option<Decimal>,
     result: Option<Result<Trade, Box<dyn Error>>>,
 }
 
@@ -28,6 +29,7 @@ impl TradeDialogBuilder {
             currency: None,
             quantity: None,
             target_price: None,
+            target_order_price: None,
             result: None,
         }
     }
@@ -40,7 +42,7 @@ impl TradeDialogBuilder {
 
         let stop = trust.create_stop(
             trading_vehicle_id,
-            self.quantity.expect("Did you forget to specify quantity") as i64,
+            self.quantity.expect("Did you forget to specify quantity"),
             self.stop_price
                 .expect("Did you forget to specify stop price"),
             &self.category.expect("Did you forget to specify category"),
@@ -49,16 +51,26 @@ impl TradeDialogBuilder {
 
         let entry = trust.create_entry(
             trading_vehicle_id,
-            self.quantity.expect("Did you forget to specify quantity") as i64,
+            self.quantity.expect("Did you forget to specify quantity"),
             self.entry_price
                 .expect("Did you forget to specify entry price"),
             &self.category.expect("Did you forget to specify category"),
             &self.currency.expect("Did you forget to specify currency"),
         );
 
-        unimplemented!();
-        // TODO: Create Target
+        let target = trust.create_target(
+            self.target_price
+                .expect("Did you forget to specify target price"),
+            &self.currency.expect("Did you forget to specify currency"),
+            trading_vehicle_id,
+            self.quantity.expect("Did you forget to specify quantity"),
+            self.target_order_price
+                .expect("Did you forget to specify order price for the target"),
+            &self.category.expect("Did you forget to specify category"),
+        );
+
         // TODO: Create Trade
+        unimplemented!();
         self
     }
 
@@ -177,8 +189,16 @@ impl TradeDialogBuilder {
 
     pub fn target_price(mut self) -> Self {
         let target_price = Input::new().with_prompt("Target price").interact().unwrap();
-
         self.target_price = Some(target_price);
+        self
+    }
+
+    pub fn order_target_price(mut self) -> Self {
+        let order_price = Input::new()
+            .with_prompt("Order price when target is hit")
+            .interact()
+            .unwrap(); // TODO: validate that is a valid price
+        self.target_order_price = Some(order_price);
         self
     }
 }

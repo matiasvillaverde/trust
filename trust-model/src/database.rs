@@ -1,6 +1,7 @@
 use crate::Currency;
 use crate::OrderAction;
 use crate::Price;
+use crate::Target;
 use crate::TradingVehicle;
 use crate::TradingVehicleCategory;
 use crate::Transaction;
@@ -111,4 +112,11 @@ pub trait Database {
         currency: &Currency,
         action: &OrderAction,
     ) -> Result<Order, Box<dyn Error>>;
+
+    fn create_target(
+        &mut self,
+        price: Decimal,
+        currency: &Currency,
+        order: &Order,
+    ) -> Result<Target, Box<dyn Error>>;
 }

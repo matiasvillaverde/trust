@@ -1,5 +1,5 @@
 use crate::workers::{
-    WorkerAccount, WorkerAccountOverview, WorkerOrder, WorkerPrice, WorkerRule,
+    WorkerAccount, WorkerAccountOverview, WorkerOrder, WorkerPrice, WorkerRule, WorkerTarget,
     WorkerTradingVehicle, WorkerTransaction,
 };
 use diesel::prelude::*;
@@ -7,7 +7,7 @@ use rust_decimal::Decimal;
 use std::error::Error;
 use trust_model::{
     Account, AccountOverview, Currency, Database, Order, OrderAction, OrderCategory, Price, Rule,
-    RuleName, TradingVehicle, TradingVehicleCategory, Transaction, TransactionCategory,
+    RuleName, Target, TradingVehicle, TradingVehicleCategory, Transaction, TransactionCategory,
 };
 use uuid::Uuid;
 
@@ -215,5 +215,14 @@ impl Database for SqliteDatabase {
             &OrderCategory::Market, // All stops should be market to go out as fast as possible
             trading_vehicle,
         )
+    }
+
+    fn create_target(
+        &mut self,
+        price: Decimal,
+        currency: &Currency,
+        order: &Order,
+    ) -> Result<Target, Box<dyn Error>> {
+        WorkerTarget::create(&mut self.connection, price, currency, order)
     }
 }

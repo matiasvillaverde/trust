@@ -1,7 +1,7 @@
 use rust_decimal::Decimal;
 use trust_model::{
-    Account, AccountOverview, Currency, Database, Order, Rule, RuleLevel, RuleName, TradeCategory,
-    TradingVehicle, TradingVehicleCategory, Transaction, TransactionCategory,
+    Account, AccountOverview, Currency, Database, Order, Rule, RuleLevel, RuleName, Target,
+    TradeCategory, TradingVehicle, TradingVehicleCategory, Transaction, TransactionCategory,
 };
 use uuid::Uuid;
 use workers::{OrderWorker, QuantityWorker, RuleWorker, TransactionWorker};
@@ -154,6 +154,26 @@ impl Trust {
             quantity,
             price,
             currency,
+            category,
+            &mut *self.database,
+        )
+    }
+
+    pub fn create_target(
+        &mut self,
+        target_price: Decimal,
+        currency: &Currency,
+        trading_vehicle_id: Uuid,
+        quantity: i64,
+        price: Decimal,
+        category: &TradeCategory,
+    ) -> Result<Target, Box<dyn std::error::Error>> {
+        OrderWorker::create_target(
+            trading_vehicle_id,
+            quantity,
+            price,
+            currency,
+            target_price,
             category,
             &mut *self.database,
         )
