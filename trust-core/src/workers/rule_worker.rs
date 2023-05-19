@@ -10,10 +10,34 @@ impl RuleWorker {
         account: &Account,
         name: &RuleName,
         description: &str,
-        priority: u32,
         level: &RuleLevel,
     ) -> Result<Rule, Box<dyn std::error::Error>> {
         RuleValidator::validate_creation(account, name, database)?;
-        database.create_rule(account, name, description, priority, level)
+        database.create_rule(
+            account,
+            name,
+            description,
+            RuleWorker::priority_for(name),
+            level,
+        )
+    }
+
+    /// Returns the priority for a given rule name.
+    /// The priority is used to determine the order in which rules are applied.
+    /// The lower the number, the higher the priority.
+    /// For example, a rule with a priority of 1 will be applied before a rule with a priority of 2.
+    /// This is useful for rules that are mutually exclusive.
+    ///
+    /// For example, a rule that limits the risk per trade and a rule that limits the risk per month.
+    /// The risk per trade rule should be applied first, so that the risk per month rule can be applied to the remaining funds.
+    ///
+    /// If the risk per month rule was applied first, it would limit the risk per trade rule.
+    /// The risk per trade rule would then be applied to the remaining funds, which would be less than the total funds.
+    /// This would result in a lower risk per trade than expected.
+    fn priority_for(name: &RuleName) -> u32 {
+        match name {
+            RuleName::RiskPerMonth(_) => 1,
+            RuleName::RiskPerTrade(_) => 2,
+        }
     }
 }

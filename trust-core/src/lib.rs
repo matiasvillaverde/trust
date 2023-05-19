@@ -74,17 +74,9 @@ impl Trust {
         account: &Account,
         name: &RuleName,
         description: &str,
-        priority: u32,
         level: &RuleLevel,
     ) -> Result<Rule, Box<dyn std::error::Error>> {
-        RuleWorker::create_rule(
-            &mut *self.database,
-            account,
-            name,
-            description,
-            priority,
-            level,
-        )
+        RuleWorker::create_rule(&mut *self.database, account, name, description, level)
     }
 
     pub fn make_rule_inactive(&mut self, rule: &Rule) -> Result<Rule, Box<dyn std::error::Error>> {

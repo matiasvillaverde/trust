@@ -107,7 +107,6 @@ impl ArgDispatcher {
             .risk()
             .description()
             .level()
-            .priority()
             .build(&mut self.trust)
             .display();
     }
