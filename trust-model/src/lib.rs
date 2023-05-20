@@ -20,6 +20,6 @@ pub use price::Price;
 pub use rule::{Rule, RuleLevel, RuleName};
 pub use strategy::Strategy;
 pub use target::Target;
-pub use trade::{Trade, TradeCategory};
+pub use trade::{Trade, TradeCategory, TradeLifecycle, TradeOverview};
 pub use trading_vehicle::{TradingVehicle, TradingVehicleCategory};
 pub use transaction::{Transaction, TransactionCategory};

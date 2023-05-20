@@ -32,7 +32,7 @@ pub struct Trade {
 
     /// The entry orders - the orders that are used to enter the trade.
     /// The entry orders must be of type limit order to get the best price.
-    pub entries: Vec<Order>,
+    pub entry: Order,
 
     /// The exit targets orders - the orders that are used to exit the trade.
     /// The exit targets orders should be of type limit order to get the best price.
@@ -42,13 +42,8 @@ pub struct Trade {
     /// The account that the trade is associated with
     pub account_id: Uuid,
 
-    /// Strategy that the trade is based on
-    pub strategy_id: Uuid,
-
-    /// The transactions that are associated with the trade.
-    /// In case the trade is approved and executed, the transactions are used to update the account balance.
-    pub transactions: Vec<Transaction>,
-
+    // /// Strategy that the trade is based on
+    // pub strategy_id: Uuid,
     /// The lifecycle of the trade - approved, rejected, executed, failed, closed
     pub lifecycle: TradeLifecycle,
 
@@ -82,7 +77,7 @@ impl std::fmt::Display for TradeCategory {
         }
     }
 }
-
+#[derive(Debug)]
 pub struct TradeCategoryParseError;
 impl std::str::FromStr for TradeCategory {
     type Err = TradeCategoryParseError;
@@ -122,7 +117,7 @@ pub struct TradeLifecycle {
     pub closed_at: Option<NaiveDateTime>,
 
     /// The rule that rejected the trade. It has to be a rule of type error.
-    pub rejected_by_rule_id: Uuid,
+    pub rejected_by_rule_id: Option<Uuid>,
 }
 
 #[derive(PartialEq, Debug)]
@@ -133,9 +128,6 @@ pub struct TradeOverview {
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
     pub deleted_at: Option<NaiveDateTime>,
-
-    // Entity fields
-    pub trade_id: Uuid,
 
     /// Total amount of money that was used to open the trade
     pub total_input: Price,
