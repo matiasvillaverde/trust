@@ -28,6 +28,7 @@ impl WorkerTarget {
             deleted_at: None,
             target_price_id: price.id.to_string(),
             order_id: order.id.to_string(),
+            trade_id: Uuid::new_v4().to_string(), // TODO: read trade_id later
         };
 
         let target = diesel::insert_into(targets::table)
@@ -62,6 +63,7 @@ struct TargetSQLite {
     deleted_at: Option<NaiveDateTime>,
     target_price_id: String,
     order_id: String,
+    trade_id: String,
 }
 
 impl TargetSQLite {
@@ -92,6 +94,7 @@ struct NewTarget {
     deleted_at: Option<NaiveDateTime>,
     target_price_id: String,
     order_id: String,
+    trade_id: String,
 }
 #[cfg(test)]
 mod tests {
