@@ -1,5 +1,5 @@
 use rust_decimal::Decimal;
-use trust_model::{Currency, Database, Order, OrderAction, Target, TradeCategory};
+use trust_model::{Currency, Database, Order, OrderAction, Target, Trade, TradeCategory};
 use uuid::Uuid;
 
 pub struct OrderWorker;
@@ -48,6 +48,7 @@ impl OrderWorker {
         currency: &Currency,
         target_price: Decimal,
         category: &TradeCategory,
+        trade: &Trade,
         database: &mut dyn Database,
     ) -> Result<Target, Box<dyn std::error::Error>> {
         let tv = database.read_trading_vehicle(trading_vehicle_id)?;
@@ -59,7 +60,7 @@ impl OrderWorker {
             &OrderWorker::action_for_target(&category),
         )?;
 
-        database.create_target(target_price, currency, &order)
+        database.create_target(target_price, currency, &order, trade)
     }
 
     fn action_for_stop(category: &TradeCategory) -> OrderAction {

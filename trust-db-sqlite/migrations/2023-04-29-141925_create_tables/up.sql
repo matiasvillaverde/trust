@@ -120,6 +120,7 @@ CREATE TABLE "trades_overviews" (
 	id 			TEXT NOT NULL PRIMARY KEY,
 	created_at				DATETIME NOT NULL,
 	updated_at				DATETIME NOT NULL,
+	deleted_at				DATETIME,
 	total_input_id			TEXT NOT NULL REFERENCES prices (id),
 	total_in_market_id		TEXT NOT NULL REFERENCES prices (id),
 	total_out_market_id		TEXT NOT NULL REFERENCES prices (id),

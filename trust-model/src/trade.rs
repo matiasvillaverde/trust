@@ -3,7 +3,6 @@ use crate::order::Order;
 use crate::price::Price;
 use crate::target::Target;
 use crate::trading_vehicle::TradingVehicle;
-use crate::transaction::Transaction;
 use chrono::NaiveDateTime;
 use uuid::Uuid;
 

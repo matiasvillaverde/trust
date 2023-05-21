@@ -9,7 +9,7 @@ use trust_model::{Account, Currency};
 use trust_model::{Order, Trade, TradeCategory, TradeLifecycle, TradeOverview, TradingVehicle};
 use uuid::Uuid;
 
-use super::{WorkerAccount, WorkerOrder, WorkerPrice, WorkerTradingVehicle};
+use super::{WorkerOrder, WorkerPrice, WorkerTradingVehicle};
 pub struct WorkerTrade;
 
 impl WorkerTrade {
@@ -70,7 +70,7 @@ impl WorkerTrade {
         trades_lifecycle::table
             .filter(trades_lifecycle::id.eq(&id.to_string()))
             .first(connection)
-            .map(|lifecycle: TradeLifecycleSQLite| lifecycle.domain_model(connection))
+            .map(|lifecycle: TradeLifecycleSQLite| lifecycle.domain_model())
     }
 
     fn create_lifecycle(
@@ -93,7 +93,7 @@ impl WorkerTrade {
         let lifecycle = diesel::insert_into(trades_lifecycle::table)
             .values(&new_trade_lifecycle)
             .get_result::<TradeLifecycleSQLite>(connection)
-            .map(|lifecycle| lifecycle.domain_model(connection))
+            .map(|lifecycle| lifecycle.domain_model())
             .map_err(|error| {
                 error!("Error creating trade lifecycle: {:?}", error);
                 error
@@ -235,7 +235,7 @@ struct TradeLifecycleSQLite {
 }
 
 impl TradeLifecycleSQLite {
-    fn domain_model(self, connection: &mut SqliteConnection) -> TradeLifecycle {
+    fn domain_model(self) -> TradeLifecycle {
         TradeLifecycle {
             id: Uuid::parse_str(&self.id).unwrap(),
             created_at: self.created_at,

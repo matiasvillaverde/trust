@@ -2,7 +2,7 @@ use crate::dialogs::{AccountSearchDialog, TradingVehicleSearchDialogBuilder};
 use dialoguer::{theme::ColorfulTheme, FuzzySelect, Input};
 use rust_decimal::Decimal;
 use std::error::Error;
-use trust_core::Trust;
+use trust_core::{DraftTarget, DraftTrade, Trust};
 use trust_model::{Account, Currency, Trade, TradeCategory, TradingVehicle};
 
 pub struct TradeDialogBuilder {
@@ -34,43 +34,33 @@ impl TradeDialogBuilder {
         }
     }
 
-    pub fn build(self, trust: &mut Trust) -> Self {
+    pub fn build(mut self, trust: &mut Trust) -> TradeDialogBuilder {
         let trading_vehicle_id = self
             .trading_vehicle
+            .clone()
             .expect("Did you forget to specify trading vehicle")
             .id;
 
-        let stop = trust.create_stop(
-            trading_vehicle_id,
-            self.quantity.expect("Did you forget to specify quantity"),
-            self.stop_price
-                .expect("Did you forget to specify stop price"),
-            &self.category.expect("Did you forget to specify category"),
-            &self.currency.expect("Did you forget to specify currency"),
-        );
+        // TODO: Create Draft Trade
 
-        let entry = trust.create_entry(
-            trading_vehicle_id,
-            self.quantity.expect("Did you forget to specify quantity"),
-            self.entry_price
-                .expect("Did you forget to specify entry price"),
-            &self.category.expect("Did you forget to specify category"),
-            &self.currency.expect("Did you forget to specify currency"),
-        );
+        let target = DraftTarget {
+            target_price: self.target_order_price.unwrap(),
+            quantity: self.quantity.unwrap(),
+            price: self.target_price.unwrap(),
+        };
 
-        let target = trust.create_target(
-            self.target_price
-                .expect("Did you forget to specify target price"),
-            &self.currency.expect("Did you forget to specify currency"),
-            trading_vehicle_id,
-            self.quantity.expect("Did you forget to specify quantity"),
-            self.target_order_price
-                .expect("Did you forget to specify order price for the target"),
-            &self.category.expect("Did you forget to specify category"),
-        );
+        let draft = DraftTrade {
+            account: self.account.clone().unwrap(),
+            trading_vehicle_id: trading_vehicle_id,
+            quantity: self.quantity.unwrap(),
+            currency: self.currency.unwrap(),
+            category: self.category.unwrap(),
+            stop_price: self.stop_price.unwrap(),
+            entry_price: self.entry_price.unwrap(),
+            targets: vec![target],
+        };
 
-        // TODO: Create Trade
-        unimplemented!();
+        self.result = Some(trust.create_trade(draft));
         self
     }
 

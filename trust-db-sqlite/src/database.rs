@@ -1,13 +1,14 @@
 use crate::workers::{
     WorkerAccount, WorkerAccountOverview, WorkerOrder, WorkerPrice, WorkerRule, WorkerTarget,
-    WorkerTradingVehicle, WorkerTransaction,
+    WorkerTrade, WorkerTradingVehicle, WorkerTransaction,
 };
 use diesel::prelude::*;
 use rust_decimal::Decimal;
 use std::error::Error;
 use trust_model::{
     Account, AccountOverview, Currency, Database, Order, OrderAction, OrderCategory, Price, Rule,
-    RuleName, Target, TradingVehicle, TradingVehicleCategory, Transaction, TransactionCategory,
+    RuleName, Target, Trade, TradeCategory, TradingVehicle, TradingVehicleCategory, Transaction,
+    TransactionCategory,
 };
 use uuid::Uuid;
 
@@ -222,7 +223,28 @@ impl Database for SqliteDatabase {
         price: Decimal,
         currency: &Currency,
         order: &Order,
+        trade: &Trade,
     ) -> Result<Target, Box<dyn Error>> {
-        WorkerTarget::create(&mut self.connection, price, currency, order)
+        WorkerTarget::create(&mut self.connection, price, currency, order, trade)
+    }
+
+    fn create_trade(
+        &mut self,
+        category: &TradeCategory,
+        currency: &Currency,
+        trading_vehicle: &TradingVehicle,
+        safety_stop: &Order,
+        entry: &Order,
+        account: &Account,
+    ) -> Result<Trade, Box<dyn Error>> {
+        WorkerTrade::create(
+            &mut self.connection,
+            category,
+            currency,
+            trading_vehicle,
+            safety_stop,
+            entry,
+            account,
+        )
     }
 }

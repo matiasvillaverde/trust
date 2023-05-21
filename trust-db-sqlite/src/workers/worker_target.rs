@@ -5,7 +5,7 @@ use diesel::prelude::*;
 use rust_decimal::Decimal;
 use std::error::Error;
 use tracing::error;
-use trust_model::{Currency, Order, Target};
+use trust_model::{Currency, Order, Target, Trade};
 use uuid::Uuid;
 
 pub struct WorkerTarget;
@@ -15,6 +15,7 @@ impl WorkerTarget {
         amount: Decimal,
         currency: &Currency,
         order: &Order,
+        trade: &Trade,
     ) -> Result<Target, Box<dyn Error>> {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().naive_utc();
@@ -28,7 +29,7 @@ impl WorkerTarget {
             deleted_at: None,
             target_price_id: price.id.to_string(),
             order_id: order.id.to_string(),
-            trade_id: Uuid::new_v4().to_string(), // TODO: read trade_id later
+            trade_id: trade.id.to_string(),
         };
 
         let target = diesel::insert_into(targets::table)
@@ -99,7 +100,7 @@ struct NewTarget {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::workers::WorkerTradingVehicle;
+    use crate::workers::{WorkerAccount, WorkerOrder, WorkerTrade, WorkerTradingVehicle};
     use diesel_migrations::*;
     use rust_decimal_macros::dec;
     use trust_model::{OrderAction, OrderCategory, TradingVehicleCategory};
@@ -136,7 +137,19 @@ mod tests {
         )
         .unwrap();
 
-        let target = WorkerTarget::create(conn, dec!(10), &Currency::USD, &order).unwrap();
+        let account = WorkerAccount::create_account(conn, "Test Account", "Test Account").unwrap();
+
+        let trade = WorkerTrade::create(
+            conn,
+            &trust_model::TradeCategory::Long,
+            &Currency::USD,
+            &tv,
+            &order,
+            &order,
+            &account,
+        )
+        .unwrap();
+        let target = WorkerTarget::create(conn, dec!(10), &Currency::USD, &order, &trade).unwrap();
 
         return (target, order);
     }

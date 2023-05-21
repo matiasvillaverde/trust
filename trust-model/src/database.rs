@@ -6,8 +6,7 @@ use crate::TradingVehicle;
 use crate::TradingVehicleCategory;
 use crate::Transaction;
 use crate::TransactionCategory;
-use crate::{Account, AccountOverview, Order};
-use crate::{Rule, RuleLevel, RuleName};
+use crate::{Account, AccountOverview, Order, Rule, RuleLevel, RuleName, Trade, TradeCategory};
 use rust_decimal::Decimal;
 use uuid::Uuid;
 
@@ -118,5 +117,16 @@ pub trait Database {
         price: Decimal,
         currency: &Currency,
         order: &Order,
+        trade: &Trade,
     ) -> Result<Target, Box<dyn Error>>;
+
+    fn create_trade(
+        &mut self,
+        category: &TradeCategory,
+        currency: &Currency,
+        trading_vehicle: &TradingVehicle,
+        safety_stop: &Order,
+        entry: &Order,
+        account: &Account,
+    ) -> Result<Trade, Box<dyn Error>>;
 }

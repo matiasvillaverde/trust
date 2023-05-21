@@ -1,7 +1,7 @@
 use rust_decimal::Decimal;
 use trust_model::{
-    Account, AccountOverview, Currency, Database, Order, Rule, RuleLevel, RuleName, Target,
-    TradeCategory, TradingVehicle, TradingVehicleCategory, Transaction, TransactionCategory,
+    Account, AccountOverview, Currency, Database, Rule, RuleLevel, RuleName, Trade, TradeCategory,
+    TradingVehicle, TradingVehicleCategory, Transaction, TransactionCategory,
 };
 use uuid::Uuid;
 use workers::{OrderWorker, QuantityWorker, RuleWorker, TransactionWorker};
@@ -123,62 +123,73 @@ impl Trust {
         )
     }
 
-    pub fn create_stop(
-        &mut self,
-        trading_vehicle_id: Uuid,
-        quantity: i64,
-        price: Decimal,
-        category: &TradeCategory,
-        currency: &Currency,
-    ) -> Result<Order, Box<dyn std::error::Error>> {
-        OrderWorker::create_stop(
-            trading_vehicle_id,
-            quantity,
-            price,
-            currency,
-            category,
-            &mut *self.database,
-        )
-    }
+    pub fn create_trade(&mut self, trade: DraftTrade) -> Result<Trade, Box<dyn std::error::Error>> {
+        let trading_vehicle = self
+            .database
+            .read_trading_vehicle(trade.trading_vehicle_id)?;
 
-    pub fn create_entry(
-        &mut self,
-        trading_vehicle_id: Uuid,
-        quantity: i64,
-        price: Decimal,
-        category: &TradeCategory,
-        currency: &Currency,
-    ) -> Result<Order, Box<dyn std::error::Error>> {
-        OrderWorker::create_entry(
-            trading_vehicle_id,
-            quantity,
-            price,
-            currency,
-            category,
+        let stop = OrderWorker::create_stop(
+            trade.trading_vehicle_id,
+            trade.quantity,
+            trade.stop_price,
+            &trade.currency,
+            &trade.category,
             &mut *self.database,
-        )
-    }
+        )?;
 
-    pub fn create_target(
-        &mut self,
-        target_price: Decimal,
-        currency: &Currency,
-        trading_vehicle_id: Uuid,
-        quantity: i64,
-        price: Decimal,
-        category: &TradeCategory,
-    ) -> Result<Target, Box<dyn std::error::Error>> {
-        OrderWorker::create_target(
-            trading_vehicle_id,
-            quantity,
-            price,
-            currency,
-            target_price,
-            category,
+        let entry = OrderWorker::create_entry(
+            trade.trading_vehicle_id,
+            trade.quantity,
+            trade.entry_price,
+            &trade.currency,
+            &trade.category,
             &mut *self.database,
-        )
+        )?;
+
+        let new_trade = self.database.create_trade(
+            &trade.category,
+            &trade.currency,
+            &trading_vehicle,
+            &stop,
+            &entry,
+            &trade.account,
+        )?;
+
+        let mut targets = Vec::new();
+        for target in trade.targets {
+            let target = OrderWorker::create_target(
+                trading_vehicle.id,
+                target.quantity,
+                target.price,
+                &trade.currency,
+                target.target_price,
+                &trade.category,
+                &new_trade,
+                &mut *self.database,
+            )?;
+            targets.push(target);
+        }
+
+        Ok(new_trade)
     }
 }
 
 mod validators;
 mod workers;
+
+pub struct DraftTrade {
+    pub account: Account,
+    pub trading_vehicle_id: Uuid,
+    pub quantity: i64,
+    pub currency: Currency,
+    pub category: TradeCategory,
+    pub stop_price: Decimal,
+    pub entry_price: Decimal,
+    pub targets: Vec<DraftTarget>,
+}
+
+pub struct DraftTarget {
+    pub target_price: Decimal,
+    pub quantity: i64,
+    pub price: Decimal,
+}
