@@ -53,7 +53,7 @@ impl TradeDialogBuilder {
 
         let draft = DraftTrade {
             account: self.account.clone().unwrap(),
-            trading_vehicle_id: trading_vehicle_id,
+            trading_vehicle_id,
             quantity: self.quantity.unwrap(),
             currency: self.currency.unwrap(),
             category: self.category.unwrap(),
@@ -162,7 +162,7 @@ impl TradeDialogBuilder {
                 |input: &String| -> Result<(), &str> {
                     match input.parse::<i64>() {
                         Ok(parsed) => {
-                            if parsed > maximum as i64 {
+                            if parsed > maximum {
                                 return Err("Please enter a number below your maximum allowed");
                             } else if parsed == 0 {
                                 return Err("Please enter a number above 0");

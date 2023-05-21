@@ -95,7 +95,7 @@ impl WorkerTrade {
     ) -> Result<TradeLifecycle, Box<dyn Error>> {
         let new_trade_lifecycle = NewTradeLifecycle {
             id: Uuid::new_v4().to_string(),
-            created_at: created_at,
+            created_at,
             updated_at: created_at,
             deleted_at: None,
             approved_at: None,
@@ -140,14 +140,14 @@ impl WorkerTrade {
 
         let new_trade_overview = NewTradeOverview {
             id: Uuid::new_v4().to_string(),
-            created_at: created_at,
+            created_at,
             updated_at: created_at,
             deleted_at: None,
-            total_input_id: total_input_id,
-            total_in_market_id: total_in_market_id,
-            total_out_market_id: total_out_market_id,
-            total_taxable_id: total_taxable_id,
-            total_performance_id: total_performance_id,
+            total_input_id,
+            total_in_market_id,
+            total_out_market_id,
+            total_taxable_id,
+            total_performance_id,
         };
 
         let overview = diesel::insert_into(trades_overviews::table)
@@ -210,8 +210,8 @@ impl TradeSQLite {
             trading_vehicle,
             category: TradeCategory::from_str(&self.category).unwrap(),
             currency: Currency::from_str(&self.currency).unwrap(),
-            safety_stop: safety_stop,
-            entry: entry,
+            safety_stop,
+            entry,
             exit_targets: targets,
             account_id: Uuid::parse_str(&self.account_id).unwrap(),
             lifecycle,

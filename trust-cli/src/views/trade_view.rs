@@ -86,10 +86,8 @@ impl TradeOverviewView {
     }
 
     pub fn display_overviews(overviews: Vec<TradeOverview>) {
-        let views: Vec<TradeOverviewView> = overviews
-            .into_iter()
-            .map(|x| TradeOverviewView::new(x))
-            .collect();
+        let views: Vec<TradeOverviewView> =
+            overviews.into_iter().map(TradeOverviewView::new).collect();
         let mut table = Table::new(views);
         table.with(Style::modern());
         println!("{}", table);

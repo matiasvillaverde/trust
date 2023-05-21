@@ -43,16 +43,6 @@ impl WorkerTarget {
         Ok(target)
     }
 
-    pub fn read(
-        connection: &mut SqliteConnection,
-        id: Uuid,
-    ) -> Result<Target, diesel::result::Error> {
-        targets::table
-            .filter(targets::id.eq(&id.to_string()))
-            .first(connection)
-            .map(|target: TargetSQLite| target.domain_model(connection))
-    }
-
     pub fn read_all(
         trade_id: Uuid,
         connection: &mut SqliteConnection,
@@ -100,7 +90,7 @@ impl TargetSQLite {
             updated_at: self.updated_at,
             deleted_at: self.deleted_at,
             target_price: price,
-            order: order,
+            order,
             trade_id: Uuid::parse_str(&self.trade_id).unwrap(),
         }
     }
@@ -158,7 +148,7 @@ mod tests {
             99,
             &OrderAction::Sell,
             &OrderCategory::Limit,
-            &tv,
+            tv,
         )
         .unwrap()
     }
@@ -177,16 +167,16 @@ mod tests {
             conn,
             &trust_model::TradeCategory::Long,
             &Currency::USD,
-            &tv,
-            &order,
-            &order,
-            &account,
+            tv,
+            order,
+            order,
+            account,
         )
         .unwrap()
     }
 
     fn create_target(conn: &mut SqliteConnection, order: &Order, trade: &Trade) -> Target {
-        WorkerTarget::create(conn, dec!(10), &Currency::USD, &order, &trade).unwrap()
+        WorkerTarget::create(conn, dec!(10), &Currency::USD, order, trade).unwrap()
     }
 
     #[test]
@@ -204,25 +194,6 @@ mod tests {
         assert_eq!(target.target_price.currency, Currency::USD);
         assert_eq!(target.created_at, target.updated_at);
         assert_eq!(target.deleted_at, None);
-    }
-
-    #[test]
-    fn test_read_target() {
-        let mut conn = establish_connection();
-
-        let tv = create_trading_vehicle(&mut conn);
-        let order = create_order(&mut conn, &tv);
-        let account = create_account(&mut conn);
-        let trade = create_trade(&mut conn, &order, &tv, &account);
-        let target = create_target(&mut conn, &order, &trade);
-
-        let read_target = WorkerTarget::read(&mut conn, target.id).unwrap();
-
-        assert_eq!(read_target.order, order);
-        assert_eq!(read_target.target_price.amount, dec!(10));
-        assert_eq!(read_target.target_price.currency, Currency::USD);
-        assert_eq!(read_target.created_at, read_target.updated_at);
-        assert_eq!(read_target.deleted_at, None);
     }
 
     #[test]

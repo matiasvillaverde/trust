@@ -1,3 +1,4 @@
+use crate::DraftTarget;
 use rust_decimal::Decimal;
 use trust_model::{Currency, Database, Order, OrderAction, Target, Trade, TradeCategory};
 use uuid::Uuid;
@@ -19,7 +20,7 @@ impl OrderWorker {
             quantity,
             price,
             currency,
-            &OrderWorker::action_for_stop(&category),
+            &OrderWorker::action_for_stop(category),
         )
     }
 
@@ -37,30 +38,25 @@ impl OrderWorker {
             quantity,
             price,
             currency,
-            &OrderWorker::action_for_entry(&category),
+            &OrderWorker::action_for_entry(category),
         )
     }
 
     pub fn create_target(
-        trading_vehicle_id: Uuid,
-        quantity: i64,
-        order_price: Decimal,
-        currency: &Currency,
-        target_price: Decimal,
-        category: &TradeCategory,
+        draft: DraftTarget,
         trade: &Trade,
         database: &mut dyn Database,
     ) -> Result<Target, Box<dyn std::error::Error>> {
-        let tv = database.read_trading_vehicle(trading_vehicle_id)?;
+        let tv = database.read_trading_vehicle(trade.trading_vehicle.id)?;
         let order = database.create_order(
             &tv,
-            quantity,
-            order_price,
-            currency,
-            &OrderWorker::action_for_target(&category),
+            draft.quantity,
+            draft.order_price,
+            &trade.currency,
+            &OrderWorker::action_for_target(&trade.category),
         )?;
 
-        database.create_target(target_price, currency, &order, trade)
+        database.create_target(draft.target_price, &trade.currency, &order, trade)
     }
 
     fn action_for_stop(category: &TradeCategory) -> OrderAction {

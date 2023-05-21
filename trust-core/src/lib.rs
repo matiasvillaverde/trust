@@ -157,16 +157,13 @@ impl Trust {
 
         let mut targets = Vec::new();
         for target in trade.targets {
-            let target = OrderWorker::create_target(
-                trading_vehicle.id,
-                target.quantity,
-                target.order_price,
-                &trade.currency,
-                target.target_price,
-                &trade.category,
-                &new_trade,
-                &mut *self.database,
-            )?;
+            let draft = DraftTarget {
+                target_price: target.target_price,
+                quantity: target.quantity,
+                order_price: target.order_price,
+            };
+
+            let target = OrderWorker::create_target(draft, &new_trade, &mut *self.database)?;
             targets.push(target);
         }
 
