@@ -170,6 +170,9 @@ impl Trust {
             targets.push(target);
         }
 
+        // We need to read again the trade with the recently added targets
+        let new_trade = self.database.read_trade(new_trade.id)?;
+
         Ok(new_trade)
     }
 }

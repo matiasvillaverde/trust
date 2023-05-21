@@ -74,6 +74,21 @@ impl WorkerTrade {
             .map(|lifecycle: TradeLifecycleSQLite| lifecycle.domain_model())
     }
 
+    pub fn read_trade(
+        connection: &mut SqliteConnection,
+        id: Uuid,
+    ) -> Result<Trade, Box<dyn Error>> {
+        let trade = trades::table
+            .filter(trades::id.eq(id.to_string()))
+            .first::<TradeSQLite>(connection)
+            .map(|account| account.domain_model(connection))
+            .map_err(|error| {
+                error!("Error reading trade: {:?}", error);
+                error
+            })?;
+        Ok(trade)
+    }
+
     fn create_lifecycle(
         connection: &mut SqliteConnection,
         created_at: NaiveDateTime,

@@ -129,4 +129,6 @@ pub trait Database {
         entry: &Order,
         account: &Account,
     ) -> Result<Trade, Box<dyn Error>>;
+
+    fn read_trade(&mut self, id: Uuid) -> Result<Trade, Box<dyn Error>>;
 }
