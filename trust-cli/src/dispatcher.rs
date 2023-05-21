@@ -1,5 +1,5 @@
 use crate::dialogs::{
-    AccountDialogBuilder, AccountSearchDialog, TradingVehicleDialogBuilder,
+    AccountDialogBuilder, AccountSearchDialog, TradeDialogBuilder, TradingVehicleDialogBuilder,
     TradingVehicleSearchDialogBuilder, TransactionDialogBuilder,
 };
 use crate::dialogs::{RuleDialogBuilder, RuleRemoveDialogBuilder};
@@ -41,6 +41,10 @@ impl ArgDispatcher {
             Some(("trading-vehicle", sub_matches)) => match sub_matches.subcommand() {
                 Some(("create", _)) => self.create_trading_vehicle(),
                 Some(("search", _)) => self.search_trading_vehicle(),
+                _ => unreachable!("No subcommand provided"),
+            },
+            Some(("trade", sub_matches)) => match sub_matches.subcommand() {
+                Some(("create", _)) => self.create_trade(),
                 _ => unreachable!("No subcommand provided"),
             },
             Some((ext, sub_matches)) => {
@@ -103,7 +107,6 @@ impl ArgDispatcher {
             .risk()
             .description()
             .level()
-            .priority()
             .build(&mut self.trust)
             .display();
     }
@@ -132,7 +135,24 @@ impl ArgDispatcher {
     fn search_trading_vehicle(&mut self) {
         TradingVehicleSearchDialogBuilder::new()
             .search(&mut self.trust)
-            .build()
+            .display();
+    }
+}
+
+// Trade
+impl ArgDispatcher {
+    fn create_trade(&mut self) {
+        TradeDialogBuilder::new()
+            .account(&mut self.trust)
+            .trading_vehicle(&mut self.trust)
+            .category()
+            .entry_price()
+            .stop_price()
+            .currency()
+            .quantity(&mut self.trust)
+            .target_price()
+            .order_target_price()
+            .build(&mut self.trust)
             .display();
     }
 }

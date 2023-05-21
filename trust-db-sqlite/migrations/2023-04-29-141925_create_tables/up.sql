@@ -7,7 +7,7 @@ CREATE TABLE accounts (
 	description		TEXT NOT NULL
 );
 
-CREATE TABLE account_overviews (
+CREATE TABLE accounts_overviews (
 	id 				TEXT NOT NULL PRIMARY KEY,
 	created_at			DATETIME NOT NULL,
 	updated_at			DATETIME NOT NULL,
@@ -63,4 +63,68 @@ CREATE TABLE "trading_vehicles" (
 	isin			TEXT NOT NULL UNIQUE,
 	category 		TEXT CHECK(category IN ('crypto', 'fiat', 'stock')) NOT NULL,
 	broker 			TEXT NOT NULL
+);
+
+CREATE TABLE "orders" (
+	id 			TEXT NOT NULL PRIMARY KEY,
+	created_at			DATETIME NOT NULL,
+	updated_at			DATETIME NOT NULL,
+	deleted_at			DATETIME,
+	price_id			TEXT NOT NULL REFERENCES prices (id),
+	quantity			INTEGER NOT NULL,
+	trading_vehicle_id	TEXT NOT NULL REFERENCES trading_vehicles (id),
+	action 				TEXT CHECK(action IN ('sell', 'buy', 'short')) NOT NULL,
+	category 			TEXT CHECK(category IN ('market', 'limit', 'stop')) NOT NULL,
+	opened_at				DATETIME,
+	closed_at			DATETIME
+);
+
+CREATE TABLE "targets" (
+	id 			TEXT NOT NULL PRIMARY KEY,
+	created_at			DATETIME NOT NULL,
+	updated_at			DATETIME NOT NULL,
+	deleted_at			DATETIME,
+	target_price_id		TEXT NOT NULL REFERENCES prices (id),
+	order_id			TEXT NOT NULL REFERENCES orders (id),
+	trade_id			TEXT NOT NULL REFERENCES trades (id)
+);
+
+CREATE TABLE "trades" (
+	id 			TEXT NOT NULL PRIMARY KEY,
+	created_at			DATETIME NOT NULL,
+	updated_at			DATETIME NOT NULL,
+	deleted_at			DATETIME,
+	category 			TEXT CHECK(category IN ('long', 'short')) NOT NULL,
+	currency 				TEXT CHECK(currency IN ('EUR', 'USD', 'BTC')) NOT NULL,
+	trading_vehicle_id	TEXT NOT NULL REFERENCES trading_vehicles (id),
+	safety_stop_id 		TEXT NOT NULL REFERENCES orders (id),
+	entry_id 			TEXT NOT NULL REFERENCES orders (id),
+	account_id 			TEXT NOT NULL REFERENCES accounts (id),
+	lifecycle_id 			TEXT NOT NULL REFERENCES trades_lifecycle (id),
+	overview_id 			TEXT NOT NULL REFERENCES trades_overviews (id)
+);
+
+CREATE TABLE "trades_lifecycle" (
+	id 			TEXT NOT NULL PRIMARY KEY,
+	created_at			DATETIME NOT NULL,
+	updated_at			DATETIME NOT NULL,
+	deleted_at			DATETIME,
+	approved_at			DATETIME,
+	rejected_at			DATETIME,
+	executed_at			DATETIME,
+	failed_at			DATETIME,
+	closed_at			DATETIME,
+	rejected_by_rule_id	TEXT REFERENCES rules (id)
+);
+
+CREATE TABLE "trades_overviews" (
+	id 			TEXT NOT NULL PRIMARY KEY,
+	created_at				DATETIME NOT NULL,
+	updated_at				DATETIME NOT NULL,
+	deleted_at				DATETIME,
+	total_input_id			TEXT NOT NULL REFERENCES prices (id),
+	total_in_market_id		TEXT NOT NULL REFERENCES prices (id),
+	total_out_market_id		TEXT NOT NULL REFERENCES prices (id),
+	total_taxable_id		TEXT NOT NULL REFERENCES prices (id),
+	total_performance_id	TEXT NOT NULL REFERENCES prices (id)
 );

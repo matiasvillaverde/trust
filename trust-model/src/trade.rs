@@ -3,7 +3,6 @@ use crate::order::Order;
 use crate::price::Price;
 use crate::target::Target;
 use crate::trading_vehicle::TradingVehicle;
-use crate::transaction::Transaction;
 use chrono::NaiveDateTime;
 use uuid::Uuid;
 
@@ -25,6 +24,9 @@ pub struct Trade {
     /// The category of the trade - long or short
     pub category: TradeCategory,
 
+    /// The currency of the trade
+    pub currency: Currency,
+
     /// The safety stop - the order that is used to protect the trade from losing too much money.
     /// The safety stop is an order that is used to close the trade if the price goes in the wrong direction.
     /// The safety stop must be of type market order to get out of the trade as soon as possible.
@@ -32,7 +34,7 @@ pub struct Trade {
 
     /// The entry orders - the orders that are used to enter the trade.
     /// The entry orders must be of type limit order to get the best price.
-    pub entries: Vec<Order>,
+    pub entry: Order,
 
     /// The exit targets orders - the orders that are used to exit the trade.
     /// The exit targets orders should be of type limit order to get the best price.
@@ -42,13 +44,8 @@ pub struct Trade {
     /// The account that the trade is associated with
     pub account_id: Uuid,
 
-    /// Strategy that the trade is based on
-    pub strategy_id: Uuid,
-
-    /// The transactions that are associated with the trade.
-    /// In case the trade is approved and executed, the transactions are used to update the account balance.
-    pub transactions: Vec<Transaction>,
-
+    // /// Strategy that the trade is based on
+    // pub strategy_id: Uuid,
     /// The lifecycle of the trade - approved, rejected, executed, failed, closed
     pub lifecycle: TradeLifecycle,
 
@@ -59,13 +56,40 @@ pub struct Trade {
 }
 
 /// The category of the trade - Being a bull or a bear
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone, Copy)]
 pub enum TradeCategory {
     /// Long trade - Bull - buy an asset and sell it later at a higher price
     Long,
 
     /// Short trade - Bear - sell an asset and buy it later at a lower price
     Short,
+}
+
+impl TradeCategory {
+    pub fn all() -> Vec<TradeCategory> {
+        vec![TradeCategory::Long, TradeCategory::Short]
+    }
+}
+
+impl std::fmt::Display for TradeCategory {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TradeCategory::Long => write!(f, "long"),
+            TradeCategory::Short => write!(f, "short"),
+        }
+    }
+}
+#[derive(Debug)]
+pub struct TradeCategoryParseError;
+impl std::str::FromStr for TradeCategory {
+    type Err = TradeCategoryParseError;
+    fn from_str(category: &str) -> Result<Self, Self::Err> {
+        match category {
+            "long" => Ok(TradeCategory::Long),
+            "short" => Ok(TradeCategory::Short),
+            _ => Err(TradeCategoryParseError),
+        }
+    }
 }
 
 /// The lifecycle of the trade - approved, rejected, executed, failed, closed
@@ -95,7 +119,7 @@ pub struct TradeLifecycle {
     pub closed_at: Option<NaiveDateTime>,
 
     /// The rule that rejected the trade. It has to be a rule of type error.
-    pub rejected_by_rule_id: Uuid,
+    pub rejected_by_rule_id: Option<Uuid>,
 }
 
 #[derive(PartialEq, Debug)]
@@ -106,9 +130,6 @@ pub struct TradeOverview {
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
     pub deleted_at: Option<NaiveDateTime>,
-
-    // Entity fields
-    pub trade_id: Uuid,
 
     /// Total amount of money that was used to open the trade
     pub total_input: Price,
@@ -124,7 +145,4 @@ pub struct TradeOverview {
 
     /// Total amount of money that we have earned or lost from the trade
     pub total_performance: Price,
-
-    /// The currency of the trade
-    pub currency: Currency,
 }

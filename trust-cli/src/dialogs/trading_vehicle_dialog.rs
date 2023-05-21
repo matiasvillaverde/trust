@@ -123,11 +123,9 @@ impl TradingVehicleSearchDialogBuilder {
         TradingVehicleSearchDialogBuilder { result: None }
     }
 
-    pub fn build(self) -> Self {
-        if self.result.is_none() {
-            panic!("No result found, did you forget to call search?")
-        }
-        self
+    pub fn build(self) -> Result<TradingVehicle, Box<dyn Error>> {
+        self.result
+            .expect("No result found, did you forget to call search?")
     }
 
     pub fn display(self) {
@@ -146,6 +144,9 @@ impl TradingVehicleSearchDialogBuilder {
         let trading_vehicles = trust.read_all_trading_vehicles();
         match trading_vehicles {
             Ok(tvs) => {
+                if tvs.is_empty() {
+                    panic!("No trading vehicles found, did you forget to add one?")
+                }
                 let selected_tv = FuzzySelect::with_theme(&ColorfulTheme::default())
                     .with_prompt("Trading Vehicle: ")
                     .items(&tvs[..])

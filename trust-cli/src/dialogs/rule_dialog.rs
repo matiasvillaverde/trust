@@ -8,7 +8,6 @@ use trust_model::{Account, Rule, RuleLevel, RuleName};
 pub struct RuleDialogBuilder {
     name: Option<RuleName>,
     description: Option<String>,
-    priority: Option<u32>,
     level: Option<RuleLevel>,
     account: Option<Account>,
     result: Option<Result<Rule, Box<dyn Error>>>,
@@ -19,7 +18,6 @@ impl RuleDialogBuilder {
         RuleDialogBuilder {
             name: None,
             description: None,
-            priority: None,
             level: None,
             account: None,
             result: None,
@@ -40,7 +38,6 @@ impl RuleDialogBuilder {
                     .description
                     .clone()
                     .expect("Did you forget to enter a description?"),
-                self.priority.expect("Did you forget to enter a priority?"),
                 &self.level.expect("Did you forget to enter a level?"),
             ),
         );
@@ -109,10 +106,12 @@ impl RuleDialogBuilder {
             .with_prompt("% of risk")
             .validate_with({
                 |input: &String| -> Result<(), &str> {
-                    match input.parse::<u32>() {
+                    match input.parse::<f32>() {
                         Ok(parsed) => {
-                            if parsed > 100 {
+                            if parsed > 100.0 {
                                 return Err("Please enter a number below 100%");
+                            } else if parsed < 0.0 {
+                                return Err("Please enter a number above 0%");
                             }
                             Ok(())
                         }
@@ -122,37 +121,13 @@ impl RuleDialogBuilder {
             })
             .interact_text()
             .unwrap()
-            .parse::<u32>()
+            .parse::<f32>()
             .unwrap();
 
         self.name = Some(match name {
             RuleName::RiskPerMonth(_) => RuleName::RiskPerMonth(risk),
             RuleName::RiskPerTrade(_) => RuleName::RiskPerTrade(risk),
         });
-        self
-    }
-
-    pub fn priority(mut self) -> Self {
-        let priority = Input::with_theme(&ColorfulTheme::default())
-            .with_prompt("Priority")
-            .validate_with({
-                |input: &String| -> Result<(), &str> {
-                    match input.parse::<u32>() {
-                        Ok(parsed) => {
-                            if parsed > 1000 {
-                                return Err("Please enter a number below 1000");
-                            }
-                            Ok(())
-                        }
-                        Err(_) => Err("Please enter a valid number from 0 to 1000."),
-                    }
-                }
-            })
-            .interact_text()
-            .unwrap()
-            .parse::<u32>()
-            .unwrap();
-        self.priority = Some(priority);
         self
     }
 

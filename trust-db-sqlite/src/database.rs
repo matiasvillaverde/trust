@@ -1,12 +1,14 @@
 use crate::workers::{
-    WorkerAccount, WorkerAccountOverview, WorkerPrice, WorkerRule, WorkerTradingVehicle,
-    WorkerTransaction,
+    WorkerAccount, WorkerAccountOverview, WorkerOrder, WorkerPrice, WorkerRule, WorkerTarget,
+    WorkerTrade, WorkerTradingVehicle, WorkerTransaction,
 };
 use diesel::prelude::*;
+use rust_decimal::Decimal;
 use std::error::Error;
 use trust_model::{
-    Account, AccountOverview, Currency, Database, Price, Rule, RuleName, TradingVehicle,
-    TradingVehicleCategory, Transaction, TransactionCategory,
+    Account, AccountOverview, Currency, Database, Order, OrderAction, OrderCategory, Price, Rule,
+    RuleName, Target, Trade, TradeCategory, TradingVehicle, TradingVehicleCategory, Transaction,
+    TransactionCategory,
 };
 use uuid::Uuid;
 
@@ -191,5 +193,62 @@ impl Database for SqliteDatabase {
 
     fn read_all_trading_vehicles(&mut self) -> Result<Vec<TradingVehicle>, Box<dyn Error>> {
         WorkerTradingVehicle::read_all(&mut self.connection)
+    }
+
+    fn read_trading_vehicle(&mut self, id: Uuid) -> Result<TradingVehicle, Box<dyn Error>> {
+        WorkerTradingVehicle::read(&mut self.connection, id)
+    }
+
+    fn create_order(
+        &mut self,
+        trading_vehicle: &TradingVehicle,
+        quantity: i64,
+        price: Decimal,
+        currency: &Currency,
+        action: &OrderAction,
+    ) -> Result<Order, Box<dyn Error>> {
+        WorkerOrder::create(
+            &mut self.connection,
+            price,
+            currency,
+            quantity,
+            action,
+            &OrderCategory::Market, // All stops should be market to go out as fast as possible
+            trading_vehicle,
+        )
+    }
+
+    fn create_target(
+        &mut self,
+        price: Decimal,
+        currency: &Currency,
+        order: &Order,
+        trade: &Trade,
+    ) -> Result<Target, Box<dyn Error>> {
+        WorkerTarget::create(&mut self.connection, price, currency, order, trade)
+    }
+
+    fn create_trade(
+        &mut self,
+        category: &TradeCategory,
+        currency: &Currency,
+        trading_vehicle: &TradingVehicle,
+        safety_stop: &Order,
+        entry: &Order,
+        account: &Account,
+    ) -> Result<Trade, Box<dyn Error>> {
+        WorkerTrade::create(
+            &mut self.connection,
+            category,
+            currency,
+            trading_vehicle,
+            safety_stop,
+            entry,
+            account,
+        )
+    }
+
+    fn read_trade(&mut self, id: Uuid) -> Result<Trade, Box<dyn Error>> {
+        WorkerTrade::read_trade(&mut self.connection, id)
     }
 }

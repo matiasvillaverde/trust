@@ -1,10 +1,10 @@
 use rust_decimal::Decimal;
 use trust_model::{
-    Account, AccountOverview, Currency, Database, Rule, RuleLevel, RuleName, TradingVehicle,
-    TradingVehicleCategory, Transaction, TransactionCategory,
+    Account, AccountOverview, Currency, Database, Rule, RuleLevel, RuleName, Trade, TradeCategory,
+    TradingVehicle, TradingVehicleCategory, Transaction, TransactionCategory,
 };
 use uuid::Uuid;
-use workers::{RuleWorker, TransactionWorker};
+use workers::{OrderWorker, QuantityWorker, RuleWorker, TransactionWorker};
 
 pub struct Trust {
     database: Box<dyn Database>,
@@ -74,17 +74,9 @@ impl Trust {
         account: &Account,
         name: &RuleName,
         description: &str,
-        priority: u32,
         level: &RuleLevel,
     ) -> Result<Rule, Box<dyn std::error::Error>> {
-        RuleWorker::create_rule(
-            &mut *self.database,
-            account,
-            name,
-            description,
-            priority,
-            level,
-        )
+        RuleWorker::create_rule(&mut *self.database, account, name, description, level)
     }
 
     pub fn make_rule_inactive(&mut self, rule: &Rule) -> Result<Rule, Box<dyn std::error::Error>> {
@@ -114,7 +106,90 @@ impl Trust {
     ) -> Result<Vec<TradingVehicle>, Box<dyn std::error::Error>> {
         self.database.read_all_trading_vehicles()
     }
+
+    pub fn maximum_quantity(
+        &mut self,
+        account_id: Uuid,
+        entry_price: Decimal,
+        stop_price: Decimal,
+        currency: &Currency,
+    ) -> Result<i64, Box<dyn std::error::Error>> {
+        QuantityWorker::maximum_quantity(
+            account_id,
+            entry_price,
+            stop_price,
+            currency,
+            &mut *self.database,
+        )
+    }
+
+    pub fn create_trade(&mut self, trade: DraftTrade) -> Result<Trade, Box<dyn std::error::Error>> {
+        let trading_vehicle = self
+            .database
+            .read_trading_vehicle(trade.trading_vehicle_id)?;
+
+        let stop = OrderWorker::create_stop(
+            trade.trading_vehicle_id,
+            trade.quantity,
+            trade.stop_price,
+            &trade.currency,
+            &trade.category,
+            &mut *self.database,
+        )?;
+
+        let entry = OrderWorker::create_entry(
+            trade.trading_vehicle_id,
+            trade.quantity,
+            trade.entry_price,
+            &trade.currency,
+            &trade.category,
+            &mut *self.database,
+        )?;
+
+        let new_trade = self.database.create_trade(
+            &trade.category,
+            &trade.currency,
+            &trading_vehicle,
+            &stop,
+            &entry,
+            &trade.account,
+        )?;
+
+        let mut targets = Vec::new();
+        for target in trade.targets {
+            let draft = DraftTarget {
+                target_price: target.target_price,
+                quantity: target.quantity,
+                order_price: target.order_price,
+            };
+
+            let target = OrderWorker::create_target(draft, &new_trade, &mut *self.database)?;
+            targets.push(target);
+        }
+
+        // We need to read again the trade with the recently added targets
+        let new_trade = self.database.read_trade(new_trade.id)?;
+
+        Ok(new_trade)
+    }
 }
 
 mod validators;
 mod workers;
+
+pub struct DraftTrade {
+    pub account: Account,
+    pub trading_vehicle_id: Uuid,
+    pub quantity: i64,
+    pub currency: Currency,
+    pub category: TradeCategory,
+    pub stop_price: Decimal,
+    pub entry_price: Decimal,
+    pub targets: Vec<DraftTarget>,
+}
+
+pub struct DraftTarget {
+    pub target_price: Decimal,
+    pub quantity: i64,
+    pub order_price: Decimal,
+}

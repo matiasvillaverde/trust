@@ -1,4 +1,4 @@
-use crate::schema::account_overviews;
+use crate::schema::accounts_overviews;
 use chrono::{NaiveDateTime, Utc};
 use diesel::prelude::*;
 use diesel::SqliteConnection;
@@ -40,7 +40,7 @@ impl WorkerAccountOverview {
             currency: currency.to_string(),
         };
 
-        let overview = diesel::insert_into(account_overviews::table)
+        let overview = diesel::insert_into(accounts_overviews::table)
             .values(&new_account_overview)
             .get_result::<AccountOverviewSQLite>(connection)
             .map(|overview| overview.domain_model(connection))
@@ -55,9 +55,9 @@ impl WorkerAccountOverview {
         connection: &mut SqliteConnection,
         account_id: Uuid,
     ) -> Result<Vec<AccountOverview>, Box<dyn Error>> {
-        let overviews = account_overviews::table
-            .filter(account_overviews::account_id.eq(account_id.to_string()))
-            .filter(account_overviews::deleted_at.is_null())
+        let overviews = accounts_overviews::table
+            .filter(accounts_overviews::account_id.eq(account_id.to_string()))
+            .filter(accounts_overviews::deleted_at.is_null())
             .load::<AccountOverviewSQLite>(connection)
             .map(|overviews| {
                 overviews
@@ -77,10 +77,10 @@ impl WorkerAccountOverview {
         account_id: Uuid,
         currency: &Currency,
     ) -> Result<AccountOverview, Box<dyn Error>> {
-        let overviews = account_overviews::table
-            .filter(account_overviews::account_id.eq(account_id.to_string()))
-            .filter(account_overviews::currency.eq(currency.to_string()))
-            .filter(account_overviews::deleted_at.is_null())
+        let overviews = accounts_overviews::table
+            .filter(accounts_overviews::account_id.eq(account_id.to_string()))
+            .filter(accounts_overviews::currency.eq(currency.to_string()))
+            .filter(accounts_overviews::deleted_at.is_null())
             .first::<AccountOverviewSQLite>(connection)
             .map(|overview| overview.domain_model(connection))
             .map_err(|error| {
@@ -94,8 +94,8 @@ impl WorkerAccountOverview {
         connection: &mut SqliteConnection,
         id: Uuid,
     ) -> Result<AccountOverview, Box<dyn Error>> {
-        let overviews = account_overviews::table
-            .filter(account_overviews::id.eq(id.to_string()))
+        let overviews = accounts_overviews::table
+            .filter(accounts_overviews::id.eq(id.to_string()))
             .first::<AccountOverviewSQLite>(connection)
             .map(|overview| overview.domain_model(connection))
             .map_err(|error| {
@@ -126,7 +126,7 @@ impl WorkerAccountOverview {
 }
 
 #[derive(Queryable, Identifiable, AsChangeset, Insertable)]
-#[diesel(table_name = account_overviews)]
+#[diesel(table_name = accounts_overviews)]
 #[diesel(treat_none_as_null = true)]
 struct AccountOverviewSQLite {
     id: String,
@@ -176,7 +176,7 @@ impl AccountOverviewSQLite {
 }
 
 #[derive(Insertable)]
-#[diesel(table_name = account_overviews)]
+#[diesel(table_name = accounts_overviews)]
 pub struct NewAccountOverview {
     id: String,
     created_at: NaiveDateTime,

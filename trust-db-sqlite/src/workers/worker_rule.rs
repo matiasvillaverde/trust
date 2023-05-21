@@ -122,7 +122,7 @@ impl RuleSQLite {
     fn domain_model(self) -> Rule {
         use std::str::FromStr;
         let name =
-            RuleName::parse(&self.name, self.risk as u32).expect("Failed to parse rule name");
+            RuleName::parse(&self.name, self.risk as f32).expect("Failed to parse rule name");
         Rule {
             id: Uuid::parse_str(&self.id).unwrap(),
             created_at: self.created_at,
