@@ -44,7 +44,7 @@ impl OrderWorker {
     pub fn create_target(
         trading_vehicle_id: Uuid,
         quantity: i64,
-        price: Decimal,
+        order_price: Decimal,
         currency: &Currency,
         target_price: Decimal,
         category: &TradeCategory,
@@ -55,7 +55,7 @@ impl OrderWorker {
         let order = database.create_order(
             &tv,
             quantity,
-            price,
+            order_price,
             currency,
             &OrderWorker::action_for_target(&category),
         )?;

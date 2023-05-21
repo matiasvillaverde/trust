@@ -6,7 +6,7 @@ mod transaction_view;
 
 pub use account_view::{AccountOverviewView, AccountView};
 pub use rule_view::RuleView;
-pub use trade_view::TradeView;
+pub use trade_view::{TradeOverviewView, TradeView};
 pub use trading_vehicle_view::TradingVehicleView;
 pub use transaction_view::TransactionView;
 

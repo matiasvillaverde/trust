@@ -185,7 +185,7 @@ impl TradeSQLite {
                 .unwrap();
 
         let targets =
-            WorkerTarget::read_all(Uuid::parse_str(&self.account_id).unwrap(), connection).unwrap();
+            WorkerTarget::read_all(Uuid::parse_str(&self.id).unwrap(), connection).unwrap();
 
         Trade {
             id: Uuid::parse_str(&self.id).unwrap(),

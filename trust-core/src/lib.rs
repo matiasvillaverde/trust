@@ -160,7 +160,7 @@ impl Trust {
             let target = OrderWorker::create_target(
                 trading_vehicle.id,
                 target.quantity,
-                target.price,
+                target.order_price,
                 &trade.currency,
                 target.target_price,
                 &trade.category,
@@ -191,5 +191,5 @@ pub struct DraftTrade {
 pub struct DraftTarget {
     pub target_price: Decimal,
     pub quantity: i64,
-    pub price: Decimal,
+    pub order_price: Decimal,
 }

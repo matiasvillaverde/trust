@@ -54,11 +54,12 @@ impl WorkerTarget {
     }
 
     pub fn read_all(
-        account_id: Uuid,
+        trade_id: Uuid,
         connection: &mut SqliteConnection,
     ) -> Result<Vec<Target>, Box<dyn Error>> {
         let targets = targets::table
             .filter(targets::deleted_at.is_null())
+            .filter(targets::trade_id.eq(trade_id.to_string()))
             .load::<TargetSQLite>(connection)
             .map(|targets: Vec<TargetSQLite>| {
                 targets
@@ -100,7 +101,7 @@ impl TargetSQLite {
             deleted_at: self.deleted_at,
             target_price: price,
             order: order,
-            trade_id: Uuid::new_v4(), // TODO: read trade_id later
+            trade_id: Uuid::parse_str(&self.trade_id).unwrap(),
         }
     }
 }

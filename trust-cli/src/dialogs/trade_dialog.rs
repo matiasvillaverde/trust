@@ -1,5 +1,6 @@
 use crate::{
     dialogs::{AccountSearchDialog, TradingVehicleSearchDialogBuilder},
+    views::TradeOverviewView,
     views::TradeView,
 };
 use dialoguer::{theme::ColorfulTheme, FuzzySelect, Input};
@@ -45,9 +46,9 @@ impl TradeDialogBuilder {
             .id;
 
         let target = DraftTarget {
-            target_price: self.target_order_price.unwrap(),
+            target_price: self.target_price.unwrap(),
             quantity: self.quantity.unwrap(),
-            price: self.target_price.unwrap(),
+            order_price: self.target_order_price.unwrap(),
         };
 
         let draft = DraftTrade {
@@ -70,7 +71,10 @@ impl TradeDialogBuilder {
             .result
             .expect("No result found, did you forget to call build?")
         {
-            Ok(trade) => TradeView::display_trade(trade, &self.account.unwrap().name),
+            Ok(trade) => {
+                TradeView::display_trade(&trade, &self.account.unwrap().name);
+                TradeOverviewView::display(trade.overview);
+            }
             Err(error) => println!("Error creating account: {:?}", error),
         }
     }
