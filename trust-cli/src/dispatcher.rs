@@ -1,6 +1,6 @@
 use crate::dialogs::{
-    AccountDialogBuilder, AccountSearchDialog, TradeDialogBuilder, TradingVehicleDialogBuilder,
-    TradingVehicleSearchDialogBuilder, TransactionDialogBuilder,
+    AccountDialogBuilder, AccountSearchDialog, TradeDialogApproverBuilder, TradeDialogBuilder,
+    TradingVehicleDialogBuilder, TradingVehicleSearchDialogBuilder, TransactionDialogBuilder,
 };
 use crate::dialogs::{RuleDialogBuilder, RuleRemoveDialogBuilder};
 use clap::ArgMatches;
@@ -45,6 +45,7 @@ impl ArgDispatcher {
             },
             Some(("trade", sub_matches)) => match sub_matches.subcommand() {
                 Some(("create", _)) => self.create_trade(),
+                Some(("approve", _)) => self.create_approve(),
                 _ => unreachable!("No subcommand provided"),
             },
             Some((ext, sub_matches)) => {
@@ -153,6 +154,14 @@ impl ArgDispatcher {
             .target_price()
             .order_target_price()
             .build(&mut self.trust)
+            .display();
+    }
+
+    fn create_approve(&mut self) {
+        TradeDialogApproverBuilder::new()
+            .account(&mut self.trust)
+            .search(&mut self.trust)
+            .build()
             .display();
     }
 }

@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 /// Trade entity - represents a single trade.
 /// Trade is the most important entity of the trust model.
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub struct Trade {
     pub id: Uuid,
 
@@ -55,6 +55,22 @@ pub struct Trade {
     pub overview: TradeOverview,
 }
 
+impl std::fmt::Display for Trade {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}: quantity: {}, category: {}, currency: {}, safety_stop: {}, entry: {}, exit_targets: {}",
+            self.trading_vehicle.symbol,
+            self.safety_stop.quantity,
+            self.category,
+            self.currency,
+            self.safety_stop.unit_price.amount,
+            self.entry.unit_price.amount,
+            self.exit_targets.len(),
+        )
+    }
+}
+
 /// The category of the trade - Being a bull or a bear
 #[derive(PartialEq, Debug, Clone, Copy)]
 pub enum TradeCategory {
@@ -93,7 +109,7 @@ impl std::str::FromStr for TradeCategory {
 }
 
 /// The lifecycle of the trade - approved, rejected, executed, failed, closed
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub struct TradeLifecycle {
     pub id: Uuid,
 
@@ -122,7 +138,7 @@ pub struct TradeLifecycle {
     pub rejected_by_rule_id: Option<Uuid>,
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub struct TradeOverview {
     pub id: Uuid,
 

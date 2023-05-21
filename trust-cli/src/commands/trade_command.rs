@@ -24,4 +24,10 @@ impl TradeCommandBuilder {
             .push(Command::new("create").about("Create a new trade for your account"));
         self
     }
+
+    pub fn approve_trade(mut self) -> Self {
+        self.subcommands
+            .push(Command::new("approve").about("Approve a trade to be executed"));
+        self
+    }
 }

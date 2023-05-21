@@ -251,4 +251,8 @@ impl Database for SqliteDatabase {
     fn read_trade(&mut self, id: Uuid) -> Result<Trade, Box<dyn Error>> {
         WorkerTrade::read_trade(&mut self.connection, id)
     }
+
+    fn read_all_trades(&mut self, account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>> {
+        WorkerTrade::read_all_trades(&mut self.connection, account_id)
+    }
 }

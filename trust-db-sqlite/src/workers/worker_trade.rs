@@ -89,6 +89,27 @@ impl WorkerTrade {
         Ok(trade)
     }
 
+    pub fn read_all_trades(
+        connection: &mut SqliteConnection,
+        account_id: Uuid,
+    ) -> Result<Vec<Trade>, Box<dyn Error>> {
+        let trades = trades::table
+            .filter(trades::deleted_at.is_null())
+            .filter(trades::account_id.eq(account_id.to_string()))
+            .load::<TradeSQLite>(connection)
+            .map(|trades: Vec<TradeSQLite>| {
+                trades
+                    .into_iter()
+                    .map(|trade| trade.domain_model(connection))
+                    .collect()
+            })
+            .map_err(|error| {
+                error!("Error reading trades: {:?}", error);
+                error
+            })?;
+        Ok(trades)
+    }
+
     fn create_lifecycle(
         connection: &mut SqliteConnection,
         created_at: NaiveDateTime,

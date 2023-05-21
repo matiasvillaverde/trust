@@ -172,6 +172,13 @@ impl Trust {
 
         Ok(new_trade)
     }
+
+    pub fn search_all_trades(
+        &mut self,
+        account_id: Uuid,
+    ) -> Result<Vec<Trade>, Box<dyn std::error::Error>> {
+        self.database.read_all_trades(account_id)
+    }
 }
 
 mod validators;
