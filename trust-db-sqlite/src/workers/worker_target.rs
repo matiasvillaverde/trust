@@ -124,7 +124,9 @@ mod tests {
     use crate::workers::{WorkerAccount, WorkerOrder, WorkerTrade, WorkerTradingVehicle};
     use diesel_migrations::*;
     use rust_decimal_macros::dec;
-    use trust_model::{OrderAction, OrderCategory, TradingVehicleCategory};
+    use trust_model::{
+        Account, OrderAction, OrderCategory, TradingVehicle, TradingVehicleCategory,
+    };
 
     pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
 
@@ -137,17 +139,19 @@ mod tests {
         connection
     }
 
-    fn create_target(conn: &mut SqliteConnection) -> (Target, Order) {
-        let tv = WorkerTradingVehicle::create(
+    fn create_trading_vehicle(conn: &mut SqliteConnection) -> TradingVehicle {
+        WorkerTradingVehicle::create(
             conn,
             "AAPL",
             "US0378331005",
             &TradingVehicleCategory::Stock,
             "Alpaca",
         )
-        .unwrap();
+        .unwrap()
+    }
 
-        let order = WorkerOrder::create(
+    fn create_order(conn: &mut SqliteConnection, tv: &TradingVehicle) -> Order {
+        WorkerOrder::create(
             conn,
             dec!(9),
             &Currency::USD,
@@ -156,11 +160,20 @@ mod tests {
             &OrderCategory::Limit,
             &tv,
         )
-        .unwrap();
+        .unwrap()
+    }
 
-        let account = WorkerAccount::create_account(conn, "Test Account", "Test Account").unwrap();
+    fn create_account(conn: &mut SqliteConnection) -> Account {
+        WorkerAccount::create_account(conn, "Test Account", "Test Account").unwrap()
+    }
 
-        let trade = WorkerTrade::create(
+    fn create_trade(
+        conn: &mut SqliteConnection,
+        order: &Order,
+        tv: &TradingVehicle,
+        account: &Account,
+    ) -> Trade {
+        WorkerTrade::create(
             conn,
             &trust_model::TradeCategory::Long,
             &Currency::USD,
@@ -169,17 +182,22 @@ mod tests {
             &order,
             &account,
         )
-        .unwrap();
-        let target = WorkerTarget::create(conn, dec!(10), &Currency::USD, &order, &trade).unwrap();
+        .unwrap()
+    }
 
-        return (target, order);
+    fn create_target(conn: &mut SqliteConnection, order: &Order, trade: &Trade) -> Target {
+        WorkerTarget::create(conn, dec!(10), &Currency::USD, &order, &trade).unwrap()
     }
 
     #[test]
     fn test_create_target() {
         let mut conn = establish_connection();
 
-        let (target, order) = create_target(&mut conn);
+        let tv = create_trading_vehicle(&mut conn);
+        let order = create_order(&mut conn, &tv);
+        let account = create_account(&mut conn);
+        let trade = create_trade(&mut conn, &order, &tv, &account);
+        let target = create_target(&mut conn, &order, &trade);
 
         assert_eq!(target.order, order);
         assert_eq!(target.target_price.amount, dec!(10));
@@ -192,7 +210,11 @@ mod tests {
     fn test_read_target() {
         let mut conn = establish_connection();
 
-        let (target, order) = create_target(&mut conn);
+        let tv = create_trading_vehicle(&mut conn);
+        let order = create_order(&mut conn, &tv);
+        let account = create_account(&mut conn);
+        let trade = create_trade(&mut conn, &order, &tv, &account);
+        let target = create_target(&mut conn, &order, &trade);
 
         let read_target = WorkerTarget::read(&mut conn, target.id).unwrap();
 
@@ -201,5 +223,24 @@ mod tests {
         assert_eq!(read_target.target_price.currency, Currency::USD);
         assert_eq!(read_target.created_at, read_target.updated_at);
         assert_eq!(read_target.deleted_at, None);
+    }
+
+    #[test]
+    fn test_read_all_targets() {
+        let mut conn = establish_connection();
+
+        let tv = create_trading_vehicle(&mut conn);
+        let order = create_order(&mut conn, &tv);
+        let account = create_account(&mut conn);
+        let trade = create_trade(&mut conn, &order, &tv, &account);
+        let target = create_target(&mut conn, &order, &trade);
+        let order2 = create_order(&mut conn, &tv);
+        let target2 = create_target(&mut conn, &order2, &trade);
+
+        let targets = WorkerTarget::read_all(trade.id, &mut conn).unwrap();
+
+        assert_eq!(targets.len(), 2);
+        assert_eq!(targets[0], target);
+        assert_eq!(targets[1], target2);
     }
 }
