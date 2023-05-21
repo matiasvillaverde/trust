@@ -95,6 +95,7 @@ CREATE TABLE "trades" (
 	updated_at			DATETIME NOT NULL,
 	deleted_at			DATETIME,
 	category 			TEXT CHECK(category IN ('long', 'short')) NOT NULL,
+	currency 				TEXT CHECK(currency IN ('EUR', 'USD', 'BTC')) NOT NULL,
 	trading_vehicle_id	TEXT NOT NULL REFERENCES trading_vehicles (id),
 	safety_stop_id 		TEXT NOT NULL REFERENCES orders (id),
 	entry_id 			TEXT NOT NULL REFERENCES orders (id),
@@ -125,6 +126,5 @@ CREATE TABLE "trades_overviews" (
 	total_in_market_id		TEXT NOT NULL REFERENCES prices (id),
 	total_out_market_id		TEXT NOT NULL REFERENCES prices (id),
 	total_taxable_id		TEXT NOT NULL REFERENCES prices (id),
-	total_performance_id	TEXT NOT NULL REFERENCES prices (id),
-	currency 				TEXT CHECK(currency IN ('EUR', 'USD', 'BTC')) NOT NULL
+	total_performance_id	TEXT NOT NULL REFERENCES prices (id)
 );

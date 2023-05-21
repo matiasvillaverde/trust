@@ -1,10 +1,12 @@
 mod account_view;
 mod rule_view;
+mod trade_view;
 mod trading_vehicle_view;
 mod transaction_view;
 
 pub use account_view::{AccountOverviewView, AccountView};
 pub use rule_view::RuleView;
+pub use trade_view::TradeView;
 pub use trading_vehicle_view::TradingVehicleView;
 pub use transaction_view::TransactionView;
 

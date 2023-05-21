@@ -24,6 +24,9 @@ pub struct Trade {
     /// The category of the trade - long or short
     pub category: TradeCategory,
 
+    /// The currency of the trade
+    pub currency: Currency,
+
     /// The safety stop - the order that is used to protect the trade from losing too much money.
     /// The safety stop is an order that is used to close the trade if the price goes in the wrong direction.
     /// The safety stop must be of type market order to get out of the trade as soon as possible.
@@ -142,7 +145,4 @@ pub struct TradeOverview {
 
     /// Total amount of money that we have earned or lost from the trade
     pub total_performance: Price,
-
-    /// The currency of the trade
-    pub currency: Currency,
 }

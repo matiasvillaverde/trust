@@ -9,7 +9,7 @@ use trust_model::{Account, Currency};
 use trust_model::{Order, Trade, TradeCategory, TradeLifecycle, TradeOverview, TradingVehicle};
 use uuid::Uuid;
 
-use super::{WorkerOrder, WorkerPrice, WorkerTradingVehicle};
+use super::{WorkerOrder, WorkerPrice, WorkerTarget, WorkerTradingVehicle};
 pub struct WorkerTrade;
 
 impl WorkerTrade {
@@ -34,6 +34,7 @@ impl WorkerTrade {
             updated_at: now,
             deleted_at: None,
             category: category.to_string(),
+            currency: currency.to_string(),
             trading_vehicle_id: trading_vehicle.id.to_string(),
             safety_stop_id: safety_stop.id.to_string(),
             entry_id: entry.id.to_string(),
@@ -132,7 +133,6 @@ impl WorkerTrade {
             total_out_market_id: total_out_market_id,
             total_taxable_id: total_taxable_id,
             total_performance_id: total_performance_id,
-            currency: currency.to_string(),
         };
 
         let overview = diesel::insert_into(trades_overviews::table)
@@ -157,6 +157,7 @@ struct TradeSQLite {
     updated_at: NaiveDateTime,
     deleted_at: Option<NaiveDateTime>,
     category: String,
+    currency: String,
     trading_vehicle_id: String,
     safety_stop_id: String,
     entry_id: String,
@@ -183,6 +184,9 @@ impl TradeSQLite {
             WorkerTrade::read_overview(connection, Uuid::parse_str(&self.overview_id).unwrap())
                 .unwrap();
 
+        let targets =
+            WorkerTarget::read_all(Uuid::parse_str(&self.account_id).unwrap(), connection).unwrap();
+
         Trade {
             id: Uuid::parse_str(&self.id).unwrap(),
             created_at: self.created_at,
@@ -190,9 +194,10 @@ impl TradeSQLite {
             deleted_at: self.deleted_at,
             trading_vehicle,
             category: TradeCategory::from_str(&self.category).unwrap(),
+            currency: Currency::from_str(&self.currency).unwrap(),
             safety_stop: safety_stop,
             entry: entry,
-            exit_targets: vec![], // TODO: read exit targets
+            exit_targets: targets,
             account_id: Uuid::parse_str(&self.account_id).unwrap(),
             lifecycle,
             overview,
@@ -209,6 +214,7 @@ struct NewTrade {
     updated_at: NaiveDateTime,
     deleted_at: Option<NaiveDateTime>,
     category: String,
+    currency: String,
     trading_vehicle_id: String,
     safety_stop_id: String,
     entry_id: String,
@@ -280,7 +286,6 @@ struct TradeOverviewSQLite {
     total_out_market_id: String,
     total_taxable_id: String,
     total_performance_id: String,
-    currency: String,
 }
 
 impl TradeOverviewSQLite {
@@ -316,7 +321,6 @@ impl TradeOverviewSQLite {
             total_out_market,
             total_taxable,
             total_performance,
-            currency: Currency::from_str(&self.currency).unwrap(),
         }
     }
 }
@@ -333,7 +337,6 @@ struct NewTradeOverview {
     total_out_market_id: String,
     total_taxable_id: String,
     total_performance_id: String,
-    currency: String,
 }
 
 #[cfg(test)]

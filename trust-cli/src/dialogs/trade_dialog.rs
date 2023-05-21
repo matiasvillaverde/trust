@@ -1,4 +1,7 @@
-use crate::dialogs::{AccountSearchDialog, TradingVehicleSearchDialogBuilder};
+use crate::{
+    dialogs::{AccountSearchDialog, TradingVehicleSearchDialogBuilder},
+    views::TradeView,
+};
 use dialoguer::{theme::ColorfulTheme, FuzzySelect, Input};
 use rust_decimal::Decimal;
 use std::error::Error;
@@ -41,8 +44,6 @@ impl TradeDialogBuilder {
             .expect("Did you forget to specify trading vehicle")
             .id;
 
-        // TODO: Create Draft Trade
-
         let target = DraftTarget {
             target_price: self.target_order_price.unwrap(),
             quantity: self.quantity.unwrap(),
@@ -69,7 +70,7 @@ impl TradeDialogBuilder {
             .result
             .expect("No result found, did you forget to call build?")
         {
-            Ok(trade) => println!("Trade created: {:?}", trade),
+            Ok(trade) => TradeView::display_trade(trade, &self.account.unwrap().name),
             Err(error) => println!("Error creating account: {:?}", error),
         }
     }

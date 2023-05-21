@@ -112,6 +112,7 @@ diesel::table! {
         updated_at -> Timestamp,
         deleted_at -> Nullable<Timestamp>,
         category -> Text,
+        currency -> Text,
         trading_vehicle_id -> Text,
         safety_stop_id -> Text,
         entry_id -> Text,
@@ -147,7 +148,6 @@ diesel::table! {
         total_out_market_id -> Text,
         total_taxable_id -> Text,
         total_performance_id -> Text,
-        currency -> Text,
     }
 }
 

@@ -52,6 +52,26 @@ impl WorkerTarget {
             .first(connection)
             .map(|target: TargetSQLite| target.domain_model(connection))
     }
+
+    pub fn read_all(
+        account_id: Uuid,
+        connection: &mut SqliteConnection,
+    ) -> Result<Vec<Target>, Box<dyn Error>> {
+        let targets = targets::table
+            .filter(targets::deleted_at.is_null())
+            .load::<TargetSQLite>(connection)
+            .map(|targets: Vec<TargetSQLite>| {
+                targets
+                    .into_iter()
+                    .map(|target| target.domain_model(connection))
+                    .collect()
+            })
+            .map_err(|error| {
+                error!("Error creating price: {:?}", error);
+                error
+            })?;
+        Ok(targets)
+    }
 }
 
 #[derive(Queryable, Identifiable, AsChangeset, Insertable)]
