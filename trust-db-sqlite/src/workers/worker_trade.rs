@@ -1,6 +1,7 @@
 use crate::schema::{trades, trades_overviews};
 use chrono::{NaiveDateTime, Utc};
 use diesel::prelude::*;
+use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use std::error::Error;
 use std::str::FromStr;
@@ -151,6 +152,34 @@ impl WorkerTrade {
                 error
             })?;
         Ok(overview)
+    }
+
+    pub fn update_trade_input(
+        connection: &mut SqliteConnection,
+        trade: &Trade,
+        total_input: Decimal,
+    ) -> Result<TradeOverview, Box<dyn Error>> {
+        WorkerPrice::update(connection, trade.overview.total_input, total_input)?;
+        WorkerPrice::update(connection, trade.overview.total_out_market, total_input)?;
+        let overview = WorkerTrade::read_overview(connection, trade.overview.id)?;
+        Ok(overview)
+    }
+
+    pub fn approve_trade(
+        connection: &mut SqliteConnection,
+        trade: &Trade,
+    ) -> Result<Trade, Box<dyn Error>> {
+        let now = Utc::now().naive_utc();
+        let trade = diesel::update(trades::table)
+            .filter(trades::id.eq(trade.id.to_string()))
+            .set((trades::updated_at.eq(now), trades::approved_at.eq(now)))
+            .get_result::<TradeSQLite>(connection)
+            .map(|trade| trade.domain_model(connection))
+            .map_err(|error| {
+                error!("Error approving trade: {:?}", error);
+                error
+            })?;
+        Ok(trade)
     }
 }
 

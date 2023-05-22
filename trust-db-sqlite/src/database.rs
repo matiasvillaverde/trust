@@ -7,8 +7,8 @@ use rust_decimal::Decimal;
 use std::error::Error;
 use trust_model::{
     Account, AccountOverview, Currency, Database, Order, OrderAction, OrderCategory, Price, Rule,
-    RuleName, Target, Trade, TradeCategory, TradingVehicle, TradingVehicleCategory, Transaction,
-    TransactionCategory,
+    RuleName, Target, Trade, TradeCategory, TradeOverview, TradingVehicle, TradingVehicleCategory,
+    Transaction, TransactionCategory,
 };
 use uuid::Uuid;
 
@@ -278,5 +278,17 @@ impl Database for SqliteDatabase {
 
     fn read_all_new_trades(&mut self, account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>> {
         WorkerTrade::read_all_new_trades(&mut self.connection, account_id)
+    }
+
+    fn approve_trade(&mut self, trade: &Trade) -> Result<Trade, Box<dyn Error>> {
+        WorkerTrade::approve_trade(&mut self.connection, trade)
+    }
+
+    fn update_trade_overview(
+        &mut self,
+        trade: &Trade,
+        total_input: Decimal,
+    ) -> Result<TradeOverview, Box<dyn Error>> {
+        WorkerTrade::update_trade_input(&mut self.connection, trade, total_input)
     }
 }

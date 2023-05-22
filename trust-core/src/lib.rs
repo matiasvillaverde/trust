@@ -182,14 +182,17 @@ impl Trust {
 
     pub fn approve(
         &mut self,
-        trade: &Trade
+        trade: &Trade,
     ) -> Result<(Trade, Transaction, AccountOverview), Box<dyn std::error::Error>> {
-
         // TODO: Run all the rules
-        // 1. Reject in case a rule fails
-        // 2. Approve in case rule succeed
+        // 1. Reject in case one rule fails
 
-        let (transaction, account_overview) = TransactionWorker::transfer_to_trade(trade,  &mut *self.database)?;
+        // 2. Approve in case rule succeed
+        self.database.approve_trade(trade)?;
+
+        // 3. Create transaction to fund the trade
+        let (transaction, account_overview) =
+            TransactionWorker::transfer_to_trade(trade, &mut *self.database)?;
         return Ok((trade.clone(), transaction, account_overview));
     }
 }

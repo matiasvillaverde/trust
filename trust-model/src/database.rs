@@ -6,7 +6,9 @@ use crate::TradingVehicle;
 use crate::TradingVehicleCategory;
 use crate::Transaction;
 use crate::TransactionCategory;
-use crate::{Account, AccountOverview, Order, Rule, RuleLevel, RuleName, Trade, TradeCategory};
+use crate::{
+    Account, AccountOverview, Order, Rule, RuleLevel, RuleName, Trade, TradeCategory, TradeOverview,
+};
 use rust_decimal::Decimal;
 use uuid::Uuid;
 
@@ -141,4 +143,11 @@ pub trait Database {
     fn read_trade(&mut self, id: Uuid) -> Result<Trade, Box<dyn Error>>;
 
     fn read_all_new_trades(&mut self, account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>>;
+
+    fn approve_trade(&mut self, trade: &Trade) -> Result<Trade, Box<dyn Error>>;
+    fn update_trade_overview(
+        &mut self,
+        trade: &Trade,
+        total_input: Decimal,
+    ) -> Result<TradeOverview, Box<dyn Error>>;
 }

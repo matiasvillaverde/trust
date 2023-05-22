@@ -1,9 +1,9 @@
+use crate::views::{AccountOverviewView, TradeView};
 use crate::{dialogs::AccountSearchDialog, views::TransactionView};
-use crate::views::{TradeView, AccountOverviewView};
 use dialoguer::{theme::ColorfulTheme, FuzzySelect};
 use std::error::Error;
 use trust_core::Trust;
-use trust_model::{Account, Trade, Transaction, AccountOverview};
+use trust_model::{Account, AccountOverview, Trade, Transaction};
 
 pub struct TradeDialogApproverBuilder {
     account: Option<Account>,
@@ -31,13 +31,13 @@ impl TradeDialogApproverBuilder {
             .result
             .expect("No result found, did you forget to call search?")
         {
-            Ok((trade,tx, account_overview)) => {
+            Ok((trade, tx, account_overview)) => {
                 let account = self.account.clone().unwrap().name;
                 TradeView::display_trade(&trade, &self.account.unwrap().name);
                 TransactionView::display(&tx, account.as_str());
                 AccountOverviewView::display(account_overview, account.as_str());
-            },
-            Err(error) => println!("Error creating trade: {:?}", error),
+            }
+            Err(error) => println!("Error approving trade: {:?}", error),
         }
     }
 

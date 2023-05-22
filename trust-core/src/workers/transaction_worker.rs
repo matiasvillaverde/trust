@@ -149,6 +149,8 @@ impl TransactionWorker {
                     total_in_trade,
                 )?;
 
+                _ = database.update_trade_overview(trade, trade_total);
+
                 let transaction = database.new_transaction(
                     &account,
                     trade_total,
