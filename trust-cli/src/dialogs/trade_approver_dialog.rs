@@ -21,7 +21,11 @@ impl TradeDialogApproverBuilder {
     }
 
     pub fn build(self) -> TradeDialogApproverBuilder {
-        // TODO: Try to approve Trade
+        // TODO: Run all the rules
+        // 1. Reject in case a rule fails
+        // 2. Approve in case rule succeed
+
+        // TODO: Create a transaction to fund the trade
         assert!(self.result.is_some());
         self
     }

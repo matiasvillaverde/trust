@@ -114,6 +114,30 @@ impl Database for SqliteDatabase {
         Ok(updated_overview)
     }
 
+    fn update_account_overview_trade(
+        &mut self,
+        account: &Account,
+        currency: &Currency,
+        total_available: Decimal,
+        total_in_trade: Decimal,
+    ) -> Result<AccountOverview, Box<dyn Error>> {
+        let overview =
+            WorkerAccountOverview::read_for_currency(&mut self.connection, account.id, currency)?;
+        let updated_overview = WorkerAccountOverview::update_total_available(
+            &mut self.connection,
+            overview,
+            total_available,
+        )?;
+
+        let updated_total_in_trade = WorkerAccountOverview::update_total_in_trade(
+            &mut self.connection,
+            updated_overview,
+            total_in_trade,
+        )?;
+
+        Ok(updated_total_in_trade)
+    }
+
     fn read_all_accounts(&mut self) -> Result<Vec<Account>, Box<dyn Error>> {
         let accounts = WorkerAccount::read_all_accounts(&mut self.connection);
         accounts

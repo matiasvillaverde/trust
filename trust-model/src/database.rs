@@ -46,6 +46,14 @@ pub trait Database {
         total_balance: Decimal,
     ) -> Result<AccountOverview, Box<dyn Error>>;
 
+    fn update_account_overview_trade(
+        &mut self,
+        account: &Account,
+        currency: &Currency,
+        total_available: Decimal,
+        total_in_trade: Decimal,
+    ) -> Result<AccountOverview, Box<dyn Error>>;
+
     fn read_account_overview(
         &mut self,
         account_id: Uuid,

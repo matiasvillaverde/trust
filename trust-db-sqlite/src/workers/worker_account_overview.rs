@@ -123,6 +123,15 @@ impl WorkerAccountOverview {
         WorkerPrice::update(connection, overview.total_available, new_amount)?;
         WorkerAccountOverview::read_id(connection, overview.id)
     }
+
+    pub fn update_total_in_trade(
+        connection: &mut SqliteConnection,
+        overview: AccountOverview,
+        new_amount: Decimal,
+    ) -> Result<AccountOverview, Box<dyn Error>> {
+        WorkerPrice::update(connection, overview.total_in_trade, new_amount)?;
+        WorkerAccountOverview::read_id(connection, overview.id)
+    }
 }
 
 #[derive(Queryable, Identifiable, AsChangeset, Insertable)]

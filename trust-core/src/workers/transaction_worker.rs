@@ -4,7 +4,7 @@
 
 use rust_decimal::Decimal;
 use std::error::Error;
-use trust_model::{AccountOverview, Currency, Database, Transaction, TransactionCategory};
+use trust_model::{AccountOverview, Currency, Database, Trade, Transaction, TransactionCategory};
 use uuid::Uuid;
 
 use crate::validators::{TransactionValidationErrorCode, TransactionValidator};
@@ -118,6 +118,44 @@ impl TransactionWorker {
                     total_available,
                     total_balance,
                 )?;
+                Ok((transaction, updated_overview))
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    pub fn approve(
+        trade: &Trade,
+        database: &mut dyn Database,
+    ) -> Result<(Transaction, AccountOverview), Box<dyn Error>> {
+        let account = database.read_account_id(trade.account_id)?;
+        let overview = database.read_account_overview_currency(account.id, &trade.currency)?;
+        let trade_total = trade.entry.unit_price.amount * Decimal::from(trade.entry.quantity);
+        let total_available = overview.total_available.amount - trade_total;
+        let total_in_trade = overview.total_in_trade.amount + trade_total;
+
+        match TransactionValidator::validate(
+            TransactionCategory::Output(trade.id),
+            trade_total,
+            &trade.currency,
+            account.id,
+            database,
+        ) {
+            Ok(_) => {
+                let updated_overview = database.update_account_overview_trade(
+                    &account,
+                    &trade.currency,
+                    total_available,
+                    total_in_trade,
+                )?;
+
+                let transaction = database.new_transaction(
+                    &account,
+                    trade_total,
+                    &trade.currency,
+                    TransactionCategory::Output(trade.id),
+                )?;
+
                 Ok((transaction, updated_overview))
             }
             Err(error) => Err(error),

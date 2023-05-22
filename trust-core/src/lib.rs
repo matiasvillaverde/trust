@@ -179,6 +179,10 @@ impl Trust {
     ) -> Result<Vec<Trade>, Box<dyn std::error::Error>> {
         self.database.read_all_new_trades(account_id)
     }
+
+    pub fn approve(trade: &Trade) -> Result<Trade, Box<dyn std::error::Error>> {
+        unimplemented!("Approve trade")
+    }
 }
 
 mod validators;
