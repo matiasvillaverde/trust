@@ -100,21 +100,13 @@ CREATE TABLE "trades" (
 	safety_stop_id 		TEXT NOT NULL REFERENCES orders (id),
 	entry_id 			TEXT NOT NULL REFERENCES orders (id),
 	account_id 			TEXT NOT NULL REFERENCES accounts (id),
-	lifecycle_id 			TEXT NOT NULL REFERENCES trades_lifecycle (id),
-	overview_id 			TEXT NOT NULL REFERENCES trades_overviews (id)
-);
-
-CREATE TABLE "trades_lifecycle" (
-	id 			TEXT NOT NULL PRIMARY KEY,
-	created_at			DATETIME NOT NULL,
-	updated_at			DATETIME NOT NULL,
-	deleted_at			DATETIME,
 	approved_at			DATETIME,
 	rejected_at			DATETIME,
 	executed_at			DATETIME,
 	failed_at			DATETIME,
 	closed_at			DATETIME,
-	rejected_by_rule_id	TEXT REFERENCES rules (id)
+	rejected_by_rule_id	TEXT REFERENCES rules (id),
+	overview_id 			TEXT NOT NULL REFERENCES trades_overviews (id)
 );
 
 CREATE TABLE "trades_overviews" (

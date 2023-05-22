@@ -46,7 +46,7 @@ impl TradeDialogApproverBuilder {
     }
 
     pub fn search(mut self, trust: &mut Trust) -> Self {
-        let trades = trust.search_all_trades(self.account.clone().unwrap().id);
+        let trades = trust.search_all_new_trades(self.account.clone().unwrap().id);
         match trades {
             Ok(trades) => {
                 if trades.is_empty() {

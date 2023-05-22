@@ -1,4 +1,4 @@
-use crate::schema::{trades, trades_lifecycle, trades_overviews};
+use crate::schema::{trades, trades_overviews};
 use chrono::{NaiveDateTime, Utc};
 use diesel::prelude::*;
 use rust_decimal_macros::dec;
@@ -6,7 +6,7 @@ use std::error::Error;
 use std::str::FromStr;
 use tracing::error;
 use trust_model::{Account, Currency};
-use trust_model::{Order, Trade, TradeCategory, TradeLifecycle, TradeOverview, TradingVehicle};
+use trust_model::{Order, Trade, TradeCategory, TradeOverview, TradingVehicle};
 use uuid::Uuid;
 
 use super::{WorkerOrder, WorkerPrice, WorkerTarget, WorkerTradingVehicle};
@@ -25,7 +25,6 @@ impl WorkerTrade {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().naive_utc();
 
-        let lifecycle = WorkerTrade::create_lifecycle(connection, now)?;
         let overview = WorkerTrade::create_overview(connection, currency, now)?;
 
         let new_trade = NewTrade {
@@ -39,7 +38,12 @@ impl WorkerTrade {
             safety_stop_id: safety_stop.id.to_string(),
             entry_id: entry.id.to_string(),
             account_id: account.id.to_string(),
-            lifecycle_id: lifecycle.id.to_string(),
+            approved_at: None,
+            rejected_at: None,
+            executed_at: None,
+            failed_at: None,
+            closed_at: None,
+            rejected_by_rule_id: None,
             overview_id: overview.id.to_string(),
         };
 
@@ -64,16 +68,6 @@ impl WorkerTrade {
             .map(|overview: TradeOverviewSQLite| overview.domain_model(connection))
     }
 
-    pub fn read_lifecycle(
-        connection: &mut SqliteConnection,
-        id: Uuid,
-    ) -> Result<TradeLifecycle, diesel::result::Error> {
-        trades_lifecycle::table
-            .filter(trades_lifecycle::id.eq(&id.to_string()))
-            .first(connection)
-            .map(|lifecycle: TradeLifecycleSQLite| lifecycle.domain_model())
-    }
-
     pub fn read_trade(
         connection: &mut SqliteConnection,
         id: Uuid,
@@ -89,7 +83,7 @@ impl WorkerTrade {
         Ok(trade)
     }
 
-    pub fn read_all_trades(
+    pub fn read_all_new_trades(
         connection: &mut SqliteConnection,
         account_id: Uuid,
     ) -> Result<Vec<Trade>, Box<dyn Error>> {
@@ -108,34 +102,6 @@ impl WorkerTrade {
                 error
             })?;
         Ok(trades)
-    }
-
-    fn create_lifecycle(
-        connection: &mut SqliteConnection,
-        created_at: NaiveDateTime,
-    ) -> Result<TradeLifecycle, Box<dyn Error>> {
-        let new_trade_lifecycle = NewTradeLifecycle {
-            id: Uuid::new_v4().to_string(),
-            created_at,
-            updated_at: created_at,
-            deleted_at: None,
-            approved_at: None,
-            rejected_at: None,
-            executed_at: None,
-            failed_at: None,
-            closed_at: None,
-            rejected_by_rule_id: None,
-        };
-
-        let lifecycle = diesel::insert_into(trades_lifecycle::table)
-            .values(&new_trade_lifecycle)
-            .get_result::<TradeLifecycleSQLite>(connection)
-            .map(|lifecycle| lifecycle.domain_model())
-            .map_err(|error| {
-                error!("Error creating trade lifecycle: {:?}", error);
-                error
-            })?;
-        Ok(lifecycle)
     }
 
     fn create_overview(
@@ -198,7 +164,12 @@ struct TradeSQLite {
     safety_stop_id: String,
     entry_id: String,
     account_id: String,
-    lifecycle_id: String,
+    approved_at: Option<NaiveDateTime>,
+    rejected_at: Option<NaiveDateTime>,
+    executed_at: Option<NaiveDateTime>,
+    failed_at: Option<NaiveDateTime>,
+    closed_at: Option<NaiveDateTime>,
+    rejected_by_rule_id: Option<String>,
     overview_id: String,
 }
 
@@ -213,9 +184,6 @@ impl TradeSQLite {
             WorkerOrder::read(connection, Uuid::parse_str(&self.safety_stop_id).unwrap()).unwrap();
         let entry =
             WorkerOrder::read(connection, Uuid::parse_str(&self.entry_id).unwrap()).unwrap();
-        let lifecycle =
-            WorkerTrade::read_lifecycle(connection, Uuid::parse_str(&self.lifecycle_id).unwrap())
-                .unwrap();
         let overview =
             WorkerTrade::read_overview(connection, Uuid::parse_str(&self.overview_id).unwrap())
                 .unwrap();
@@ -235,7 +203,14 @@ impl TradeSQLite {
             entry,
             exit_targets: targets,
             account_id: Uuid::parse_str(&self.account_id).unwrap(),
-            lifecycle,
+            approved_at: self.approved_at,
+            rejected_at: self.rejected_at,
+            executed_at: self.executed_at,
+            failed_at: self.failed_at,
+            closed_at: self.closed_at,
+            rejected_by_rule_id: self
+                .rejected_by_rule_id
+                .map(|id| Uuid::parse_str(&id).unwrap()),
             overview,
         }
     }
@@ -255,59 +230,13 @@ struct NewTrade {
     safety_stop_id: String,
     entry_id: String,
     account_id: String,
-    lifecycle_id: String,
+    approved_at: Option<NaiveDateTime>,
+    rejected_at: Option<NaiveDateTime>,
+    executed_at: Option<NaiveDateTime>,
+    failed_at: Option<NaiveDateTime>,
+    closed_at: Option<NaiveDateTime>,
+    rejected_by_rule_id: Option<String>,
     overview_id: String,
-}
-
-// Lifecycle
-
-#[derive(Queryable, Identifiable, AsChangeset, Insertable)]
-#[diesel(table_name = trades_lifecycle)]
-struct TradeLifecycleSQLite {
-    id: String,
-    created_at: NaiveDateTime,
-    updated_at: NaiveDateTime,
-    deleted_at: Option<NaiveDateTime>,
-    approved_at: Option<NaiveDateTime>,
-    rejected_at: Option<NaiveDateTime>,
-    executed_at: Option<NaiveDateTime>,
-    failed_at: Option<NaiveDateTime>,
-    closed_at: Option<NaiveDateTime>,
-    rejected_by_rule_id: Option<String>,
-}
-
-impl TradeLifecycleSQLite {
-    fn domain_model(self) -> TradeLifecycle {
-        TradeLifecycle {
-            id: Uuid::parse_str(&self.id).unwrap(),
-            created_at: self.created_at,
-            updated_at: self.updated_at,
-            deleted_at: self.deleted_at,
-            approved_at: self.approved_at,
-            rejected_at: self.rejected_at,
-            executed_at: self.executed_at,
-            failed_at: self.failed_at,
-            closed_at: self.closed_at,
-            rejected_by_rule_id: self
-                .rejected_by_rule_id
-                .map(|id| Uuid::parse_str(&id).unwrap()),
-        }
-    }
-}
-
-#[derive(Insertable)]
-#[diesel(table_name = trades_lifecycle)]
-struct NewTradeLifecycle {
-    id: String,
-    created_at: NaiveDateTime,
-    updated_at: NaiveDateTime,
-    deleted_at: Option<NaiveDateTime>,
-    approved_at: Option<NaiveDateTime>,
-    rejected_at: Option<NaiveDateTime>,
-    executed_at: Option<NaiveDateTime>,
-    failed_at: Option<NaiveDateTime>,
-    closed_at: Option<NaiveDateTime>,
-    rejected_by_rule_id: Option<String>,
 }
 
 #[derive(Queryable, Identifiable, AsChangeset, Insertable)]

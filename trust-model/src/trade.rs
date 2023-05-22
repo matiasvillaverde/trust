@@ -44,10 +44,23 @@ pub struct Trade {
     /// The account that the trade is associated with
     pub account_id: Uuid,
 
-    // /// Strategy that the trade is based on
-    // pub strategy_id: Uuid,
-    /// The lifecycle of the trade - approved, rejected, executed, failed, closed
-    pub lifecycle: TradeLifecycle,
+    /// When the trade was approved by applying the rules of the account
+    pub approved_at: Option<NaiveDateTime>,
+
+    /// When the trade was rejected by applying the rules of the account
+    pub rejected_at: Option<NaiveDateTime>,
+
+    /// When the trade started to be executed by the broker
+    pub executed_at: Option<NaiveDateTime>,
+
+    /// When the trade failed to be executed by the broker
+    pub failed_at: Option<NaiveDateTime>,
+
+    /// When the trade was closed by the broker. All their orders were executed.
+    pub closed_at: Option<NaiveDateTime>,
+
+    /// The rule that rejected the trade. It has to be a rule of type error.
+    pub rejected_by_rule_id: Option<Uuid>,
 
     /// The overview of the trade - It is a cache of the calculations of the trade.
     /// It is a snapshot of the trade. It should be updated every time the trade is updated.
@@ -106,36 +119,6 @@ impl std::str::FromStr for TradeCategory {
             _ => Err(TradeCategoryParseError),
         }
     }
-}
-
-/// The lifecycle of the trade - approved, rejected, executed, failed, closed
-#[derive(PartialEq, Debug, Clone)]
-pub struct TradeLifecycle {
-    pub id: Uuid,
-
-    // Entity timestamps
-    pub created_at: NaiveDateTime,
-    pub updated_at: NaiveDateTime,
-    pub deleted_at: Option<NaiveDateTime>,
-
-    // Entity fields
-    /// When the trade was approved by applying the rules of the account
-    pub approved_at: Option<NaiveDateTime>,
-
-    /// When the trade was rejected by applying the rules of the account
-    pub rejected_at: Option<NaiveDateTime>,
-
-    /// When the trade started to be executed by the broker
-    pub executed_at: Option<NaiveDateTime>,
-
-    /// When the trade failed to be executed by the broker
-    pub failed_at: Option<NaiveDateTime>,
-
-    /// When the trade was closed by the broker. All their orders were executed.
-    pub closed_at: Option<NaiveDateTime>,
-
-    /// The rule that rejected the trade. It has to be a rule of type error.
-    pub rejected_by_rule_id: Option<Uuid>,
 }
 
 #[derive(PartialEq, Debug, Clone)]

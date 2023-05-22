@@ -8,5 +8,4 @@ DROP TABLE "trading_vehicles";
 DROP TABLE "orders";
 DROP TABLE "targets";
 DROP TABLE "trades";
-DROP TABLE "trades_lifecycle";
 DROP TABLE "trades_overviews";

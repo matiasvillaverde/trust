@@ -117,23 +117,13 @@ diesel::table! {
         safety_stop_id -> Text,
         entry_id -> Text,
         account_id -> Text,
-        lifecycle_id -> Text,
-        overview_id -> Text,
-    }
-}
-
-diesel::table! {
-    trades_lifecycle (id) {
-        id -> Text,
-        created_at -> Timestamp,
-        updated_at -> Timestamp,
-        deleted_at -> Nullable<Timestamp>,
         approved_at -> Nullable<Timestamp>,
         rejected_at -> Nullable<Timestamp>,
         executed_at -> Nullable<Timestamp>,
         failed_at -> Nullable<Timestamp>,
         closed_at -> Nullable<Timestamp>,
         rejected_by_rule_id -> Nullable<Text>,
+        overview_id -> Text,
     }
 }
 
@@ -160,8 +150,7 @@ diesel::joinable!(targets -> prices (target_price_id));
 diesel::joinable!(targets -> orders (order_id));
 diesel::joinable!(targets -> trades (trade_id));
 diesel::joinable!(trades -> accounts (account_id));
-diesel::joinable!(trades -> trades_lifecycle (lifecycle_id));
 diesel::joinable!(trades -> trades_overviews (overview_id));
 diesel::joinable!(trades -> trading_vehicles (trading_vehicle_id));
 diesel::joinable!(trades -> orders (safety_stop_id));
-diesel::joinable!(trades_lifecycle -> rules (rejected_by_rule_id));
+diesel::joinable!(trades -> rules (rejected_by_rule_id));

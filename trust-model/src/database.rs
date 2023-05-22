@@ -132,5 +132,5 @@ pub trait Database {
 
     fn read_trade(&mut self, id: Uuid) -> Result<Trade, Box<dyn Error>>;
 
-    fn read_all_trades(&mut self, account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>>;
+    fn read_all_new_trades(&mut self, account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>>;
 }
