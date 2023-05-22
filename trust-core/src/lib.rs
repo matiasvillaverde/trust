@@ -4,6 +4,7 @@ use trust_model::{
     TradingVehicle, TradingVehicleCategory, Transaction, TransactionCategory,
 };
 use uuid::Uuid;
+use validators::RuleValidator;
 use workers::{OrderWorker, QuantityWorker, RuleWorker, TransactionWorker};
 
 pub struct Trust {
@@ -184,8 +185,8 @@ impl Trust {
         &mut self,
         trade: &Trade,
     ) -> Result<(Trade, Transaction, AccountOverview), Box<dyn std::error::Error>> {
-        // TODO: Run all the rules
-        // 1. Reject in case one rule fails
+        // 1. Validate Trade by running rules
+        RuleValidator::validate_trade(trade, &mut *self.database)?;
 
         // 2. Approve in case rule succeed
         self.database.approve_trade(trade)?;

@@ -1,5 +1,5 @@
 use std::error::Error;
-use trust_model::{Account, Database, RuleName};
+use trust_model::{Account, Database, RuleName, Trade};
 pub struct RuleValidator;
 type RuleValidationResult = Result<(), Box<RuleValidationError>>;
 
@@ -20,6 +20,10 @@ impl RuleValidator {
         } else {
             Ok(())
         }
+    }
+
+    pub fn validate_trade(trade: &Trade, database: &mut dyn Database) -> RuleValidationResult {
+        unimplemented!()
     }
 }
 
