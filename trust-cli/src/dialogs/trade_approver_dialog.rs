@@ -1,14 +1,14 @@
-use crate::dialogs::AccountSearchDialog;
-use crate::views::TradeView;
+use crate::{dialogs::AccountSearchDialog, views::TransactionView};
+use crate::views::{TradeView, AccountOverviewView};
 use dialoguer::{theme::ColorfulTheme, FuzzySelect};
 use std::error::Error;
 use trust_core::Trust;
-use trust_model::{Account, Trade};
+use trust_model::{Account, Trade, Transaction, AccountOverview};
 
 pub struct TradeDialogApproverBuilder {
     account: Option<Account>,
     trade: Option<Trade>,
-    result: Option<Result<Trade, Box<dyn Error>>>,
+    result: Option<Result<(Trade, Transaction, AccountOverview), Box<dyn Error>>>,
 }
 
 impl TradeDialogApproverBuilder {
@@ -20,13 +20,9 @@ impl TradeDialogApproverBuilder {
         }
     }
 
-    pub fn build(self) -> TradeDialogApproverBuilder {
-        // TODO: Run all the rules
-        // 1. Reject in case a rule fails
-        // 2. Approve in case rule succeed
-
-        // TODO: Create a transaction to fund the trade
-        assert!(self.result.is_some());
+    pub fn build(mut self, trust: &mut Trust) -> TradeDialogApproverBuilder {
+        let trade = self.trade.clone().unwrap();
+        self.result = Some(trust.approve(&trade));
         self
     }
 
@@ -35,7 +31,12 @@ impl TradeDialogApproverBuilder {
             .result
             .expect("No result found, did you forget to call search?")
         {
-            Ok(trade) => TradeView::display_trade(&trade, &self.account.unwrap().name),
+            Ok((trade,tx, account_overview)) => {
+                let account = self.account.clone().unwrap().name;
+                TradeView::display_trade(&trade, &self.account.unwrap().name);
+                TransactionView::display(&tx, account.as_str());
+                AccountOverviewView::display(account_overview, account.as_str());
+            },
             Err(error) => println!("Error creating trade: {:?}", error),
         }
     }

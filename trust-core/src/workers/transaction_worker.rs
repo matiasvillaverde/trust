@@ -124,7 +124,7 @@ impl TransactionWorker {
         }
     }
 
-    pub fn approve(
+    pub fn transfer_to_trade(
         trade: &Trade,
         database: &mut dyn Database,
     ) -> Result<(Transaction, AccountOverview), Box<dyn Error>> {

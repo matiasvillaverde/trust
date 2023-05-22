@@ -161,7 +161,7 @@ impl ArgDispatcher {
         TradeDialogApproverBuilder::new()
             .account(&mut self.trust)
             .search(&mut self.trust)
-            .build()
+            .build(&mut self.trust)
             .display();
     }
 }
