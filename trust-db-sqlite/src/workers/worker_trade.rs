@@ -90,6 +90,11 @@ impl WorkerTrade {
         let trades = trades::table
             .filter(trades::deleted_at.is_null())
             .filter(trades::account_id.eq(account_id.to_string()))
+            .filter(trades::approved_at.is_null())
+            .filter(trades::rejected_at.is_null())
+            .filter(trades::executed_at.is_null())
+            .filter(trades::failed_at.is_null())
+            .filter(trades::closed_at.is_null())
             .load::<TradeSQLite>(connection)
             .map(|trades: Vec<TradeSQLite>| {
                 trades
