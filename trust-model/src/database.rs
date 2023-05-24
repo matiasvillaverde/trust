@@ -81,6 +81,24 @@ pub trait Database {
         category: TransactionCategory,
     ) -> Result<Transaction, Box<dyn Error>>;
 
+    fn all_trade_transactions_excluding_taxes(
+        &mut self,
+        account_id: Uuid,
+        currency: &Currency,
+    ) -> Result<Vec<Transaction>, Box<dyn Error>>;
+
+    fn all_transaction_excluding_current_month_and_taxes(
+        &mut self,
+        account_id: Uuid,
+        currency: &Currency,
+    ) -> Result<Vec<Transaction>, Box<dyn Error>>;
+
+    fn all_open_trades(
+        &mut self,
+        account_id: Uuid,
+        currency: &Currency,
+    ) -> Result<Vec<Trade>, Box<dyn Error>>;
+
     // Rules
     fn create_rule(
         &mut self,

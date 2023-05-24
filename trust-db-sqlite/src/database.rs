@@ -171,6 +171,38 @@ impl Database for SqliteDatabase {
         )
     }
 
+    fn all_trade_transactions_excluding_taxes(
+        &mut self,
+        account_id: Uuid,
+        currency: &Currency,
+    ) -> Result<Vec<Transaction>, Box<dyn Error>> {
+        WorkerTransaction::read_all_trade_transactions_excluding_taxes(
+            &mut self.connection,
+            account_id,
+            currency,
+        )
+    }
+
+    fn all_open_trades(
+        &mut self,
+        account_id: Uuid,
+        currency: &Currency,
+    ) -> Result<Vec<Trade>, Box<dyn Error>> {
+        WorkerTrade::read_all_open_trades(&mut self.connection, account_id, currency)
+    }
+
+    fn all_transaction_excluding_current_month_and_taxes(
+        &mut self,
+        account_id: Uuid,
+        currency: &Currency,
+    ) -> Result<Vec<Transaction>, Box<dyn Error>> {
+        WorkerTransaction::read_all_transaction_excluding_current_month_and_taxes(
+            &mut self.connection,
+            account_id,
+            currency,
+        )
+    }
+
     fn create_rule(
         &mut self,
         account: &Account,

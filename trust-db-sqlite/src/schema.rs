@@ -57,6 +57,7 @@ diesel::table! {
         created_at -> Timestamp,
         updated_at -> Timestamp,
         deleted_at -> Nullable<Timestamp>,
+        currency -> Text,
         category -> Text,
         price_id -> Text,
         account_id -> Text,

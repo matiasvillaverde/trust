@@ -1,8 +1,9 @@
 use crate::schema::transactions;
-use chrono::{NaiveDateTime, Utc};
+use chrono::{Datelike, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use diesel::prelude::*;
 use rust_decimal::Decimal;
 use std::error::Error;
+use std::str::FromStr;
 use tracing::error;
 use trust_model::{Currency, Transaction, TransactionCategory};
 use uuid::Uuid;
@@ -27,9 +28,10 @@ impl WorkerTransaction {
             created_at: now,
             updated_at: now,
             deleted_at: None,
+            currency: currency.to_string(),
+            category: category.to_string(),
             account_id: account_id.to_string(),
             price_id: price.id.to_string(),
-            category: category.to_string(),
             trade_id: category.trade_id().map(|uuid| uuid.to_string()),
         };
 
@@ -43,6 +45,68 @@ impl WorkerTransaction {
             })?;
         Ok(transaction)
     }
+
+    pub fn read_all_trade_transactions_excluding_taxes(
+        connection: &mut SqliteConnection,
+        account_id: Uuid,
+        currency: &Currency,
+    ) -> Result<Vec<Transaction>, Box<dyn Error>> {
+        let transactions = transactions::table
+            .filter(transactions::deleted_at.is_null())
+            .filter(transactions::account_id.eq(account_id.to_string()))
+            .filter(transactions::currency.eq(currency.to_string()))
+            // .filter(transactions::category.eq(TransactionCategory::deposit_key())) // TODO: filter out taxes
+            // .filter(transactions::category.eq(TransactionCategory::withdrawal_key()))
+            // .filter(transactions::category.eq(TransactionCategory::output_key())) // all the transactions that paid a trade
+            // .filter(transactions::category.eq(TransactionCategory::input_key())) // all the transactions that received a trade
+            .load::<TransactionSQLite>(connection)
+            .map(|transactions: Vec<TransactionSQLite>| {
+                transactions
+                    .into_iter()
+                    .map(|tx| tx.domain_model(connection))
+                    .collect()
+            })
+            .map_err(|error| {
+                error!("Error creating price: {:?}", error);
+                error
+            })?;
+        Ok(transactions)
+    }
+
+    pub fn read_all_transaction_excluding_current_month_and_taxes(
+        connection: &mut SqliteConnection,
+        account_id: Uuid,
+        currency: &Currency,
+    ) -> Result<Vec<Transaction>, Box<dyn Error>> {
+        let now = Utc::now().naive_utc();
+        let first_day_of_month = NaiveDate::from_ymd_opt(now.year(), now.month(), 1).unwrap();
+        let first_day_of_month = NaiveDateTime::new(
+            first_day_of_month,
+            NaiveTime::from_hms_opt(0, 0, 0).unwrap(),
+        );
+
+        let transactions = transactions::table
+            .filter(transactions::deleted_at.is_null())
+            .filter(transactions::account_id.eq(account_id.to_string()))
+            .filter(transactions::created_at.le(first_day_of_month))
+            .filter(transactions::currency.eq(currency.to_string()))
+            // .filter(transactions::category.eq(TransactionCategory::deposit_key()))  // TODO: filter out taxes
+            // .filter(transactions::category.eq(TransactionCategory::withdrawal_key()))
+            // .filter(transactions::category.eq(TransactionCategory::output_key())) // all the transactions that paid a trade
+            // .filter(transactions::category.eq(TransactionCategory::input_key())) // all the transactions that received a trade
+            .load::<TransactionSQLite>(connection)
+            .map(|transactions: Vec<TransactionSQLite>| {
+                transactions
+                    .into_iter()
+                    .map(|tx| tx.domain_model(connection))
+                    .collect()
+            })
+            .map_err(|error| {
+                error!("Error creating price: {:?}", error);
+                error
+            })?;
+        Ok(transactions)
+    }
 }
 
 #[derive(Queryable, Identifiable, AsChangeset, Insertable)]
@@ -52,6 +116,7 @@ pub struct TransactionSQLite {
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
     pub deleted_at: Option<NaiveDateTime>,
+    pub currency: String,
     pub category: String,
     pub price_id: String,
     pub account_id: String,
@@ -62,6 +127,8 @@ impl TransactionSQLite {
     fn domain_model(&self, connection: &mut SqliteConnection) -> Transaction {
         let price = WorkerPrice::read(connection, Uuid::parse_str(&self.price_id).unwrap())
             .expect("Transaction without price");
+
+        println!("category: {:?}", &self.category);
 
         let category = TransactionCategory::parse(
             &self.category,
@@ -77,6 +144,7 @@ impl TransactionSQLite {
             updated_at: self.updated_at,
             deleted_at: self.deleted_at,
             category,
+            currency: Currency::from_str(&self.currency).unwrap(),
             price,
             account_id: Uuid::parse_str(&self.account_id).unwrap(),
         }
@@ -90,6 +158,7 @@ pub struct NewTransaction {
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
     pub deleted_at: Option<NaiveDateTime>,
+    pub currency: String,
     pub category: String,
     pub price_id: String,
     pub account_id: String,

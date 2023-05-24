@@ -1,4 +1,4 @@
-use crate::price::Price;
+use crate::{price::Price, Currency};
 use chrono::NaiveDateTime;
 use uuid::Uuid;
 
@@ -15,6 +15,9 @@ pub struct Transaction {
     // Entity fields
     /// The category of the transaction - deposit, withdrawal, input, output, etc.
     pub category: TransactionCategory,
+
+    /// The currency of the transaction
+    pub currency: Currency,
 
     /// The amount of the transaction
     pub price: Price,
@@ -60,6 +63,22 @@ impl TransactionCategory {
             TransactionCategory::InputTax(id) => Some(*id),
             TransactionCategory::OutputTax => None,
         }
+    }
+
+    pub fn output_key() -> String {
+        "output".to_string()
+    }
+
+    pub fn input_key() -> String {
+        "input".to_string()
+    }
+
+    pub fn deposit_key() -> String {
+        "deposit".to_string()
+    }
+
+    pub fn withdrawal_key() -> String {
+        "withdrawal".to_string()
     }
 }
 
