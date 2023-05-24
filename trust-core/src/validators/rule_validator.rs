@@ -61,7 +61,7 @@ impl RuleValidator {
         for rule in rules {
             match rule.name {
                 RuleName::RiskPerMonth(_risk) => {
-                    print!("Risk per month rule not implemented");
+                    // TODO: Implement RiskPerMonth
                 }
                 RuleName::RiskPerTrade(risk) => {
                     let risk_per_trade =
