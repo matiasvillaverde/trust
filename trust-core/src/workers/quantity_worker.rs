@@ -5,6 +5,7 @@ use uuid::Uuid;
 
 pub struct QuantityWorker;
 
+// TODO: Refactor into multiple files and add tests
 impl QuantityWorker {
     pub fn maximum_quantity(
         account_id: Uuid,
@@ -169,28 +170,31 @@ impl QuantityWorker {
         total_capital_not_at_risk: Decimal,
         risk: f32,
     ) -> Decimal {
-        // Calculate available to risk this month
         let available_to_risk =
-            (total_beginning_of_month * Decimal::from_f32_retain(risk).unwrap()) / dec!(100.0);
-
-        // Calculate the total capital not at risk this month
+            total_beginning_of_month * Decimal::from_f32_retain(risk).unwrap() / dec!(100.0);
         let total_performance =
             total_beginning_of_month - total_balance_current_month - total_capital_not_at_risk;
 
+        // If there is no change in performance, return the available amount to be risked.
         if total_performance == dec!(0.0) {
-            return available_to_risk; // First trade of the month. No risk yet.
-        } else if (total_performance <= available_to_risk) && total_performance > dec!(0.0) {
-            // We are in a loss
-            let available_to_risk = available_to_risk - total_performance;
-            if available_to_risk > dec!(0.0) {
-                return available_to_risk; // We still have capital to risk
-            }
-        } else if total_performance < dec!(0.0) {
-            // We are in a profit so we can risk more capital
-            let total_available = total_balance_current_month + total_capital_not_at_risk;
-            return (total_available * Decimal::from_f32_retain(risk).unwrap()) / dec!(100.0);
+            return available_to_risk;
         }
-        return dec!(0.0); // No more capital to risk
+
+        let mut risked_capital = dec!(0.0);
+
+        // If there is no change in performance, return the available amount to be risked.
+        if total_performance < dec!(0.0) {
+            let total_available = total_balance_current_month + total_capital_not_at_risk;
+            risked_capital =
+                total_available * Decimal::from_f32_retain(risk).unwrap() / dec!(100.0);
+        } else if total_performance <= available_to_risk {
+            // If there is an increase in performance,
+            // calculate the difference between available capital and risked capital.
+            risked_capital = available_to_risk - total_performance;
+        }
+
+        // Return the maximum value of the risked capital or zero.
+        risked_capital.max(dec!(0.0))
     }
 }
 
