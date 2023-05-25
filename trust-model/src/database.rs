@@ -68,7 +68,7 @@ pub trait Database {
     ) -> Result<AccountOverview, Box<dyn Error>>;
 
     // Prices
-    fn new_price(&mut self, currency: Currency, amount: Decimal) -> Result<Price, Box<dyn Error>>;
+    fn new_price(&mut self, currency: &Currency, amount: Decimal) -> Result<Price, Box<dyn Error>>;
 
     fn read_price(&mut self, id: Uuid) -> Result<Price, Box<dyn Error>>;
 

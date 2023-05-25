@@ -145,10 +145,10 @@ impl Database for SqliteDatabase {
 
     fn new_price(
         &mut self,
-        currency: Currency,
+        currency: &Currency,
         amount: rust_decimal::Decimal,
     ) -> Result<Price, Box<dyn Error>> {
-        WorkerPrice::create(&mut self.connection, &currency, amount)
+        WorkerPrice::create(&mut self.connection, currency, amount)
     }
 
     fn read_price(&mut self, id: uuid::Uuid) -> Result<Price, Box<dyn Error>> {
