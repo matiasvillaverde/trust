@@ -1,7 +1,7 @@
 use crate::{price::Price, Currency};
 use chrono::NaiveDateTime;
-use uuid::Uuid;
 use chrono::Utc;
+use uuid::Uuid;
 
 /// Transaction entity - represents a single transaction
 #[derive(PartialEq, Debug, Clone)]

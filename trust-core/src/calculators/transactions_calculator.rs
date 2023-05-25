@@ -103,6 +103,52 @@ mod tests {
 
         // Check that the result is correct
         assert_eq!(result.unwrap(), dec!(30.0));
+
+        // Create a withdrawal
+        withdrawal(dec!(10.0), &account, &mut db);
+        withdrawal(dec!(5.0), &account, &mut db);
+
+        // Calculate total capital available
+        let result = TransactionsCalculator::calculate_total_capital_available(
+            account.id,
+            &Currency::USD,
+            &mut db,
+        );
+
+        // Check that the result is correct
+        assert_eq!(result.unwrap(), dec!(15.0));
+
+        // Create a trade in
+        trade(dec!(5.0), &account, &mut db);
+        trade(dec!(1.0), &account, &mut db);
+        output_tax(dec!(0.1), &account, &mut db); // This should not be included
+
+        // Calculate total capital available
+
+        let result = TransactionsCalculator::calculate_total_capital_available(
+            account.id,
+            &Currency::USD,
+            &mut db,
+        );
+
+        // Check that the result is correct
+        assert_eq!(result.unwrap(), dec!(9.0));
+
+        // Create a trade out
+
+        input_tax(dec!(0.1), &account, &mut db); // This should not be included
+        trade_payment(dec!(1.0), &account, &mut db);
+        trade_payment(dec!(2.0), &account, &mut db);
+
+        // Calculate total capital available
+        let result = TransactionsCalculator::calculate_total_capital_available(
+            account.id,
+            &Currency::USD,
+            &mut db,
+        );
+
+        // Check that the result is correct
+        assert_eq!(result.unwrap(), dec!(12.0));
     }
 
     fn deposit(amount: Decimal, account: &Account, db: &mut MemoryDatabase) -> Transaction {
@@ -111,7 +157,57 @@ mod tests {
             amount,
             &Currency::USD,
             TransactionCategory::Deposit,
-        ).unwrap()
+        )
+        .unwrap()
     }
 
+    fn withdrawal(amount: Decimal, account: &Account, db: &mut MemoryDatabase) -> Transaction {
+        db.new_transaction(
+            account,
+            amount,
+            &Currency::USD,
+            TransactionCategory::Withdrawal,
+        )
+        .unwrap()
+    }
+
+    fn trade(amount: Decimal, account: &Account, db: &mut MemoryDatabase) -> Transaction {
+        db.new_transaction(
+            account,
+            amount,
+            &Currency::USD,
+            TransactionCategory::Output(Uuid::new_v4()),
+        )
+        .unwrap()
+    }
+
+    fn trade_payment(amount: Decimal, account: &Account, db: &mut MemoryDatabase) -> Transaction {
+        db.new_transaction(
+            account,
+            amount,
+            &Currency::USD,
+            TransactionCategory::Input(Uuid::new_v4()),
+        )
+        .unwrap()
+    }
+
+    fn input_tax(amount: Decimal, account: &Account, db: &mut MemoryDatabase) -> Transaction {
+        db.new_transaction(
+            account,
+            amount,
+            &Currency::USD,
+            TransactionCategory::InputTax(Uuid::new_v4()),
+        )
+        .unwrap()
+    }
+
+    fn output_tax(amount: Decimal, account: &Account, db: &mut MemoryDatabase) -> Transaction {
+        db.new_transaction(
+            account,
+            amount,
+            &Currency::USD,
+            TransactionCategory::OutputTax,
+        )
+        .unwrap()
+    }
 }

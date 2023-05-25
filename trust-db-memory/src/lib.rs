@@ -124,7 +124,8 @@ impl Database for MemoryDatabase {
         currency: &Currency,
         category: TransactionCategory,
     ) -> Result<Transaction, Box<dyn Error>> {
-        let transaction = Transaction::new(account.id, category,  currency, Price::new(currency, amount));
+        let transaction =
+            Transaction::new(account.id, category, currency, Price::new(currency, amount));
         self.transactions.push(transaction.clone());
         Ok(transaction)
     }
@@ -143,12 +144,13 @@ impl Database for MemoryDatabase {
             .filter(|t| t.category != TransactionCategory::OutputTax)
             .collect();
 
-        let transactions = transactions.into_iter().filter(|t|
-            match t.category {
+        let transactions = transactions
+            .into_iter()
+            .filter(|t| match t.category {
                 TransactionCategory::InputTax(_) => false,
                 _ => true,
-            }
-        ).collect();
+            })
+            .collect();
 
         Ok(transactions)
     }
