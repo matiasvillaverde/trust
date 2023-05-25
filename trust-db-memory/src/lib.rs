@@ -114,7 +114,11 @@ impl Database for MemoryDatabase {
     }
 
     fn read_price(&mut self, _id: Uuid) -> Result<Price, Box<dyn Error>> {
-        unimplemented!()
+        self.prices
+            .clone()
+            .into_iter()
+            .find(|p| p.id == _id)
+            .ok_or("Price not found".into())
     }
 
     fn new_transaction(

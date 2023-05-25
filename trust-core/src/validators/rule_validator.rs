@@ -1,3 +1,4 @@
+use crate::calculators::RiskCalculator;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use std::error::Error;
@@ -57,21 +58,41 @@ impl RuleValidator {
             .unwrap_or_else(|_| vec![]);
         rules.sort_by(|a, b| a.priority.cmp(&b.priority));
 
+        let mut risk_per_month = dec!(100.0); // Default to 100% of the available capital
+
         // match rules by name
         for rule in rules {
             match rule.name {
-                RuleName::RiskPerMonth(_risk) => {
-                    // TODO: Implement RiskPerMonth
+                RuleName::RiskPerMonth(risk) => {
+                    risk_per_month =
+                        RiskCalculator::calculate_max_percentage_to_risk_current_month(
+                            risk,
+                            trade.account_id,
+                            &trade.currency,
+                            database,
+                        )
+                        .unwrap();
                 }
                 RuleName::RiskPerTrade(risk) => {
-                    let risk_per_trade =
-                        trade.entry.unit_price.amount - trade.safety_stop.unit_price.amount;
-                    let total_risk = risk_per_trade * Decimal::from(trade.entry.quantity);
-                    let maximum_risk =
-                        available * (Decimal::from_f32_retain(risk).unwrap() / dec!(100.0));
-
-                    if total_risk > maximum_risk {
+                    if risk_per_month < Decimal::from_f32_retain(risk).unwrap() {
                         return Err(Box::new(RuleValidationError {
+                            code: RuleValidationErrorCode::RiskPerMonthExceeded,
+                            message: format!(
+                                "Risk per month exceeded for rule {}, maximum that can be at risk is {}, trade is attempting to risk {}",
+                                rule.name,
+                                risk_per_month,
+                                Decimal::from_f32_retain(risk).unwrap(),
+                            ),
+                        }));
+                    } else {
+                        let risk_per_trade =
+                            trade.entry.unit_price.amount - trade.safety_stop.unit_price.amount;
+                        let total_risk = risk_per_trade * Decimal::from(trade.entry.quantity);
+                        let maximum_risk =
+                            available * (Decimal::from_f32_retain(risk).unwrap() / dec!(100.0));
+
+                        if total_risk > maximum_risk {
+                            return Err(Box::new(RuleValidationError {
                             code: RuleValidationErrorCode::RiskPerTradeExceeded,
                             message: format!(
                                 "Risk per trade exceeded for rule {}, maximum that can be at risk is {}, trade is attempting to risk {}",
@@ -80,6 +101,7 @@ impl RuleValidator {
                                 total_risk,
                             ),
                         }));
+                        }
                     }
                 }
             }
@@ -94,6 +116,7 @@ impl RuleValidator {
 pub enum RuleValidationErrorCode {
     RuleAlreadyExistsInAccount,
     RiskPerTradeExceeded,
+    RiskPerMonthExceeded,
     NotEnoughFunds,
 }
 
