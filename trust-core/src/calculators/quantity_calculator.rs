@@ -44,7 +44,7 @@ impl QuantityCalculator {
                             entry_price,
                             stop_price,
                             risk,
-                        )?;
+                        );
                         return Ok(risk_per_trade);
                     }
                 }
@@ -56,21 +56,99 @@ impl QuantityCalculator {
     }
 
     fn max_quantity_per_trade(
-        // TODO: Test this function
         available: Decimal,
         entry_price: Decimal,
         stop_price: Decimal,
         risk: f32,
-    ) -> Result<i64, Box<dyn std::error::Error>> {
-        let risk = available * (Decimal::from_f32_retain(risk).unwrap() / dec!(100.0));
-        let risk_per_trade = risk / (entry_price - stop_price);
-        let risk_per_trade = risk_per_trade.to_i64().unwrap();
-        Ok(risk_per_trade)
+    ) -> i64 {
+        assert!(available > dec!(0.0));
+        assert!(entry_price - stop_price != dec!(0.0));
+        assert!(risk > 0.0);
+
+        let max_quantity = available / entry_price;
+        let max_risk = max_quantity * (entry_price - stop_price);
+
+        let risk_capital = available * (Decimal::from_f32_retain(risk).unwrap() / dec!(100.0));
+
+        if risk_capital >= max_risk {
+            // The risk capital is greater than the max risk, so return the max quantity
+            return max_quantity.to_i64().unwrap();
+        } else {
+            // The risk capital is less than the max risk, so return the max quantity based on the risk capital
+            let risk_per_trade = risk_capital / (entry_price - stop_price);
+            return risk_per_trade.to_i64().unwrap(); // We round down to the nearest integer
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rust_decimal::Decimal;
+
+    #[test]
+    fn test_max_quantity_per_trade_default() {
+        // Test case 1: The trade risk is within the available funds
+        let available = dec!(10_000);
+        let entry_price = dec!(50);
+        let stop_price = dec!(45);
+        let risk = 2.0; // 2% risk
+
+        assert_eq!(
+            QuantityCalculator::max_quantity_per_trade(available, entry_price, stop_price, risk),
+            40
+        );
+    }
+
+    #[test]
+    fn test_max_quantity_per_trade_low_risk() {
+        // Test case 2: The trade risk is greater than the available funds
+        let available = dec!(10_000);
+        let entry_price = dec!(100);
+        let stop_price = dec!(90);
+        let risk = 0.1;
+
+        assert_eq!(
+            QuantityCalculator::max_quantity_per_trade(available, entry_price, stop_price, risk),
+            1
+        );
+    }
+
+    #[test]
+    fn test_max_quantity_per_trade_high_risk() {
+        let available = dec!(10_000);
+        let entry_price = dec!(100);
+        let stop_price = dec!(90);
+        let risk = 90.0;
+
+        assert_eq!(
+            QuantityCalculator::max_quantity_per_trade(available, entry_price, stop_price, risk),
+            100
+        );
+    }
+
+    #[test]
+    fn test_max_quantity_per_trade_max_risk() {
+        let available = dec!(10_000);
+        let entry_price = dec!(100);
+        let stop_price = dec!(90);
+        let risk = 100.0;
+
+        assert_eq!(
+            QuantityCalculator::max_quantity_per_trade(available, entry_price, stop_price, risk),
+            100
+        );
+    }
+
+    #[test]
+    fn test_max_quantity_per_trade_less_than_maximum_risk() {
+        let available = dec!(10_000);
+        let entry_price = dec!(100);
+        let stop_price = dec!(90);
+        let risk = 9.99;
+
+        assert_eq!(
+            QuantityCalculator::max_quantity_per_trade(available, entry_price, stop_price, risk),
+            99
+        );
+    }
 }
