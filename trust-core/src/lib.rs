@@ -1,3 +1,4 @@
+use calculators::QuantityCalculator;
 use rust_decimal::Decimal;
 use trust_model::{
     Account, AccountOverview, Currency, Database, Rule, RuleLevel, RuleName, Trade, TradeCategory,
@@ -5,7 +6,7 @@ use trust_model::{
 };
 use uuid::Uuid;
 use validators::RuleValidator;
-use workers::{OrderWorker, QuantityWorker, RuleWorker, TransactionWorker};
+use workers::{OrderWorker, RuleWorker, TransactionWorker};
 
 pub struct Trust {
     database: Box<dyn Database>,
@@ -115,7 +116,7 @@ impl Trust {
         stop_price: Decimal,
         currency: &Currency,
     ) -> Result<i64, Box<dyn std::error::Error>> {
-        QuantityWorker::maximum_quantity(
+        QuantityCalculator::maximum_quantity(
             account_id,
             entry_price,
             stop_price,
@@ -198,6 +199,7 @@ impl Trust {
     }
 }
 
+mod calculators;
 mod validators;
 mod workers;
 
