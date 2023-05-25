@@ -14,18 +14,20 @@ impl TransactionsCalculator {
         // Get all transactions
         let transactions =
             database.all_trade_transactions_excluding_taxes(account_id, &currency)?;
-        let mut total_available = dec!(0.0);
 
         // Sum all transactions
-        for transaction in transactions {
-            match transaction.category {
-                TransactionCategory::Output(_) => total_available -= transaction.price.amount,
-                TransactionCategory::Input(_) => total_available += transaction.price.amount,
-                TransactionCategory::Deposit => total_available += transaction.price.amount,
-                TransactionCategory::Withdrawal => total_available -= transaction.price.amount,
+        let total_available: Decimal = transactions
+            .iter()
+            .map(|transaction| match transaction.category {
+                TransactionCategory::Output(_) | TransactionCategory::Withdrawal => {
+                    -transaction.price.amount
+                }
+                TransactionCategory::Input(_) | TransactionCategory::Deposit => {
+                    transaction.price.amount
+                }
                 default => panic!("Unexpected transaction category: {}", default),
-            }
-        }
+            })
+            .sum();
 
         Ok(total_available)
     }
