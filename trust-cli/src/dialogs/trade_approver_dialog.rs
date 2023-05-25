@@ -33,8 +33,11 @@ impl TradeDialogApproverBuilder {
         {
             Ok((trade, tx, account_overview)) => {
                 let account = self.account.clone().unwrap().name;
+                println!("Trade approved");
                 TradeView::display_trade(&trade, &self.account.unwrap().name);
+                println!("Transaction moving funds to trade:");
                 TransactionView::display(&tx, account.as_str());
+                println!("Account overview after trade:");
                 AccountOverviewView::display(account_overview, account.as_str());
             }
             Err(error) => println!("Error approving trade: {:?}", error),

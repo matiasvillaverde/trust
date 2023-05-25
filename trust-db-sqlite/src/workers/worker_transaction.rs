@@ -199,8 +199,6 @@ impl TransactionSQLite {
         let price = WorkerPrice::read(connection, Uuid::parse_str(&self.price_id).unwrap())
             .expect("Transaction without price");
 
-        println!("category: {:?}", &self.category);
-
         let category = TransactionCategory::parse(
             &self.category,
             self.trade_id

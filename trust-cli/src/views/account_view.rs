@@ -53,6 +53,7 @@ impl AccountOverviewView {
 
     pub fn display(overview: AccountOverview, account_name: &str) {
         AccountOverviewView::display_overviews(vec![overview], account_name);
+        println!("");
     }
 
     pub fn display_overviews(overviews: Vec<AccountOverview>, account_name: &str) {
