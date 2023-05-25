@@ -51,14 +51,49 @@ impl WorkerTransaction {
         account_id: Uuid,
         currency: &Currency,
     ) -> Result<Vec<Transaction>, Box<dyn Error>> {
+        let tx_deposit = WorkerTransaction::read_all_trade_transactions(
+            connection,
+            account_id,
+            currency,
+            TransactionCategory::Deposit,
+        )?;
+        let tx_withdrawal = WorkerTransaction::read_all_trade_transactions(
+            connection,
+            account_id,
+            currency,
+            TransactionCategory::Withdrawal,
+        )?;
+        let tx_output = WorkerTransaction::read_all_trade_transactions(
+            connection,
+            account_id,
+            currency,
+            TransactionCategory::Output(Uuid::new_v4()),
+        )?;
+        let tx_input = WorkerTransaction::read_all_trade_transactions(
+            connection,
+            account_id,
+            currency,
+            TransactionCategory::Input(Uuid::new_v4()),
+        )?;
+        Ok(tx_deposit
+            .into_iter()
+            .chain(tx_withdrawal.into_iter())
+            .chain(tx_output.into_iter())
+            .chain(tx_input.into_iter())
+            .collect())
+    }
+
+    pub fn read_all_trade_transactions(
+        connection: &mut SqliteConnection,
+        account_id: Uuid,
+        currency: &Currency,
+        category: TransactionCategory,
+    ) -> Result<Vec<Transaction>, Box<dyn Error>> {
         let transactions = transactions::table
             .filter(transactions::deleted_at.is_null())
             .filter(transactions::account_id.eq(account_id.to_string()))
             .filter(transactions::currency.eq(currency.to_string()))
-            // .filter(transactions::category.eq(TransactionCategory::deposit_key())) // TODO: filter out taxes
-            // .filter(transactions::category.eq(TransactionCategory::withdrawal_key()))
-            // .filter(transactions::category.eq(TransactionCategory::output_key())) // all the transactions that paid a trade
-            // .filter(transactions::category.eq(TransactionCategory::input_key())) // all the transactions that received a trade
+            .filter(transactions::category.eq(category.key()))
             .load::<TransactionSQLite>(connection)
             .map(|transactions: Vec<TransactionSQLite>| {
                 transactions
@@ -78,6 +113,45 @@ impl WorkerTransaction {
         account_id: Uuid,
         currency: &Currency,
     ) -> Result<Vec<Transaction>, Box<dyn Error>> {
+        let tx_deposits = WorkerTransaction::read_all_transaction_beginning_of_the_month(
+            connection,
+            account_id,
+            currency,
+            TransactionCategory::Deposit,
+        )?;
+        let tx_withdrawals = WorkerTransaction::read_all_transaction_beginning_of_the_month(
+            connection,
+            account_id,
+            currency,
+            TransactionCategory::Withdrawal,
+        )?;
+        let tx_outputs = WorkerTransaction::read_all_transaction_beginning_of_the_month(
+            connection,
+            account_id,
+            currency,
+            TransactionCategory::Output(Uuid::new_v4()),
+        )?;
+        let tx_inputs = WorkerTransaction::read_all_transaction_beginning_of_the_month(
+            connection,
+            account_id,
+            currency,
+            TransactionCategory::Input(Uuid::new_v4()),
+        )?;
+
+        Ok(tx_deposits
+            .into_iter()
+            .chain(tx_withdrawals.into_iter())
+            .chain(tx_outputs.into_iter())
+            .chain(tx_inputs.into_iter())
+            .collect())
+    }
+
+    fn read_all_transaction_beginning_of_the_month(
+        connection: &mut SqliteConnection,
+        account_id: Uuid,
+        currency: &Currency,
+        category: TransactionCategory,
+    ) -> Result<Vec<Transaction>, Box<dyn Error>> {
         let now = Utc::now().naive_utc();
         let first_day_of_month = NaiveDate::from_ymd_opt(now.year(), now.month(), 1).unwrap();
         let first_day_of_month = NaiveDateTime::new(
@@ -85,15 +159,12 @@ impl WorkerTransaction {
             NaiveTime::from_hms_opt(0, 0, 0).unwrap(),
         );
 
-        let transactions = transactions::table
+        let tx = transactions::table
             .filter(transactions::deleted_at.is_null())
             .filter(transactions::account_id.eq(account_id.to_string()))
             .filter(transactions::created_at.le(first_day_of_month))
             .filter(transactions::currency.eq(currency.to_string()))
-            // .filter(transactions::category.eq(TransactionCategory::deposit_key()))  // TODO: filter out taxes
-            // .filter(transactions::category.eq(TransactionCategory::withdrawal_key()))
-            // .filter(transactions::category.eq(TransactionCategory::output_key())) // all the transactions that paid a trade
-            // .filter(transactions::category.eq(TransactionCategory::input_key())) // all the transactions that received a trade
+            .filter(transactions::category.eq(category.key()))
             .load::<TransactionSQLite>(connection)
             .map(|transactions: Vec<TransactionSQLite>| {
                 transactions
@@ -105,7 +176,7 @@ impl WorkerTransaction {
                 error!("Error creating price: {:?}", error);
                 error
             })?;
-        Ok(transactions)
+        Ok(tx)
     }
 }
 

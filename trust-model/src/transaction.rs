@@ -65,20 +65,15 @@ impl TransactionCategory {
         }
     }
 
-    pub fn output_key() -> String {
-        "output".to_string()
-    }
-
-    pub fn input_key() -> String {
-        "input".to_string()
-    }
-
-    pub fn deposit_key() -> String {
-        "deposit".to_string()
-    }
-
-    pub fn withdrawal_key() -> String {
-        "withdrawal".to_string()
+    pub fn key(&self) -> &str {
+        match self {
+            TransactionCategory::Deposit => "deposit",
+            TransactionCategory::Withdrawal => "withdrawal",
+            TransactionCategory::Input(_) => "input",
+            TransactionCategory::Output(_) => "output",
+            TransactionCategory::InputTax(_) => "input_tax",
+            TransactionCategory::OutputTax => "output_tax",
+        }
     }
 }
 
