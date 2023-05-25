@@ -1,9 +1,10 @@
 use crate::{price::Price, Currency};
 use chrono::NaiveDateTime;
 use uuid::Uuid;
+use chrono::Utc;
 
 /// Transaction entity - represents a single transaction
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub struct Transaction {
     pub id: Uuid,
 
@@ -27,7 +28,7 @@ pub struct Transaction {
 }
 
 /// TransactionCategory enum - represents the type of the transaction
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone, Copy)]
 pub enum TransactionCategory {
     /// Deposit - money deposited into the account
     Deposit,
@@ -88,6 +89,27 @@ impl std::fmt::Display for TransactionCategory {
             TransactionCategory::Output(_) => write!(f, "output"),
             TransactionCategory::InputTax(_) => write!(f, "input_tax"),
             TransactionCategory::OutputTax => write!(f, "output_tax"),
+        }
+    }
+}
+
+impl Transaction {
+    pub fn new(
+        account_id: Uuid,
+        category: TransactionCategory,
+        currency: &Currency,
+        price: Price,
+    ) -> Transaction {
+        let now = Utc::now().naive_utc();
+        Transaction {
+            id: Uuid::new_v4(),
+            created_at: now,
+            updated_at: now,
+            deleted_at: None,
+            account_id,
+            category,
+            currency: *currency,
+            price,
         }
     }
 }

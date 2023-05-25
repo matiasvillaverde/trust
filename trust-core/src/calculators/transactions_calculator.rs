@@ -7,7 +7,6 @@ pub struct TransactionsCalculator;
 
 impl TransactionsCalculator {
     pub fn calculate_total_capital_available(
-        // TODO: Test this function
         account_id: Uuid,
         currency: &Currency,
         database: &mut dyn Database,
@@ -32,7 +31,6 @@ impl TransactionsCalculator {
     }
 
     pub fn total_capital_in_trades_not_at_risk(
-        // TODO: Test this function
         account_id: Uuid,
         currency: &Currency,
         database: &mut dyn Database,
@@ -51,7 +49,6 @@ impl TransactionsCalculator {
     }
 
     pub fn calculate_total_capital_at_beginning_of_month(
-        // TODO: Test this function
         account_id: Uuid,
         currency: &Currency,
         database: &mut dyn Database,
@@ -85,5 +82,36 @@ impl TransactionsCalculator {
 mod tests {
     use super::*;
     use rust_decimal::Decimal;
-    // TODO: Add tests
+    use trust_db_memory::MemoryDatabase;
+    use trust_model::{Account, Transaction};
+
+    #[test]
+    fn test_calculate_total_capital_available() {
+        // Create a mock database with some transactions
+        let mut db = MemoryDatabase::default();
+        let account = db.new_account("Test Account", "Description").unwrap();
+
+        deposit(dec!(10.0), &account, &mut db);
+        deposit(dec!(20.0), &account, &mut db);
+
+        // Calculate total capital available
+        let result = TransactionsCalculator::calculate_total_capital_available(
+            account.id,
+            &Currency::USD,
+            &mut db,
+        );
+
+        // Check that the result is correct
+        assert_eq!(result.unwrap(), dec!(30.0));
+    }
+
+    fn deposit(amount: Decimal, account: &Account, db: &mut MemoryDatabase) -> Transaction {
+        db.new_transaction(
+            account,
+            amount,
+            &Currency::USD,
+            TransactionCategory::Deposit,
+        ).unwrap()
+    }
+
 }

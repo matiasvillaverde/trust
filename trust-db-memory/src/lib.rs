@@ -119,20 +119,38 @@ impl Database for MemoryDatabase {
 
     fn new_transaction(
         &mut self,
-        _account: &Account,
-        _amount: Decimal,
-        _currency: &Currency,
-        _category: TransactionCategory,
+        account: &Account,
+        amount: Decimal,
+        currency: &Currency,
+        category: TransactionCategory,
     ) -> Result<Transaction, Box<dyn Error>> {
-        unimplemented!()
+        let transaction = Transaction::new(account.id, category,  currency, Price::new(currency, amount));
+        self.transactions.push(transaction.clone());
+        Ok(transaction)
     }
 
     fn all_trade_transactions_excluding_taxes(
         &mut self,
-        _account_id: Uuid,
-        _currency: &Currency,
+        account_id: Uuid,
+        currency: &Currency,
     ) -> Result<Vec<Transaction>, Box<dyn Error>> {
-        unimplemented!()
+        let transactions: Vec<Transaction> = self
+            .transactions
+            .clone()
+            .into_iter()
+            .filter(|t| t.account_id == account_id)
+            .filter(|t| t.currency == *currency)
+            .filter(|t| t.category != TransactionCategory::OutputTax)
+            .collect();
+
+        let transactions = transactions.into_iter().filter(|t|
+            match t.category {
+                TransactionCategory::InputTax(_) => false,
+                _ => true,
+            }
+        ).collect();
+
+        Ok(transactions)
     }
 
     fn all_transaction_excluding_current_month_and_taxes(
