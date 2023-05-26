@@ -23,6 +23,9 @@ pub struct MemoryDatabase {
 }
 
 impl Database for MemoryDatabase {
+    fn update_trade_executed_at(&mut self, _trade: &Trade) -> Result<Trade, Box<dyn Error>> {
+        unimplemented!()
+    }
     fn record_order_execution(&mut self, order: &Order) -> Result<Order, Box<dyn Error>> {
         unimplemented!()
     }
@@ -278,6 +281,24 @@ impl Database for MemoryDatabase {
         &mut self,
         _trade: &Trade,
         _price: Decimal,
+    ) -> Result<TradeOverview, Box<dyn Error>> {
+        unimplemented!()
+    }
+
+    fn update_trade_overview_in(
+        &mut self,
+        trade: &Trade,
+        total_in_market: Decimal,
+    ) -> Result<TradeOverview, Box<dyn Error>> {
+        unimplemented!()
+    }
+
+    fn update_trade_overview_out(
+        &mut self,
+        trade: &Trade,
+        total_out_market: Decimal,
+        total_taxable: Decimal,
+        total_performance: Decimal,
     ) -> Result<TradeOverview, Box<dyn Error>> {
         unimplemented!()
     }

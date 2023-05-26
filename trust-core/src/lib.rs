@@ -6,7 +6,7 @@ use trust_model::{
 };
 use uuid::Uuid;
 use validators::RuleValidator;
-use workers::{OrderWorker, RuleWorker, TransactionWorker};
+use workers::{OrderWorker, RuleWorker, TradeWorker, TransactionWorker};
 
 pub struct Trust {
     database: Box<dyn Database>,
@@ -189,8 +189,22 @@ impl Trust {
         self.database.all_open_trades(account_id)
     }
 
-    pub fn execute_entry(&mut self, trade: &Trade) -> Result<Trade, Box<dyn std::error::Error>> {
-        OrderWorker::record_entry(trade, self.database.as_mut())
+    pub fn record_entry(&mut self, trade: &Trade) -> Result<Trade, Box<dyn std::error::Error>> {
+        OrderWorker::record_entry(trade, self.database.as_mut())?;
+        TradeWorker::update_trade_entry_executed(&trade, self.database.as_mut())
+    }
+
+    pub fn record_stop(&mut self, trade: &Trade) -> Result<Trade, Box<dyn std::error::Error>> {
+        OrderWorker::record_stop(trade, self.database.as_mut())?;
+        TradeWorker::update_trade_stop_executed(&trade, self.database.as_mut())
+        // TODO: Move funds from trade to account
+    }
+
+    pub fn record_target(&mut self, trade: &Trade) -> Result<Trade, Box<dyn std::error::Error>> {
+        OrderWorker::record_target(trade, self.database.as_mut())?;
+        TradeWorker::update_trade_target_executed(&trade, self.database.as_mut())
+
+        // TODO: Move funds from trade to account
     }
 
     pub fn approve(

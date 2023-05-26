@@ -172,4 +172,20 @@ pub trait Database {
         trade: &Trade,
         total_input: Decimal,
     ) -> Result<TradeOverview, Box<dyn Error>>;
+
+    fn update_trade_overview_in(
+        &mut self,
+        trade: &Trade,
+        total_in_market: Decimal,
+    ) -> Result<TradeOverview, Box<dyn Error>>;
+
+    fn update_trade_overview_out(
+        &mut self,
+        trade: &Trade,
+        total_out_market: Decimal,
+        total_taxable: Decimal,
+        total_performance: Decimal,
+    ) -> Result<TradeOverview, Box<dyn Error>>;
+
+    fn update_trade_executed_at(&mut self, trade: &Trade) -> Result<Trade, Box<dyn Error>>;
 }

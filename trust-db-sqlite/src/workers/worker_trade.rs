@@ -219,6 +219,38 @@ impl WorkerTrade {
         Ok(overview)
     }
 
+    pub fn update_trade_overview_in(
+        connection: &mut SqliteConnection,
+        trade: &Trade,
+        total_in_market: Decimal,
+    ) -> Result<TradeOverview, Box<dyn Error>> {
+        WorkerPrice::update(connection, trade.overview.total_in_market, total_in_market)?;
+        let overview = WorkerTrade::read_overview(connection, trade.overview.id)?;
+        Ok(overview)
+    }
+
+    pub fn update_trade_overview_out(
+        connection: &mut SqliteConnection,
+        trade: &Trade,
+        total_out_market: Decimal,
+        total_taxable: Decimal,
+        total_performance: Decimal,
+    ) -> Result<TradeOverview, Box<dyn Error>> {
+        WorkerPrice::update(
+            connection,
+            trade.overview.total_out_market,
+            total_out_market,
+        )?;
+        WorkerPrice::update(connection, trade.overview.total_taxable, total_taxable)?;
+        WorkerPrice::update(
+            connection,
+            trade.overview.total_performance,
+            total_performance,
+        )?;
+        let overview = WorkerTrade::read_overview(connection, trade.overview.id)?;
+        Ok(overview)
+    }
+
     pub fn approve_trade(
         connection: &mut SqliteConnection,
         trade: &Trade,
@@ -231,6 +263,23 @@ impl WorkerTrade {
             .map(|trade| trade.domain_model(connection))
             .map_err(|error| {
                 error!("Error approving trade: {:?}", error);
+                error
+            })?;
+        Ok(trade)
+    }
+
+    pub fn update_executed_at(
+        connection: &mut SqliteConnection,
+        trade: &Trade,
+    ) -> Result<Trade, Box<dyn Error>> {
+        let now = Utc::now().naive_utc();
+        let trade = diesel::update(trades::table)
+            .filter(trades::id.eq(trade.id.to_string()))
+            .set((trades::updated_at.eq(now), trades::executed_at.eq(now)))
+            .get_result::<TradeSQLite>(connection)
+            .map(|trade| trade.domain_model(connection))
+            .map_err(|error| {
+                error!("Error executing trade: {:?}", error);
                 error
             })?;
         Ok(trade)

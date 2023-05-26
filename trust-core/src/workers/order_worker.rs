@@ -67,6 +67,22 @@ impl OrderWorker {
         database.read_trade(trade.id)
     }
 
+    pub fn record_stop(
+        trade: &Trade,
+        database: &mut dyn Database,
+    ) -> Result<Trade, Box<dyn std::error::Error>> {
+        database.record_order_execution(&trade.safety_stop)?;
+        database.read_trade(trade.id)
+    }
+
+    pub fn record_target(
+        trade: &Trade,
+        database: &mut dyn Database,
+    ) -> Result<Trade, Box<dyn std::error::Error>> {
+        database.record_order_execution(&trade.exit_targets.first().unwrap().order)?;
+        database.read_trade(trade.id)
+    }
+
     fn action_for_stop(category: &TradeCategory) -> OrderAction {
         match category {
             TradeCategory::Long => OrderAction::Sell,

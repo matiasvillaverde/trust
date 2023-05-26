@@ -71,7 +71,7 @@ impl WorkerOrder {
         diesel::update(orders::table)
             .filter(orders::id.eq(&order.id.to_string()))
             .set(orders::filled_at.eq(now))
-            .execute(connection);
+            .execute(connection)?;
 
         return WorkerOrder::read(connection, order.id);
     }

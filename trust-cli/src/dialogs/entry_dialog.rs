@@ -24,7 +24,7 @@ impl EntryDialogBuilder {
 
     pub fn build(mut self, trust: &mut Trust) -> EntryDialogBuilder {
         let trade: Trade = self.trade.clone().unwrap();
-        self.result = Some(trust.execute_entry(&trade));
+        self.result = Some(trust.record_entry(&trade));
         self
     }
 
