@@ -37,7 +37,7 @@ impl TransactionsCalculator {
         database: &mut dyn Database,
     ) -> Result<Decimal, Box<dyn std::error::Error>> {
         // Get the capital of the open trades that is not at risk to the total available.
-        let open_trades = database.all_open_trades(account_id, currency)?;
+        let open_trades = database.all_open_trades_for_currency(account_id, currency)?;
         let mut total_capital_not_at_risk = dec!(0.0);
 
         for trade in open_trades {

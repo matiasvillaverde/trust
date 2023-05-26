@@ -93,11 +93,13 @@ pub trait Database {
         currency: &Currency,
     ) -> Result<Vec<Transaction>, Box<dyn Error>>;
 
-    fn all_open_trades(
+    fn all_open_trades_for_currency(
         &mut self,
         account_id: Uuid,
         currency: &Currency,
     ) -> Result<Vec<Trade>, Box<dyn Error>>;
+
+    fn all_open_trades(&mut self, account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>>;
 
     // Rules
     fn create_rule(

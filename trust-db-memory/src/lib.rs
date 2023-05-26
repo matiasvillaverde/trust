@@ -148,11 +148,15 @@ impl Database for MemoryDatabase {
         unimplemented!()
     }
 
-    fn all_open_trades(
+    fn all_open_trades_for_currency(
         &mut self,
         _account_id: Uuid,
         _currency: &Currency,
     ) -> Result<Vec<Trade>, Box<dyn Error>> {
+        unimplemented!()
+    }
+
+    fn all_open_trades(&mut self, account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>> {
         unimplemented!()
     }
 

@@ -186,9 +186,7 @@ impl Trust {
         &mut self,
         account_id: Uuid,
     ) -> Result<Vec<Trade>, Box<dyn std::error::Error>> {
-        // Trades that are approved
-        // Trades that entry is not executed
-        unimplemented!()
+        self.database.all_open_trades(account_id)
     }
 
     pub fn execute_entry(

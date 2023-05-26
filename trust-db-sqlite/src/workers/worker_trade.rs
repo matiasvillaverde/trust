@@ -113,6 +113,32 @@ impl WorkerTrade {
     pub fn read_all_open_trades(
         connection: &mut SqliteConnection,
         account_id: Uuid,
+    ) -> Result<Vec<Trade>, Box<dyn Error>> {
+        let trades: Vec<Trade> = trades::table
+            .filter(trades::deleted_at.is_null())
+            .filter(trades::account_id.eq(account_id.to_string()))
+            .filter(trades::approved_at.is_not_null())
+            .filter(trades::rejected_at.is_null())
+            .filter(trades::executed_at.is_null())
+            .filter(trades::failed_at.is_null())
+            .filter(trades::closed_at.is_null())
+            .load::<TradeSQLite>(connection)
+            .map(|trades: Vec<TradeSQLite>| {
+                trades
+                    .into_iter()
+                    .map(|trade| trade.domain_model(connection))
+                    .collect()
+            })
+            .map_err(|error| {
+                error!("Error reading trades: {:?}", error);
+                error
+            })?;
+        Ok(trades)
+    }
+
+    pub fn read_all_open_trades_for_currency(
+        connection: &mut SqliteConnection,
+        account_id: Uuid,
         currency: &Currency,
     ) -> Result<Vec<Trade>, Box<dyn Error>> {
         let trades: Vec<Trade> = trades::table

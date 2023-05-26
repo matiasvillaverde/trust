@@ -183,12 +183,16 @@ impl Database for SqliteDatabase {
         )
     }
 
-    fn all_open_trades(
+    fn all_open_trades_for_currency(
         &mut self,
         account_id: Uuid,
         currency: &Currency,
     ) -> Result<Vec<Trade>, Box<dyn Error>> {
-        WorkerTrade::read_all_open_trades(&mut self.connection, account_id, currency)
+        WorkerTrade::read_all_open_trades_for_currency(&mut self.connection, account_id, currency)
+    }
+
+    fn all_open_trades(&mut self, account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>> {
+        WorkerTrade::read_all_open_trades(&mut self.connection, account_id)
     }
 
     fn all_transaction_excluding_current_month_and_taxes(
