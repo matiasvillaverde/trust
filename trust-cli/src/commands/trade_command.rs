@@ -30,4 +30,10 @@ impl TradeCommandBuilder {
             .push(Command::new("approve").about("Approve a trade to be executed"));
         self
     }
+
+    pub fn entry_trade(mut self) -> Self {
+        self.subcommands
+            .push(Command::new("entry").about("Execute the entry to the market of a trade"));
+        self
+    }
 }

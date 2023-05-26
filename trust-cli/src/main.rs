@@ -43,6 +43,7 @@ fn main() {
             TradeCommandBuilder::new()
                 .create_trade()
                 .approve_trade()
+                .entry_trade()
                 .build(),
         )
         .get_matches();
