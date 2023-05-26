@@ -10,7 +10,8 @@ impl TradeWorker {
         trade: &Trade,
         database: &mut dyn database::Database,
     ) -> Result<Trade, Box<dyn Error>> {
-        let total_in_market = Decimal::from(trade.entry.quantity) * trade.entry.unit_price.amount;
+        let total_in_market =
+            TradeWorker::calculate_total_order(trade.entry.quantity, trade.entry.unit_price.amount);
         database.update_trade_overview_in(trade, total_in_market)?;
         database.update_trade_executed_at(trade)
     }
@@ -20,12 +21,17 @@ impl TradeWorker {
         database: &mut dyn database::Database,
     ) -> Result<Trade, Box<dyn Error>> {
         database.update_trade_overview_in(trade, dec!(0.0))?;
-        let total_taxable = dec!(0.0); // TODO: calculate taxes
+        let total_taxable = TradeWorker::calculate_taxes();
         let target_order = trade.exit_targets.first().unwrap().order.clone();
-        let total_out_market =
-            Decimal::from(target_order.quantity) * target_order.unit_price.amount;
-        let total_performance =
-            total_out_market - total_taxable - trade.overview.total_in_market.amount;
+        let total_performance = TradeWorker::calculate_performance(
+            target_order.quantity,
+            target_order.unit_price.amount,
+            trade.entry.unit_price.amount,
+        );
+        let total_out_market = TradeWorker::calculate_total_order(
+            target_order.quantity,
+            target_order.unit_price.amount,
+        );
         database.update_trade_overview_out(
             trade,
             total_out_market,
@@ -35,19 +41,42 @@ impl TradeWorker {
         database.update_trade_executed_at(trade)
     }
 
+    fn calculate_performance(
+        quantity: u64,
+        exit_unit_price: Decimal,
+        entry_unit_price: Decimal,
+    ) -> Decimal {
+        let total_entry = entry_unit_price * Decimal::from(quantity);
+        let total_exit = exit_unit_price * Decimal::from(quantity);
+        return total_exit - total_entry;
+    }
+
+    fn calculate_total_order(quantity: u64, unit_price: Decimal) -> Decimal {
+        Decimal::from(quantity) * unit_price
+    }
+
+    fn calculate_taxes() -> Decimal {
+        dec!(0.0)
+    }
+
     pub fn update_trade_stop_executed(
         trade: &Trade,
         database: &mut dyn database::Database,
     ) -> Result<Trade, Box<dyn Error>> {
         database.update_trade_overview_in(trade, dec!(0.0))?;
-        let total_taxable = dec!(0.0); // Taxes are not calculated for stop orders
-        let stop_order = trade.safety_stop.clone();
-        let total_out_market = Decimal::from(stop_order.quantity) * stop_order.unit_price.amount;
-        let total_performance = total_out_market - trade.overview.total_in_market.amount;
+        let total_out_market = TradeWorker::calculate_total_order(
+            trade.safety_stop.quantity,
+            trade.safety_stop.unit_price.amount,
+        );
+        let total_performance = TradeWorker::calculate_performance(
+            trade.safety_stop.quantity,
+            trade.safety_stop.unit_price.amount,
+            trade.entry.unit_price.amount,
+        );
         database.update_trade_overview_out(
             trade,
             total_out_market,
-            total_taxable,
+            dec!(0.0), // Taxes are not calculated for stop orders
             total_performance,
         )?;
         database.update_trade_executed_at(trade)

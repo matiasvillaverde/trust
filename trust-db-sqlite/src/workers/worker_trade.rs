@@ -251,6 +251,7 @@ impl WorkerTrade {
         total_in_market: Decimal,
     ) -> Result<TradeOverview, Box<dyn Error>> {
         WorkerPrice::update(connection, trade.overview.total_in_market, total_in_market)?;
+        WorkerPrice::update(connection, trade.overview.total_out_market, dec!(0.0))?;
         let overview = WorkerTrade::read_overview(connection, trade.overview.id)?;
         Ok(overview)
     }
