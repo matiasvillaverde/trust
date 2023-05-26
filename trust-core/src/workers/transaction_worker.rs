@@ -163,4 +163,32 @@ impl TransactionWorker {
             Err(error) => Err(error),
         }
     }
+
+    pub fn transfer_out_trade(
+        trade: &Trade,
+        database: &mut dyn Database,
+    ) -> Result<(Transaction, AccountOverview), Box<dyn Error>> {
+        let account = database.read_account_id(trade.account_id)?;
+        let overview = database.read_account_overview_currency(account.id, &trade.currency)?;
+
+        let total_trade = trade.overview.total_out_market.amount;
+        let total_available = overview.total_available.amount + total_trade;
+        let total_in_trade = overview.total_in_trade.amount - total_trade;
+
+        let updated_overview = database.update_account_overview_trade(
+            &account,
+            &trade.currency,
+            total_available,
+            total_in_trade,
+        )?;
+
+        let transaction = database.new_transaction(
+            &account,
+            total_trade,
+            &trade.currency,
+            TransactionCategory::Input(trade.id),
+        )?;
+
+        Ok((transaction, updated_overview))
+    }
 }
