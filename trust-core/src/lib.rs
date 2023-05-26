@@ -2,7 +2,7 @@ use calculators::QuantityCalculator;
 use rust_decimal::Decimal;
 use trust_model::{
     Account, AccountOverview, Currency, Database, Rule, RuleLevel, RuleName, Trade, TradeCategory,
-    TradeOverview, TradingVehicle, TradingVehicleCategory, Transaction, TransactionCategory,
+    TradingVehicle, TradingVehicleCategory, Transaction, TransactionCategory,
 };
 use uuid::Uuid;
 use validators::RuleValidator;
@@ -189,11 +189,8 @@ impl Trust {
         self.database.all_open_trades(account_id)
     }
 
-    pub fn execute_entry(
-        &mut self,
-        trade: &Trade,
-    ) -> Result<(Trade, TradeOverview), Box<dyn std::error::Error>> {
-        unimplemented!()
+    pub fn execute_entry(&mut self, trade: &Trade) -> Result<Trade, Box<dyn std::error::Error>> {
+        OrderWorker::record_entry(trade, self.database.as_mut())
     }
 
     pub fn approve(

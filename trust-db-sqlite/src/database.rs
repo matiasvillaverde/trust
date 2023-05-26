@@ -278,6 +278,10 @@ impl Database for SqliteDatabase {
         )
     }
 
+    fn record_order_execution(&mut self, order: &Order) -> Result<Order, Box<dyn Error>> {
+        WorkerOrder::record_execution(&mut self.connection, order)
+    }
+
     fn create_target(
         &mut self,
         price: Decimal,

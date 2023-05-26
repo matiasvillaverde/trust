@@ -150,6 +150,8 @@ pub trait Database {
         trade: &Trade,
     ) -> Result<Target, Box<dyn Error>>;
 
+    fn record_order_execution(&mut self, order: &Order) -> Result<Order, Box<dyn Error>>;
+
     fn create_trade(
         &mut self,
         category: &TradeCategory,

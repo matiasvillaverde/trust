@@ -89,7 +89,7 @@ diesel::table! {
         trading_vehicle_id -> Text,
         action -> Text,
         category -> Text,
-        opened_at -> Nullable<Timestamp>,
+        filled_at -> Nullable<Timestamp>,
         closed_at -> Nullable<Timestamp>,
     }
 }

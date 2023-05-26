@@ -59,6 +59,14 @@ impl OrderWorker {
         database.create_target(draft.target_price, &trade.currency, &order, trade)
     }
 
+    pub fn record_entry(
+        trade: &Trade,
+        database: &mut dyn Database,
+    ) -> Result<Trade, Box<dyn std::error::Error>> {
+        database.record_order_execution(&trade.entry)?;
+        database.read_trade(trade.id)
+    }
+
     fn action_for_stop(category: &TradeCategory) -> OrderAction {
         match category {
             TradeCategory::Long => OrderAction::Sell,

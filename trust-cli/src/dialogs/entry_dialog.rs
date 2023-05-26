@@ -1,11 +1,11 @@
+use crate::dialogs::AccountSearchDialog;
 use crate::views::{TradeOverviewView, TradeView};
-use crate::{dialogs::AccountSearchDialog, views::TransactionView};
 use dialoguer::{theme::ColorfulTheme, FuzzySelect};
 use std::error::Error;
 use trust_core::Trust;
-use trust_model::{Account, Trade, TradeOverview};
+use trust_model::{Account, Trade};
 
-type EntryDialogBuilderResult = Option<Result<(Trade, TradeOverview), Box<dyn Error>>>;
+type EntryDialogBuilderResult = Option<Result<Trade, Box<dyn Error>>>;
 
 pub struct EntryDialogBuilder {
     account: Option<Account>,
@@ -33,11 +33,11 @@ impl EntryDialogBuilder {
             .result
             .expect("No result found, did you forget to call search?")
         {
-            Ok((trade, overview)) => {
+            Ok(trade) => {
                 println!("Trade entry executed:");
                 TradeView::display_trade(&trade, &self.account.unwrap().name);
                 println!("Trade overview:");
-                TradeOverviewView::display(overview);
+                TradeOverviewView::display(trade.overview);
             }
             Err(error) => println!("Error approving trade: {:?}", error),
         }

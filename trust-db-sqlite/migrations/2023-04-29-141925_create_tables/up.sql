@@ -76,7 +76,7 @@ CREATE TABLE "orders" (
 	trading_vehicle_id	TEXT NOT NULL REFERENCES trading_vehicles (id),
 	action 				TEXT CHECK(action IN ('sell', 'buy', 'short')) NOT NULL,
 	category 			TEXT CHECK(category IN ('market', 'limit', 'stop')) NOT NULL,
-	opened_at				DATETIME,
+	filled_at			DATETIME,
 	closed_at			DATETIME
 );
 

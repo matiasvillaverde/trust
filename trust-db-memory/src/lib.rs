@@ -23,6 +23,10 @@ pub struct MemoryDatabase {
 }
 
 impl Database for MemoryDatabase {
+    fn record_order_execution(&mut self, order: &Order) -> Result<Order, Box<dyn Error>> {
+        unimplemented!()
+    }
+
     fn read_account_id(&mut self, account_id: Uuid) -> Result<Account, Box<dyn Error>> {
         self.accounts
             .clone()
