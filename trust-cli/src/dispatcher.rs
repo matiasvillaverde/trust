@@ -1,7 +1,7 @@
 use crate::dialogs::{
-    AccountDialogBuilder, AccountSearchDialog, EntryDialogBuilder, TradeDialogApproverBuilder,
-    TradeDialogBuilder, TradingVehicleDialogBuilder, TradingVehicleSearchDialogBuilder,
-    TransactionDialogBuilder,
+    AccountDialogBuilder, AccountSearchDialog, EntryDialogBuilder, ExitDialogBuilder,
+    TradeDialogApproverBuilder, TradeDialogBuilder, TradingVehicleDialogBuilder,
+    TradingVehicleSearchDialogBuilder, TransactionDialogBuilder,
 };
 use crate::dialogs::{RuleDialogBuilder, RuleRemoveDialogBuilder};
 use clap::ArgMatches;
@@ -48,6 +48,8 @@ impl ArgDispatcher {
                 Some(("create", _)) => self.create_trade(),
                 Some(("approve", _)) => self.create_approve(),
                 Some(("entry", _)) => self.create_entry(),
+                Some(("stop", _)) => self.create_stop(),
+                Some(("target", _)) => self.create_target(),
                 _ => unreachable!("No subcommand provided"),
             },
             Some((ext, sub_matches)) => {
@@ -172,6 +174,22 @@ impl ArgDispatcher {
             .account(&mut self.trust)
             .search(&mut self.trust)
             .build(&mut self.trust)
+            .display();
+    }
+
+    fn create_stop(&mut self) {
+        ExitDialogBuilder::new()
+            .account(&mut self.trust)
+            .search(&mut self.trust)
+            .record_stop(&mut self.trust)
+            .display();
+    }
+
+    fn create_target(&mut self) {
+        ExitDialogBuilder::new()
+            .account(&mut self.trust)
+            .search(&mut self.trust)
+            .record_target(&mut self.trust)
             .display();
     }
 }

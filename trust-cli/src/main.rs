@@ -44,6 +44,8 @@ fn main() {
                 .create_trade()
                 .approve_trade()
                 .entry_trade()
+                .stop_trade()
+                .target_trade()
                 .build(),
         )
         .get_matches();

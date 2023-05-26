@@ -32,8 +32,21 @@ impl TradeCommandBuilder {
     }
 
     pub fn entry_trade(mut self) -> Self {
+        self.subcommands.push(
+            Command::new("entry").about("Execute manually the entry to the market of a trade"),
+        );
+        self
+    }
+
+    pub fn stop_trade(mut self) -> Self {
         self.subcommands
-            .push(Command::new("entry").about("Execute the entry to the market of a trade"));
+            .push(Command::new("stop").about("Execute manually the safety of a trade"));
+        self
+    }
+
+    pub fn target_trade(mut self) -> Self {
+        self.subcommands
+            .push(Command::new("target").about("Execute manually the target of a trade"));
         self
     }
 }
