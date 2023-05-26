@@ -195,6 +195,10 @@ impl Database for SqliteDatabase {
         WorkerTrade::read_all_open_trades(&mut self.connection, account_id)
     }
 
+    fn all_trades_in_market(&mut self, account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>> {
+        WorkerTrade::read_all_trades_in_market(&mut self.connection, account_id)
+    }
+
     fn all_transaction_excluding_current_month_and_taxes(
         &mut self,
         account_id: Uuid,

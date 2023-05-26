@@ -60,7 +60,7 @@ impl WorkerOrder {
                 error!("Error reading account: {:?}", error);
                 error
             })?;
-        return Ok(order);
+        Ok(order)
     }
 
     pub fn record_execution(

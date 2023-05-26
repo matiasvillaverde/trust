@@ -1,5 +1,5 @@
 use crate::dialogs::AccountSearchDialog;
-use crate::views::{AccountOverviewView, TradeOverviewView, TradeView, TransactionView};
+use crate::views::{AccountOverviewView, TradeView, TransactionView};
 use dialoguer::{theme::ColorfulTheme, FuzzySelect};
 use std::error::Error;
 use trust_core::Trust;
@@ -65,8 +65,7 @@ impl ExitDialogBuilder {
     }
 
     pub fn search(mut self, trust: &mut Trust) -> Self {
-        let trades =
-            trust.search_all_approved_trades_waiting_for_entry(self.account.clone().unwrap().id); // TODO: search trades that are already in.
+        let trades = trust.search_all_trades_in_market(self.account.clone().unwrap().id);
         match trades {
             Ok(trades) => {
                 if trades.is_empty() {

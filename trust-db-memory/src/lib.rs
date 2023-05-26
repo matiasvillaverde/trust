@@ -23,10 +23,14 @@ pub struct MemoryDatabase {
 }
 
 impl Database for MemoryDatabase {
+    fn all_trades_in_market(&mut self, _account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>> {
+        unimplemented!()
+    }
+
     fn update_trade_executed_at(&mut self, _trade: &Trade) -> Result<Trade, Box<dyn Error>> {
         unimplemented!()
     }
-    fn record_order_execution(&mut self, order: &Order) -> Result<Order, Box<dyn Error>> {
+    fn record_order_execution(&mut self, _order: &Order) -> Result<Order, Box<dyn Error>> {
         unimplemented!()
     }
 
@@ -163,7 +167,7 @@ impl Database for MemoryDatabase {
         unimplemented!()
     }
 
-    fn all_open_trades(&mut self, account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>> {
+    fn all_open_trades(&mut self, _account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>> {
         unimplemented!()
     }
 
@@ -287,18 +291,18 @@ impl Database for MemoryDatabase {
 
     fn update_trade_overview_in(
         &mut self,
-        trade: &Trade,
-        total_in_market: Decimal,
+        _trade: &Trade,
+        _total_in_market: Decimal,
     ) -> Result<TradeOverview, Box<dyn Error>> {
         unimplemented!()
     }
 
     fn update_trade_overview_out(
         &mut self,
-        trade: &Trade,
-        total_out_market: Decimal,
-        total_taxable: Decimal,
-        total_performance: Decimal,
+        _trade: &Trade,
+        _total_out_market: Decimal,
+        _total_taxable: Decimal,
+        _total_performance: Decimal,
     ) -> Result<TradeOverview, Box<dyn Error>> {
         unimplemented!()
     }

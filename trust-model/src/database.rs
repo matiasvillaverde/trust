@@ -101,6 +101,8 @@ pub trait Database {
 
     fn all_open_trades(&mut self, account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>>;
 
+    fn all_trades_in_market(&mut self, account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>>;
+
     // Rules
     fn create_rule(
         &mut self,
