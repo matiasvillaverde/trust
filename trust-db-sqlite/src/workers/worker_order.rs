@@ -91,7 +91,7 @@ impl OrderSQLite {
             action: OrderAction::from_str(&self.action).unwrap(),
             category: OrderCategory::from_str(&self.category).unwrap(),
             trading_vehicle_id: Uuid::parse_str(&self.trading_vehicle_id).unwrap(),
-            opened_at: self.opened_at,
+            filled_at: self.opened_at,
             closed_at: self.closed_at,
         }
     }
@@ -165,7 +165,7 @@ mod tests {
         assert_eq!(order.action, OrderAction::Buy);
         assert_eq!(order.category, OrderCategory::Limit);
         assert_eq!(order.trading_vehicle_id, trading_vehicle.id);
-        assert_eq!(order.opened_at, None);
+        assert_eq!(order.filled_at, None);
         assert_eq!(order.closed_at, None);
         assert_eq!(order.created_at, order.updated_at);
         assert_eq!(order.deleted_at, None);

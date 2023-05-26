@@ -12,8 +12,7 @@ impl TransactionsCalculator {
         database: &mut dyn Database,
     ) -> Result<Decimal, Box<dyn std::error::Error>> {
         // Get all transactions
-        let transactions =
-            database.all_trade_transactions_excluding_taxes(account_id, &currency)?;
+        let transactions = database.all_trade_transactions_excluding_taxes(account_id, currency)?;
 
         // Sum all transactions
         let total_available: Decimal = transactions
@@ -38,7 +37,7 @@ impl TransactionsCalculator {
         database: &mut dyn Database,
     ) -> Result<Decimal, Box<dyn std::error::Error>> {
         // Get the capital of the open trades that is not at risk to the total available.
-        let open_trades = database.all_open_trades(account_id, &currency)?;
+        let open_trades = database.all_open_trades(account_id, currency)?;
         let mut total_capital_not_at_risk = dec!(0.0);
 
         for trade in open_trades {
@@ -58,7 +57,7 @@ impl TransactionsCalculator {
         // Calculate all the transactions at the beginning of the month
         let mut total_beginning_of_month = dec!(0.0);
         for transaction in
-            database.all_transaction_excluding_current_month_and_taxes(account_id, &currency)?
+            database.all_transaction_excluding_current_month_and_taxes(account_id, currency)?
         {
             match transaction.category {
                 TransactionCategory::Output(_) => {

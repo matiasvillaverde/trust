@@ -1,31 +1,30 @@
-use crate::views::{AccountOverviewView, TradeView};
+use crate::views::{TradeOverviewView, TradeView};
 use crate::{dialogs::AccountSearchDialog, views::TransactionView};
 use dialoguer::{theme::ColorfulTheme, FuzzySelect};
 use std::error::Error;
 use trust_core::Trust;
-use trust_model::{Account, AccountOverview, Trade, Transaction};
+use trust_model::{Account, Trade, TradeOverview};
 
-type TradeDialogApproverBuilderResult =
-    Option<Result<(Trade, Transaction, AccountOverview), Box<dyn Error>>>;
+type EntryDialogBuilderResult = Option<Result<(Trade, TradeOverview), Box<dyn Error>>>;
 
-pub struct TradeDialogApproverBuilder {
+pub struct EntryDialogBuilder {
     account: Option<Account>,
     trade: Option<Trade>,
-    result: TradeDialogApproverBuilderResult,
+    result: EntryDialogBuilderResult,
 }
 
-impl TradeDialogApproverBuilder {
+impl EntryDialogBuilder {
     pub fn new() -> Self {
-        TradeDialogApproverBuilder {
+        EntryDialogBuilder {
             account: None,
             trade: None,
             result: None,
         }
     }
 
-    pub fn build(mut self, trust: &mut Trust) -> TradeDialogApproverBuilder {
+    pub fn build(mut self, trust: &mut Trust) -> EntryDialogBuilder {
         let trade: Trade = self.trade.clone().unwrap();
-        self.result = Some(trust.approve(&trade));
+        self.result = Some(trust.execute_entry(&trade));
         self
     }
 
@@ -34,14 +33,11 @@ impl TradeDialogApproverBuilder {
             .result
             .expect("No result found, did you forget to call search?")
         {
-            Ok((trade, tx, account_overview)) => {
-                let account = self.account.clone().unwrap().name;
-                println!("Trade approved");
+            Ok((trade, overview)) => {
+                println!("Trade entry executed:");
                 TradeView::display_trade(&trade, &self.account.unwrap().name);
-                println!("Transaction moving funds to trade:");
-                TransactionView::display(&tx, account.as_str());
-                println!("Account overview after trade:");
-                AccountOverviewView::display(account_overview, account.as_str());
+                println!("Trade overview:");
+                TradeOverviewView::display(overview);
             }
             Err(error) => println!("Error approving trade: {:?}", error),
         }
@@ -57,7 +53,8 @@ impl TradeDialogApproverBuilder {
     }
 
     pub fn search(mut self, trust: &mut Trust) -> Self {
-        let trades = trust.search_all_new_trades(self.account.clone().unwrap().id);
+        let trades =
+            trust.search_all_approved_trades_waiting_for_entry(self.account.clone().unwrap().id);
         match trades {
             Ok(trades) => {
                 if trades.is_empty() {

@@ -90,12 +90,12 @@ impl AccountOverview {
             created_at: now,
             updated_at: now,
             deleted_at: None,
-            account_id: account_id,
+            account_id,
             total_balance: Price::default(),
             total_in_trade: Price::default(),
             total_available: Price::default(),
             total_taxable: Price::default(),
-            currency: currency.clone(),
+            currency: *currency,
         }
     }
 }

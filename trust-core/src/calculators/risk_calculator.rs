@@ -40,7 +40,7 @@ impl RiskCalculator {
         );
 
         // Calculate the percentage of the total available this month
-        return Ok((available_to_risk * dec!(100.0)) / total_available);
+        Ok((available_to_risk * dec!(100.0)) / total_available)
     }
 
     fn calculate_capital_allowed_to_risk(

@@ -23,7 +23,7 @@ impl TransactionView {
 
     pub fn display(tx: &Transaction, account_name: &str) {
         TransactionView::display_transactions(vec![tx], account_name);
-        println!("");
+        println!();
     }
 
     pub fn display_transactions(txs: Vec<&Transaction>, account_name: &str) {

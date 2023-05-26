@@ -35,7 +35,7 @@ impl Price {
             created_at: now,
             updated_at: now,
             deleted_at: None,
-            currency: currency.clone(),
+            currency: *currency,
             amount,
         }
     }

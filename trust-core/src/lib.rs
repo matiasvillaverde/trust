@@ -2,7 +2,7 @@ use calculators::QuantityCalculator;
 use rust_decimal::Decimal;
 use trust_model::{
     Account, AccountOverview, Currency, Database, Rule, RuleLevel, RuleName, Trade, TradeCategory,
-    TradingVehicle, TradingVehicleCategory, Transaction, TransactionCategory,
+    TradeOverview, TradingVehicle, TradingVehicleCategory, Transaction, TransactionCategory,
 };
 use uuid::Uuid;
 use validators::RuleValidator;
@@ -182,6 +182,22 @@ impl Trust {
         self.database.read_all_new_trades(account_id)
     }
 
+    pub fn search_all_approved_trades_waiting_for_entry(
+        &mut self,
+        account_id: Uuid,
+    ) -> Result<Vec<Trade>, Box<dyn std::error::Error>> {
+        // Trades that are approved
+        // Trades that entry is not executed
+        unimplemented!()
+    }
+
+    pub fn execute_entry(
+        &mut self,
+        trade: &Trade,
+    ) -> Result<(Trade, TradeOverview), Box<dyn std::error::Error>> {
+        unimplemented!()
+    }
+
     pub fn approve(
         &mut self,
         trade: &Trade,
@@ -195,7 +211,7 @@ impl Trust {
         // 3. Create transaction to fund the trade
         let (transaction, account_overview) =
             TransactionWorker::transfer_to_trade(trade, &mut *self.database)?;
-        return Ok((trade.clone(), transaction, account_overview));
+        Ok((trade.clone(), transaction, account_overview))
     }
 }
 

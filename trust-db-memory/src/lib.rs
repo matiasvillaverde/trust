@@ -8,34 +8,18 @@ use rust_decimal::Decimal;
 use std::error::Error;
 use uuid::Uuid;
 
+#[derive(Default)]
 pub struct MemoryDatabase {
     accounts: Vec<Account>,
     account_overviews: Vec<AccountOverview>,
     prices: Vec<Price>,
     transactions: Vec<Transaction>,
-    trades: Vec<Trade>,
-    targets: Vec<Target>,
-    rules: Vec<Rule>,
-    trading_vehicles: Vec<TradingVehicle>,
-    trade_overviews: Vec<TradeOverview>,
-    orders: Vec<Order>,
-}
-
-impl Default for MemoryDatabase {
-    fn default() -> Self {
-        MemoryDatabase {
-            accounts: vec![],
-            account_overviews: vec![],
-            prices: vec![],
-            transactions: vec![],
-            trades: vec![],
-            targets: vec![],
-            rules: vec![],
-            trading_vehicles: vec![],
-            trade_overviews: vec![],
-            orders: vec![],
-        }
-    }
+    // trades: Vec<Trade>,
+    // targets: Vec<Target>,
+    // rules: Vec<Rule>,
+    // trading_vehicles: Vec<TradingVehicle>,
+    // trade_overviews: Vec<TradeOverview>,
+    // orders: Vec<Order>,
 }
 
 impl Database for MemoryDatabase {
@@ -71,7 +55,7 @@ impl Database for MemoryDatabase {
         currency: &Currency,
     ) -> Result<AccountOverview, Box<dyn Error>> {
         let account_overview = AccountOverview::new(account.id, currency);
-        self.account_overviews.push(account_overview.clone());
+        self.account_overviews.push(account_overview);
         Ok(account_overview)
     }
 
@@ -79,12 +63,12 @@ impl Database for MemoryDatabase {
         &mut self,
         account_id: Uuid,
     ) -> Result<Vec<AccountOverview>, Box<dyn Error>> {
-        return Ok(self
+        Ok(self
             .account_overviews
             .clone()
             .into_iter()
             .filter(|a| a.account_id == account_id)
-            .collect());
+            .collect())
     }
 
     fn read_account_overview_currency(
@@ -109,7 +93,7 @@ impl Database for MemoryDatabase {
 
     fn new_price(&mut self, currency: &Currency, amount: Decimal) -> Result<Price, Box<dyn Error>> {
         let price = Price::new(currency, amount);
-        self.prices.push(price.clone());
+        self.prices.push(price);
         Ok(price)
     }
 
@@ -150,10 +134,7 @@ impl Database for MemoryDatabase {
 
         let transactions = transactions
             .into_iter()
-            .filter(|t| match t.category {
-                TransactionCategory::InputTax(_) => false,
-                _ => true,
-            })
+            .filter(|t| !matches!(t.category, TransactionCategory::InputTax(_)))
             .collect();
 
         Ok(transactions)

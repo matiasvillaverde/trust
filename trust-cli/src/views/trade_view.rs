@@ -46,7 +46,7 @@ impl TradeView {
 
     pub fn display_trade(a: &Trade, account_name: &str) {
         TradeView::display_trades(vec![a], account_name);
-        println!("");
+        println!();
     }
 
     pub fn display_trades(trades: Vec<&Trade>, account_name: &str) {

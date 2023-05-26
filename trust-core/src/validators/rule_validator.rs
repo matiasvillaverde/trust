@@ -113,6 +113,7 @@ impl RuleValidator {
 }
 
 #[derive(Debug, PartialEq)]
+
 pub enum RuleValidationErrorCode {
     RuleAlreadyExistsInAccount,
     RiskPerTradeExceeded,

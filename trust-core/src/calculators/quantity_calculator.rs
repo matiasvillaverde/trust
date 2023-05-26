@@ -72,11 +72,11 @@ impl QuantityCalculator {
 
         if risk_capital >= max_risk {
             // The risk capital is greater than the max risk, so return the max quantity
-            return max_quantity.to_i64().unwrap();
+            max_quantity.to_i64().unwrap()
         } else {
             // The risk capital is less than the max risk, so return the max quantity based on the risk capital
             let risk_per_trade = risk_capital / (entry_price - stop_price);
-            return risk_per_trade.to_i64().unwrap(); // We round down to the nearest integer
+            risk_per_trade.to_i64().unwrap() // We round down to the nearest integer
         }
     }
 }
