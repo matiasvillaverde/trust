@@ -49,7 +49,7 @@ CREATE TABLE transactions (
 	updated_at		DATETIME NOT NULL,
 	deleted_at		DATETIME,
 	currency 		TEXT CHECK(currency IN ('EUR', 'USD', 'BTC')) NOT NULL,
-	category 		TEXT CHECK(category IN ('deposit', 'withdrawal', 'output', 'input', 'input_tax', 'output_tax')) NOT NULL,
+	category 		TEXT CHECK(category IN ('deposit', 'withdrawal', 'payment_from_trade', 'fund_trade', 'open_trade', 'close_target', "close_safety_stop", "close_safety_stop_slippage", "fee_open", "fee_close", "payment_earnings", "withdrawal_earnings", "payment_tax", "withdrawal_tax")) NOT NULL,
 	price_id		TEXT NOT NULL REFERENCES price (id),
 	account_id 		TEXT NOT NULL REFERENCES accounts(id),
 	trade_id		TEXT REFERENCES trades (uuid)
