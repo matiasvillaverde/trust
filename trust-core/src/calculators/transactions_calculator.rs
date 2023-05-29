@@ -1,6 +1,6 @@
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
-use trust_model::{Currency, Database, TransactionCategory};
+use trust_model::{Currency, Database, Trade, TransactionCategory};
 use uuid::Uuid;
 
 pub struct TransactionsCalculator;
@@ -12,7 +12,7 @@ impl TransactionsCalculator {
         database: &mut dyn Database,
     ) -> Result<Decimal, Box<dyn std::error::Error>> {
         // Get all transactions
-        let transactions = database.all_trade_transactions_excluding_taxes(account_id, currency)?;
+        let transactions = database.all_transactions_excluding_taxes(account_id, currency)?;
 
         // Sum all transactions
         let total_available: Decimal = transactions
@@ -76,6 +76,72 @@ impl TransactionsCalculator {
             }
         }
         Ok(total_beginning_of_month)
+    }
+
+    pub fn calculate_total_out_of_market_from(
+        trade: &Trade,
+        database: &mut dyn Database,
+    ) -> Result<Decimal, Box<dyn std::error::Error>> {
+        let mut total_trade = dec!(0);
+
+        for tx in database.all_trade_transactions(trade)? {
+            match tx.category {
+                TransactionCategory::FundTrade(_) => {
+                    // This is money that we have put into the trade
+                    total_trade += tx.price.amount
+                }
+                TransactionCategory::PaymentFromTrade(_) => {
+                    // This is money that we have extracted from the trade
+                    total_trade -= tx.price.amount
+                }
+                TransactionCategory::OpenTrade(_) => {
+                    // This is money that we have used to enter the market.
+                    total_trade -= tx.price.amount
+                }
+                TransactionCategory::CloseTarget(_) => {
+                    // This is money that we have used to exit the market.
+                    total_trade += tx.price.amount
+                }
+                TransactionCategory::CloseSafetyStop(_) => {
+                    // This is money that we have used to exit the market at a loss.
+                    total_trade += tx.price.amount
+                }
+                TransactionCategory::CloseSafetyStopSlippage(_) => {
+                    // This is money that we have used to exit the market at a loss - slippage.
+                    total_trade += tx.price.amount
+                }
+                default => panic!("Unexpected transaction category: {}", default),
+            }
+        }
+
+        Ok(total_trade)
+    }
+
+    pub fn calculate_total_in_market_from(
+        trade: &Trade,
+        database: &mut dyn Database,
+    ) -> Result<Decimal, Box<dyn std::error::Error>> {
+        let mut total_trade = dec!(0);
+
+        for tx in database.all_trade_transactions(trade)? {
+            match tx.category {
+                TransactionCategory::FundTrade(_) | TransactionCategory::PaymentFromTrade(_) => {
+                    // Nothing
+                }
+                TransactionCategory::OpenTrade(_) => {
+                    // This is money that we have used to enter the market.
+                    total_trade += tx.price.amount
+                }
+                TransactionCategory::CloseTarget(_)
+                | TransactionCategory::CloseSafetyStop(_)
+                | TransactionCategory::CloseSafetyStopSlippage(_) => {
+                    total_trade = Decimal::from(0) // We have exited the market, so we have no money in the market.
+                }
+                default => panic!("Unexpected transaction category: {}", default),
+            }
+        }
+
+        Ok(total_trade)
     }
 }
 

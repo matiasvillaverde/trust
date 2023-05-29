@@ -223,7 +223,7 @@ impl WriteTransactionDB for SqliteDatabase {
 }
 
 impl ReadTransactionDB for SqliteDatabase {
-    fn all_trade_transactions_excluding_taxes(
+    fn all_transactions_excluding_taxes(
         &mut self,
         account_id: Uuid,
         currency: &Currency,
@@ -233,6 +233,13 @@ impl ReadTransactionDB for SqliteDatabase {
             account_id,
             currency,
         )
+    }
+
+    fn all_trade_transactions(
+        &mut self,
+        trade: &Trade,
+    ) -> Result<Vec<Transaction>, Box<dyn Error>> {
+        WorkerTransaction::read_all_trade_transactions(&mut self.connection, trade.id)
     }
 
     fn all_transaction_excluding_current_month_and_taxes(

@@ -51,25 +51,25 @@ impl WorkerTransaction {
         account_id: Uuid,
         currency: &Currency,
     ) -> Result<Vec<Transaction>, Box<dyn Error>> {
-        let tx_deposit = WorkerTransaction::read_all_trade_transactions(
+        let tx_deposit = WorkerTransaction::read_all_trade_transactions_for_category(
             connection,
             account_id,
             currency,
             TransactionCategory::Deposit,
         )?;
-        let tx_withdrawal = WorkerTransaction::read_all_trade_transactions(
+        let tx_withdrawal = WorkerTransaction::read_all_trade_transactions_for_category(
             connection,
             account_id,
             currency,
             TransactionCategory::Withdrawal,
         )?;
-        let tx_output = WorkerTransaction::read_all_trade_transactions(
+        let tx_output = WorkerTransaction::read_all_trade_transactions_for_category(
             connection,
             account_id,
             currency,
             TransactionCategory::FundTrade(Uuid::new_v4()),
         )?;
-        let tx_input = WorkerTransaction::read_all_trade_transactions(
+        let tx_input = WorkerTransaction::read_all_trade_transactions_for_category(
             connection,
             account_id,
             currency,
@@ -83,7 +83,7 @@ impl WorkerTransaction {
             .collect())
     }
 
-    pub fn read_all_trade_transactions(
+    pub fn read_all_trade_transactions_for_category(
         connection: &mut SqliteConnection,
         account_id: Uuid,
         currency: &Currency,
@@ -103,6 +103,27 @@ impl WorkerTransaction {
             })
             .map_err(|error| {
                 error!("Error creating price: {:?}", error);
+                error
+            })?;
+        Ok(transactions)
+    }
+
+    pub fn read_all_trade_transactions(
+        connection: &mut SqliteConnection,
+        trade: Uuid,
+    ) -> Result<Vec<Transaction>, Box<dyn Error>> {
+        let transactions = transactions::table
+            .filter(transactions::deleted_at.is_null())
+            .filter(transactions::trade_id.eq(trade.to_string()))
+            .load::<TransactionSQLite>(connection)
+            .map(|transactions: Vec<TransactionSQLite>| {
+                transactions
+                    .into_iter()
+                    .map(|tx| tx.domain_model(connection))
+                    .collect()
+            })
+            .map_err(|error| {
+                error!("Error reading trade transactions: {:?}", error);
                 error
             })?;
         Ok(transactions)
@@ -282,6 +303,7 @@ mod tests {
         let mut conn: SqliteConnection = establish_connection();
 
         let trade_id = Uuid::new_v4();
+
         // Create a new account record
         let account =
             WorkerAccount::create_account(&mut conn, "Test Account", "This is a test account")

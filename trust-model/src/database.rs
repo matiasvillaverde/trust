@@ -128,11 +128,14 @@ pub trait ReadPriceDB {
 }
 
 pub trait ReadTransactionDB {
-    fn all_trade_transactions_excluding_taxes(
+    fn all_transactions_excluding_taxes(
         &mut self,
         account_id: Uuid,
         currency: &Currency,
     ) -> Result<Vec<Transaction>, Box<dyn Error>>;
+
+    fn all_trade_transactions(&mut self, trade: &Trade)
+        -> Result<Vec<Transaction>, Box<dyn Error>>;
 
     fn all_transaction_excluding_current_month_and_taxes(
         &mut self,

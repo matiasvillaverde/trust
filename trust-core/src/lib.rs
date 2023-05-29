@@ -207,7 +207,7 @@ impl Trust {
     ) -> Result<(Transaction, AccountOverview), Box<dyn std::error::Error>> {
         OrderWorker::record_stop(trade, self.database.as_mut())?;
         TradeWorker::update_trade_stop_executed(trade, self.database.as_mut())?;
-        TransactionWorker::transfer_out_trade(trade, self.database.as_mut())
+        TransactionWorker::transfer_payment_from(trade, self.database.as_mut())
     }
 
     pub fn record_target(
@@ -216,7 +216,7 @@ impl Trust {
     ) -> Result<(Transaction, AccountOverview), Box<dyn std::error::Error>> {
         OrderWorker::record_target(trade, self.database.as_mut())?;
         TradeWorker::update_trade_target_executed(trade, self.database.as_mut())?;
-        TransactionWorker::transfer_out_trade(trade, self.database.as_mut())
+        TransactionWorker::transfer_payment_from(trade, self.database.as_mut())
     }
 
     pub fn approve(
