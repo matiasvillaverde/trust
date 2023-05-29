@@ -14,7 +14,11 @@ pub mod database;
 // Re-export the types from the trust-model crate.
 pub use account::{Account, AccountOverview};
 pub use currency::Currency;
-pub use database::{Database, ReadAccountDB, WriteOrderDB};
+pub use database::{
+    Database, ReadAccountDB, ReadAccountOverviewDB, ReadOrderDB, ReadPriceDB, ReadRuleDB,
+    ReadTradeDB, ReadTradingVehicleDB, ReadTransactionDB, WriteAccountOverviewDB, WriteOrderDB,
+    WritePriceDB, WriteRuleDB, WriteTradeDB, WriteTradingVehicleDB, WriteTransactionDB,
+};
 pub use order::{Order, OrderAction, OrderCategory};
 pub use price::Price;
 pub use rule::{Rule, RuleLevel, RuleName};

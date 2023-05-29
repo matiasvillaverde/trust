@@ -6,9 +6,13 @@ use diesel::prelude::*;
 use rust_decimal::Decimal;
 use std::error::Error;
 use trust_model::{
+    database::{WriteAccountDB, WriteTradeOverviewDB},
     Account, AccountOverview, Currency, Database, Order, OrderAction, OrderCategory, Price,
-    ReadAccountDB, Rule, RuleName, Target, Trade, TradeCategory, TradeOverview, TradingVehicle,
-    TradingVehicleCategory, Transaction, TransactionCategory, WriteOrderDB,
+    ReadAccountDB, ReadAccountOverviewDB, ReadOrderDB, ReadPriceDB, ReadRuleDB, ReadTradeDB,
+    ReadTradingVehicleDB, ReadTransactionDB, Rule, RuleName, Target, Trade, TradeCategory,
+    TradeOverview, TradingVehicle, TradingVehicleCategory, Transaction, TransactionCategory,
+    WriteAccountOverviewDB, WriteOrderDB, WritePriceDB, WriteRuleDB, WriteTradeDB,
+    WriteTradingVehicleDB, WriteTransactionDB,
 };
 use uuid::Uuid;
 
@@ -97,14 +101,20 @@ impl WriteOrderDB for SqliteDatabase {
     ) -> Result<Target, Box<dyn Error>> {
         WorkerTarget::create(&mut self.connection, price, currency, order, trade)
     }
+
+    fn record_order_execution(&mut self, order: &Order) -> Result<Order, Box<dyn Error>> {
+        WorkerOrder::record_execution(&mut self.connection, order)
+    }
 }
 
-impl Database for SqliteDatabase {
+impl WriteAccountDB for SqliteDatabase {
     fn new_account(&mut self, name: &str, description: &str) -> Result<Account, Box<dyn Error>> {
         let account = WorkerAccount::create_account(&mut self.connection, name, description);
         account
     }
+}
 
+impl ReadAccountOverviewDB for SqliteDatabase {
     fn read_account_overview(
         &mut self,
         account_id: Uuid,
@@ -119,7 +129,9 @@ impl Database for SqliteDatabase {
     ) -> Result<AccountOverview, Box<dyn Error>> {
         WorkerAccountOverview::read_for_currency(&mut self.connection, account_id, currency)
     }
+}
 
+impl WriteAccountOverviewDB for SqliteDatabase {
     fn new_account_overview(
         &mut self,
         account: &Account,
@@ -174,7 +186,9 @@ impl Database for SqliteDatabase {
 
         Ok(updated_total_in_trade)
     }
+}
 
+impl WritePriceDB for SqliteDatabase {
     fn new_price(
         &mut self,
         currency: &Currency,
@@ -182,11 +196,15 @@ impl Database for SqliteDatabase {
     ) -> Result<Price, Box<dyn Error>> {
         WorkerPrice::create(&mut self.connection, currency, amount)
     }
+}
 
+impl ReadPriceDB for SqliteDatabase {
     fn read_price(&mut self, id: uuid::Uuid) -> Result<Price, Box<dyn Error>> {
         WorkerPrice::read(&mut self.connection, id)
     }
+}
 
+impl WriteTransactionDB for SqliteDatabase {
     fn new_transaction(
         &mut self,
         account: &Account,
@@ -202,7 +220,9 @@ impl Database for SqliteDatabase {
             category,
         )
     }
+}
 
+impl ReadTransactionDB for SqliteDatabase {
     fn all_trade_transactions_excluding_taxes(
         &mut self,
         account_id: Uuid,
@@ -213,22 +233,6 @@ impl Database for SqliteDatabase {
             account_id,
             currency,
         )
-    }
-
-    fn all_open_trades_for_currency(
-        &mut self,
-        account_id: Uuid,
-        currency: &Currency,
-    ) -> Result<Vec<Trade>, Box<dyn Error>> {
-        WorkerTrade::read_all_open_trades_for_currency(&mut self.connection, account_id, currency)
-    }
-
-    fn all_open_trades(&mut self, account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>> {
-        WorkerTrade::read_all_open_trades(&mut self.connection, account_id)
-    }
-
-    fn all_trades_in_market(&mut self, account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>> {
-        WorkerTrade::read_all_trades_in_market(&mut self.connection, account_id)
     }
 
     fn all_transaction_excluding_current_month_and_taxes(
@@ -242,7 +246,23 @@ impl Database for SqliteDatabase {
             currency,
         )
     }
+}
 
+impl ReadRuleDB for SqliteDatabase {
+    fn read_all_rules(&mut self, account_id: Uuid) -> Result<Vec<Rule>, Box<dyn Error>> {
+        WorkerRule::read_all(&mut self.connection, account_id)
+    }
+
+    fn rule_for_account(
+        &mut self,
+        account_id: Uuid,
+        name: &RuleName,
+    ) -> Result<Rule, Box<dyn Error>> {
+        WorkerRule::read_for_account_with_name(&mut self.connection, account_id, name)
+    }
+}
+
+impl WriteRuleDB for SqliteDatabase {
     fn create_rule(
         &mut self,
         account: &Account,
@@ -261,22 +281,12 @@ impl Database for SqliteDatabase {
         )
     }
 
-    fn read_all_rules(&mut self, account_id: Uuid) -> Result<Vec<Rule>, Box<dyn Error>> {
-        WorkerRule::read_all(&mut self.connection, account_id)
-    }
-
     fn make_rule_inactive(&mut self, rule: &Rule) -> Result<Rule, Box<dyn Error>> {
         WorkerRule::make_inactive(&mut self.connection, rule)
     }
+}
 
-    fn rule_for_account(
-        &mut self,
-        account_id: Uuid,
-        name: &RuleName,
-    ) -> Result<Rule, Box<dyn Error>> {
-        WorkerRule::read_for_account_with_name(&mut self.connection, account_id, name)
-    }
-
+impl WriteTradingVehicleDB for SqliteDatabase {
     fn create_trading_vehicle(
         &mut self,
         symbol: &str,
@@ -286,7 +296,9 @@ impl Database for SqliteDatabase {
     ) -> Result<TradingVehicle, Box<dyn Error>> {
         WorkerTradingVehicle::create(&mut self.connection, symbol, isin, category, broker)
     }
+}
 
+impl ReadTradingVehicleDB for SqliteDatabase {
     fn read_all_trading_vehicles(&mut self) -> Result<Vec<TradingVehicle>, Box<dyn Error>> {
         WorkerTradingVehicle::read_all(&mut self.connection)
     }
@@ -294,11 +306,9 @@ impl Database for SqliteDatabase {
     fn read_trading_vehicle(&mut self, id: Uuid) -> Result<TradingVehicle, Box<dyn Error>> {
         WorkerTradingVehicle::read(&mut self.connection, id)
     }
+}
 
-    fn record_order_execution(&mut self, order: &Order) -> Result<Order, Box<dyn Error>> {
-        WorkerOrder::record_execution(&mut self.connection, order)
-    }
-
+impl WriteTradeDB for SqliteDatabase {
     fn create_trade(
         &mut self,
         category: &TradeCategory,
@@ -319,6 +329,16 @@ impl Database for SqliteDatabase {
         )
     }
 
+    fn approve_trade(&mut self, trade: &Trade) -> Result<Trade, Box<dyn Error>> {
+        WorkerTrade::approve_trade(&mut self.connection, trade)
+    }
+
+    fn update_trade_executed_at(&mut self, trade: &Trade) -> Result<Trade, Box<dyn Error>> {
+        WorkerTrade::update_executed_at(&mut self.connection, trade)
+    }
+}
+
+impl ReadTradeDB for SqliteDatabase {
     fn read_trade(&mut self, id: Uuid) -> Result<Trade, Box<dyn Error>> {
         WorkerTrade::read_trade(&mut self.connection, id)
     }
@@ -327,10 +347,24 @@ impl Database for SqliteDatabase {
         WorkerTrade::read_all_new_trades(&mut self.connection, account_id)
     }
 
-    fn approve_trade(&mut self, trade: &Trade) -> Result<Trade, Box<dyn Error>> {
-        WorkerTrade::approve_trade(&mut self.connection, trade)
+    fn all_open_trades_for_currency(
+        &mut self,
+        account_id: Uuid,
+        currency: &Currency,
+    ) -> Result<Vec<Trade>, Box<dyn Error>> {
+        WorkerTrade::read_all_open_trades_for_currency(&mut self.connection, account_id, currency)
     }
 
+    fn all_open_trades(&mut self, account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>> {
+        WorkerTrade::read_all_open_trades(&mut self.connection, account_id)
+    }
+
+    fn all_trades_in_market(&mut self, account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>> {
+        WorkerTrade::read_all_trades_in_market(&mut self.connection, account_id)
+    }
+}
+
+impl WriteTradeOverviewDB for SqliteDatabase {
     fn update_trade_overview(
         &mut self,
         trade: &Trade,
@@ -362,8 +396,12 @@ impl Database for SqliteDatabase {
             total_performance,
         )
     }
+}
 
-    fn update_trade_executed_at(&mut self, trade: &Trade) -> Result<Trade, Box<dyn Error>> {
-        WorkerTrade::update_executed_at(&mut self.connection, trade)
+impl ReadOrderDB for SqliteDatabase {
+    fn read_order(&mut self, id: Uuid) -> Result<Order, Box<dyn Error>> {
+        WorkerOrder::read(&mut self.connection, id)
     }
 }
+
+impl Database for SqliteDatabase {}

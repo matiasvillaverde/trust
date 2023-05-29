@@ -1193,17 +1193,6 @@ version = "0.1.0"
 dependencies = [
  "rust_decimal",
  "rust_decimal_macros",
- "trust-db-memory",
- "trust-model",
- "uuid",
-]
-
-[[package]]
-name = "trust-db-memory"
-version = "0.1.0"
-dependencies = [
- "rust_decimal",
- "rust_decimal_macros",
  "trust-model",
  "uuid",
 ]
