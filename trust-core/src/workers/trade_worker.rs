@@ -48,7 +48,7 @@ impl TradeWorker {
     ) -> Decimal {
         let total_entry = entry_unit_price * Decimal::from(quantity);
         let total_exit = exit_unit_price * Decimal::from(quantity);
-        return total_exit - total_entry;
+        total_exit - total_entry
     }
 
     fn calculate_total_order(quantity: u64, unit_price: Decimal) -> Decimal {

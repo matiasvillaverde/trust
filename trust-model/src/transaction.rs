@@ -199,7 +199,7 @@ impl TransactionCategory {
                     Err(TransactionCategoryParseError)
                 }
             }
-            "withdrawal_tax" =>  Ok(TransactionCategory::WithdrawalTax),
+            "withdrawal_tax" => Ok(TransactionCategory::WithdrawalTax),
             _ => Err(TransactionCategoryParseError),
         }
     }
