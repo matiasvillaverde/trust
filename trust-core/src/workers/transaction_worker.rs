@@ -212,6 +212,33 @@ impl TransactionWorker {
         return Ok((transaction, overview));
     }
 
+    pub fn transfer_to_close_stop(
+        trade: &Trade,
+        database: &mut dyn Database,
+    ) -> Result<(Transaction, TradeOverview), Box<dyn Error>> {
+        // TODO: Validate that trade can be closed
+
+        let account = database.read_account_id(trade.account_id)?;
+
+        let total = trade.safety_stop.unit_price.amount * Decimal::from(trade.entry.quantity);
+        let total_taxable = Decimal::from(0); // We don't pay taxes when we close a trade in a stop
+        let total_performance =
+            total - (trade.entry.unit_price.amount * Decimal::from(trade.entry.quantity));
+
+        let transaction = database.new_transaction(
+            &account,
+            total,
+            &trade.currency,
+            TransactionCategory::CloseSafetyStop(trade.id),
+        )?;
+
+        // Update trade overview
+        let overview =
+            database.update_trade_overview_out(trade, total, total_taxable, total_performance)?;
+
+        return Ok((transaction, overview));
+    }
+
     pub fn transfer_payment_from(
         trade: &Trade,
         database: &mut dyn Database,

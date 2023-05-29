@@ -59,7 +59,7 @@ impl OrderWorker {
         database.create_target(draft.target_price, &trade.currency, &order, trade)
     }
 
-    pub fn record_entry(
+    pub fn record_timestamp_entry(
         trade: &Trade,
         database: &mut dyn Database,
     ) -> Result<Trade, Box<dyn std::error::Error>> {
@@ -67,7 +67,7 @@ impl OrderWorker {
         database.read_trade(trade.id)
     }
 
-    pub fn record_stop(
+    pub fn record_timestamp_stop(
         trade: &Trade,
         database: &mut dyn Database,
     ) -> Result<Trade, Box<dyn std::error::Error>> {
@@ -75,7 +75,7 @@ impl OrderWorker {
         database.read_trade(trade.id)
     }
 
-    pub fn record_target(
+    pub fn record_timestamp_target(
         trade: &Trade,
         database: &mut dyn Database,
     ) -> Result<Trade, Box<dyn std::error::Error>> {

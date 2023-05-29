@@ -197,7 +197,6 @@ impl Trust {
     }
 
     pub fn record_entry(&mut self, trade: &Trade) -> Result<Trade, Box<dyn std::error::Error>> {
-        OrderWorker::record_entry(trade, self.database.as_mut())?;
         TradeWorker::update_trade_entry_executed(trade, self.database.as_mut())
     }
 
@@ -205,7 +204,7 @@ impl Trust {
         &mut self,
         trade: &Trade,
     ) -> Result<(Transaction, AccountOverview), Box<dyn std::error::Error>> {
-        OrderWorker::record_stop(trade, self.database.as_mut())?;
+        OrderWorker::record_timestamp_stop(trade, self.database.as_mut())?;
         TradeWorker::update_trade_stop_executed(trade, self.database.as_mut())?;
         TransactionWorker::transfer_payment_from(trade, self.database.as_mut())
     }
@@ -214,7 +213,7 @@ impl Trust {
         &mut self,
         trade: &Trade,
     ) -> Result<(Transaction, AccountOverview), Box<dyn std::error::Error>> {
-        OrderWorker::record_target(trade, self.database.as_mut())?;
+        OrderWorker::record_timestamp_target(trade, self.database.as_mut())?;
         TradeWorker::update_trade_target_executed(trade, self.database.as_mut())?;
         TransactionWorker::transfer_payment_from(trade, self.database.as_mut())
     }
