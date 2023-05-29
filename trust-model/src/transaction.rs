@@ -178,28 +178,28 @@ impl TransactionCategory {
         match s {
             "deposit" => Ok(TransactionCategory::Deposit),
             "withdrawal" => Ok(TransactionCategory::Withdrawal),
-            "output_tax" => Ok(TransactionCategory::WithdrawalTax),
-            "input" => {
-                if let Some(trade_id) = trade_id {
-                    Ok(TransactionCategory::PaymentFromTrade(trade_id))
-                } else {
-                    Err(TransactionCategoryParseError)
-                }
-            }
-            "output" => {
-                if let Some(trade_id) = trade_id {
-                    Ok(TransactionCategory::FundTrade(trade_id))
-                } else {
-                    Err(TransactionCategoryParseError)
-                }
-            }
-            "input_tax" => {
+            "payment_tax" => {
                 if let Some(trade_id) = trade_id {
                     Ok(TransactionCategory::PaymentTax(trade_id))
                 } else {
                     Err(TransactionCategoryParseError)
                 }
             }
+            "payment_from_trade" => {
+                if let Some(trade_id) = trade_id {
+                    Ok(TransactionCategory::PaymentFromTrade(trade_id))
+                } else {
+                    Err(TransactionCategoryParseError)
+                }
+            }
+            "fund_trade" => {
+                if let Some(trade_id) = trade_id {
+                    Ok(TransactionCategory::FundTrade(trade_id))
+                } else {
+                    Err(TransactionCategoryParseError)
+                }
+            }
+            "withdrawal_tax" =>  Ok(TransactionCategory::WithdrawalTax),
             _ => Err(TransactionCategoryParseError),
         }
     }
@@ -217,17 +217,17 @@ mod tests {
         let result = TransactionCategory::parse("withdrawal", None)
             .expect("Failed to parse TransactionCategory from string");
         assert_eq!(result, TransactionCategory::Withdrawal);
-        let result = TransactionCategory::parse("output_tax", None)
+        let result = TransactionCategory::parse("withdrawal_tax", None)
             .expect("Failed to parse TransactionCategory from string");
         assert_eq!(result, TransactionCategory::WithdrawalTax);
         let id = Uuid::new_v4();
-        let result = TransactionCategory::parse("input", Some(id))
+        let result = TransactionCategory::parse("payment_from_trade", Some(id))
             .expect("Failed to parse TransactionCategory from string");
         assert_eq!(result, TransactionCategory::PaymentFromTrade(id));
-        let result = TransactionCategory::parse("output", Some(id))
+        let result = TransactionCategory::parse("fund_trade", Some(id))
             .expect("Failed to parse TransactionCategory from string");
         assert_eq!(result, TransactionCategory::FundTrade(id));
-        let result = TransactionCategory::parse("input_tax", Some(id))
+        let result = TransactionCategory::parse("payment_tax", Some(id))
             .expect("Failed to parse TransactionCategory from string");
         assert_eq!(result, TransactionCategory::PaymentTax(id));
     }
