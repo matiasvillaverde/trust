@@ -1,7 +1,3 @@
-// Validate that the transaction is possible
-// Create transaction
-// Update Account Overview
-
 use rust_decimal::Decimal;
 use std::error::Error;
 use trust_model::{AccountOverview, Currency, Database, Trade, Transaction, TransactionCategory};

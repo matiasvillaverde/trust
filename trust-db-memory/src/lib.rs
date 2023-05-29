@@ -1,7 +1,7 @@
 use trust_model::{
-    Account, AccountOverview, Currency, Database, Order, OrderAction, Price, Rule, RuleLevel,
-    RuleName, Target, Trade, TradeCategory, TradeOverview, TradingVehicle, TradingVehicleCategory,
-    Transaction, TransactionCategory,
+    Account, AccountOverview, Currency, Database, Order, OrderAction, Price, ReadAccountDB, Rule,
+    RuleLevel, RuleName, Target, Trade, TradeCategory, TradeOverview, TradingVehicle,
+    TradingVehicleCategory, Transaction, TransactionCategory, WriteOrderDB,
 };
 
 use rust_decimal::Decimal;
@@ -22,18 +22,7 @@ pub struct MemoryDatabase {
     // orders: Vec<Order>,
 }
 
-impl Database for MemoryDatabase {
-    fn all_trades_in_market(&mut self, _account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>> {
-        unimplemented!()
-    }
-
-    fn update_trade_executed_at(&mut self, _trade: &Trade) -> Result<Trade, Box<dyn Error>> {
-        unimplemented!()
-    }
-    fn record_order_execution(&mut self, _order: &Order) -> Result<Order, Box<dyn Error>> {
-        unimplemented!()
-    }
-
+impl ReadAccountDB for MemoryDatabase {
     fn read_account_id(&mut self, account_id: Uuid) -> Result<Account, Box<dyn Error>> {
         self.accounts
             .clone()
@@ -52,6 +41,42 @@ impl Database for MemoryDatabase {
 
     fn read_all_accounts(&mut self) -> Result<Vec<Account>, Box<dyn Error>> {
         Ok(self.accounts.clone())
+    }
+}
+
+impl WriteOrderDB for MemoryDatabase {
+    fn create_order(
+        &mut self,
+        _trading_vehicle: &TradingVehicle,
+        _quantity: i64,
+        _price: Decimal,
+        _currency: &Currency,
+        _action: &OrderAction,
+    ) -> Result<Order, Box<dyn Error>> {
+        unimplemented!()
+    }
+
+    fn create_target(
+        &mut self,
+        _target_price: Decimal,
+        _currency: &Currency,
+        _order: &Order,
+        _trade: &Trade,
+    ) -> Result<Target, Box<dyn Error>> {
+        unimplemented!()
+    }
+}
+
+impl Database for MemoryDatabase {
+    fn all_trades_in_market(&mut self, _account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>> {
+        unimplemented!()
+    }
+
+    fn update_trade_executed_at(&mut self, _trade: &Trade) -> Result<Trade, Box<dyn Error>> {
+        unimplemented!()
+    }
+    fn record_order_execution(&mut self, _order: &Order) -> Result<Order, Box<dyn Error>> {
+        unimplemented!()
     }
 
     fn new_account(&mut self, name: &str, description: &str) -> Result<Account, Box<dyn Error>> {
@@ -253,27 +278,6 @@ impl Database for MemoryDatabase {
         _amount: Decimal,
         _price: Decimal,
     ) -> Result<AccountOverview, Box<dyn Error>> {
-        unimplemented!()
-    }
-
-    fn create_order(
-        &mut self,
-        _trading_vehicle: &TradingVehicle,
-        _quantity: i64,
-        _price: Decimal,
-        _currency: &Currency,
-        _action: &OrderAction,
-    ) -> Result<Order, Box<dyn Error>> {
-        unimplemented!()
-    }
-
-    fn create_target(
-        &mut self,
-        _target_price: Decimal,
-        _currency: &Currency,
-        _order: &Order,
-        _trade: &Trade,
-    ) -> Result<Target, Box<dyn Error>> {
         unimplemented!()
     }
 

@@ -6,9 +6,9 @@ use diesel::prelude::*;
 use rust_decimal::Decimal;
 use std::error::Error;
 use trust_model::{
-    Account, AccountOverview, Currency, Database, Order, OrderAction, OrderCategory, Price, Rule,
-    RuleName, Target, Trade, TradeCategory, TradeOverview, TradingVehicle, TradingVehicleCategory,
-    Transaction, TransactionCategory,
+    Account, AccountOverview, Currency, Database, Order, OrderAction, OrderCategory, Price,
+    ReadAccountDB, Rule, RuleName, Target, Trade, TradeCategory, TradeOverview, TradingVehicle,
+    TradingVehicleCategory, Transaction, TransactionCategory, WriteOrderDB,
 };
 use uuid::Uuid;
 
@@ -53,19 +53,56 @@ impl SqliteDatabase {
     }
 }
 
-impl Database for SqliteDatabase {
-    fn new_account(&mut self, name: &str, description: &str) -> Result<Account, Box<dyn Error>> {
-        let account = WorkerAccount::create_account(&mut self.connection, name, description);
-        account
-    }
-
+impl ReadAccountDB for SqliteDatabase {
     fn read_account(&mut self, name: &str) -> Result<Account, Box<dyn Error>> {
-        let account = WorkerAccount::read_account(&mut self.connection, name);
-        account
+        return WorkerAccount::read_account(&mut self.connection, name);
     }
 
     fn read_account_id(&mut self, id: Uuid) -> Result<Account, Box<dyn Error>> {
         WorkerAccount::read(&mut self.connection, id)
+    }
+
+    fn read_all_accounts(&mut self) -> Result<Vec<Account>, Box<dyn Error>> {
+        let accounts = WorkerAccount::read_all_accounts(&mut self.connection);
+        accounts
+    }
+}
+
+impl WriteOrderDB for SqliteDatabase {
+    fn create_order(
+        &mut self,
+        trading_vehicle: &TradingVehicle,
+        quantity: i64,
+        price: Decimal,
+        currency: &Currency,
+        action: &OrderAction,
+    ) -> Result<Order, Box<dyn Error>> {
+        WorkerOrder::create(
+            &mut self.connection,
+            price,
+            currency,
+            quantity,
+            action,
+            &OrderCategory::Market, // All stops should be market to go out as fast as possible
+            trading_vehicle,
+        )
+    }
+
+    fn create_target(
+        &mut self,
+        price: Decimal,
+        currency: &Currency,
+        order: &Order,
+        trade: &Trade,
+    ) -> Result<Target, Box<dyn Error>> {
+        WorkerTarget::create(&mut self.connection, price, currency, order, trade)
+    }
+}
+
+impl Database for SqliteDatabase {
+    fn new_account(&mut self, name: &str, description: &str) -> Result<Account, Box<dyn Error>> {
+        let account = WorkerAccount::create_account(&mut self.connection, name, description);
+        account
     }
 
     fn read_account_overview(
@@ -136,11 +173,6 @@ impl Database for SqliteDatabase {
         )?;
 
         Ok(updated_total_in_trade)
-    }
-
-    fn read_all_accounts(&mut self) -> Result<Vec<Account>, Box<dyn Error>> {
-        let accounts = WorkerAccount::read_all_accounts(&mut self.connection);
-        accounts
     }
 
     fn new_price(
@@ -263,37 +295,8 @@ impl Database for SqliteDatabase {
         WorkerTradingVehicle::read(&mut self.connection, id)
     }
 
-    fn create_order(
-        &mut self,
-        trading_vehicle: &TradingVehicle,
-        quantity: i64,
-        price: Decimal,
-        currency: &Currency,
-        action: &OrderAction,
-    ) -> Result<Order, Box<dyn Error>> {
-        WorkerOrder::create(
-            &mut self.connection,
-            price,
-            currency,
-            quantity,
-            action,
-            &OrderCategory::Market, // All stops should be market to go out as fast as possible
-            trading_vehicle,
-        )
-    }
-
     fn record_order_execution(&mut self, order: &Order) -> Result<Order, Box<dyn Error>> {
         WorkerOrder::record_execution(&mut self.connection, order)
-    }
-
-    fn create_target(
-        &mut self,
-        price: Decimal,
-        currency: &Currency,
-        order: &Order,
-        trade: &Trade,
-    ) -> Result<Target, Box<dyn Error>> {
-        WorkerTarget::create(&mut self.connection, price, currency, order, trade)
     }
 
     fn create_trade(

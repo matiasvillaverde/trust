@@ -14,6 +14,31 @@ use uuid::Uuid;
 
 use std::error::Error;
 
+pub trait ReadAccountDB {
+    fn read_account(&mut self, name: &str) -> Result<Account, Box<dyn Error>>;
+    fn read_account_id(&mut self, id: Uuid) -> Result<Account, Box<dyn Error>>;
+    fn read_all_accounts(&mut self) -> Result<Vec<Account>, Box<dyn Error>>;
+}
+
+pub trait WriteOrderDB {
+    fn create_order(
+        &mut self,
+        trading_vehicle: &TradingVehicle,
+        quantity: i64,
+        price: Decimal,
+        currency: &Currency,
+        action: &OrderAction,
+    ) -> Result<Order, Box<dyn Error>>;
+
+    fn create_target(
+        &mut self,
+        price: Decimal,
+        currency: &Currency,
+        order: &Order,
+        trade: &Trade,
+    ) -> Result<Target, Box<dyn Error>>;
+}
+
 /// Database trait with all the methods that are needed to interact with the database.
 ///
 /// The trait is used to abstract the database implementation.
@@ -26,12 +51,9 @@ use std::error::Error;
 /// To prevent the database from being used incorrectly, the trait has the following rules:
 /// - Reads can be Uuid
 /// - Writes and updates must be Domain Models
-pub trait Database {
+pub trait Database: ReadAccountDB + WriteOrderDB {
     // Accounts
     fn new_account(&mut self, name: &str, description: &str) -> Result<Account, Box<dyn Error>>;
-    fn read_account(&mut self, name: &str) -> Result<Account, Box<dyn Error>>;
-    fn read_account_id(&mut self, id: Uuid) -> Result<Account, Box<dyn Error>>;
-    fn read_all_accounts(&mut self) -> Result<Vec<Account>, Box<dyn Error>>;
 
     // Account Overview
     fn new_account_overview(
@@ -135,22 +157,6 @@ pub trait Database {
     fn read_trading_vehicle(&mut self, id: Uuid) -> Result<TradingVehicle, Box<dyn Error>>;
 
     // Orders
-    fn create_order(
-        &mut self,
-        trading_vehicle: &TradingVehicle,
-        quantity: i64,
-        price: Decimal,
-        currency: &Currency,
-        action: &OrderAction,
-    ) -> Result<Order, Box<dyn Error>>;
-
-    fn create_target(
-        &mut self,
-        price: Decimal,
-        currency: &Currency,
-        order: &Order,
-        trade: &Trade,
-    ) -> Result<Target, Box<dyn Error>>;
 
     fn record_order_execution(&mut self, order: &Order) -> Result<Order, Box<dyn Error>>;
 
