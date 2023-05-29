@@ -26,10 +26,7 @@ impl TransactionWorker {
             TransactionCategory::Withdrawal => {
                 return Self::withdraw(database, amount, currency, account_id);
             }
-            TransactionCategory::Input(_)
-            | TransactionCategory::Output(_)
-            | TransactionCategory::InputTax(_)
-            | TransactionCategory::OutputTax => {
+            _default => {
                 unimplemented!("Withdrawal is not implemented yet");
             }
         }
@@ -135,7 +132,7 @@ impl TransactionWorker {
         let total_in_trade = overview.total_in_trade.amount + trade_total;
 
         match TransactionValidator::validate(
-            TransactionCategory::Output(trade.id),
+            TransactionCategory::FundTrade(trade.id),
             trade_total,
             &trade.currency,
             account.id,
@@ -155,7 +152,7 @@ impl TransactionWorker {
                     &account,
                     trade_total,
                     &trade.currency,
-                    TransactionCategory::Output(trade.id),
+                    TransactionCategory::FundTrade(trade.id),
                 )?;
 
                 Ok((transaction, updated_overview))
@@ -186,7 +183,7 @@ impl TransactionWorker {
             &account,
             total_trade,
             &trade.currency,
-            TransactionCategory::Input(trade.id),
+            TransactionCategory::PaymentFromTrade(trade.id),
         )?;
 
         Ok((transaction, updated_overview))

@@ -140,12 +140,12 @@ impl Database for MemoryDatabase {
             .into_iter()
             .filter(|t| t.account_id == account_id)
             .filter(|t| t.currency == *currency)
-            .filter(|t| t.category != TransactionCategory::OutputTax)
+            .filter(|t| t.category != TransactionCategory::WithdrawalTax)
             .collect();
 
         let transactions = transactions
             .into_iter()
-            .filter(|t| !matches!(t.category, TransactionCategory::InputTax(_)))
+            .filter(|t| !matches!(t.category, TransactionCategory::PaymentTax(_)))
             .collect();
 
         Ok(transactions)

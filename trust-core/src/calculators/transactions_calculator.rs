@@ -18,10 +18,10 @@ impl TransactionsCalculator {
         let total_available: Decimal = transactions
             .iter()
             .map(|transaction| match transaction.category {
-                TransactionCategory::Output(_) | TransactionCategory::Withdrawal => {
+                TransactionCategory::FundTrade(_) | TransactionCategory::Withdrawal => {
                     -transaction.price.amount
                 }
-                TransactionCategory::Input(_) | TransactionCategory::Deposit => {
+                TransactionCategory::PaymentFromTrade(_) | TransactionCategory::Deposit => {
                     transaction.price.amount
                 }
                 default => panic!("Unexpected transaction category: {}", default),
@@ -60,10 +60,10 @@ impl TransactionsCalculator {
             database.all_transaction_excluding_current_month_and_taxes(account_id, currency)?
         {
             match transaction.category {
-                TransactionCategory::Output(_) => {
+                TransactionCategory::FundTrade(_) => {
                     total_beginning_of_month -= transaction.price.amount
                 }
-                TransactionCategory::Input(_) => {
+                TransactionCategory::PaymentFromTrade(_) => {
                     total_beginning_of_month += transaction.price.amount
                 }
                 TransactionCategory::Deposit => {
@@ -177,7 +177,7 @@ mod tests {
             account,
             amount,
             &Currency::USD,
-            TransactionCategory::Output(Uuid::new_v4()),
+            TransactionCategory::FundTrade(Uuid::new_v4()),
         )
         .unwrap()
     }
@@ -187,7 +187,7 @@ mod tests {
             account,
             amount,
             &Currency::USD,
-            TransactionCategory::Input(Uuid::new_v4()),
+            TransactionCategory::PaymentFromTrade(Uuid::new_v4()),
         )
         .unwrap()
     }
@@ -197,7 +197,7 @@ mod tests {
             account,
             amount,
             &Currency::USD,
-            TransactionCategory::InputTax(Uuid::new_v4()),
+            TransactionCategory::PaymentTax(Uuid::new_v4()),
         )
         .unwrap()
     }
@@ -207,7 +207,7 @@ mod tests {
             account,
             amount,
             &Currency::USD,
-            TransactionCategory::OutputTax,
+            TransactionCategory::WithdrawalTax,
         )
         .unwrap()
     }

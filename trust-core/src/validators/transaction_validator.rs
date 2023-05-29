@@ -20,12 +20,10 @@ impl TransactionValidator {
             TransactionCategory::Withdrawal => {
                 validate_withdraw(amount, currency, account_id, database)
             }
-            TransactionCategory::Output(trade_id) => {
+            TransactionCategory::FundTrade(trade_id) => {
                 validate_trade(amount, currency, account_id, trade_id, database)
             }
-            TransactionCategory::Input(_)
-            | TransactionCategory::InputTax(_)
-            | TransactionCategory::OutputTax => Err(Box::new(TransactionValidationError {
+            _default => Err(Box::new(TransactionValidationError {
                 code: TransactionValidationErrorCode::NotAuthorized,
                 message: "Manually creating transaction is not allowed".to_string(),
             })),

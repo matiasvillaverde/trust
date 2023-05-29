@@ -67,13 +67,13 @@ impl WorkerTransaction {
             connection,
             account_id,
             currency,
-            TransactionCategory::Output(Uuid::new_v4()),
+            TransactionCategory::FundTrade(Uuid::new_v4()),
         )?;
         let tx_input = WorkerTransaction::read_all_trade_transactions(
             connection,
             account_id,
             currency,
-            TransactionCategory::Input(Uuid::new_v4()),
+            TransactionCategory::PaymentFromTrade(Uuid::new_v4()),
         )?;
         Ok(tx_deposit
             .into_iter()
@@ -129,13 +129,13 @@ impl WorkerTransaction {
             connection,
             account_id,
             currency,
-            TransactionCategory::Output(Uuid::new_v4()),
+            TransactionCategory::FundTrade(Uuid::new_v4()),
         )?;
         let tx_inputs = WorkerTransaction::read_all_transaction_beginning_of_the_month(
             connection,
             account_id,
             currency,
-            TransactionCategory::Input(Uuid::new_v4()),
+            TransactionCategory::PaymentFromTrade(Uuid::new_v4()),
         )?;
 
         Ok(tx_deposits
@@ -291,14 +291,14 @@ mod tests {
             account.id,
             dec!(10.99),
             &Currency::BTC,
-            TransactionCategory::Output(trade_id),
+            TransactionCategory::FundTrade(trade_id),
         )
         .expect("Error creating transaction");
 
         assert_eq!(tx.account_id, account.id);
         assert_eq!(tx.price.amount, dec!(10.99));
         assert_eq!(tx.price.currency, Currency::BTC);
-        assert_eq!(tx.category, TransactionCategory::Output(trade_id));
+        assert_eq!(tx.category, TransactionCategory::FundTrade(trade_id));
         assert_eq!(tx.deleted_at, None);
     }
 }
