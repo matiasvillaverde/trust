@@ -116,7 +116,7 @@ impl TransactionWorker {
     pub fn transfer_to_fund_trade(
         trade: &Trade,
         database: &mut dyn Database,
-    ) -> Result<(Transaction, AccountOverview), Box<dyn Error>> {
+    ) -> Result<(Transaction, AccountOverview, TradeOverview), Box<dyn Error>> {
         let account = database.read_account_id(trade.account_id)?;
         let overview = database.read_account_overview_currency(account.id, &trade.currency)?;
         let trade_total = trade.entry.unit_price.amount * Decimal::from(trade.entry.quantity);
@@ -138,14 +138,16 @@ impl TransactionWorker {
                     TransactionCategory::FundTrade(trade.id),
                 )?;
 
-                let updated_overview = OverviewWorker::recalculate_account_overview(
+                let account_overview = OverviewWorker::recalculate_account_overview(
                     database,
                     &account,
                     &trade.currency,
                 )?;
-                _ = database.update_trade_overview(trade, trade_total);
 
-                Ok((transaction, updated_overview))
+                let trade_overview: TradeOverview =
+                    OverviewWorker::recalculate_trade_overview(database, trade)?;
+
+                Ok((transaction, account_overview, trade_overview))
             }
             Err(error) => Err(error),
         }
@@ -168,9 +170,10 @@ impl TransactionWorker {
         )?;
 
         // Update trade overview
-        let overview = database.update_trade_overview_in(trade, total)?;
+        let trade_overview: TradeOverview =
+            OverviewWorker::recalculate_trade_overview(database, trade)?;
 
-        return Ok((transaction, overview));
+        return Ok((transaction, trade_overview));
     }
 
     pub fn transfer_to_close_target(
@@ -183,9 +186,6 @@ impl TransactionWorker {
 
         let total = trade.exit_targets.first().unwrap().order.unit_price.amount
             * Decimal::from(trade.entry.quantity);
-        let total_taxable = Decimal::from(0); // TODO: Calculate taxes
-        let total_performance =
-            total - (trade.entry.unit_price.amount * Decimal::from(trade.entry.quantity));
 
         let transaction = database.new_transaction(
             &account,
@@ -195,10 +195,10 @@ impl TransactionWorker {
         )?;
 
         // Update trade overview
-        let overview =
-            database.update_trade_overview_out(trade, total, total_taxable, total_performance)?;
+        let trade_overview: TradeOverview =
+            OverviewWorker::recalculate_trade_overview(database, trade)?;
 
-        return Ok((transaction, overview));
+        return Ok((transaction, trade_overview));
     }
 
     pub fn transfer_to_close_stop(
@@ -210,9 +210,6 @@ impl TransactionWorker {
         let account = database.read_account_id(trade.account_id)?;
 
         let total = trade.safety_stop.unit_price.amount * Decimal::from(trade.entry.quantity);
-        let total_taxable = Decimal::from(0); // We don't pay taxes when we close a trade in a stop
-        let total_performance =
-            total - (trade.entry.unit_price.amount * Decimal::from(trade.entry.quantity));
 
         let transaction = database.new_transaction(
             &account,
@@ -222,20 +219,20 @@ impl TransactionWorker {
         )?;
 
         // Update trade overview
-        let overview =
-            database.update_trade_overview_out(trade, total, total_taxable, total_performance)?;
+        let trade_overview: TradeOverview =
+            OverviewWorker::recalculate_trade_overview(database, trade)?;
 
-        return Ok((transaction, overview));
+        return Ok((transaction, trade_overview));
     }
 
     pub fn transfer_payment_from(
         trade: &Trade,
         database: &mut dyn Database,
-    ) -> Result<(Transaction, AccountOverview), Box<dyn Error>> {
+    ) -> Result<(Transaction, AccountOverview, TradeOverview), Box<dyn Error>> {
         // Create transaction
         let account = database.read_account_id(trade.account_id)?;
         let total_to_withdrawal =
-            TransactionsCalculator::calculate_total_out_of_market_from(trade, database)?;
+            TransactionsCalculator::total_out_of_market_for_trade(trade, database)?;
 
         let transaction = database.new_transaction(
             &account,
@@ -246,8 +243,10 @@ impl TransactionWorker {
 
         // Update account overview and trade overview.
         let account_overview: AccountOverview =
-            OverviewWorker::recalculate_account_overview(database, &account, &trade.currency)?; // TODO: update Trade Overview
+            OverviewWorker::recalculate_account_overview(database, &account, &trade.currency)?;
+        let trade_overview: TradeOverview =
+            OverviewWorker::recalculate_trade_overview(database, trade)?;
 
-        Ok((transaction, account_overview))
+        Ok((transaction, account_overview, trade_overview))
     }
 }

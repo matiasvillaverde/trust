@@ -6,7 +6,7 @@ use uuid::Uuid;
 pub struct TransactionsCalculator;
 
 impl TransactionsCalculator {
-    pub fn calculate_total_capital_available(
+    pub fn capital_available(
         account_id: Uuid,
         currency: &Currency,
         database: &mut dyn Database,
@@ -32,7 +32,41 @@ impl TransactionsCalculator {
         Ok(total_available)
     }
 
-    pub fn calculate_total_capital_in_trade(
+    pub fn total_balance(
+        account_id: Uuid,
+        currency: &Currency,
+        database: &mut dyn Database,
+    ) -> Result<Decimal, Box<dyn std::error::Error>> {
+        let mut total_balance = dec!(0.0);
+        // Get all transactions
+        for tx in database.all_transactions(account_id, currency)? {
+            match tx.category {
+                TransactionCategory::Withdrawal
+                | TransactionCategory::WithdrawalTax
+                | TransactionCategory::WithdrawalEarnings => {
+                    total_balance -= tx.price.amount;
+                }
+                TransactionCategory::Deposit => {
+                    total_balance += tx.price.amount;
+                }
+                TransactionCategory::OpenTrade(_) => {
+                    total_balance -= tx.price.amount; // The money is in the market it counts at negative.
+                }
+                TransactionCategory::CloseSafetyStop(_)
+                | TransactionCategory::CloseTarget(_)
+                | TransactionCategory::CloseSafetyStopSlippage(_) => {
+                    total_balance += tx.price.amount; // We add the money that we get by exit the market.
+                }
+                default => {
+                    // We don't want to count the transactions for taxes, earnings and funding trades.
+                }
+            }
+        }
+
+        Ok(total_balance)
+    }
+
+    pub fn capital_in_trades(
         account_id: Uuid,
         currency: &Currency,
         database: &mut dyn Database,
@@ -54,7 +88,7 @@ impl TransactionsCalculator {
         Ok(total_available)
     }
 
-    pub fn calculate_total_taxable(
+    pub fn capital_taxable(
         account_id: Uuid,
         currency: &Currency,
         database: &mut dyn Database,
@@ -75,7 +109,7 @@ impl TransactionsCalculator {
         Ok(total_available)
     }
 
-    pub fn total_capital_in_trades_not_at_risk(
+    pub fn capital_in_trades_not_at_risk(
         account_id: Uuid,
         currency: &Currency,
         database: &mut dyn Database,
@@ -93,7 +127,7 @@ impl TransactionsCalculator {
         Ok(total_capital_not_at_risk)
     }
 
-    pub fn calculate_total_capital_at_beginning_of_month(
+    pub fn capital_at_beginning_of_month(
         account_id: Uuid,
         currency: &Currency,
         database: &mut dyn Database,
@@ -124,7 +158,7 @@ impl TransactionsCalculator {
 
     // Trade transactions
 
-    pub fn calculate_total_out_of_market_from(
+    pub fn total_out_of_market_for_trade(
         trade: &Trade,
         database: &mut dyn Database,
     ) -> Result<Decimal, Box<dyn std::error::Error>> {
@@ -163,7 +197,7 @@ impl TransactionsCalculator {
         Ok(total_trade)
     }
 
-    pub fn calculate_total_in_market_from(
+    pub fn total_in_market_for_trade(
         trade: &Trade,
         database: &mut dyn Database,
     ) -> Result<Decimal, Box<dyn std::error::Error>> {

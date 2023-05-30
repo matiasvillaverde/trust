@@ -16,9 +16,8 @@ impl QuantityCalculator {
         currency: &Currency,
         database: &mut dyn Database,
     ) -> Result<i64, Box<dyn std::error::Error>> {
-        let total_available = TransactionsCalculator::calculate_total_capital_available(
-            account_id, currency, database,
-        )?;
+        let total_available =
+            TransactionsCalculator::capital_available(account_id, currency, database)?;
 
         // Get rules by priority
         let mut rules = database.read_all_rules(account_id)?;

@@ -16,21 +16,16 @@ impl RiskCalculator {
         database: &mut dyn Database,
     ) -> Result<Decimal, Box<dyn std::error::Error>> {
         // Calculate the total available this month.
-        let total_available = TransactionsCalculator::calculate_total_capital_available(
-            account_id, currency, database,
-        )?;
+        let total_available =
+            TransactionsCalculator::capital_available(account_id, currency, database)?;
 
         // Calculate the capital of the open trades that is not at risk.
         let total_capital_not_at_risk =
-            TransactionsCalculator::total_capital_in_trades_not_at_risk(
-                account_id, currency, database,
-            )?;
+            TransactionsCalculator::capital_in_trades_not_at_risk(account_id, currency, database)?;
 
         // Calculate the total capital at the beginning of the month.
         let total_beginning_of_month =
-            TransactionsCalculator::calculate_total_capital_at_beginning_of_month(
-                account_id, currency, database,
-            )?;
+            TransactionsCalculator::capital_at_beginning_of_month(account_id, currency, database)?;
 
         let available_to_risk = RiskCalculator::calculate_capital_allowed_to_risk(
             total_beginning_of_month,

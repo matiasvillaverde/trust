@@ -234,35 +234,17 @@ impl WorkerTrade {
         Ok(overview)
     }
 
-    pub fn update_trade_input(
+    pub fn update_trade_overview(
         connection: &mut SqliteConnection,
         trade: &Trade,
         total_input: Decimal,
-    ) -> Result<TradeOverview, Box<dyn Error>> {
-        WorkerPrice::update(connection, trade.overview.total_input, total_input)?;
-        WorkerPrice::update(connection, trade.overview.total_out_market, total_input)?;
-        let overview = WorkerTrade::read_overview(connection, trade.overview.id)?;
-        Ok(overview)
-    }
-
-    pub fn update_trade_overview_in(
-        connection: &mut SqliteConnection,
-        trade: &Trade,
         total_in_market: Decimal,
-    ) -> Result<TradeOverview, Box<dyn Error>> {
-        WorkerPrice::update(connection, trade.overview.total_in_market, total_in_market)?;
-        WorkerPrice::update(connection, trade.overview.total_out_market, dec!(0.0))?;
-        let overview = WorkerTrade::read_overview(connection, trade.overview.id)?;
-        Ok(overview)
-    }
-
-    pub fn update_trade_overview_out(
-        connection: &mut SqliteConnection,
-        trade: &Trade,
         total_out_market: Decimal,
         total_taxable: Decimal,
         total_performance: Decimal,
     ) -> Result<TradeOverview, Box<dyn Error>> {
+        WorkerPrice::update(connection, trade.overview.total_input, total_input)?;
+        WorkerPrice::update(connection, trade.overview.total_in_market, total_in_market)?;
         WorkerPrice::update(
             connection,
             trade.overview.total_out_market,

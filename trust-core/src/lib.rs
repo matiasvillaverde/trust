@@ -209,9 +209,9 @@ impl Trust {
     > {
         let (trade, tx_stop) =
             TradeWorker::update_trade_stop_executed(trade, self.database.as_mut())?;
-        let (tx_payment, account_overview) =
+        let (tx_payment, account_overview, trade_overview) =
             TransactionWorker::transfer_payment_from(&trade, self.database.as_mut())?;
-        Ok((tx_stop, tx_payment, trade.overview, account_overview))
+        Ok((tx_stop, tx_payment, trade_overview, account_overview))
     }
 
     pub fn record_target(
@@ -223,15 +223,16 @@ impl Trust {
     > {
         let (trade, tx_target) =
             TradeWorker::update_trade_target_executed(trade, self.database.as_mut())?;
-        let (tx_payment, account_overview) =
+        let (tx_payment, account_overview, trade_overview) =
             TransactionWorker::transfer_payment_from(&trade, self.database.as_mut())?;
-        Ok((tx_target, tx_payment, trade.overview, account_overview))
+        Ok((tx_target, tx_payment, trade_overview, account_overview))
     }
 
     pub fn approve(
         &mut self,
         trade: &Trade,
-    ) -> Result<(Trade, Transaction, AccountOverview), Box<dyn std::error::Error>> {
+    ) -> Result<(Trade, Transaction, AccountOverview, TradeOverview), Box<dyn std::error::Error>>
+    {
         // 1. Validate Trade by running rules
         RuleValidator::validate_trade(trade, &mut *self.database)?;
 
@@ -239,9 +240,9 @@ impl Trust {
         self.database.approve_trade(trade)?;
 
         // 3. Create transaction to fund the trade
-        let (transaction, account_overview) =
+        let (transaction, account_overview, trade_overview) =
             TransactionWorker::transfer_to_fund_trade(trade, &mut *self.database)?;
-        Ok((trade.clone(), transaction, account_overview))
+        Ok((trade.clone(), transaction, account_overview, trade_overview))
     }
 }
 
