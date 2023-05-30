@@ -1,11 +1,12 @@
 use crate::dialogs::AccountSearchDialog;
-use crate::views::{AccountOverviewView, TradeView, TransactionView};
+use crate::views::{AccountOverviewView, TradeOverviewView, TradeView, TransactionView};
 use dialoguer::{theme::ColorfulTheme, FuzzySelect};
 use std::error::Error;
 use trust_core::Trust;
-use trust_model::{Account, AccountOverview, Trade, Transaction};
+use trust_model::{Account, AccountOverview, Trade, TradeOverview, Transaction};
 
-type ExitDialogBuilderResult = Option<Result<(Transaction, AccountOverview), Box<dyn Error>>>;
+type ExitDialogBuilderResult =
+    Option<Result<(Transaction, Transaction, TradeOverview, AccountOverview), Box<dyn Error>>>;
 
 pub struct ExitDialogBuilder {
     account: Option<Account>,
@@ -39,17 +40,23 @@ impl ExitDialogBuilder {
             .result
             .expect("No result found, did you forget to call search?")
         {
-            Ok((tx, overview)) => {
+            Ok((tx_exit, tx_payment, trade_overview, account_overview)) => {
                 let account_name = self.account.clone().unwrap().name;
 
                 println!("Trade exit executed:");
                 TradeView::display_trade(&self.trade.unwrap(), account_name.as_str());
 
-                println!("With transaction:");
-                TransactionView::display(&tx, account_name.as_str());
+                println!("With transaction of exit:");
+                TransactionView::display(&tx_exit, account_name.as_str());
+
+                println!("With transaction of payment back to the account:");
+                TransactionView::display(&tx_payment, account_name.as_str());
+
+                println!("Trade overview:");
+                TradeOverviewView::display(trade_overview);
 
                 println!("Account overview:");
-                AccountOverviewView::display(overview, account_name.as_str());
+                AccountOverviewView::display(account_overview, account_name.as_str());
             }
             Err(error) => println!("Error approving trade: {:?}", error),
         }

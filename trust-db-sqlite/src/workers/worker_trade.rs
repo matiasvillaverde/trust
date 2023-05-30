@@ -41,7 +41,7 @@ impl WorkerTrade {
             account_id: account.id.to_string(),
             approved_at: None,
             rejected_at: None,
-            executed_at: None,
+            opened_at: None,
             failed_at: None,
             closed_at: None,
             rejected_by_rule_id: None,
@@ -93,7 +93,33 @@ impl WorkerTrade {
             .filter(trades::account_id.eq(account_id.to_string()))
             .filter(trades::approved_at.is_null())
             .filter(trades::rejected_at.is_null())
-            .filter(trades::executed_at.is_null())
+            .filter(trades::opened_at.is_null())
+            .filter(trades::failed_at.is_null())
+            .filter(trades::closed_at.is_null())
+            .load::<TradeSQLite>(connection)
+            .map(|trades: Vec<TradeSQLite>| {
+                trades
+                    .into_iter()
+                    .map(|trade| trade.domain_model(connection))
+                    .collect()
+            })
+            .map_err(|error| {
+                error!("Error reading trades: {:?}", error);
+                error
+            })?;
+        Ok(trades)
+    }
+
+    pub fn read_all_approved_trades(
+        connection: &mut SqliteConnection,
+        account_id: Uuid,
+    ) -> Result<Vec<Trade>, Box<dyn Error>> {
+        let trades: Vec<Trade> = trades::table
+            .filter(trades::deleted_at.is_null())
+            .filter(trades::account_id.eq(account_id.to_string()))
+            .filter(trades::approved_at.is_not_null())
+            .filter(trades::rejected_at.is_null())
+            .filter(trades::opened_at.is_null())
             .filter(trades::failed_at.is_null())
             .filter(trades::closed_at.is_null())
             .load::<TradeSQLite>(connection)
@@ -119,7 +145,7 @@ impl WorkerTrade {
             .filter(trades::account_id.eq(account_id.to_string()))
             .filter(trades::approved_at.is_not_null())
             .filter(trades::rejected_at.is_null())
-            .filter(trades::executed_at.is_null())
+            .filter(trades::opened_at.is_not_null())
             .filter(trades::failed_at.is_null())
             .filter(trades::closed_at.is_null())
             .load::<TradeSQLite>(connection)
@@ -136,33 +162,7 @@ impl WorkerTrade {
         Ok(trades)
     }
 
-    pub fn read_all_trades_in_market(
-        connection: &mut SqliteConnection,
-        account_id: Uuid,
-    ) -> Result<Vec<Trade>, Box<dyn Error>> {
-        let trades: Vec<Trade> = trades::table
-            .filter(trades::deleted_at.is_null())
-            .filter(trades::account_id.eq(account_id.to_string()))
-            .filter(trades::approved_at.is_not_null())
-            .filter(trades::rejected_at.is_null())
-            .filter(trades::executed_at.is_not_null())
-            .filter(trades::failed_at.is_null())
-            .filter(trades::closed_at.is_null())
-            .load::<TradeSQLite>(connection)
-            .map(|trades: Vec<TradeSQLite>| {
-                trades
-                    .into_iter()
-                    .map(|trade| trade.domain_model(connection))
-                    .collect()
-            })
-            .map_err(|error| {
-                error!("Error reading trades: {:?}", error);
-                error
-            })?;
-        Ok(trades)
-    }
-
-    pub fn read_all_open_trades_for_currency(
+    pub fn read_all_approved_trades_for_currency(
         connection: &mut SqliteConnection,
         account_id: Uuid,
         currency: &Currency,
@@ -172,7 +172,7 @@ impl WorkerTrade {
             .filter(trades::account_id.eq(account_id.to_string()))
             .filter(trades::approved_at.is_not_null())
             .filter(trades::rejected_at.is_null())
-            .filter(trades::executed_at.is_null())
+            .filter(trades::opened_at.is_null())
             .filter(trades::failed_at.is_null())
             .filter(trades::closed_at.is_null())
             .filter(trades::currency.eq(currency.to_string()))
@@ -295,14 +295,31 @@ impl WorkerTrade {
         Ok(trade)
     }
 
-    pub fn update_executed_at(
+    pub fn update_opened_at(
         connection: &mut SqliteConnection,
         trade: &Trade,
     ) -> Result<Trade, Box<dyn Error>> {
         let now = Utc::now().naive_utc();
         let trade = diesel::update(trades::table)
             .filter(trades::id.eq(trade.id.to_string()))
-            .set((trades::updated_at.eq(now), trades::executed_at.eq(now)))
+            .set((trades::updated_at.eq(now), trades::opened_at.eq(now)))
+            .get_result::<TradeSQLite>(connection)
+            .map(|trade| trade.domain_model(connection))
+            .map_err(|error| {
+                error!("Error executing trade: {:?}", error);
+                error
+            })?;
+        Ok(trade)
+    }
+
+    pub fn update_closed_at(
+        connection: &mut SqliteConnection,
+        trade: &Trade,
+    ) -> Result<Trade, Box<dyn Error>> {
+        let now = Utc::now().naive_utc();
+        let trade = diesel::update(trades::table)
+            .filter(trades::id.eq(trade.id.to_string()))
+            .set((trades::updated_at.eq(now), trades::closed_at.eq(now)))
             .get_result::<TradeSQLite>(connection)
             .map(|trade| trade.domain_model(connection))
             .map_err(|error| {
@@ -330,7 +347,7 @@ struct TradeSQLite {
     account_id: String,
     approved_at: Option<NaiveDateTime>,
     rejected_at: Option<NaiveDateTime>,
-    executed_at: Option<NaiveDateTime>,
+    opened_at: Option<NaiveDateTime>,
     failed_at: Option<NaiveDateTime>,
     closed_at: Option<NaiveDateTime>,
     rejected_by_rule_id: Option<String>,
@@ -369,7 +386,7 @@ impl TradeSQLite {
             account_id: Uuid::parse_str(&self.account_id).unwrap(),
             approved_at: self.approved_at,
             rejected_at: self.rejected_at,
-            executed_at: self.executed_at,
+            opened_at: self.opened_at,
             failed_at: self.failed_at,
             closed_at: self.closed_at,
             rejected_by_rule_id: self
@@ -396,7 +413,7 @@ struct NewTrade {
     account_id: String,
     approved_at: Option<NaiveDateTime>,
     rejected_at: Option<NaiveDateTime>,
-    executed_at: Option<NaiveDateTime>,
+    opened_at: Option<NaiveDateTime>,
     failed_at: Option<NaiveDateTime>,
     closed_at: Option<NaiveDateTime>,
     rejected_by_rule_id: Option<String>,

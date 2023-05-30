@@ -89,7 +89,7 @@ diesel::table! {
         trading_vehicle_id -> Text,
         action -> Text,
         category -> Text,
-        filled_at -> Nullable<Timestamp>,
+        opened_at -> Nullable<Timestamp>,
         closed_at -> Nullable<Timestamp>,
     }
 }
@@ -120,7 +120,7 @@ diesel::table! {
         account_id -> Text,
         approved_at -> Nullable<Timestamp>,
         rejected_at -> Nullable<Timestamp>,
-        executed_at -> Nullable<Timestamp>,
+        opened_at -> Nullable<Timestamp>,
         failed_at -> Nullable<Timestamp>,
         closed_at -> Nullable<Timestamp>,
         rejected_by_rule_id -> Nullable<Text>,

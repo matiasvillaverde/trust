@@ -33,7 +33,7 @@ pub struct Order {
 
     // Lifecycle fields
     /// When the order was filled in an exchange
-    pub filled_at: Option<NaiveDateTime>,
+    pub opened_at: Option<NaiveDateTime>,
 
     /// When the order was closed in an exchange
     pub closed_at: Option<NaiveDateTime>,

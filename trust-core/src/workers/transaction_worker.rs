@@ -10,6 +10,8 @@ use crate::{
     validators::{TransactionValidationErrorCode, TransactionValidator},
 };
 
+use rust_decimal_macros::dec;
+
 pub struct TransactionWorker;
 
 impl TransactionWorker {
@@ -243,32 +245,39 @@ impl TransactionWorker {
         trade: &Trade,
         database: &mut dyn Database,
     ) -> Result<(Transaction, AccountOverview), Box<dyn Error>> {
+        // Create transaction
         let account = database.read_account_id(trade.account_id)?;
-        let overview = database.read_account_overview_currency(account.id, &trade.currency)?;
-
         let total_to_withdrawal =
             TransactionsCalculator::calculate_total_out_of_market_from(trade, database)?;
-        let total_available_in_account = TransactionsCalculator::calculate_total_capital_available(
-            trade.account_id,
-            &trade.currency,
-            database,
-        )?;
-
-        let new_total_available = total_available_in_account + total_to_withdrawal;
-        let total_in_trade = overview.total_in_trade.amount - total_to_withdrawal; // TODO: use transactions to calculate total in trade
-
-        let updated_overview = database.update_account_overview_trade(
-            &account,
-            &trade.currency,
-            new_total_available,
-            total_in_trade,
-        )?;
 
         let transaction = database.new_transaction(
             &account,
             total_to_withdrawal,
             &trade.currency,
             TransactionCategory::PaymentFromTrade(trade.id),
+        )?;
+
+        // Update account overview and trade overview.
+        let overview = database.read_account_overview_currency(account.id, &trade.currency)?;
+
+        let total_available_in_account = TransactionsCalculator::calculate_total_capital_available(
+            trade.account_id,
+            &trade.currency,
+            database,
+        )?;
+
+        let new_total_balance = overview.total_balance.amount + total_to_withdrawal; // TODO: use transactions to calculate total balance
+        let new_total_available = total_available_in_account + total_to_withdrawal;
+        let total_in_trade = overview.total_in_trade.amount - total_to_withdrawal; // TODO: use transactions to calculate total in trade
+        let new_total_taxable = dec!(0); // TODO: Calculate taxes
+
+        let updated_overview = database.update_account_overview_trade_out(
+            &account,
+            &trade.currency,
+            new_total_balance,
+            total_in_trade,
+            new_total_available,
+            new_total_taxable,
         )?;
 
         Ok((transaction, updated_overview))

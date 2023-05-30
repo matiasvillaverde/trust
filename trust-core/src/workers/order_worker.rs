@@ -63,7 +63,7 @@ impl OrderWorker {
         trade: &Trade,
         database: &mut dyn Database,
     ) -> Result<Trade, Box<dyn std::error::Error>> {
-        database.record_order_execution(&trade.entry)?;
+        database.record_order_opening(&trade.entry)?;
         database.read_trade(trade.id)
     }
 
@@ -71,7 +71,7 @@ impl OrderWorker {
         trade: &Trade,
         database: &mut dyn Database,
     ) -> Result<Trade, Box<dyn std::error::Error>> {
-        database.record_order_execution(&trade.safety_stop)?;
+        database.record_order_closing(&trade.safety_stop)?;
         database.read_trade(trade.id)
     }
 
@@ -79,7 +79,7 @@ impl OrderWorker {
         trade: &Trade,
         database: &mut dyn Database,
     ) -> Result<Trade, Box<dyn std::error::Error>> {
-        database.record_order_execution(&trade.exit_targets.first().unwrap().order)?;
+        database.record_order_closing(&trade.exit_targets.first().unwrap().order)?;
         database.read_trade(trade.id)
     }
 

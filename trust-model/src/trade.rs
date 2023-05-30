@@ -51,7 +51,7 @@ pub struct Trade {
     pub rejected_at: Option<NaiveDateTime>,
 
     /// When the trade started to be executed by the broker
-    pub executed_at: Option<NaiveDateTime>,
+    pub opened_at: Option<NaiveDateTime>,
 
     /// When the trade failed to be executed by the broker
     pub failed_at: Option<NaiveDateTime>,

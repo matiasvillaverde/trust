@@ -36,7 +36,7 @@ impl WorkerOrder {
             trading_vehicle_id: trading_vehicle.id.to_string(),
             action: action.to_string(),
             category: category.to_string(),
-            filled_at: None,
+            opened_at: None,
             closed_at: None,
         };
 
@@ -63,14 +63,27 @@ impl WorkerOrder {
         Ok(order)
     }
 
-    pub fn record_execution(
+    pub fn update_opened_at(
         connection: &mut SqliteConnection,
         order: &Order,
     ) -> Result<Order, Box<dyn Error>> {
         let now = Utc::now().naive_utc();
         diesel::update(orders::table)
             .filter(orders::id.eq(&order.id.to_string()))
-            .set(orders::filled_at.eq(now))
+            .set(orders::opened_at.eq(now))
+            .execute(connection)?;
+
+        return WorkerOrder::read(connection, order.id);
+    }
+
+    pub fn update_closed_at(
+        connection: &mut SqliteConnection,
+        order: &Order,
+    ) -> Result<Order, Box<dyn Error>> {
+        let now = Utc::now().naive_utc();
+        diesel::update(orders::table)
+            .filter(orders::id.eq(&order.id.to_string()))
+            .set(orders::closed_at.eq(now))
             .execute(connection)?;
 
         return WorkerOrder::read(connection, order.id);
@@ -89,7 +102,7 @@ struct OrderSQLite {
     trading_vehicle_id: String,
     action: String,
     category: String,
-    filled_at: Option<NaiveDateTime>,
+    opened_at: Option<NaiveDateTime>,
     closed_at: Option<NaiveDateTime>,
 }
 
@@ -106,7 +119,7 @@ impl OrderSQLite {
             action: OrderAction::from_str(&self.action).unwrap(),
             category: OrderCategory::from_str(&self.category).unwrap(),
             trading_vehicle_id: Uuid::parse_str(&self.trading_vehicle_id).unwrap(),
-            filled_at: self.filled_at,
+            opened_at: self.opened_at,
             closed_at: self.closed_at,
         }
     }
@@ -125,7 +138,7 @@ struct NewOrder {
     trading_vehicle_id: String,
     action: String,
     category: String,
-    filled_at: Option<NaiveDateTime>,
+    opened_at: Option<NaiveDateTime>,
     closed_at: Option<NaiveDateTime>,
 }
 
@@ -180,7 +193,7 @@ mod tests {
         assert_eq!(order.action, OrderAction::Buy);
         assert_eq!(order.category, OrderCategory::Limit);
         assert_eq!(order.trading_vehicle_id, trading_vehicle.id);
-        assert_eq!(order.filled_at, None);
+        assert_eq!(order.opened_at, None);
         assert_eq!(order.closed_at, None);
         assert_eq!(order.created_at, order.updated_at);
         assert_eq!(order.deleted_at, None);

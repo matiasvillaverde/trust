@@ -200,6 +200,28 @@ impl TransactionCategory {
                 }
             }
             "withdrawal_tax" => Ok(TransactionCategory::WithdrawalTax),
+            "open_trade" => {
+                if let Some(trade_id) = trade_id {
+                    Ok(TransactionCategory::OpenTrade(trade_id))
+                } else {
+                    Err(TransactionCategoryParseError)
+                }
+            }
+            "close_target" => {
+                if let Some(trade_id) = trade_id {
+                    Ok(TransactionCategory::CloseTarget(trade_id))
+                } else {
+                    Err(TransactionCategoryParseError)
+                }
+            }
+
+            "close_safety_stop" => {
+                if let Some(trade_id) = trade_id {
+                    Ok(TransactionCategory::CloseSafetyStop(trade_id))
+                } else {
+                    Err(TransactionCategoryParseError)
+                }
+            }
             _ => Err(TransactionCategoryParseError),
         }
     }
@@ -210,23 +232,45 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_transaction_category_from_string() {
+    fn test_transaction_category_from_string_deposit() {
         let result = TransactionCategory::parse("deposit", None)
             .expect("Failed to parse TransactionCategory from string");
         assert_eq!(result, TransactionCategory::Deposit);
+    }
+
+    #[test]
+    fn test_transaction_category_from_string_withdrawal() {
         let result = TransactionCategory::parse("withdrawal", None)
             .expect("Failed to parse TransactionCategory from string");
         assert_eq!(result, TransactionCategory::Withdrawal);
+    }
+
+    #[test]
+    fn test_transaction_category_from_string_withdrawal_tax() {
         let result = TransactionCategory::parse("withdrawal_tax", None)
             .expect("Failed to parse TransactionCategory from string");
         assert_eq!(result, TransactionCategory::WithdrawalTax);
+    }
+
+    #[test]
+    fn test_transaction_category_from_string_payment_from_trade() {
         let id = Uuid::new_v4();
         let result = TransactionCategory::parse("payment_from_trade", Some(id))
             .expect("Failed to parse TransactionCategory from string");
         assert_eq!(result, TransactionCategory::PaymentFromTrade(id));
+    }
+
+    #[test]
+    fn test_transaction_category_from_string_fund_trade() {
+        let id = Uuid::new_v4();
         let result = TransactionCategory::parse("fund_trade", Some(id))
             .expect("Failed to parse TransactionCategory from string");
         assert_eq!(result, TransactionCategory::FundTrade(id));
+    }
+
+    #[test]
+    fn test_transaction_category_from_string_payment_tax() {
+        let id = Uuid::new_v4();
         let result = TransactionCategory::parse("payment_tax", Some(id))
             .expect("Failed to parse TransactionCategory from string");
         assert_eq!(result, TransactionCategory::PaymentTax(id));

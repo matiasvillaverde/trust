@@ -85,6 +85,16 @@ pub trait WriteAccountOverviewDB {
         total_balance: Decimal,
     ) -> Result<AccountOverview, Box<dyn Error>>;
 
+    fn update_account_overview_trade_out(
+        &mut self,
+        account: &Account,
+        currency: &Currency,
+        total_balance: Decimal,
+        total_in_trade: Decimal,
+        total_available: Decimal,
+        total_taxable: Decimal,
+    ) -> Result<AccountOverview, Box<dyn Error>>;
+
     fn update_account_overview_trade(
         &mut self,
         account: &Account,
@@ -116,7 +126,8 @@ pub trait WriteOrderDB {
         trade: &Trade,
     ) -> Result<Target, Box<dyn Error>>;
 
-    fn record_order_execution(&mut self, order: &Order) -> Result<Order, Box<dyn Error>>;
+    fn record_order_opening(&mut self, order: &Order) -> Result<Order, Box<dyn Error>>;
+    fn record_order_closing(&mut self, order: &Order) -> Result<Order, Box<dyn Error>>;
 }
 
 pub trait WritePriceDB {
@@ -163,9 +174,9 @@ pub trait ReadTradeDB {
         currency: &Currency,
     ) -> Result<Vec<Trade>, Box<dyn Error>>;
 
-    fn all_open_trades(&mut self, account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>>;
+    fn all_approved_trades(&mut self, account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>>;
 
-    fn all_trades_in_market(&mut self, account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>>;
+    fn all_open_trades(&mut self, account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>>;
 
     fn read_trade(&mut self, id: Uuid) -> Result<Trade, Box<dyn Error>>;
 
@@ -184,7 +195,8 @@ pub trait WriteTradeDB {
     ) -> Result<Trade, Box<dyn Error>>;
 
     fn approve_trade(&mut self, trade: &Trade) -> Result<Trade, Box<dyn Error>>;
-    fn update_trade_executed_at(&mut self, trade: &Trade) -> Result<Trade, Box<dyn Error>>;
+    fn update_trade_opened_at(&mut self, trade: &Trade) -> Result<Trade, Box<dyn Error>>;
+    fn update_trade_closed_at(&mut self, trade: &Trade) -> Result<Trade, Box<dyn Error>>;
 }
 
 pub trait WriteTradeOverviewDB {

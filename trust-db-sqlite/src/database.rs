@@ -102,8 +102,12 @@ impl WriteOrderDB for SqliteDatabase {
         WorkerTarget::create(&mut self.connection, price, currency, order, trade)
     }
 
-    fn record_order_execution(&mut self, order: &Order) -> Result<Order, Box<dyn Error>> {
-        WorkerOrder::record_execution(&mut self.connection, order)
+    fn record_order_opening(&mut self, order: &Order) -> Result<Order, Box<dyn Error>> {
+        WorkerOrder::update_opened_at(&mut self.connection, order)
+    }
+
+    fn record_order_closing(&mut self, order: &Order) -> Result<Order, Box<dyn Error>> {
+        WorkerOrder::update_closed_at(&mut self.connection, order)
     }
 }
 
@@ -160,6 +164,44 @@ impl WriteAccountOverviewDB for SqliteDatabase {
             updated_overview,
             total_balance,
         )?;
+        Ok(updated_overview)
+    }
+
+    fn update_account_overview_trade_out(
+        &mut self,
+        account: &Account,
+        currency: &Currency,
+        total_balance: Decimal,
+        total_in_trade: Decimal,
+        total_available: Decimal,
+        total_taxable: Decimal,
+    ) -> Result<AccountOverview, Box<dyn Error>> {
+        let overview =
+            WorkerAccountOverview::read_for_currency(&mut self.connection, account.id, currency)?;
+        let updated_overview = WorkerAccountOverview::update_total_available(
+            &mut self.connection,
+            overview,
+            total_available,
+        )?;
+
+        let updated_overview = WorkerAccountOverview::update_total_in_trade(
+            &mut self.connection,
+            updated_overview,
+            total_in_trade,
+        )?;
+
+        let updated_overview = WorkerAccountOverview::update_total_balance(
+            &mut self.connection,
+            updated_overview,
+            total_balance,
+        )?;
+
+        let updated_overview = WorkerAccountOverview::update_total_taxable(
+            &mut self.connection,
+            updated_overview,
+            total_taxable,
+        )?;
+
         Ok(updated_overview)
     }
 
@@ -340,8 +382,12 @@ impl WriteTradeDB for SqliteDatabase {
         WorkerTrade::approve_trade(&mut self.connection, trade)
     }
 
-    fn update_trade_executed_at(&mut self, trade: &Trade) -> Result<Trade, Box<dyn Error>> {
-        WorkerTrade::update_executed_at(&mut self.connection, trade)
+    fn update_trade_opened_at(&mut self, trade: &Trade) -> Result<Trade, Box<dyn Error>> {
+        WorkerTrade::update_opened_at(&mut self.connection, trade)
+    }
+
+    fn update_trade_closed_at(&mut self, trade: &Trade) -> Result<Trade, Box<dyn Error>> {
+        WorkerTrade::update_closed_at(&mut self.connection, trade)
     }
 }
 
@@ -359,15 +405,19 @@ impl ReadTradeDB for SqliteDatabase {
         account_id: Uuid,
         currency: &Currency,
     ) -> Result<Vec<Trade>, Box<dyn Error>> {
-        WorkerTrade::read_all_open_trades_for_currency(&mut self.connection, account_id, currency)
+        WorkerTrade::read_all_approved_trades_for_currency(
+            &mut self.connection,
+            account_id,
+            currency,
+        )
+    }
+
+    fn all_approved_trades(&mut self, account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>> {
+        WorkerTrade::read_all_approved_trades(&mut self.connection, account_id)
     }
 
     fn all_open_trades(&mut self, account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>> {
         WorkerTrade::read_all_open_trades(&mut self.connection, account_id)
-    }
-
-    fn all_trades_in_market(&mut self, account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>> {
-        WorkerTrade::read_all_trades_in_market(&mut self.connection, account_id)
     }
 }
 

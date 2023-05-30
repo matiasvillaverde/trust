@@ -76,7 +76,7 @@ CREATE TABLE "orders" (
 	trading_vehicle_id	TEXT NOT NULL REFERENCES trading_vehicles (id),
 	action 				TEXT CHECK(action IN ('sell', 'buy', 'short')) NOT NULL,
 	category 			TEXT CHECK(category IN ('market', 'limit', 'stop')) NOT NULL,
-	filled_at			DATETIME,
+	opened_at			DATETIME,
 	closed_at			DATETIME
 );
 
@@ -103,7 +103,7 @@ CREATE TABLE "trades" (
 	account_id 			TEXT NOT NULL REFERENCES accounts (id),
 	approved_at			DATETIME,
 	rejected_at			DATETIME,
-	executed_at			DATETIME,
+	opened_at			DATETIME,
 	failed_at			DATETIME,
 	closed_at			DATETIME,
 	rejected_by_rule_id	TEXT REFERENCES rules (id),
