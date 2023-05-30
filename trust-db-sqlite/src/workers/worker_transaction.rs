@@ -116,14 +116,13 @@ impl WorkerTransaction {
 
         let transactions = trades
             .into_iter()
-            .map(|trade| {
+            .flat_map(|trade| {
                 WorkerTransaction::read_all_trade_transactions_for_category(
                     connection,
                     trade.id,
                     TransactionCategory::FundTrade(Uuid::new_v4()),
                 )
             })
-            .flatten()
             .flatten()
             .collect();
 

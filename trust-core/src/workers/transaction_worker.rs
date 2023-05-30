@@ -165,7 +165,7 @@ impl TransactionWorker {
         // Update trade overview
         let trade_overview: TradeOverview = OverviewWorker::update_trade_overview(database, trade)?;
 
-        return Ok((transaction, trade_overview));
+        Ok((transaction, trade_overview))
     }
 
     pub fn transfer_to_close_target(
@@ -189,7 +189,7 @@ impl TransactionWorker {
         // Update trade overview
         let trade_overview: TradeOverview = OverviewWorker::update_trade_overview(database, trade)?;
 
-        return Ok((transaction, trade_overview));
+        Ok((transaction, trade_overview))
     }
 
     pub fn transfer_to_close_stop(
@@ -212,7 +212,7 @@ impl TransactionWorker {
         // Update trade overview
         let trade_overview: TradeOverview = OverviewWorker::update_trade_overview(database, trade)?;
 
-        return Ok((transaction, trade_overview));
+        Ok((transaction, trade_overview))
     }
 
     pub fn transfer_payment_from(
