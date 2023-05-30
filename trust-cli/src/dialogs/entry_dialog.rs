@@ -34,7 +34,7 @@ impl EntryDialogBuilder {
             .fee
             .clone()
             .expect("No fee found, did you forget to specify a fee?");
-        self.result = Some(trust.record_entry(&trade, fee));
+        self.result = Some(trust.open_trade(&trade, fee));
         self
     }
 

@@ -6,14 +6,14 @@ use trust_model::{database, Trade, Transaction};
 pub struct TradeWorker;
 
 impl TradeWorker {
-    pub fn update_trade_entry_executed(
+    pub fn open_trade(
         trade: &Trade,
         fee: Decimal,
         database: &mut dyn database::Database,
     ) -> Result<Trade, Box<dyn Error>> {
         // Create Transaction to pay for fees
         if fee.is_sign_positive() {
-            TransactionWorker::transfer_fee(fee, trade, database)?;
+            TransactionWorker::transfer_opening_fee(fee, trade, database)?;
         } else {
             panic!("Fee cannot be negative");
         }
@@ -30,8 +30,16 @@ impl TradeWorker {
 
     pub fn update_trade_target_executed(
         trade: &Trade,
+        fee: Decimal,
         database: &mut dyn database::Database,
     ) -> Result<(Trade, Transaction), Box<dyn Error>> {
+        // Create Transaction to pay for fees
+        if fee.is_sign_positive() {
+            TransactionWorker::transfer_closing_fee(fee, trade, database)?;
+        } else {
+            panic!("Fee cannot be negative");
+        }
+
         // Create Transaction to transfer funds from the market to the trade
         let (tx, _) = TransactionWorker::transfer_to_close_target(trade, database)?;
 
@@ -46,8 +54,16 @@ impl TradeWorker {
 
     pub fn update_trade_stop_executed(
         trade: &Trade,
+        fee: Decimal,
         database: &mut dyn database::Database,
     ) -> Result<(Trade, Transaction), Box<dyn Error>> {
+        // Create Transaction to pay for fees
+        if fee.is_sign_positive() {
+            TransactionWorker::transfer_closing_fee(fee, trade, database)?;
+        } else {
+            panic!("Fee cannot be negative");
+        }
+
         // Create Transaction to transfer funds from the market to the trade
         let (tx, _) = TransactionWorker::transfer_to_close_stop(trade, database)?;
 

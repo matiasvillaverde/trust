@@ -182,7 +182,7 @@ impl ArgDispatcher {
         ExitDialogBuilder::new()
             .account(&mut self.trust)
             .search(&mut self.trust)
-            .record_stop(&mut self.trust)
+            .build_stop(&mut self.trust)
             .display();
     }
 
@@ -190,7 +190,7 @@ impl ArgDispatcher {
         ExitDialogBuilder::new()
             .account(&mut self.trust)
             .search(&mut self.trust)
-            .record_target(&mut self.trust)
+            .build_target(&mut self.trust)
             .display();
     }
 }
