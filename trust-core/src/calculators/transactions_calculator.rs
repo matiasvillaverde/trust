@@ -57,8 +57,7 @@ impl TransactionsCalculator {
                 | TransactionCategory::CloseSafetyStopSlippage(_) => {
                     total_balance += tx.price.amount; // We add the money that we get by exit the market.
                 }
-                default => {
-                    // We don't want to count the transactions for taxes, earnings and funding trades.
+                _ => { // We don't want to count the transactions for taxes, earnings and funding trades.
                 }
             }
         }
@@ -158,7 +157,7 @@ impl TransactionsCalculator {
 
     // Trade transactions
 
-    pub fn total_out_of_market_for_trade(
+    pub fn capital_out_of_market(
         trade: &Trade,
         database: &mut dyn Database,
     ) -> Result<Decimal, Box<dyn std::error::Error>> {
@@ -197,7 +196,7 @@ impl TransactionsCalculator {
         Ok(total_trade)
     }
 
-    pub fn total_in_market_for_trade(
+    pub fn capital_in_market(
         trade: &Trade,
         database: &mut dyn Database,
     ) -> Result<Decimal, Box<dyn std::error::Error>> {
@@ -216,6 +215,44 @@ impl TransactionsCalculator {
                 | TransactionCategory::CloseSafetyStop(_)
                 | TransactionCategory::CloseSafetyStopSlippage(_) => {
                     total_trade = Decimal::from(0) // We have exited the market, so we have no money in the market.
+                }
+                default => panic!("Unexpected transaction category: {}", default),
+            }
+        }
+
+        Ok(total_trade)
+    }
+
+    pub fn funding(
+        trade: &Trade,
+        database: &mut dyn Database,
+    ) -> Result<Decimal, Box<dyn std::error::Error>> {
+        let mut total_trade = dec!(0);
+
+        for tx in database.all_trade_funding_transactions(trade)? {
+            match tx.category {
+                TransactionCategory::FundTrade(_) => {
+                    // This is money that we have used to enter the market.
+                    total_trade += tx.price.amount
+                }
+                default => panic!("Unexpected transaction category: {}", default),
+            }
+        }
+
+        Ok(total_trade)
+    }
+
+    pub fn taxes(
+        trade: &Trade,
+        database: &mut dyn Database,
+    ) -> Result<Decimal, Box<dyn std::error::Error>> {
+        let mut total_trade = dec!(0);
+
+        for tx in database.all_trade_taxes_transactions(trade)? {
+            match tx.category {
+                TransactionCategory::PaymentTax(_) => {
+                    // This is money that we have used to enter the market.
+                    total_trade += tx.price.amount
                 }
                 default => panic!("Unexpected transaction category: {}", default),
             }

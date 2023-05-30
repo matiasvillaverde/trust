@@ -152,7 +152,7 @@ impl WriteAccountOverviewDB for SqliteDatabase {
         total_balance: Decimal,
         total_in_trade: Decimal,
         total_available: Decimal,
-        total_taxable: Decimal,
+        taxed: Decimal,
     ) -> Result<AccountOverview, Box<dyn Error>> {
         let overview =
             WorkerAccountOverview::read_for_currency(&mut self.connection, account.id, currency)?;
@@ -174,11 +174,8 @@ impl WriteAccountOverviewDB for SqliteDatabase {
             total_balance,
         )?;
 
-        let updated_overview = WorkerAccountOverview::update_total_taxable(
-            &mut self.connection,
-            updated_overview,
-            total_taxable,
-        )?;
+        let updated_overview =
+            WorkerAccountOverview::update_taxed(&mut self.connection, updated_overview, taxed)?;
 
         Ok(updated_overview)
     }
@@ -248,6 +245,28 @@ impl ReadTransactionDB for SqliteDatabase {
         trade: &Trade,
     ) -> Result<Vec<Transaction>, Box<dyn Error>> {
         WorkerTransaction::read_all_trade_transactions(&mut self.connection, trade.id)
+    }
+
+    fn all_trade_funding_transactions(
+        &mut self,
+        trade: &Trade,
+    ) -> Result<Vec<Transaction>, Box<dyn Error>> {
+        WorkerTransaction::read_all_trade_transactions_for_category(
+            &mut self.connection,
+            trade.id,
+            TransactionCategory::FundTrade(trade.id),
+        )
+    }
+
+    fn all_trade_taxes_transactions(
+        &mut self,
+        trade: &Trade,
+    ) -> Result<Vec<Transaction>, Box<dyn Error>> {
+        WorkerTransaction::read_all_trade_transactions_for_category(
+            &mut self.connection,
+            trade.id,
+            TransactionCategory::PaymentTax(trade.id),
+        )
     }
 
     fn all_transaction_excluding_current_month_and_taxes(
@@ -399,19 +418,19 @@ impl WriteTradeOverviewDB for SqliteDatabase {
     fn update_trade_overview(
         &mut self,
         trade: &Trade,
-        total_input: Decimal,
-        total_in_market: Decimal,
-        total_out_market: Decimal,
-        total_taxable: Decimal,
+        funding: Decimal,
+        capital_in_market: Decimal,
+        capital_out_market: Decimal,
+        taxed: Decimal,
         total_performance: Decimal,
     ) -> Result<TradeOverview, Box<dyn Error>> {
         WorkerTrade::update_trade_overview(
             &mut self.connection,
             trade,
-            total_input,
-            total_in_market,
-            total_out_market,
-            total_taxable,
+            funding,
+            capital_in_market,
+            capital_out_market,
+            taxed,
             total_performance,
         )
     }

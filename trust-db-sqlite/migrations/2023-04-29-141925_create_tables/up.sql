@@ -16,7 +16,7 @@ CREATE TABLE accounts_overviews (
 	total_balance_id	TEXT NOT NULL REFERENCES price (id),
 	total_in_trade_id	TEXT NOT NULL REFERENCES price (id),
 	total_available_id	TEXT NOT NULL REFERENCES price (id),
-	total_taxable_id	TEXT NOT NULL REFERENCES price (id),
+	taxed_id	TEXT NOT NULL REFERENCES price (id),
 	currency	 		TEXT CHECK(currency IN ('EUR', 'USD', 'BTC')) NOT NULL
 );
 
@@ -115,9 +115,9 @@ CREATE TABLE "trades_overviews" (
 	created_at				DATETIME NOT NULL,
 	updated_at				DATETIME NOT NULL,
 	deleted_at				DATETIME,
-	total_input_id			TEXT NOT NULL REFERENCES prices (id),
-	total_in_market_id		TEXT NOT NULL REFERENCES prices (id),
-	total_out_market_id		TEXT NOT NULL REFERENCES prices (id),
-	total_taxable_id		TEXT NOT NULL REFERENCES prices (id),
+	funding_id			TEXT NOT NULL REFERENCES prices (id),
+	capital_in_market_id		TEXT NOT NULL REFERENCES prices (id),
+	capital_out_market_id		TEXT NOT NULL REFERENCES prices (id),
+	taxed_id		TEXT NOT NULL REFERENCES prices (id),
 	total_performance_id	TEXT NOT NULL REFERENCES prices (id)
 );

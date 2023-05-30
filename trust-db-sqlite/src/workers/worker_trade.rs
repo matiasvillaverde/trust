@@ -195,16 +195,16 @@ impl WorkerTrade {
         currency: &Currency,
         created_at: NaiveDateTime,
     ) -> Result<TradeOverview, Box<dyn Error>> {
-        let total_input_id = WorkerPrice::create(connection, currency, dec!(0))?
+        let funding_id = WorkerPrice::create(connection, currency, dec!(0))?
             .id
             .to_string();
-        let total_in_market_id = WorkerPrice::create(connection, currency, dec!(0))?
+        let capital_in_market_id = WorkerPrice::create(connection, currency, dec!(0))?
             .id
             .to_string();
-        let total_out_market_id = WorkerPrice::create(connection, currency, dec!(0))?
+        let capital_out_market_id = WorkerPrice::create(connection, currency, dec!(0))?
             .id
             .to_string();
-        let total_taxable_id = WorkerPrice::create(connection, currency, dec!(0))?
+        let taxed_id = WorkerPrice::create(connection, currency, dec!(0))?
             .id
             .to_string();
         let total_performance_id = WorkerPrice::create(connection, currency, dec!(0))?
@@ -216,10 +216,10 @@ impl WorkerTrade {
             created_at,
             updated_at: created_at,
             deleted_at: None,
-            total_input_id,
-            total_in_market_id,
-            total_out_market_id,
-            total_taxable_id,
+            funding_id,
+            capital_in_market_id,
+            capital_out_market_id,
+            taxed_id,
             total_performance_id,
         };
 
@@ -237,20 +237,24 @@ impl WorkerTrade {
     pub fn update_trade_overview(
         connection: &mut SqliteConnection,
         trade: &Trade,
-        total_input: Decimal,
-        total_in_market: Decimal,
-        total_out_market: Decimal,
-        total_taxable: Decimal,
+        funding: Decimal,
+        capital_in_market: Decimal,
+        capital_out_market: Decimal,
+        taxed: Decimal,
         total_performance: Decimal,
     ) -> Result<TradeOverview, Box<dyn Error>> {
-        WorkerPrice::update(connection, trade.overview.total_input, total_input)?;
-        WorkerPrice::update(connection, trade.overview.total_in_market, total_in_market)?;
+        WorkerPrice::update(connection, trade.overview.funding, funding)?;
         WorkerPrice::update(
             connection,
-            trade.overview.total_out_market,
-            total_out_market,
+            trade.overview.capital_in_market,
+            capital_in_market,
         )?;
-        WorkerPrice::update(connection, trade.overview.total_taxable, total_taxable)?;
+        WorkerPrice::update(
+            connection,
+            trade.overview.capital_out_market,
+            capital_out_market,
+        )?;
+        WorkerPrice::update(connection, trade.overview.taxed, taxed)?;
         WorkerPrice::update(
             connection,
             trade.overview.total_performance,
@@ -409,30 +413,29 @@ struct TradeOverviewSQLite {
     created_at: NaiveDateTime,
     updated_at: NaiveDateTime,
     deleted_at: Option<NaiveDateTime>,
-    total_input_id: String,
-    total_in_market_id: String,
-    total_out_market_id: String,
-    total_taxable_id: String,
+    funding_id: String,
+    capital_in_market_id: String,
+    capital_out_market_id: String,
+    taxed_id: String,
     total_performance_id: String,
 }
 
 impl TradeOverviewSQLite {
     fn domain_model(self, connection: &mut SqliteConnection) -> TradeOverview {
-        let total_input =
-            WorkerPrice::read(connection, Uuid::parse_str(&self.total_input_id).unwrap()).unwrap();
-        let total_in_market = WorkerPrice::read(
+        let funding =
+            WorkerPrice::read(connection, Uuid::parse_str(&self.funding_id).unwrap()).unwrap();
+        let capital_in_market = WorkerPrice::read(
             connection,
-            Uuid::parse_str(&self.total_in_market_id).unwrap(),
+            Uuid::parse_str(&self.capital_in_market_id).unwrap(),
         )
         .unwrap();
-        let total_out_market = WorkerPrice::read(
+        let capital_out_market = WorkerPrice::read(
             connection,
-            Uuid::parse_str(&self.total_out_market_id).unwrap(),
+            Uuid::parse_str(&self.capital_out_market_id).unwrap(),
         )
         .unwrap();
-        let total_taxable =
-            WorkerPrice::read(connection, Uuid::parse_str(&self.total_taxable_id).unwrap())
-                .unwrap();
+        let taxed =
+            WorkerPrice::read(connection, Uuid::parse_str(&self.taxed_id).unwrap()).unwrap();
         let total_performance = WorkerPrice::read(
             connection,
             Uuid::parse_str(&self.total_performance_id).unwrap(),
@@ -444,10 +447,10 @@ impl TradeOverviewSQLite {
             created_at: self.created_at,
             updated_at: self.updated_at,
             deleted_at: self.deleted_at,
-            total_input,
-            total_in_market,
-            total_out_market,
-            total_taxable,
+            funding,
+            capital_in_market,
+            capital_out_market,
+            taxed,
             total_performance,
         }
     }
@@ -460,10 +463,10 @@ struct NewTradeOverview {
     created_at: NaiveDateTime,
     updated_at: NaiveDateTime,
     deleted_at: Option<NaiveDateTime>,
-    total_input_id: String,
-    total_in_market_id: String,
-    total_out_market_id: String,
-    total_taxable_id: String,
+    funding_id: String,
+    capital_in_market_id: String,
+    capital_out_market_id: String,
+    taxed_id: String,
     total_performance_id: String,
 }
 

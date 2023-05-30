@@ -19,7 +19,7 @@ diesel::table! {
         total_balance_id -> Text,
         total_in_trade_id -> Text,
         total_available_id -> Text,
-        total_taxable_id -> Text,
+        taxed_id -> Text,
         currency -> Text,
     }
 }
@@ -134,10 +134,10 @@ diesel::table! {
         created_at -> Timestamp,
         updated_at -> Timestamp,
         deleted_at -> Nullable<Timestamp>,
-        total_input_id -> Text,
-        total_in_market_id -> Text,
-        total_out_market_id -> Text,
-        total_taxable_id -> Text,
+        funding_id -> Text,
+        capital_in_market_id -> Text,
+        capital_out_market_id -> Text,
+        taxed_id -> Text,
         total_performance_id -> Text,
     }
 }

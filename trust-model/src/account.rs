@@ -54,7 +54,7 @@ pub struct AccountOverview {
     pub total_available: Price,
 
     /// Total amount of money that it must be paid out to the tax authorities
-    pub total_taxable: Price,
+    pub taxed: Price,
 
     /// The currency of the account
     pub currency: Currency,
@@ -94,7 +94,7 @@ impl AccountOverview {
             total_balance: Price::default(),
             total_in_trade: Price::default(),
             total_available: Price::default(),
-            total_taxable: Price::default(),
+            taxed: Price::default(),
             currency: *currency,
         }
     }

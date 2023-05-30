@@ -25,7 +25,7 @@ impl WorkerAccountOverview {
         let total_balance = WorkerPrice::create(connection, currency, dec!(0))?;
         let total_in_trade = WorkerPrice::create(connection, currency, dec!(0))?;
         let total_available = WorkerPrice::create(connection, currency, dec!(0))?;
-        let total_taxable = WorkerPrice::create(connection, currency, dec!(0))?;
+        let taxed = WorkerPrice::create(connection, currency, dec!(0))?;
 
         let new_account_overview = NewAccountOverview {
             id,
@@ -36,7 +36,7 @@ impl WorkerAccountOverview {
             total_balance_id: total_balance.id.to_string(),
             total_in_trade_id: total_in_trade.id.to_string(),
             total_available_id: total_available.id.to_string(),
-            total_taxable_id: total_taxable.id.to_string(),
+            taxed_id: taxed.id.to_string(),
             currency: currency.to_string(),
         };
 
@@ -133,12 +133,12 @@ impl WorkerAccountOverview {
         WorkerAccountOverview::read_id(connection, overview.id)
     }
 
-    pub fn update_total_taxable(
+    pub fn update_taxed(
         connection: &mut SqliteConnection,
         overview: AccountOverview,
         new_amount: Decimal,
     ) -> Result<AccountOverview, Box<dyn Error>> {
-        WorkerPrice::update(connection, overview.total_taxable, new_amount)?;
+        WorkerPrice::update(connection, overview.taxed, new_amount)?;
         WorkerAccountOverview::read_id(connection, overview.id)
     }
 }
@@ -155,7 +155,7 @@ struct AccountOverviewSQLite {
     total_balance_id: String,
     total_in_trade_id: String,
     total_available_id: String,
-    total_taxable_id: String,
+    taxed_id: String,
     currency: String,
 }
 
@@ -183,11 +183,7 @@ impl AccountOverviewSQLite {
                 Uuid::parse_str(&self.total_available_id).unwrap(),
             )
             .unwrap(),
-            total_taxable: WorkerPrice::read(
-                connection,
-                Uuid::parse_str(&self.total_taxable_id).unwrap(),
-            )
-            .unwrap(),
+            taxed: WorkerPrice::read(connection, Uuid::parse_str(&self.taxed_id).unwrap()).unwrap(),
             currency: Currency::from_str(&self.currency).unwrap(),
         }
     }
@@ -204,7 +200,7 @@ pub struct NewAccountOverview {
     total_balance_id: String,
     total_in_trade_id: String,
     total_available_id: String,
-    total_taxable_id: String,
+    taxed_id: String,
     currency: String,
 }
 
@@ -239,11 +235,11 @@ mod tests {
         assert_eq!(overview.total_balance.amount, dec!(0));
         assert_eq!(overview.total_in_trade.amount, dec!(0));
         assert_eq!(overview.total_available.amount, dec!(0));
-        assert_eq!(overview.total_taxable.amount, dec!(0));
+        assert_eq!(overview.taxed.amount, dec!(0));
         assert_eq!(overview.total_balance.currency, Currency::BTC);
         assert_eq!(overview.total_in_trade.currency, Currency::BTC);
         assert_eq!(overview.total_available.currency, Currency::BTC);
-        assert_eq!(overview.total_taxable.currency, Currency::BTC);
+        assert_eq!(overview.taxed.currency, Currency::BTC);
     }
 
     #[test]

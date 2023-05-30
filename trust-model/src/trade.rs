@@ -131,16 +131,16 @@ pub struct TradeOverview {
     pub deleted_at: Option<NaiveDateTime>,
 
     /// Total amount of money that was used to open the trade
-    pub total_input: Price,
+    pub funding: Price,
 
     /// Total amount of money currently in the market (the amount of money that is currently invested)
-    pub total_in_market: Price,
+    pub capital_in_market: Price,
 
     /// Total amount of money available
-    pub total_out_market: Price,
+    pub capital_out_market: Price,
 
     /// Total amount of money that it must be paid out to the tax authorities
-    pub total_taxable: Price,
+    pub taxed: Price,
 
     /// Total amount of money that we have earned or lost from the trade
     pub total_performance: Price,

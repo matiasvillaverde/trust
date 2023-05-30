@@ -10,8 +10,6 @@ use crate::{
     validators::{TransactionValidationErrorCode, TransactionValidator},
 };
 
-use rust_decimal_macros::dec;
-
 use super::OverviewWorker;
 
 pub struct TransactionWorker;
@@ -60,7 +58,7 @@ impl TransactionWorker {
                     TransactionCategory::Deposit,
                 )?;
                 let updated_overview =
-                    OverviewWorker::recalculate_account_overview(database, &account, currency)?;
+                    OverviewWorker::update_account_overview(database, &account, currency)?;
                 Ok((transaction, updated_overview))
             }
             Err(error) => {
@@ -73,7 +71,7 @@ impl TransactionWorker {
                     )?;
                     database.new_account_overview(&account, currency)?;
                     let updated_overview =
-                        OverviewWorker::recalculate_account_overview(database, &account, currency)?;
+                        OverviewWorker::update_account_overview(database, &account, currency)?;
                     Ok((transaction, updated_overview))
                 } else {
                     Err(error)
@@ -106,7 +104,7 @@ impl TransactionWorker {
                 )?;
 
                 let updated_overview =
-                    OverviewWorker::recalculate_account_overview(database, &account, currency)?;
+                    OverviewWorker::update_account_overview(database, &account, currency)?;
                 Ok((transaction, updated_overview))
             }
             Err(error) => Err(error),
@@ -118,10 +116,8 @@ impl TransactionWorker {
         database: &mut dyn Database,
     ) -> Result<(Transaction, AccountOverview, TradeOverview), Box<dyn Error>> {
         let account = database.read_account_id(trade.account_id)?;
-        let overview = database.read_account_overview_currency(account.id, &trade.currency)?;
+
         let trade_total = trade.entry.unit_price.amount * Decimal::from(trade.entry.quantity);
-        let total_available = overview.total_available.amount - trade_total;
-        let total_in_trade = overview.total_in_trade.amount + trade_total;
 
         match TransactionValidator::validate(
             TransactionCategory::FundTrade(trade.id),
@@ -138,14 +134,11 @@ impl TransactionWorker {
                     TransactionCategory::FundTrade(trade.id),
                 )?;
 
-                let account_overview = OverviewWorker::recalculate_account_overview(
-                    database,
-                    &account,
-                    &trade.currency,
-                )?;
+                let account_overview =
+                    OverviewWorker::update_account_overview(database, &account, &trade.currency)?;
 
                 let trade_overview: TradeOverview =
-                    OverviewWorker::recalculate_trade_overview(database, trade)?;
+                    OverviewWorker::update_trade_overview(database, trade)?;
 
                 Ok((transaction, account_overview, trade_overview))
             }
@@ -170,8 +163,7 @@ impl TransactionWorker {
         )?;
 
         // Update trade overview
-        let trade_overview: TradeOverview =
-            OverviewWorker::recalculate_trade_overview(database, trade)?;
+        let trade_overview: TradeOverview = OverviewWorker::update_trade_overview(database, trade)?;
 
         return Ok((transaction, trade_overview));
     }
@@ -195,8 +187,7 @@ impl TransactionWorker {
         )?;
 
         // Update trade overview
-        let trade_overview: TradeOverview =
-            OverviewWorker::recalculate_trade_overview(database, trade)?;
+        let trade_overview: TradeOverview = OverviewWorker::update_trade_overview(database, trade)?;
 
         return Ok((transaction, trade_overview));
     }
@@ -219,8 +210,7 @@ impl TransactionWorker {
         )?;
 
         // Update trade overview
-        let trade_overview: TradeOverview =
-            OverviewWorker::recalculate_trade_overview(database, trade)?;
+        let trade_overview: TradeOverview = OverviewWorker::update_trade_overview(database, trade)?;
 
         return Ok((transaction, trade_overview));
     }
@@ -231,8 +221,7 @@ impl TransactionWorker {
     ) -> Result<(Transaction, AccountOverview, TradeOverview), Box<dyn Error>> {
         // Create transaction
         let account = database.read_account_id(trade.account_id)?;
-        let total_to_withdrawal =
-            TransactionsCalculator::total_out_of_market_for_trade(trade, database)?;
+        let total_to_withdrawal = TransactionsCalculator::capital_out_of_market(trade, database)?;
 
         let transaction = database.new_transaction(
             &account,
@@ -243,9 +232,8 @@ impl TransactionWorker {
 
         // Update account overview and trade overview.
         let account_overview: AccountOverview =
-            OverviewWorker::recalculate_account_overview(database, &account, &trade.currency)?;
-        let trade_overview: TradeOverview =
-            OverviewWorker::recalculate_trade_overview(database, trade)?;
+            OverviewWorker::update_account_overview(database, &account, &trade.currency)?;
+        let trade_overview: TradeOverview = OverviewWorker::update_trade_overview(database, trade)?;
 
         Ok((transaction, account_overview, trade_overview))
     }

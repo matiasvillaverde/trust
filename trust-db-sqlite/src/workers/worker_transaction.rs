@@ -74,25 +74,25 @@ impl WorkerTransaction {
         account_id: Uuid,
         currency: &Currency,
     ) -> Result<Vec<Transaction>, Box<dyn Error>> {
-        let tx_deposit = WorkerTransaction::read_all_trade_transactions_for_category(
+        let tx_deposit = WorkerTransaction::read_all_account_transactions_for_category(
             connection,
             account_id,
             currency,
             TransactionCategory::Deposit,
         )?;
-        let tx_withdrawal = WorkerTransaction::read_all_trade_transactions_for_category(
+        let tx_withdrawal = WorkerTransaction::read_all_account_transactions_for_category(
             connection,
             account_id,
             currency,
             TransactionCategory::Withdrawal,
         )?;
-        let tx_output = WorkerTransaction::read_all_trade_transactions_for_category(
+        let tx_output = WorkerTransaction::read_all_account_transactions_for_category(
             connection,
             account_id,
             currency,
             TransactionCategory::FundTrade(Uuid::new_v4()),
         )?;
-        let tx_input = WorkerTransaction::read_all_trade_transactions_for_category(
+        let tx_input = WorkerTransaction::read_all_account_transactions_for_category(
             connection,
             account_id,
             currency,
@@ -111,13 +111,13 @@ impl WorkerTransaction {
         account_id: Uuid,
         currency: &Currency,
     ) -> Result<Vec<Transaction>, Box<dyn Error>> {
-        let tx_payments_tax = WorkerTransaction::read_all_trade_transactions_for_category(
+        let tx_payments_tax = WorkerTransaction::read_all_account_transactions_for_category(
             connection,
             account_id,
             currency,
             TransactionCategory::PaymentTax(Uuid::new_v4()),
         )?;
-        let tx_withdrawal_tax = WorkerTransaction::read_all_trade_transactions_for_category(
+        let tx_withdrawal_tax = WorkerTransaction::read_all_account_transactions_for_category(
             connection,
             account_id,
             currency,
@@ -130,7 +130,7 @@ impl WorkerTransaction {
             .collect())
     }
 
-    pub fn read_all_trade_transactions_for_category(
+    pub fn read_all_account_transactions_for_category(
         connection: &mut SqliteConnection,
         account_id: Uuid,
         currency: &Currency,
@@ -140,6 +140,29 @@ impl WorkerTransaction {
             .filter(transactions::deleted_at.is_null())
             .filter(transactions::account_id.eq(account_id.to_string()))
             .filter(transactions::currency.eq(currency.to_string()))
+            .filter(transactions::category.eq(category.key()))
+            .load::<TransactionSQLite>(connection)
+            .map(|transactions: Vec<TransactionSQLite>| {
+                transactions
+                    .into_iter()
+                    .map(|tx| tx.domain_model(connection))
+                    .collect()
+            })
+            .map_err(|error| {
+                error!("Error reading transactions: {:?}", error);
+                error
+            })?;
+        Ok(transactions)
+    }
+
+    pub fn read_all_trade_transactions_for_category(
+        connection: &mut SqliteConnection,
+        trade_id: Uuid,
+        category: TransactionCategory,
+    ) -> Result<Vec<Transaction>, Box<dyn Error>> {
+        let transactions = transactions::table
+            .filter(transactions::deleted_at.is_null())
+            .filter(transactions::trade_id.eq(trade_id.to_string()))
             .filter(transactions::category.eq(category.key()))
             .load::<TransactionSQLite>(connection)
             .map(|transactions: Vec<TransactionSQLite>| {

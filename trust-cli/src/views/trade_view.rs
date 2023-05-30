@@ -62,10 +62,10 @@ impl TradeView {
 
 #[derive(Tabled)]
 pub struct TradeOverviewView {
-    pub total_input: String,
-    pub total_in_market: String,
-    pub total_out_market: String,
-    pub total_taxable: String,
+    pub funding: String,
+    pub capital_in_market: String,
+    pub capital_out_market: String,
+    pub taxed: String,
     pub total_performance: String,
     pub currency: String,
 }
@@ -73,12 +73,12 @@ pub struct TradeOverviewView {
 impl TradeOverviewView {
     fn new(overview: TradeOverview) -> TradeOverviewView {
         TradeOverviewView {
-            total_input: overview.total_input.amount.to_string(),
-            total_in_market: overview.total_in_market.amount.to_string(),
-            total_out_market: overview.total_out_market.amount.to_string(),
-            total_taxable: overview.total_taxable.amount.to_string(),
+            funding: overview.funding.amount.to_string(),
+            capital_in_market: overview.capital_in_market.amount.to_string(),
+            capital_out_market: overview.capital_out_market.amount.to_string(),
+            taxed: overview.taxed.amount.to_string(),
             total_performance: overview.total_performance.amount.to_string(),
-            currency: overview.total_input.currency.to_string(),
+            currency: overview.funding.currency.to_string(),
         }
     }
 

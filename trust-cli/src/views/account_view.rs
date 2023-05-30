@@ -35,7 +35,7 @@ pub struct AccountOverviewView {
     pub total_balance: String,
     pub total_available: String,
     pub total_in_trade: String,
-    pub total_taxable: String,
+    pub taxed: String,
     pub currency: String,
 }
 
@@ -46,7 +46,7 @@ impl AccountOverviewView {
             total_balance: overview.total_balance.amount.to_string(),
             total_available: overview.total_available.amount.to_string(),
             total_in_trade: overview.total_in_trade.amount.to_string(),
-            total_taxable: overview.total_taxable.amount.to_string(),
+            taxed: overview.taxed.amount.to_string(),
             currency: overview.currency.to_string(),
         }
     }
