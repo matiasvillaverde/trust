@@ -75,7 +75,7 @@ impl TransactionsCalculator {
     ) -> Result<Decimal, Box<dyn std::error::Error>> {
         // Get all transactions
         let transactions =
-            database.all_account_transactions_excluding_taxes(account_id, currency)?;
+            database.all_account_transactions_funding_in_open_trades(account_id, currency)?;
 
         // Sum all transactions
         let total_available: Decimal = transactions
