@@ -4,7 +4,7 @@ use chrono::NaiveDateTime;
 use uuid::Uuid;
 
 /// Target entity - represents a target price for a trade. Trades can have multiple targets.
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub struct Target {
     pub id: Uuid,
 

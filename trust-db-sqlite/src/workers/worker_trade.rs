@@ -1,12 +1,13 @@
-use crate::schema::{trades, trades_lifecycle, trades_overviews};
+use crate::schema::{trades, trades_overviews};
 use chrono::{NaiveDateTime, Utc};
 use diesel::prelude::*;
+use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use std::error::Error;
 use std::str::FromStr;
 use tracing::error;
 use trust_model::{Account, Currency};
-use trust_model::{Order, Trade, TradeCategory, TradeLifecycle, TradeOverview, TradingVehicle};
+use trust_model::{Order, Trade, TradeCategory, TradeOverview, TradingVehicle};
 use uuid::Uuid;
 
 use super::{WorkerOrder, WorkerPrice, WorkerTarget, WorkerTradingVehicle};
@@ -25,7 +26,6 @@ impl WorkerTrade {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().naive_utc();
 
-        let lifecycle = WorkerTrade::create_lifecycle(connection, now)?;
         let overview = WorkerTrade::create_overview(connection, currency, now)?;
 
         let new_trade = NewTrade {
@@ -39,7 +39,12 @@ impl WorkerTrade {
             safety_stop_id: safety_stop.id.to_string(),
             entry_id: entry.id.to_string(),
             account_id: account.id.to_string(),
-            lifecycle_id: lifecycle.id.to_string(),
+            approved_at: None,
+            rejected_at: None,
+            opened_at: None,
+            failed_at: None,
+            closed_at: None,
+            rejected_by_rule_id: None,
             overview_id: overview.id.to_string(),
         };
 
@@ -64,16 +69,6 @@ impl WorkerTrade {
             .map(|overview: TradeOverviewSQLite| overview.domain_model(connection))
     }
 
-    pub fn read_lifecycle(
-        connection: &mut SqliteConnection,
-        id: Uuid,
-    ) -> Result<TradeLifecycle, diesel::result::Error> {
-        trades_lifecycle::table
-            .filter(trades_lifecycle::id.eq(&id.to_string()))
-            .first(connection)
-            .map(|lifecycle: TradeLifecycleSQLite| lifecycle.domain_model())
-    }
-
     pub fn read_trade(
         connection: &mut SqliteConnection,
         id: Uuid,
@@ -89,32 +84,110 @@ impl WorkerTrade {
         Ok(trade)
     }
 
-    fn create_lifecycle(
+    pub fn read_all_new_trades(
         connection: &mut SqliteConnection,
-        created_at: NaiveDateTime,
-    ) -> Result<TradeLifecycle, Box<dyn Error>> {
-        let new_trade_lifecycle = NewTradeLifecycle {
-            id: Uuid::new_v4().to_string(),
-            created_at,
-            updated_at: created_at,
-            deleted_at: None,
-            approved_at: None,
-            rejected_at: None,
-            executed_at: None,
-            failed_at: None,
-            closed_at: None,
-            rejected_by_rule_id: None,
-        };
-
-        let lifecycle = diesel::insert_into(trades_lifecycle::table)
-            .values(&new_trade_lifecycle)
-            .get_result::<TradeLifecycleSQLite>(connection)
-            .map(|lifecycle| lifecycle.domain_model())
+        account_id: Uuid,
+    ) -> Result<Vec<Trade>, Box<dyn Error>> {
+        let trades: Vec<Trade> = trades::table
+            .filter(trades::deleted_at.is_null())
+            .filter(trades::account_id.eq(account_id.to_string()))
+            .filter(trades::approved_at.is_null())
+            .filter(trades::rejected_at.is_null())
+            .filter(trades::opened_at.is_null())
+            .filter(trades::failed_at.is_null())
+            .filter(trades::closed_at.is_null())
+            .load::<TradeSQLite>(connection)
+            .map(|trades: Vec<TradeSQLite>| {
+                trades
+                    .into_iter()
+                    .map(|trade| trade.domain_model(connection))
+                    .collect()
+            })
             .map_err(|error| {
-                error!("Error creating trade lifecycle: {:?}", error);
+                error!("Error reading trades: {:?}", error);
                 error
             })?;
-        Ok(lifecycle)
+        Ok(trades)
+    }
+
+    pub fn read_all_approved_trades(
+        connection: &mut SqliteConnection,
+        account_id: Uuid,
+    ) -> Result<Vec<Trade>, Box<dyn Error>> {
+        let trades: Vec<Trade> = trades::table
+            .filter(trades::deleted_at.is_null())
+            .filter(trades::account_id.eq(account_id.to_string()))
+            .filter(trades::approved_at.is_not_null())
+            .filter(trades::rejected_at.is_null())
+            .filter(trades::opened_at.is_null())
+            .filter(trades::failed_at.is_null())
+            .filter(trades::closed_at.is_null())
+            .load::<TradeSQLite>(connection)
+            .map(|trades: Vec<TradeSQLite>| {
+                trades
+                    .into_iter()
+                    .map(|trade| trade.domain_model(connection))
+                    .collect()
+            })
+            .map_err(|error| {
+                error!("Error reading trades: {:?}", error);
+                error
+            })?;
+        Ok(trades)
+    }
+
+    pub fn read_all_approved_trades_for_currency(
+        connection: &mut SqliteConnection,
+        account_id: Uuid,
+        currency: &Currency,
+    ) -> Result<Vec<Trade>, Box<dyn Error>> {
+        let trades: Vec<Trade> = trades::table
+            .filter(trades::deleted_at.is_null())
+            .filter(trades::account_id.eq(account_id.to_string()))
+            .filter(trades::currency.eq(currency.to_string()))
+            .filter(trades::approved_at.is_not_null())
+            .filter(trades::rejected_at.is_null())
+            .filter(trades::opened_at.is_null())
+            .filter(trades::failed_at.is_null())
+            .filter(trades::closed_at.is_null())
+            .load::<TradeSQLite>(connection)
+            .map(|trades: Vec<TradeSQLite>| {
+                trades
+                    .into_iter()
+                    .map(|trade| trade.domain_model(connection))
+                    .collect()
+            })
+            .map_err(|error| {
+                error!("Error reading trades: {:?}", error);
+                error
+            })?;
+        Ok(trades)
+    }
+
+    pub fn read_all_open_trades(
+        connection: &mut SqliteConnection,
+        account_id: Uuid,
+    ) -> Result<Vec<Trade>, Box<dyn Error>> {
+        let trades: Vec<Trade> = trades::table
+            .filter(trades::deleted_at.is_null())
+            .filter(trades::account_id.eq(account_id.to_string()))
+            .filter(trades::approved_at.is_not_null())
+            .filter(trades::rejected_at.is_null())
+            .filter(trades::opened_at.is_not_null())
+            .filter(trades::failed_at.is_null())
+            .filter(trades::closed_at.is_null())
+            .load::<TradeSQLite>(connection)
+            .map(|trades: Vec<TradeSQLite>| {
+                trades
+                    .into_iter()
+                    .map(|trade| trade.domain_model(connection))
+                    .collect()
+            })
+            .map_err(|error| {
+                error!("Error reading trades: {:?}", error);
+                error
+            })?;
+        Ok(trades)
     }
 
     fn create_overview(
@@ -122,16 +195,16 @@ impl WorkerTrade {
         currency: &Currency,
         created_at: NaiveDateTime,
     ) -> Result<TradeOverview, Box<dyn Error>> {
-        let total_input_id = WorkerPrice::create(connection, currency, dec!(0))?
+        let funding_id = WorkerPrice::create(connection, currency, dec!(0))?
             .id
             .to_string();
-        let total_in_market_id = WorkerPrice::create(connection, currency, dec!(0))?
+        let capital_in_market_id = WorkerPrice::create(connection, currency, dec!(0))?
             .id
             .to_string();
-        let total_out_market_id = WorkerPrice::create(connection, currency, dec!(0))?
+        let capital_out_market_id = WorkerPrice::create(connection, currency, dec!(0))?
             .id
             .to_string();
-        let total_taxable_id = WorkerPrice::create(connection, currency, dec!(0))?
+        let taxed_id = WorkerPrice::create(connection, currency, dec!(0))?
             .id
             .to_string();
         let total_performance_id = WorkerPrice::create(connection, currency, dec!(0))?
@@ -143,10 +216,10 @@ impl WorkerTrade {
             created_at,
             updated_at: created_at,
             deleted_at: None,
-            total_input_id,
-            total_in_market_id,
-            total_out_market_id,
-            total_taxable_id,
+            funding_id,
+            capital_in_market_id,
+            capital_out_market_id,
+            taxed_id,
             total_performance_id,
         };
 
@@ -159,6 +232,87 @@ impl WorkerTrade {
                 error
             })?;
         Ok(overview)
+    }
+
+    pub fn update_trade_overview(
+        connection: &mut SqliteConnection,
+        trade: &Trade,
+        funding: Decimal,
+        capital_in_market: Decimal,
+        capital_out_market: Decimal,
+        taxed: Decimal,
+        total_performance: Decimal,
+    ) -> Result<TradeOverview, Box<dyn Error>> {
+        WorkerPrice::update(connection, trade.overview.funding, funding)?;
+        WorkerPrice::update(
+            connection,
+            trade.overview.capital_in_market,
+            capital_in_market,
+        )?;
+        WorkerPrice::update(
+            connection,
+            trade.overview.capital_out_market,
+            capital_out_market,
+        )?;
+        WorkerPrice::update(connection, trade.overview.taxed, taxed)?;
+        WorkerPrice::update(
+            connection,
+            trade.overview.total_performance,
+            total_performance,
+        )?;
+        let overview = WorkerTrade::read_overview(connection, trade.overview.id)?;
+        Ok(overview)
+    }
+
+    pub fn approve_trade(
+        connection: &mut SqliteConnection,
+        trade: &Trade,
+    ) -> Result<Trade, Box<dyn Error>> {
+        let now = Utc::now().naive_utc();
+        let trade = diesel::update(trades::table)
+            .filter(trades::id.eq(trade.id.to_string()))
+            .set((trades::updated_at.eq(now), trades::approved_at.eq(now)))
+            .get_result::<TradeSQLite>(connection)
+            .map(|trade| trade.domain_model(connection))
+            .map_err(|error| {
+                error!("Error approving trade: {:?}", error);
+                error
+            })?;
+        Ok(trade)
+    }
+
+    pub fn update_opened_at(
+        connection: &mut SqliteConnection,
+        trade: &Trade,
+    ) -> Result<Trade, Box<dyn Error>> {
+        let now = Utc::now().naive_utc();
+        let trade = diesel::update(trades::table)
+            .filter(trades::id.eq(trade.id.to_string()))
+            .set((trades::updated_at.eq(now), trades::opened_at.eq(now)))
+            .get_result::<TradeSQLite>(connection)
+            .map(|trade| trade.domain_model(connection))
+            .map_err(|error| {
+                error!("Error executing trade: {:?}", error);
+                error
+            })?;
+        Ok(trade)
+    }
+
+    pub fn update_closed_at(
+        connection: &mut SqliteConnection,
+        trade: &Trade,
+    ) -> Result<Trade, Box<dyn Error>> {
+        let now = Utc::now().naive_utc();
+        let trade = diesel::update(trades::table)
+            .filter(trades::id.eq(trade.id.to_string()))
+            .set((trades::updated_at.eq(now), trades::closed_at.eq(now)))
+            .get_result::<TradeSQLite>(connection)
+            .map(|trade| trade.domain_model(connection))
+            .map_err(|error| {
+                error!("Error executing trade: {:?}", error);
+                error
+            })?;
+        Ok(trade)
     }
 }
 
@@ -177,7 +331,12 @@ struct TradeSQLite {
     safety_stop_id: String,
     entry_id: String,
     account_id: String,
-    lifecycle_id: String,
+    approved_at: Option<NaiveDateTime>,
+    rejected_at: Option<NaiveDateTime>,
+    opened_at: Option<NaiveDateTime>,
+    failed_at: Option<NaiveDateTime>,
+    closed_at: Option<NaiveDateTime>,
+    rejected_by_rule_id: Option<String>,
     overview_id: String,
 }
 
@@ -192,9 +351,6 @@ impl TradeSQLite {
             WorkerOrder::read(connection, Uuid::parse_str(&self.safety_stop_id).unwrap()).unwrap();
         let entry =
             WorkerOrder::read(connection, Uuid::parse_str(&self.entry_id).unwrap()).unwrap();
-        let lifecycle =
-            WorkerTrade::read_lifecycle(connection, Uuid::parse_str(&self.lifecycle_id).unwrap())
-                .unwrap();
         let overview =
             WorkerTrade::read_overview(connection, Uuid::parse_str(&self.overview_id).unwrap())
                 .unwrap();
@@ -214,7 +370,14 @@ impl TradeSQLite {
             entry,
             exit_targets: targets,
             account_id: Uuid::parse_str(&self.account_id).unwrap(),
-            lifecycle,
+            approved_at: self.approved_at,
+            rejected_at: self.rejected_at,
+            opened_at: self.opened_at,
+            failed_at: self.failed_at,
+            closed_at: self.closed_at,
+            rejected_by_rule_id: self
+                .rejected_by_rule_id
+                .map(|id| Uuid::parse_str(&id).unwrap()),
             overview,
         }
     }
@@ -234,59 +397,13 @@ struct NewTrade {
     safety_stop_id: String,
     entry_id: String,
     account_id: String,
-    lifecycle_id: String,
+    approved_at: Option<NaiveDateTime>,
+    rejected_at: Option<NaiveDateTime>,
+    opened_at: Option<NaiveDateTime>,
+    failed_at: Option<NaiveDateTime>,
+    closed_at: Option<NaiveDateTime>,
+    rejected_by_rule_id: Option<String>,
     overview_id: String,
-}
-
-// Lifecycle
-
-#[derive(Queryable, Identifiable, AsChangeset, Insertable)]
-#[diesel(table_name = trades_lifecycle)]
-struct TradeLifecycleSQLite {
-    id: String,
-    created_at: NaiveDateTime,
-    updated_at: NaiveDateTime,
-    deleted_at: Option<NaiveDateTime>,
-    approved_at: Option<NaiveDateTime>,
-    rejected_at: Option<NaiveDateTime>,
-    executed_at: Option<NaiveDateTime>,
-    failed_at: Option<NaiveDateTime>,
-    closed_at: Option<NaiveDateTime>,
-    rejected_by_rule_id: Option<String>,
-}
-
-impl TradeLifecycleSQLite {
-    fn domain_model(self) -> TradeLifecycle {
-        TradeLifecycle {
-            id: Uuid::parse_str(&self.id).unwrap(),
-            created_at: self.created_at,
-            updated_at: self.updated_at,
-            deleted_at: self.deleted_at,
-            approved_at: self.approved_at,
-            rejected_at: self.rejected_at,
-            executed_at: self.executed_at,
-            failed_at: self.failed_at,
-            closed_at: self.closed_at,
-            rejected_by_rule_id: self
-                .rejected_by_rule_id
-                .map(|id| Uuid::parse_str(&id).unwrap()),
-        }
-    }
-}
-
-#[derive(Insertable)]
-#[diesel(table_name = trades_lifecycle)]
-struct NewTradeLifecycle {
-    id: String,
-    created_at: NaiveDateTime,
-    updated_at: NaiveDateTime,
-    deleted_at: Option<NaiveDateTime>,
-    approved_at: Option<NaiveDateTime>,
-    rejected_at: Option<NaiveDateTime>,
-    executed_at: Option<NaiveDateTime>,
-    failed_at: Option<NaiveDateTime>,
-    closed_at: Option<NaiveDateTime>,
-    rejected_by_rule_id: Option<String>,
 }
 
 #[derive(Queryable, Identifiable, AsChangeset, Insertable)]
@@ -296,30 +413,29 @@ struct TradeOverviewSQLite {
     created_at: NaiveDateTime,
     updated_at: NaiveDateTime,
     deleted_at: Option<NaiveDateTime>,
-    total_input_id: String,
-    total_in_market_id: String,
-    total_out_market_id: String,
-    total_taxable_id: String,
+    funding_id: String,
+    capital_in_market_id: String,
+    capital_out_market_id: String,
+    taxed_id: String,
     total_performance_id: String,
 }
 
 impl TradeOverviewSQLite {
     fn domain_model(self, connection: &mut SqliteConnection) -> TradeOverview {
-        let total_input =
-            WorkerPrice::read(connection, Uuid::parse_str(&self.total_input_id).unwrap()).unwrap();
-        let total_in_market = WorkerPrice::read(
+        let funding =
+            WorkerPrice::read(connection, Uuid::parse_str(&self.funding_id).unwrap()).unwrap();
+        let capital_in_market = WorkerPrice::read(
             connection,
-            Uuid::parse_str(&self.total_in_market_id).unwrap(),
+            Uuid::parse_str(&self.capital_in_market_id).unwrap(),
         )
         .unwrap();
-        let total_out_market = WorkerPrice::read(
+        let capital_out_market = WorkerPrice::read(
             connection,
-            Uuid::parse_str(&self.total_out_market_id).unwrap(),
+            Uuid::parse_str(&self.capital_out_market_id).unwrap(),
         )
         .unwrap();
-        let total_taxable =
-            WorkerPrice::read(connection, Uuid::parse_str(&self.total_taxable_id).unwrap())
-                .unwrap();
+        let taxed =
+            WorkerPrice::read(connection, Uuid::parse_str(&self.taxed_id).unwrap()).unwrap();
         let total_performance = WorkerPrice::read(
             connection,
             Uuid::parse_str(&self.total_performance_id).unwrap(),
@@ -331,10 +447,10 @@ impl TradeOverviewSQLite {
             created_at: self.created_at,
             updated_at: self.updated_at,
             deleted_at: self.deleted_at,
-            total_input,
-            total_in_market,
-            total_out_market,
-            total_taxable,
+            funding,
+            capital_in_market,
+            capital_out_market,
+            taxed,
             total_performance,
         }
     }
@@ -347,10 +463,10 @@ struct NewTradeOverview {
     created_at: NaiveDateTime,
     updated_at: NaiveDateTime,
     deleted_at: Option<NaiveDateTime>,
-    total_input_id: String,
-    total_in_market_id: String,
-    total_out_market_id: String,
-    total_taxable_id: String,
+    funding_id: String,
+    capital_in_market_id: String,
+    capital_out_market_id: String,
+    taxed_id: String,
     total_performance_id: String,
 }
 

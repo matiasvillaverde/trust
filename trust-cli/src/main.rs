@@ -39,7 +39,15 @@ fn main() {
                 .search_trading_vehicle()
                 .build(),
         )
-        .subcommand(TradeCommandBuilder::new().create_trade().build())
+        .subcommand(
+            TradeCommandBuilder::new()
+                .create_trade()
+                .approve_trade()
+                .entry_trade()
+                .stop_trade()
+                .target_trade()
+                .build(),
+        )
         .get_matches();
 
     let dispatcher = ArgDispatcher::new_sqlite();

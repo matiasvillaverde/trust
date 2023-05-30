@@ -51,14 +51,42 @@ impl WorkerOrder {
         Ok(order)
     }
 
-    pub fn read(
+    pub fn read(connection: &mut SqliteConnection, id: Uuid) -> Result<Order, Box<dyn Error>> {
+        let order = orders::table
+            .filter(orders::id.eq(id.to_string()))
+            .first::<OrderSQLite>(connection)
+            .map(|order| order.domain_model(connection))
+            .map_err(|error| {
+                error!("Error reading account: {:?}", error);
+                error
+            })?;
+        Ok(order)
+    }
+
+    pub fn update_opened_at(
         connection: &mut SqliteConnection,
-        id: Uuid,
-    ) -> Result<Order, diesel::result::Error> {
-        orders::table
-            .filter(orders::id.eq(&id.to_string()))
-            .first(connection)
-            .map(|order: OrderSQLite| order.domain_model(connection))
+        order: &Order,
+    ) -> Result<Order, Box<dyn Error>> {
+        let now = Utc::now().naive_utc();
+        diesel::update(orders::table)
+            .filter(orders::id.eq(&order.id.to_string()))
+            .set(orders::opened_at.eq(now))
+            .execute(connection)?;
+
+        return WorkerOrder::read(connection, order.id);
+    }
+
+    pub fn update_closed_at(
+        connection: &mut SqliteConnection,
+        order: &Order,
+    ) -> Result<Order, Box<dyn Error>> {
+        let now = Utc::now().naive_utc();
+        diesel::update(orders::table)
+            .filter(orders::id.eq(&order.id.to_string()))
+            .set(orders::closed_at.eq(now))
+            .execute(connection)?;
+
+        return WorkerOrder::read(connection, order.id);
     }
 }
 

@@ -16,7 +16,7 @@ CREATE TABLE accounts_overviews (
 	total_balance_id	TEXT NOT NULL REFERENCES price (id),
 	total_in_trade_id	TEXT NOT NULL REFERENCES price (id),
 	total_available_id	TEXT NOT NULL REFERENCES price (id),
-	total_taxable_id	TEXT NOT NULL REFERENCES price (id),
+	taxed_id	TEXT NOT NULL REFERENCES price (id),
 	currency	 		TEXT CHECK(currency IN ('EUR', 'USD', 'BTC')) NOT NULL
 );
 
@@ -48,7 +48,8 @@ CREATE TABLE transactions (
 	created_at		DATETIME NOT NULL,
 	updated_at		DATETIME NOT NULL,
 	deleted_at		DATETIME,
-	category 		TEXT CHECK(category IN ('deposit', 'withdrawal', 'output', 'input', 'input_tax', 'output_tax')) NOT NULL,
+	currency 		TEXT CHECK(currency IN ('EUR', 'USD', 'BTC')) NOT NULL,
+	category 		TEXT CHECK(category IN ('deposit', 'withdrawal', 'payment_from_trade', 'fund_trade', 'open_trade', 'close_target', "close_safety_stop", "close_safety_stop_slippage", "fee_open", "fee_close", "payment_earnings", "withdrawal_earnings", "payment_tax", "withdrawal_tax")) NOT NULL,
 	price_id		TEXT NOT NULL REFERENCES price (id),
 	account_id 		TEXT NOT NULL REFERENCES accounts(id),
 	trade_id		TEXT REFERENCES trades (uuid)
@@ -75,7 +76,7 @@ CREATE TABLE "orders" (
 	trading_vehicle_id	TEXT NOT NULL REFERENCES trading_vehicles (id),
 	action 				TEXT CHECK(action IN ('sell', 'buy', 'short')) NOT NULL,
 	category 			TEXT CHECK(category IN ('market', 'limit', 'stop')) NOT NULL,
-	opened_at				DATETIME,
+	opened_at			DATETIME,
 	closed_at			DATETIME
 );
 
@@ -100,21 +101,13 @@ CREATE TABLE "trades" (
 	safety_stop_id 		TEXT NOT NULL REFERENCES orders (id),
 	entry_id 			TEXT NOT NULL REFERENCES orders (id),
 	account_id 			TEXT NOT NULL REFERENCES accounts (id),
-	lifecycle_id 			TEXT NOT NULL REFERENCES trades_lifecycle (id),
-	overview_id 			TEXT NOT NULL REFERENCES trades_overviews (id)
-);
-
-CREATE TABLE "trades_lifecycle" (
-	id 			TEXT NOT NULL PRIMARY KEY,
-	created_at			DATETIME NOT NULL,
-	updated_at			DATETIME NOT NULL,
-	deleted_at			DATETIME,
 	approved_at			DATETIME,
 	rejected_at			DATETIME,
-	executed_at			DATETIME,
+	opened_at			DATETIME,
 	failed_at			DATETIME,
 	closed_at			DATETIME,
-	rejected_by_rule_id	TEXT REFERENCES rules (id)
+	rejected_by_rule_id	TEXT REFERENCES rules (id),
+	overview_id 			TEXT NOT NULL REFERENCES trades_overviews (id)
 );
 
 CREATE TABLE "trades_overviews" (
@@ -122,9 +115,9 @@ CREATE TABLE "trades_overviews" (
 	created_at				DATETIME NOT NULL,
 	updated_at				DATETIME NOT NULL,
 	deleted_at				DATETIME,
-	total_input_id			TEXT NOT NULL REFERENCES prices (id),
-	total_in_market_id		TEXT NOT NULL REFERENCES prices (id),
-	total_out_market_id		TEXT NOT NULL REFERENCES prices (id),
-	total_taxable_id		TEXT NOT NULL REFERENCES prices (id),
+	funding_id			TEXT NOT NULL REFERENCES prices (id),
+	capital_in_market_id		TEXT NOT NULL REFERENCES prices (id),
+	capital_out_market_id		TEXT NOT NULL REFERENCES prices (id),
+	taxed_id		TEXT NOT NULL REFERENCES prices (id),
 	total_performance_id	TEXT NOT NULL REFERENCES prices (id)
 );

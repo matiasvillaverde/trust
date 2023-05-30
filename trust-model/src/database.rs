@@ -6,7 +6,9 @@ use crate::TradingVehicle;
 use crate::TradingVehicleCategory;
 use crate::Transaction;
 use crate::TransactionCategory;
-use crate::{Account, AccountOverview, Order, Rule, RuleLevel, RuleName, Trade, TradeCategory};
+use crate::{
+    Account, AccountOverview, Order, Rule, RuleLevel, RuleName, Trade, TradeCategory, TradeOverview,
+};
 use rust_decimal::Decimal;
 use uuid::Uuid;
 
@@ -24,28 +26,38 @@ use std::error::Error;
 /// To prevent the database from being used incorrectly, the trait has the following rules:
 /// - Reads can be Uuid
 /// - Writes and updates must be Domain Models
-pub trait Database {
-    // Accounts
-    fn new_account(&mut self, name: &str, description: &str) -> Result<Account, Box<dyn Error>>;
+pub trait Database:
+    ReadAccountDB
+    + WriteAccountDB
+    + ReadAccountOverviewDB
+    + WriteAccountOverviewDB
+    + ReadOrderDB
+    + WriteOrderDB
+    + ReadPriceDB
+    + WritePriceDB
+    + ReadTransactionDB
+    + WriteTransactionDB
+    + ReadTradeDB
+    + WriteTradeDB
+    + WriteTradeOverviewDB
+    + ReadRuleDB
+    + WriteRuleDB
+    + ReadTradingVehicleDB
+    + WriteTradingVehicleDB
+{
+}
+
+pub trait ReadAccountDB {
     fn read_account(&mut self, name: &str) -> Result<Account, Box<dyn Error>>;
     fn read_account_id(&mut self, id: Uuid) -> Result<Account, Box<dyn Error>>;
     fn read_all_accounts(&mut self) -> Result<Vec<Account>, Box<dyn Error>>;
+}
 
-    // Account Overview
-    fn new_account_overview(
-        &mut self,
-        account: &Account,
-        currency: &Currency,
-    ) -> Result<AccountOverview, Box<dyn Error>>;
+pub trait WriteAccountDB {
+    fn new_account(&mut self, name: &str, description: &str) -> Result<Account, Box<dyn Error>>;
+}
 
-    fn update_account_overview(
-        &mut self,
-        account: &Account,
-        currency: &Currency,
-        total_available: Decimal,
-        total_balance: Decimal,
-    ) -> Result<AccountOverview, Box<dyn Error>>;
-
+pub trait ReadAccountOverviewDB {
     fn read_account_overview(
         &mut self,
         account_id: Uuid,
@@ -56,53 +68,31 @@ pub trait Database {
         account_id: Uuid,
         currency: &Currency,
     ) -> Result<AccountOverview, Box<dyn Error>>;
+}
 
-    // Prices
-    fn new_price(&mut self, currency: Currency, amount: Decimal) -> Result<Price, Box<dyn Error>>;
-
-    fn read_price(&mut self, id: Uuid) -> Result<Price, Box<dyn Error>>;
-
-    // Transaction
-    fn new_transaction(
+pub trait WriteAccountOverviewDB {
+    fn new_account_overview(
         &mut self,
         account: &Account,
-        amount: Decimal,
         currency: &Currency,
-        category: TransactionCategory,
-    ) -> Result<Transaction, Box<dyn Error>>;
+    ) -> Result<AccountOverview, Box<dyn Error>>;
 
-    // Rules
-    fn create_rule(
+    fn update_account_overview(
         &mut self,
         account: &Account,
-        name: &RuleName,
-        description: &str,
-        priority: u32,
-        level: &RuleLevel,
-    ) -> Result<Rule, Box<dyn Error>>;
+        currency: &Currency,
+        total_balance: Decimal,
+        total_in_trade: Decimal,
+        total_available: Decimal,
+        taxed: Decimal,
+    ) -> Result<AccountOverview, Box<dyn Error>>;
+}
 
-    fn read_all_rules(&mut self, account_id: Uuid) -> Result<Vec<Rule>, Box<dyn Error>>;
-    fn make_rule_inactive(&mut self, rule: &Rule) -> Result<Rule, Box<dyn Error>>;
-    fn rule_for_account(
-        &mut self,
-        account_id: Uuid,
-        name: &RuleName,
-    ) -> Result<Rule, Box<dyn Error>>;
+pub trait ReadOrderDB {
+    fn read_order(&mut self, id: Uuid) -> Result<Order, Box<dyn Error>>;
+}
 
-    // Trading Vehicles
-    fn create_trading_vehicle(
-        &mut self,
-        symbol: &str,
-        isin: &str,
-        category: &TradingVehicleCategory,
-        broker: &str,
-    ) -> Result<TradingVehicle, Box<dyn Error>>;
-
-    fn read_all_trading_vehicles(&mut self) -> Result<Vec<TradingVehicle>, Box<dyn Error>>;
-
-    fn read_trading_vehicle(&mut self, id: Uuid) -> Result<TradingVehicle, Box<dyn Error>>;
-
-    // Orders
+pub trait WriteOrderDB {
     fn create_order(
         &mut self,
         trading_vehicle: &TradingVehicle,
@@ -120,6 +110,92 @@ pub trait Database {
         trade: &Trade,
     ) -> Result<Target, Box<dyn Error>>;
 
+    fn record_order_opening(&mut self, order: &Order) -> Result<Order, Box<dyn Error>>;
+    fn record_order_closing(&mut self, order: &Order) -> Result<Order, Box<dyn Error>>;
+}
+
+pub trait WritePriceDB {
+    fn new_price(&mut self, currency: &Currency, amount: Decimal) -> Result<Price, Box<dyn Error>>;
+}
+
+pub trait ReadPriceDB {
+    fn read_price(&mut self, id: Uuid) -> Result<Price, Box<dyn Error>>;
+}
+
+pub trait ReadTransactionDB {
+    fn all_account_transactions_excluding_taxes(
+        &mut self,
+        account_id: Uuid,
+        currency: &Currency,
+    ) -> Result<Vec<Transaction>, Box<dyn Error>>;
+
+    fn all_account_transactions_funding_in_open_trades(
+        &mut self,
+        account_id: Uuid,
+        currency: &Currency,
+    ) -> Result<Vec<Transaction>, Box<dyn Error>>;
+
+    fn read_all_account_transactions_taxes(
+        &mut self,
+        account_id: Uuid,
+        currency: &Currency,
+    ) -> Result<Vec<Transaction>, Box<dyn Error>>;
+
+    fn all_trade_transactions(&mut self, trade: &Trade)
+        -> Result<Vec<Transaction>, Box<dyn Error>>;
+
+    fn all_trade_funding_transactions(
+        &mut self,
+        trade: &Trade,
+    ) -> Result<Vec<Transaction>, Box<dyn Error>>;
+
+    fn all_trade_taxes_transactions(
+        &mut self,
+        trade: &Trade,
+    ) -> Result<Vec<Transaction>, Box<dyn Error>>;
+
+    fn all_transaction_excluding_current_month_and_taxes(
+        &mut self,
+        account_id: Uuid,
+        currency: &Currency,
+    ) -> Result<Vec<Transaction>, Box<dyn Error>>;
+
+    fn all_transactions(
+        &mut self,
+        account_id: Uuid,
+        currency: &Currency,
+    ) -> Result<Vec<Transaction>, Box<dyn Error>>;
+}
+
+pub trait WriteTransactionDB {
+    fn new_transaction(
+        &mut self,
+        account: &Account,
+        amount: Decimal,
+        currency: &Currency,
+        category: TransactionCategory,
+    ) -> Result<Transaction, Box<dyn Error>>;
+}
+
+// Trade DB
+
+pub trait ReadTradeDB {
+    fn all_open_trades_for_currency(
+        &mut self,
+        account_id: Uuid,
+        currency: &Currency,
+    ) -> Result<Vec<Trade>, Box<dyn Error>>;
+
+    fn all_approved_trades(&mut self, account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>>;
+
+    fn all_open_trades(&mut self, account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>>;
+
+    fn read_trade(&mut self, id: Uuid) -> Result<Trade, Box<dyn Error>>;
+
+    fn read_all_new_trades(&mut self, account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>>;
+}
+
+pub trait WriteTradeDB {
     fn create_trade(
         &mut self,
         category: &TradeCategory,
@@ -130,5 +206,58 @@ pub trait Database {
         account: &Account,
     ) -> Result<Trade, Box<dyn Error>>;
 
-    fn read_trade(&mut self, id: Uuid) -> Result<Trade, Box<dyn Error>>;
+    fn approve_trade(&mut self, trade: &Trade) -> Result<Trade, Box<dyn Error>>;
+    fn update_trade_opened_at(&mut self, trade: &Trade) -> Result<Trade, Box<dyn Error>>;
+    fn update_trade_closed_at(&mut self, trade: &Trade) -> Result<Trade, Box<dyn Error>>;
+}
+
+pub trait WriteTradeOverviewDB {
+    fn update_trade_overview(
+        &mut self,
+        trade: &Trade,
+        funding: Decimal,
+        capital_in_market: Decimal,
+        capital_out_market: Decimal,
+        taxed: Decimal,
+        total_performance: Decimal,
+    ) -> Result<TradeOverview, Box<dyn Error>>;
+}
+
+// Rule DB
+pub trait WriteRuleDB {
+    fn create_rule(
+        &mut self,
+        account: &Account,
+        name: &RuleName,
+        description: &str,
+        priority: u32,
+        level: &RuleLevel,
+    ) -> Result<Rule, Box<dyn Error>>;
+
+    fn make_rule_inactive(&mut self, rule: &Rule) -> Result<Rule, Box<dyn Error>>;
+}
+
+pub trait ReadRuleDB {
+    fn read_all_rules(&mut self, account_id: Uuid) -> Result<Vec<Rule>, Box<dyn Error>>;
+    fn rule_for_account(
+        &mut self,
+        account_id: Uuid,
+        name: &RuleName,
+    ) -> Result<Rule, Box<dyn Error>>;
+}
+
+// Trading Vehicle DB
+pub trait ReadTradingVehicleDB {
+    fn read_all_trading_vehicles(&mut self) -> Result<Vec<TradingVehicle>, Box<dyn Error>>;
+    fn read_trading_vehicle(&mut self, id: Uuid) -> Result<TradingVehicle, Box<dyn Error>>;
+}
+
+pub trait WriteTradingVehicleDB {
+    fn create_trading_vehicle(
+        &mut self,
+        symbol: &str,
+        isin: &str,
+        category: &TradingVehicleCategory,
+        broker: &str,
+    ) -> Result<TradingVehicle, Box<dyn Error>>;
 }

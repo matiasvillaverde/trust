@@ -6,7 +6,7 @@ use uuid::Uuid;
 ///
 /// Orders can be entries to the market or exits from the market.
 /// Orders are part of a trade entries and exits.
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub struct Order {
     pub id: Uuid,
 
@@ -32,7 +32,7 @@ pub struct Order {
     pub action: OrderAction,
 
     // Lifecycle fields
-    /// When the order was opened in an exchange
+    /// When the order was filled in an exchange
     pub opened_at: Option<NaiveDateTime>,
 
     /// When the order was closed in an exchange
@@ -40,7 +40,7 @@ pub struct Order {
 }
 
 /// The category of the order - market, limit, stop, etc. It depends on the exchange.
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone, Copy)]
 pub enum OrderCategory {
     /// Market order - buy or sell at the current market price. The order is executed immediately.
     Market,
@@ -53,7 +53,7 @@ pub enum OrderCategory {
 }
 
 /// The action of the order - buy, sell, short, etc.
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone, Copy)]
 pub enum OrderAction {
     /// Sell an asset that you own
     Sell,

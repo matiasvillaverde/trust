@@ -1,6 +1,7 @@
 use crate::currency::Currency;
 use crate::price::Price;
 use chrono::NaiveDateTime;
+use chrono::Utc;
 use uuid::Uuid;
 
 /// Account entity
@@ -53,7 +54,7 @@ pub struct AccountOverview {
     pub total_available: Price,
 
     /// Total amount of money that it must be paid out to the tax authorities
-    pub total_taxable: Price,
+    pub taxed: Price,
 
     /// The currency of the account
     pub currency: Currency,
@@ -64,5 +65,37 @@ pub struct AccountOverview {
 impl std::fmt::Display for Account {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "{} ({})", self.name, self.description)
+    }
+}
+
+impl Account {
+    pub fn new(name: &str, description: &str) -> Account {
+        let now = Utc::now().naive_utc();
+        Account {
+            id: Uuid::new_v4(),
+            created_at: now,
+            updated_at: now,
+            deleted_at: None,
+            name: name.to_string(),
+            description: description.to_string(),
+        }
+    }
+}
+
+impl AccountOverview {
+    pub fn new(account_id: Uuid, currency: &Currency) -> AccountOverview {
+        let now = Utc::now().naive_utc();
+        AccountOverview {
+            id: Uuid::new_v4(),
+            created_at: now,
+            updated_at: now,
+            deleted_at: None,
+            account_id,
+            total_balance: Price::default(),
+            total_in_trade: Price::default(),
+            total_available: Price::default(),
+            taxed: Price::default(),
+            currency: *currency,
+        }
     }
 }

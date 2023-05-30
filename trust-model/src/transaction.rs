@@ -1,9 +1,10 @@
-use crate::price::Price;
+use crate::{price::Price, Currency};
 use chrono::NaiveDateTime;
+use chrono::Utc;
 use uuid::Uuid;
 
 /// Transaction entity - represents a single transaction
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub struct Transaction {
     pub id: Uuid,
 
@@ -16,6 +17,9 @@ pub struct Transaction {
     /// The category of the transaction - deposit, withdrawal, input, output, etc.
     pub category: TransactionCategory,
 
+    /// The currency of the transaction
+    pub currency: Currency,
+
     /// The amount of the transaction
     pub price: Price,
 
@@ -24,7 +28,7 @@ pub struct Transaction {
 }
 
 /// TransactionCategory enum - represents the type of the transaction
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone, Copy)]
 pub enum TransactionCategory {
     /// Deposit - money deposited into the account
     Deposit,
@@ -32,22 +36,53 @@ pub enum TransactionCategory {
     /// Withdrawal - money withdrawn from the account
     Withdrawal,
 
-    /// Output - money transferred out of the account to a trade.
+    /// Money transferred out of the account to a trade.
     /// The Uuid is the trade ID.
-    Output(Uuid),
+    FundTrade(Uuid),
 
-    /// Input - money transferred into the account from a trade
+    /// Money transferred into the account from a trade
     /// The Uuid is the trade ID.
-    Input(Uuid),
+    PaymentFromTrade(Uuid),
 
-    /// InputTax - money transferred into the account from a trade.
+    /// Money transferred from a trade into the market.
+    /// The Uuid is the trade ID.
+    OpenTrade(Uuid),
+
+    /// Exit - money transferred from the market into a trade at a profit.
+    /// The Uuid is the trade ID.
+    CloseTarget(Uuid),
+
+    /// ExitStopLoss - money transferred from the market into a trade at a loss.
+    /// The Uuid is the trade ID.
+    CloseSafetyStop(Uuid),
+
+    /// Money transferred from the market into a trade at a loss lower than the safety stop.
+    /// This is a special case when the safety stop is triggered below the target due to slippage.
+    /// The Uuid is the trade ID.
+    CloseSafetyStopSlippage(Uuid),
+
+    /// Money transferred from a trade to the broker as a fee to open the trade.
+    /// The Uuid is the trade ID.
+    FeeOpen(Uuid),
+
+    /// Money transferred from a trade to the broker as a fee to close the trade.
+    FeeClose(Uuid),
+
+    /// Money transferred into the account from a trade.
     /// This is a special case of Input to not use the money that should be paid to the tax authorities.
     /// /// The Uuid is the trade ID that incurred into tax liability.
-    InputTax(Uuid),
+    PaymentTax(Uuid),
 
-    /// OutputTax - money transferred out of the account to pay taxes.
-    /// This is a special case of Output to use the money that should be paid to the tax authorities.
-    OutputTax,
+    /// Money transferred out of the account to pay taxes.
+    /// This is a special case of Withdrawal to use the money that should be paid to the tax authorities.
+    WithdrawalTax,
+
+    /// Money transferred out of a trade to pay earnings.
+    /// The Uuid is the trade ID.
+    PaymentEarnings(Uuid),
+
+    /// Money transferred out an account to enjoy earnings.
+    WithdrawalEarnings,
 }
 
 impl TransactionCategory {
@@ -55,10 +90,37 @@ impl TransactionCategory {
         match self {
             TransactionCategory::Deposit => None,
             TransactionCategory::Withdrawal => None,
-            TransactionCategory::Input(id) => Some(*id),
-            TransactionCategory::Output(id) => Some(*id),
-            TransactionCategory::InputTax(id) => Some(*id),
-            TransactionCategory::OutputTax => None,
+            TransactionCategory::PaymentFromTrade(id) => Some(*id),
+            TransactionCategory::FundTrade(id) => Some(*id),
+            TransactionCategory::OpenTrade(id) => Some(*id),
+            TransactionCategory::CloseTarget(id) => Some(*id),
+            TransactionCategory::CloseSafetyStop(id) => Some(*id),
+            TransactionCategory::CloseSafetyStopSlippage(id) => Some(*id),
+            TransactionCategory::FeeOpen(id) => Some(*id),
+            TransactionCategory::FeeClose(id) => Some(*id),
+            TransactionCategory::PaymentEarnings(id) => Some(*id),
+            TransactionCategory::WithdrawalEarnings => None,
+            TransactionCategory::PaymentTax(id) => Some(*id),
+            TransactionCategory::WithdrawalTax => None,
+        }
+    }
+
+    pub fn key(&self) -> &str {
+        match self {
+            TransactionCategory::Deposit => "deposit",
+            TransactionCategory::Withdrawal => "withdrawal",
+            TransactionCategory::PaymentFromTrade(_) => "payment_from_trade",
+            TransactionCategory::FundTrade(_) => "fund_trade",
+            TransactionCategory::OpenTrade(_) => "open_trade",
+            TransactionCategory::CloseTarget(_) => "close_target",
+            TransactionCategory::CloseSafetyStop(_) => "close_safety_stop",
+            TransactionCategory::CloseSafetyStopSlippage(_) => "close_safety_stop_slippage",
+            TransactionCategory::FeeOpen(_) => "fee_open",
+            TransactionCategory::FeeClose(_) => "fee_close",
+            TransactionCategory::PaymentEarnings(_) => "payment_earnings",
+            TransactionCategory::WithdrawalEarnings => "withdrawal_earnings",
+            TransactionCategory::PaymentTax(_) => "payment_tax",
+            TransactionCategory::WithdrawalTax => "withdrawal_tax",
         }
     }
 }
@@ -70,10 +132,41 @@ impl std::fmt::Display for TransactionCategory {
         match *self {
             TransactionCategory::Deposit => write!(f, "deposit"),
             TransactionCategory::Withdrawal => write!(f, "withdrawal"),
-            TransactionCategory::Input(_) => write!(f, "input"),
-            TransactionCategory::Output(_) => write!(f, "output"),
-            TransactionCategory::InputTax(_) => write!(f, "input_tax"),
-            TransactionCategory::OutputTax => write!(f, "output_tax"),
+            TransactionCategory::PaymentFromTrade(_) => write!(f, "payment_from_trade"),
+            TransactionCategory::FundTrade(_) => write!(f, "fund_trade"),
+            TransactionCategory::OpenTrade(_) => write!(f, "open_trade"),
+            TransactionCategory::CloseTarget(_) => write!(f, "close_target"),
+            TransactionCategory::CloseSafetyStop(_) => write!(f, "close_safety_stop"),
+            TransactionCategory::CloseSafetyStopSlippage(_) => {
+                write!(f, "close_safety_stop_slippage")
+            }
+            TransactionCategory::FeeOpen(_) => write!(f, "fee_open"),
+            TransactionCategory::FeeClose(_) => write!(f, "fee_close"),
+            TransactionCategory::PaymentEarnings(_) => write!(f, "payment_earnings"),
+            TransactionCategory::WithdrawalEarnings => write!(f, "withdrawal_earnings"),
+            TransactionCategory::PaymentTax(_) => write!(f, "payment_tax"),
+            TransactionCategory::WithdrawalTax => write!(f, "withdrawal_tax"),
+        }
+    }
+}
+
+impl Transaction {
+    pub fn new(
+        account_id: Uuid,
+        category: TransactionCategory,
+        currency: &Currency,
+        price: Price,
+    ) -> Transaction {
+        let now = Utc::now().naive_utc();
+        Transaction {
+            id: Uuid::new_v4(),
+            created_at: now,
+            updated_at: now,
+            deleted_at: None,
+            account_id,
+            category,
+            currency: *currency,
+            price,
         }
     }
 }
@@ -85,24 +178,46 @@ impl TransactionCategory {
         match s {
             "deposit" => Ok(TransactionCategory::Deposit),
             "withdrawal" => Ok(TransactionCategory::Withdrawal),
-            "output_tax" => Ok(TransactionCategory::OutputTax),
-            "input" => {
+            "payment_tax" => {
                 if let Some(trade_id) = trade_id {
-                    Ok(TransactionCategory::Input(trade_id))
+                    Ok(TransactionCategory::PaymentTax(trade_id))
                 } else {
                     Err(TransactionCategoryParseError)
                 }
             }
-            "output" => {
+            "payment_from_trade" => {
                 if let Some(trade_id) = trade_id {
-                    Ok(TransactionCategory::Output(trade_id))
+                    Ok(TransactionCategory::PaymentFromTrade(trade_id))
                 } else {
                     Err(TransactionCategoryParseError)
                 }
             }
-            "input_tax" => {
+            "fund_trade" => {
                 if let Some(trade_id) = trade_id {
-                    Ok(TransactionCategory::InputTax(trade_id))
+                    Ok(TransactionCategory::FundTrade(trade_id))
+                } else {
+                    Err(TransactionCategoryParseError)
+                }
+            }
+            "withdrawal_tax" => Ok(TransactionCategory::WithdrawalTax),
+            "open_trade" => {
+                if let Some(trade_id) = trade_id {
+                    Ok(TransactionCategory::OpenTrade(trade_id))
+                } else {
+                    Err(TransactionCategoryParseError)
+                }
+            }
+            "close_target" => {
+                if let Some(trade_id) = trade_id {
+                    Ok(TransactionCategory::CloseTarget(trade_id))
+                } else {
+                    Err(TransactionCategoryParseError)
+                }
+            }
+
+            "close_safety_stop" => {
+                if let Some(trade_id) = trade_id {
+                    Ok(TransactionCategory::CloseSafetyStop(trade_id))
                 } else {
                     Err(TransactionCategoryParseError)
                 }
@@ -117,26 +232,48 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_transaction_category_from_string() {
+    fn test_transaction_category_from_string_deposit() {
         let result = TransactionCategory::parse("deposit", None)
             .expect("Failed to parse TransactionCategory from string");
         assert_eq!(result, TransactionCategory::Deposit);
+    }
+
+    #[test]
+    fn test_transaction_category_from_string_withdrawal() {
         let result = TransactionCategory::parse("withdrawal", None)
             .expect("Failed to parse TransactionCategory from string");
         assert_eq!(result, TransactionCategory::Withdrawal);
-        let result = TransactionCategory::parse("output_tax", None)
+    }
+
+    #[test]
+    fn test_transaction_category_from_string_withdrawal_tax() {
+        let result = TransactionCategory::parse("withdrawal_tax", None)
             .expect("Failed to parse TransactionCategory from string");
-        assert_eq!(result, TransactionCategory::OutputTax);
+        assert_eq!(result, TransactionCategory::WithdrawalTax);
+    }
+
+    #[test]
+    fn test_transaction_category_from_string_payment_from_trade() {
         let id = Uuid::new_v4();
-        let result = TransactionCategory::parse("input", Some(id))
+        let result = TransactionCategory::parse("payment_from_trade", Some(id))
             .expect("Failed to parse TransactionCategory from string");
-        assert_eq!(result, TransactionCategory::Input(id));
-        let result = TransactionCategory::parse("output", Some(id))
+        assert_eq!(result, TransactionCategory::PaymentFromTrade(id));
+    }
+
+    #[test]
+    fn test_transaction_category_from_string_fund_trade() {
+        let id = Uuid::new_v4();
+        let result = TransactionCategory::parse("fund_trade", Some(id))
             .expect("Failed to parse TransactionCategory from string");
-        assert_eq!(result, TransactionCategory::Output(id));
-        let result = TransactionCategory::parse("input_tax", Some(id))
+        assert_eq!(result, TransactionCategory::FundTrade(id));
+    }
+
+    #[test]
+    fn test_transaction_category_from_string_payment_tax() {
+        let id = Uuid::new_v4();
+        let result = TransactionCategory::parse("payment_tax", Some(id))
             .expect("Failed to parse TransactionCategory from string");
-        assert_eq!(result, TransactionCategory::InputTax(id));
+        assert_eq!(result, TransactionCategory::PaymentTax(id));
     }
 
     #[test]

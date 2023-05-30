@@ -1,5 +1,6 @@
 use crate::dialogs::{
-    AccountDialogBuilder, AccountSearchDialog, TradeDialogBuilder, TradingVehicleDialogBuilder,
+    AccountDialogBuilder, AccountSearchDialog, EntryDialogBuilder, ExitDialogBuilder,
+    TradeDialogApproverBuilder, TradeDialogBuilder, TradingVehicleDialogBuilder,
     TradingVehicleSearchDialogBuilder, TransactionDialogBuilder,
 };
 use crate::dialogs::{RuleDialogBuilder, RuleRemoveDialogBuilder};
@@ -45,6 +46,10 @@ impl ArgDispatcher {
             },
             Some(("trade", sub_matches)) => match sub_matches.subcommand() {
                 Some(("create", _)) => self.create_trade(),
+                Some(("approve", _)) => self.create_approve(),
+                Some(("entry", _)) => self.create_entry(),
+                Some(("stop", _)) => self.create_stop(),
+                Some(("target", _)) => self.create_target(),
                 _ => unreachable!("No subcommand provided"),
             },
             Some((ext, sub_matches)) => {
@@ -153,6 +158,38 @@ impl ArgDispatcher {
             .target_price()
             .order_target_price()
             .build(&mut self.trust)
+            .display();
+    }
+
+    fn create_approve(&mut self) {
+        TradeDialogApproverBuilder::new()
+            .account(&mut self.trust)
+            .search(&mut self.trust)
+            .build(&mut self.trust)
+            .display();
+    }
+
+    fn create_entry(&mut self) {
+        EntryDialogBuilder::new()
+            .account(&mut self.trust)
+            .search(&mut self.trust)
+            .build(&mut self.trust)
+            .display();
+    }
+
+    fn create_stop(&mut self) {
+        ExitDialogBuilder::new()
+            .account(&mut self.trust)
+            .search(&mut self.trust)
+            .record_stop(&mut self.trust)
+            .display();
+    }
+
+    fn create_target(&mut self) {
+        ExitDialogBuilder::new()
+            .account(&mut self.trust)
+            .search(&mut self.trust)
+            .record_target(&mut self.trust)
             .display();
     }
 }

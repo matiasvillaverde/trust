@@ -20,10 +20,10 @@ impl TransactionValidator {
             TransactionCategory::Withdrawal => {
                 validate_withdraw(amount, currency, account_id, database)
             }
-            TransactionCategory::Input(_)
-            | TransactionCategory::Output(_)
-            | TransactionCategory::InputTax(_)
-            | TransactionCategory::OutputTax => Err(Box::new(TransactionValidationError {
+            TransactionCategory::FundTrade(trade_id) => {
+                validate_trade(amount, currency, account_id, trade_id, database)
+            }
+            _default => Err(Box::new(TransactionValidationError {
                 code: TransactionValidationErrorCode::NotAuthorized,
                 message: "Manually creating transaction is not allowed".to_string(),
             })),
@@ -85,14 +85,69 @@ fn validate_withdraw(
     }
 }
 
+fn validate_trade(
+    amount: Decimal,
+    currency: &Currency,
+    account_id: Uuid,
+    trade_id: Uuid,
+    database: &mut dyn Database,
+) -> TransactionValidationResult {
+    if amount.is_sign_negative() | amount.is_zero() {
+        Err(Box::new(TransactionValidationError {
+            code: TransactionValidationErrorCode::AmountOfWithdrawalMustBePositive,
+            message: "Amount of withdrawal must be positive".to_string(),
+        }))
+    } else {
+        let overview = database.read_account_overview_currency(account_id, currency);
+        match overview {
+            Ok(overview) => {
+                if overview.total_available.amount >= amount {
+
+                    let trade = database.read_trade(trade_id);
+
+                    // Validate that the approved_at in the trade is not null (it is approved)
+                    match trade {
+                        Ok(trade) => {
+                            if trade.approved_at.is_some() {
+                                Ok(())
+                            } else {
+                                Err(Box::new(TransactionValidationError {
+                                    code: TransactionValidationErrorCode::NotAuthorized,
+                                    message: "Trade is not approved".to_string(),
+                                }))
+                            }
+                        },
+                        Err(_) => Err(Box::new(TransactionValidationError {
+                            code: TransactionValidationErrorCode::TradeNotFound,
+                            message: "Trade not found".to_string(),
+                        })),
+                    }
+                } else {
+                    Err(Box::new(TransactionValidationError {
+                        code: TransactionValidationErrorCode::TradeAmountIsGreaterThanAvailableAmount,
+                        message: "Trade amount is greater than available amount".to_string(),
+                    }))
+                }
+            },
+            Err(_) => Err(Box::new(TransactionValidationError {
+                code: TransactionValidationErrorCode::OverviewForTradeNotFound,
+                message: "Overview not found. It can be that the user never created a deposit on this currency".to_string(),
+            })),
+        }
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub enum TransactionValidationErrorCode {
     NotAuthorized,
     AmountOfWithdrawalMustBePositive,
     AmountOfDepositMustBePositive,
     WithdrawalAmountIsGreaterThanAvailableAmount,
+    TradeAmountIsGreaterThanAvailableAmount,
     OverviewNotFound,
     OverviewForWithdrawNotFound,
+    OverviewForTradeNotFound,
+    TradeNotFound,
 }
 
 #[derive(Debug)]
