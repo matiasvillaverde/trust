@@ -13,7 +13,7 @@ impl OverviewWorker {
         let total_available =
             TransactionsCalculator::capital_available(account.id, currency, database)?;
         let total_in_trade =
-            TransactionsCalculator::capital_in_trades(account.id, currency, database)?;
+            TransactionsCalculator::capital_in_trades(account.id, currency, database)?; // TODO: there is a bug here
         let taxed = TransactionsCalculator::capital_taxable(account.id, currency, database)?;
         let total_balance = TransactionsCalculator::total_balance(account.id, currency, database)?;
 
@@ -35,7 +35,7 @@ impl OverviewWorker {
         let capital_in_market = TransactionsCalculator::capital_in_market(trade, database)?;
         let capital_out_market = TransactionsCalculator::capital_out_of_market(trade, database)?;
         let taxed = TransactionsCalculator::taxes(trade, database)?;
-        let total_performance = funding - capital_in_market + capital_in_market - taxed;
+        let total_performance = funding - capital_out_market - taxed; // TODO: There is a bug here.
 
         database.update_trade_overview(
             trade,

@@ -25,7 +25,10 @@ impl TransactionsCalculator {
                 TransactionCategory::PaymentFromTrade(_) | TransactionCategory::Deposit => {
                     transaction.price.amount
                 }
-                default => panic!("Unexpected transaction category: {}", default),
+                default => panic!(
+                    "capital_available: Unexpected transaction category: {}",
+                    default
+                ),
             })
             .sum();
 
@@ -80,7 +83,7 @@ impl TransactionsCalculator {
             .map(|transaction| match transaction.category {
                 TransactionCategory::FundTrade(_) => transaction.price.amount,
                 TransactionCategory::PaymentFromTrade(_) => -transaction.price.amount,
-                default => panic!("Unexpected transaction category: {}", default),
+                _ => dec!(0),
             })
             .sum();
 
@@ -101,7 +104,10 @@ impl TransactionsCalculator {
             .map(|transaction| match transaction.category {
                 TransactionCategory::PaymentTax(_) => transaction.price.amount,
                 TransactionCategory::WithdrawalTax => -transaction.price.amount,
-                default => panic!("Unexpected transaction category: {}", default),
+                default => panic!(
+                    "capital_taxable: Unexpected transaction category: {}",
+                    default
+                ),
             })
             .sum();
 
@@ -149,7 +155,10 @@ impl TransactionsCalculator {
                 TransactionCategory::Withdrawal => {
                     total_beginning_of_month -= transaction.price.amount
                 }
-                default => panic!("Unexpected transaction category: {}", default),
+                default => panic!(
+                    "capital_at_beginning_of_month: Unexpected transaction category: {}",
+                    default
+                ),
             }
         }
         Ok(total_beginning_of_month)
@@ -189,7 +198,10 @@ impl TransactionsCalculator {
                     // This is money that we have used to exit the market at a loss - slippage.
                     total_trade += tx.price.amount
                 }
-                default => panic!("Unexpected transaction category: {}", default),
+                default => panic!(
+                    "capital_out_of_market: Unexpected transaction category: {}",
+                    default
+                ),
             }
         }
 
@@ -216,7 +228,10 @@ impl TransactionsCalculator {
                 | TransactionCategory::CloseSafetyStopSlippage(_) => {
                     total_trade = Decimal::from(0) // We have exited the market, so we have no money in the market.
                 }
-                default => panic!("Unexpected transaction category: {}", default),
+                default => panic!(
+                    "capital_in_market: Unexpected transaction category: {}",
+                    default
+                ),
             }
         }
 
@@ -235,7 +250,7 @@ impl TransactionsCalculator {
                     // This is money that we have used to enter the market.
                     total_trade += tx.price.amount
                 }
-                default => panic!("Unexpected transaction category: {}", default),
+                default => panic!("funding: Unexpected transaction category: {}", default),
             }
         }
 
@@ -254,7 +269,7 @@ impl TransactionsCalculator {
                     // This is money that we have used to enter the market.
                     total_trade += tx.price.amount
                 }
-                default => panic!("Unexpected transaction category: {}", default),
+                default => panic!("taxes: Unexpected transaction category: {}", default),
             }
         }
 
