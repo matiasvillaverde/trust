@@ -29,8 +29,15 @@ impl TransactionWorker {
             TransactionCategory::Withdrawal => {
                 return Self::withdraw(database, amount, currency, account_id);
             }
-            _default => {
-                unimplemented!("Withdrawal is not implemented yet");
+            TransactionCategory::WithdrawalTax => {
+                unimplemented!("WithdrawalTax is not implemented yet")
+            }
+            TransactionCategory::WithdrawalEarnings => {
+                unimplemented!("WithdrawalEarnings is not implemented yet")
+            }
+            default => {
+                let message = format!("Manually creating transaction category {:?} is not allowed. Only Withdrawals and deposits are allowed", default);
+                Err(message.into())
             }
         }
     }

@@ -189,7 +189,7 @@ impl Trust {
         self.database.all_approved_trades(account_id)
     }
 
-    pub fn search_all_trades_in_market(
+    pub fn search_open_trades(
         &mut self,
         account_id: Uuid,
     ) -> Result<Vec<Trade>, Box<dyn std::error::Error>> {

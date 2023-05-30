@@ -89,7 +89,7 @@ impl ExitDialogBuilder {
     }
 
     pub fn search(mut self, trust: &mut Trust) -> Self {
-        let trades = trust.search_all_trades_in_market(self.account.clone().unwrap().id);
+        let trades = trust.search_open_trades(self.account.clone().unwrap().id);
         match trades {
             Ok(trades) => {
                 if trades.is_empty() {
