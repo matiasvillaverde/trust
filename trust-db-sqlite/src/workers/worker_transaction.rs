@@ -86,6 +86,21 @@ impl WorkerTransaction {
             currency,
             TransactionCategory::Withdrawal,
         )?;
+
+        let tx_fee_open = WorkerTransaction::read_all_account_transactions_for_category(
+            connection,
+            account_id,
+            currency,
+            TransactionCategory::FeeOpen(Uuid::new_v4()),
+        )?;
+
+        let tx_fee_close = WorkerTransaction::read_all_account_transactions_for_category(
+            connection,
+            account_id,
+            currency,
+            TransactionCategory::FeeClose(Uuid::new_v4()),
+        )?;
+
         let tx_output = WorkerTransaction::read_all_account_transactions_for_category(
             connection,
             account_id,
@@ -101,6 +116,8 @@ impl WorkerTransaction {
         Ok(tx_deposit
             .into_iter()
             .chain(tx_withdrawal.into_iter())
+            .chain(tx_fee_open.into_iter())
+            .chain(tx_fee_close.into_iter())
             .chain(tx_output.into_iter())
             .chain(tx_input.into_iter())
             .collect())

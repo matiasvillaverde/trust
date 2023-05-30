@@ -33,7 +33,7 @@ impl TradeCommandBuilder {
 
     pub fn entry_trade(mut self) -> Self {
         self.subcommands.push(
-            Command::new("entry").about("Execute manually the entry to the market of a trade"),
+            Command::new("open").about("Execute manually the opening of a trade. Meaning that the trade is now open and the entry order is placed."),
         );
         self
     }

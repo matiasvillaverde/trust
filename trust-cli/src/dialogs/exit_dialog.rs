@@ -1,6 +1,6 @@
 use crate::dialogs::AccountSearchDialog;
 use crate::views::{AccountOverviewView, TradeOverviewView, TradeView, TransactionView};
-use dialoguer::{theme::ColorfulTheme, FuzzySelect};
+use dialoguer::{theme::ColorfulTheme, FuzzySelect, Input};
 use rust_decimal::Decimal;
 use std::error::Error;
 use trust_core::Trust;
@@ -109,6 +109,12 @@ impl ExitDialogBuilder {
             Err(error) => self.result = Some(Err(error)),
         }
 
+        self
+    }
+
+    pub fn fee(mut self) -> Self {
+        let fee_price = Input::new().with_prompt("Fee price").interact().unwrap(); // TODO: Validate
+        self.fee = Some(fee_price);
         self
     }
 }
