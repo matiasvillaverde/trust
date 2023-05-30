@@ -33,7 +33,6 @@ impl ExitDialogBuilder {
             .expect("No trade found, did you forget to select one?");
         let fee = self
             .fee
-            .clone()
             .expect("No fee found, did you forget to specify a fee?");
         self.result = Some(trust.stop_trade(&trade, fee));
         self
@@ -46,7 +45,6 @@ impl ExitDialogBuilder {
             .expect("No trade found, did you forget to select one?");
         let fee = self
             .fee
-            .clone()
             .expect("No fee found, did you forget to specify a fee?");
         self.result = Some(trust.target_acquired(&trade, fee));
         self
