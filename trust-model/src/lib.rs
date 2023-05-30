@@ -17,7 +17,7 @@ pub use currency::Currency;
 pub use database::{
     Database, ReadAccountDB, ReadAccountOverviewDB, ReadOrderDB, ReadPriceDB, ReadRuleDB,
     ReadTradeDB, ReadTradingVehicleDB, ReadTransactionDB, WriteAccountOverviewDB, WriteOrderDB,
-    WritePriceDB, WriteRuleDB, WriteTradeDB, WriteTradingVehicleDB, WriteTransactionDB,
+    WritePriceDB, WriteRuleDB, WriteTradeDB, WriteTradingVehicleDB, WriteTransactionDB, DatabaseFactory, WriteAccountDB
 };
 pub use order::{Order, OrderAction, OrderCategory};
 pub use price::Price;

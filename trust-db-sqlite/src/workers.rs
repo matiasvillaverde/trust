@@ -17,3 +17,4 @@ pub use worker_target::WorkerTarget;
 pub use worker_trade::WorkerTrade;
 pub use worker_trading_vehicle::WorkerTradingVehicle;
 pub use worker_transaction::WorkerTransaction;
+pub use worker_account::WriteAccountDBImpl;

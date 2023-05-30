@@ -47,6 +47,11 @@ pub trait Database:
 {
 }
 
+pub trait DatabaseFactory {
+    fn read_account_db(&self) -> Box<dyn ReadAccountDB>;
+    fn write_account_db(&self) -> Box<dyn WriteAccountDB>;
+}
+
 pub trait ReadAccountDB {
     fn read_account(&mut self, name: &str) -> Result<Account, Box<dyn Error>>;
     fn read_account_id(&mut self, id: Uuid) -> Result<Account, Box<dyn Error>>;

@@ -3,13 +3,51 @@ use chrono::{NaiveDateTime, Utc};
 use diesel::prelude::*;
 use std::error::Error;
 use tracing::error;
-use trust_model::Account;
+use trust_model::{Account, WriteAccountDB };
 use uuid::Uuid;
+use std::sync::Arc;
+
 
 /// WorkerAccount is a struct that contains methods for interacting with the
 /// accounts table in the database.
 /// The methods in this struct are used by the worker to create and read
 /// accounts.
+/// 
+
+
+pub struct WriteAccountDBImpl {
+    connection: Arc<SqliteConnection>,
+}
+
+impl WriteAccountDB for WriteAccountDBImpl {
+    fn new_account(&mut self, name: &str, description: &str) -> Result<Account, Box<dyn Error>> {
+        let uuid = Uuid::new_v4().to_string();
+        let now = Utc::now().naive_utc();
+
+        let new_account = NewAccount {
+            id: uuid,
+            created_at: now,
+            updated_at: now,
+            deleted_at: None,
+            name: name.to_lowercase(),
+            description: description.to_lowercase(),
+        };
+
+        let connection: &mut SqliteConnection = Arc::get_mut(&mut self.connection).unwrap();
+
+        let account = diesel::insert_into(accounts::table)
+            .values(&new_account)
+            .get_result::<AccountSQLite>(connection)
+            .map(|account| account.domain_model())
+            .map_err(|error| {
+                error!("Error creating account: {:?}", error);
+                error
+            })?;
+        Ok(account)
+    }
+}
+
+
 pub struct WorkerAccount;
 
 impl WorkerAccount {
