@@ -12,6 +12,8 @@ use crate::{
 
 use rust_decimal_macros::dec;
 
+use super::OverviewWorker;
+
 pub struct TransactionWorker;
 
 impl TransactionWorker {
@@ -57,15 +59,8 @@ impl TransactionWorker {
                     currency,
                     TransactionCategory::Deposit,
                 )?;
-                let overview = database.read_account_overview_currency(account.id, currency)?;
-                let total_available = overview.total_available.amount + amount;
-                let total_balance = overview.total_balance.amount + amount;
-                let updated_overview = database.update_account_overview(
-                    &account,
-                    currency,
-                    total_available,
-                    total_balance,
-                )?;
+                let updated_overview =
+                    OverviewWorker::recalculate_account_overview(database, &account, currency)?;
                 Ok((transaction, updated_overview))
             }
             Err(error) => {
@@ -77,9 +72,9 @@ impl TransactionWorker {
                         TransactionCategory::Deposit,
                     )?;
                     database.new_account_overview(&account, currency)?;
-                    let overview =
-                        database.update_account_overview(&account, currency, amount, amount)?;
-                    Ok((transaction, overview))
+                    let updated_overview =
+                        OverviewWorker::recalculate_account_overview(database, &account, currency)?;
+                    Ok((transaction, updated_overview))
                 } else {
                     Err(error)
                 }
@@ -109,22 +104,16 @@ impl TransactionWorker {
                     currency,
                     TransactionCategory::Withdrawal,
                 )?;
-                let overview = database.read_account_overview_currency(account.id, currency)?;
-                let total_available = overview.total_available.amount - amount;
-                let total_balance = overview.total_balance.amount - amount;
-                let updated_overview = database.update_account_overview(
-                    &account,
-                    currency,
-                    total_available,
-                    total_balance,
-                )?;
+
+                let updated_overview =
+                    OverviewWorker::recalculate_account_overview(database, &account, currency)?;
                 Ok((transaction, updated_overview))
             }
             Err(error) => Err(error),
         }
     }
 
-    pub fn transfer_to_trade(
+    pub fn transfer_to_fund_trade(
         trade: &Trade,
         database: &mut dyn Database,
     ) -> Result<(Transaction, AccountOverview), Box<dyn Error>> {
@@ -142,21 +131,19 @@ impl TransactionWorker {
             database,
         ) {
             Ok(_) => {
-                let updated_overview = database.update_account_overview_trade(
-                    &account,
-                    &trade.currency,
-                    total_available,
-                    total_in_trade,
-                )?;
-
-                _ = database.update_trade_overview(trade, trade_total);
-
                 let transaction = database.new_transaction(
                     &account,
                     trade_total,
                     &trade.currency,
                     TransactionCategory::FundTrade(trade.id),
                 )?;
+
+                let updated_overview = OverviewWorker::recalculate_account_overview(
+                    database,
+                    &account,
+                    &trade.currency,
+                )?;
+                _ = database.update_trade_overview(trade, trade_total);
 
                 Ok((transaction, updated_overview))
             }
@@ -258,28 +245,9 @@ impl TransactionWorker {
         )?;
 
         // Update account overview and trade overview.
-        let overview = database.read_account_overview_currency(account.id, &trade.currency)?;
+        let account_overview: AccountOverview =
+            OverviewWorker::recalculate_account_overview(database, &account, &trade.currency)?; // TODO: update Trade Overview
 
-        let total_available_in_account = TransactionsCalculator::calculate_total_capital_available(
-            trade.account_id,
-            &trade.currency,
-            database,
-        )?;
-
-        let new_total_balance = overview.total_balance.amount + total_to_withdrawal; // TODO: use transactions to calculate total balance
-        let new_total_available = total_available_in_account + total_to_withdrawal;
-        let total_in_trade = overview.total_in_trade.amount - total_to_withdrawal; // TODO: use transactions to calculate total in trade
-        let new_total_taxable = dec!(0); // TODO: Calculate taxes
-
-        let updated_overview = database.update_account_overview_trade_out(
-            &account,
-            &trade.currency,
-            new_total_balance,
-            total_in_trade,
-            new_total_available,
-            new_total_taxable,
-        )?;
-
-        Ok((transaction, updated_overview))
+        Ok((transaction, account_overview))
     }
 }

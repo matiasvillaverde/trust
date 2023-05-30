@@ -12,7 +12,8 @@ impl TransactionsCalculator {
         database: &mut dyn Database,
     ) -> Result<Decimal, Box<dyn std::error::Error>> {
         // Get all transactions
-        let transactions = database.all_transactions_excluding_taxes(account_id, currency)?;
+        let transactions =
+            database.all_account_transactions_excluding_taxes(account_id, currency)?;
 
         // Sum all transactions
         let total_available: Decimal = transactions
@@ -24,6 +25,49 @@ impl TransactionsCalculator {
                 TransactionCategory::PaymentFromTrade(_) | TransactionCategory::Deposit => {
                     transaction.price.amount
                 }
+                default => panic!("Unexpected transaction category: {}", default),
+            })
+            .sum();
+
+        Ok(total_available)
+    }
+
+    pub fn calculate_total_capital_in_trade(
+        account_id: Uuid,
+        currency: &Currency,
+        database: &mut dyn Database,
+    ) -> Result<Decimal, Box<dyn std::error::Error>> {
+        // Get all transactions
+        let transactions =
+            database.all_account_transactions_excluding_taxes(account_id, currency)?;
+
+        // Sum all transactions
+        let total_available: Decimal = transactions
+            .iter()
+            .map(|transaction| match transaction.category {
+                TransactionCategory::FundTrade(_) => transaction.price.amount,
+                TransactionCategory::PaymentFromTrade(_) => -transaction.price.amount,
+                default => panic!("Unexpected transaction category: {}", default),
+            })
+            .sum();
+
+        Ok(total_available)
+    }
+
+    pub fn calculate_total_taxable(
+        account_id: Uuid,
+        currency: &Currency,
+        database: &mut dyn Database,
+    ) -> Result<Decimal, Box<dyn std::error::Error>> {
+        // Get all transactions
+        let transactions = database.read_all_account_transactions_taxes(account_id, currency)?;
+
+        // Sum all transactions
+        let total_available: Decimal = transactions
+            .iter()
+            .map(|transaction| match transaction.category {
+                TransactionCategory::PaymentTax(_) => transaction.price.amount,
+                TransactionCategory::WithdrawalTax => -transaction.price.amount,
                 default => panic!("Unexpected transaction category: {}", default),
             })
             .sum();
@@ -77,6 +121,8 @@ impl TransactionsCalculator {
         }
         Ok(total_beginning_of_month)
     }
+
+    // Trade transactions
 
     pub fn calculate_total_out_of_market_from(
         trade: &Trade,

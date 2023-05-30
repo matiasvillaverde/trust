@@ -240,7 +240,7 @@ impl Trust {
 
         // 3. Create transaction to fund the trade
         let (transaction, account_overview) =
-            TransactionWorker::transfer_to_trade(trade, &mut *self.database)?;
+            TransactionWorker::transfer_to_fund_trade(trade, &mut *self.database)?;
         Ok((trade.clone(), transaction, account_overview))
     }
 }

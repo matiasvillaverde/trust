@@ -149,28 +149,6 @@ impl WriteAccountOverviewDB for SqliteDatabase {
         &mut self,
         account: &Account,
         currency: &Currency,
-        total_balance: rust_decimal::Decimal,
-        total_available: rust_decimal::Decimal,
-    ) -> Result<AccountOverview, Box<dyn Error>> {
-        let overview =
-            WorkerAccountOverview::read_for_currency(&mut self.connection, account.id, currency)?;
-        let updated_overview = WorkerAccountOverview::update_total_available(
-            &mut self.connection,
-            overview,
-            total_available,
-        )?;
-        let updated_overview = WorkerAccountOverview::update_total_balance(
-            &mut self.connection,
-            updated_overview,
-            total_balance,
-        )?;
-        Ok(updated_overview)
-    }
-
-    fn update_account_overview_trade_out(
-        &mut self,
-        account: &Account,
-        currency: &Currency,
         total_balance: Decimal,
         total_in_trade: Decimal,
         total_available: Decimal,
@@ -203,30 +181,6 @@ impl WriteAccountOverviewDB for SqliteDatabase {
         )?;
 
         Ok(updated_overview)
-    }
-
-    fn update_account_overview_trade(
-        &mut self,
-        account: &Account,
-        currency: &Currency,
-        total_available: Decimal,
-        total_in_trade: Decimal,
-    ) -> Result<AccountOverview, Box<dyn Error>> {
-        let overview =
-            WorkerAccountOverview::read_for_currency(&mut self.connection, account.id, currency)?;
-        let updated_overview = WorkerAccountOverview::update_total_available(
-            &mut self.connection,
-            overview,
-            total_available,
-        )?;
-
-        let updated_total_in_trade = WorkerAccountOverview::update_total_in_trade(
-            &mut self.connection,
-            updated_overview,
-            total_in_trade,
-        )?;
-
-        Ok(updated_total_in_trade)
     }
 }
 
@@ -265,12 +219,24 @@ impl WriteTransactionDB for SqliteDatabase {
 }
 
 impl ReadTransactionDB for SqliteDatabase {
-    fn all_transactions_excluding_taxes(
+    fn all_account_transactions_excluding_taxes(
         &mut self,
         account_id: Uuid,
         currency: &Currency,
     ) -> Result<Vec<Transaction>, Box<dyn Error>> {
         WorkerTransaction::read_all_trade_transactions_excluding_taxes(
+            &mut self.connection,
+            account_id,
+            currency,
+        )
+    }
+
+    fn read_all_account_transactions_taxes(
+        &mut self,
+        account_id: Uuid,
+        currency: &Currency,
+    ) -> Result<Vec<Transaction>, Box<dyn Error>> {
+        WorkerTransaction::read_all_account_transactions_taxes(
             &mut self.connection,
             account_id,
             currency,
@@ -294,6 +260,14 @@ impl ReadTransactionDB for SqliteDatabase {
             account_id,
             currency,
         )
+    }
+
+    fn all_transactions(
+        &mut self,
+        account_id: Uuid,
+        currency: &Currency,
+    ) -> Result<Vec<Transaction>, Box<dyn Error>> {
+        WorkerTransaction::read_all_transactions(&mut self.connection, account_id, currency)
     }
 }
 

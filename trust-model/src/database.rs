@@ -81,26 +81,10 @@ pub trait WriteAccountOverviewDB {
         &mut self,
         account: &Account,
         currency: &Currency,
-        total_available: Decimal,
-        total_balance: Decimal,
-    ) -> Result<AccountOverview, Box<dyn Error>>;
-
-    fn update_account_overview_trade_out(
-        &mut self,
-        account: &Account,
-        currency: &Currency,
         total_balance: Decimal,
         total_in_trade: Decimal,
         total_available: Decimal,
         total_taxable: Decimal,
-    ) -> Result<AccountOverview, Box<dyn Error>>;
-
-    fn update_account_overview_trade(
-        &mut self,
-        account: &Account,
-        currency: &Currency,
-        total_available: Decimal,
-        total_in_trade: Decimal,
     ) -> Result<AccountOverview, Box<dyn Error>>;
 }
 
@@ -139,7 +123,13 @@ pub trait ReadPriceDB {
 }
 
 pub trait ReadTransactionDB {
-    fn all_transactions_excluding_taxes(
+    fn all_account_transactions_excluding_taxes(
+        &mut self,
+        account_id: Uuid,
+        currency: &Currency,
+    ) -> Result<Vec<Transaction>, Box<dyn Error>>;
+
+    fn read_all_account_transactions_taxes(
         &mut self,
         account_id: Uuid,
         currency: &Currency,
@@ -149,6 +139,12 @@ pub trait ReadTransactionDB {
         -> Result<Vec<Transaction>, Box<dyn Error>>;
 
     fn all_transaction_excluding_current_month_and_taxes(
+        &mut self,
+        account_id: Uuid,
+        currency: &Currency,
+    ) -> Result<Vec<Transaction>, Box<dyn Error>>;
+
+    fn all_transactions(
         &mut self,
         account_id: Uuid,
         currency: &Currency,
