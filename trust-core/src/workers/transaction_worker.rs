@@ -168,6 +168,28 @@ impl TransactionWorker {
         Ok((transaction, trade_overview))
     }
 
+    pub fn transfer_fee(
+        fee: Decimal,
+        trade: &Trade,
+        database: &mut dyn Database,
+    ) -> Result<(Transaction, AccountOverview), Box<dyn Error>> {
+        // TODO: Validate that account has enough funds to pay a fee.
+        let account = database.read_account_id(trade.account_id)?;
+
+        let transaction = database.new_transaction(
+            &account,
+            fee,
+            &trade.currency,
+            TransactionCategory::FeeOpen(trade.id),
+        )?;
+
+        // Update account overview
+        let overview =
+            OverviewWorker::update_account_overview(database, &account, &trade.currency)?;
+
+        Ok((transaction, overview))
+    }
+
     pub fn transfer_to_close_target(
         trade: &Trade,
         database: &mut dyn Database,

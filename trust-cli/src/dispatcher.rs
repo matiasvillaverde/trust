@@ -173,6 +173,7 @@ impl ArgDispatcher {
         EntryDialogBuilder::new()
             .account(&mut self.trust)
             .search(&mut self.trust)
+            .fee()
             .build(&mut self.trust)
             .display();
     }

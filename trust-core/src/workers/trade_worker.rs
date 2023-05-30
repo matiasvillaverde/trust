@@ -1,4 +1,5 @@
 use crate::{OrderWorker, TransactionWorker};
+use rust_decimal::Decimal;
 use std::error::Error;
 use trust_model::{database, Trade, Transaction};
 
@@ -7,8 +8,16 @@ pub struct TradeWorker;
 impl TradeWorker {
     pub fn update_trade_entry_executed(
         trade: &Trade,
+        fee: Decimal,
         database: &mut dyn database::Database,
     ) -> Result<Trade, Box<dyn Error>> {
+        // Create Transaction to pay for fees
+        if fee.is_sign_positive() {
+            TransactionWorker::transfer_fee(fee, trade, database)?;
+        } else {
+            panic!("Fee cannot be negative");
+        }
+
         // Create Transaction to transfer funds to the market
         TransactionWorker::transfer_to_open_trade(trade, database)?;
 

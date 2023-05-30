@@ -196,8 +196,12 @@ impl Trust {
         self.database.all_open_trades(account_id)
     }
 
-    pub fn record_entry(&mut self, trade: &Trade) -> Result<Trade, Box<dyn std::error::Error>> {
-        TradeWorker::update_trade_entry_executed(trade, self.database.as_mut())
+    pub fn record_entry(
+        &mut self,
+        trade: &Trade,
+        fee: Decimal,
+    ) -> Result<Trade, Box<dyn std::error::Error>> {
+        TradeWorker::update_trade_entry_executed(trade, fee, self.database.as_mut())
     }
 
     pub fn record_stop(

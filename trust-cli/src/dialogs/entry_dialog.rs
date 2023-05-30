@@ -1,6 +1,7 @@
 use crate::dialogs::AccountSearchDialog;
 use crate::views::{TradeOverviewView, TradeView};
-use dialoguer::{theme::ColorfulTheme, FuzzySelect};
+use dialoguer::{theme::ColorfulTheme, FuzzySelect, Input};
+use rust_decimal::Decimal;
 use std::error::Error;
 use trust_core::Trust;
 use trust_model::{Account, Trade};
@@ -10,6 +11,7 @@ type EntryDialogBuilderResult = Option<Result<Trade, Box<dyn Error>>>;
 pub struct EntryDialogBuilder {
     account: Option<Account>,
     trade: Option<Trade>,
+    fee: Option<Decimal>,
     result: EntryDialogBuilderResult,
 }
 
@@ -18,13 +20,21 @@ impl EntryDialogBuilder {
         EntryDialogBuilder {
             account: None,
             trade: None,
+            fee: None,
             result: None,
         }
     }
 
     pub fn build(mut self, trust: &mut Trust) -> EntryDialogBuilder {
-        let trade: Trade = self.trade.clone().unwrap();
-        self.result = Some(trust.record_entry(&trade));
+        let trade: Trade = self
+            .trade
+            .clone()
+            .expect("No trade found, did you forget to select one?");
+        let fee = self
+            .fee
+            .clone()
+            .expect("No fee found, did you forget to specify a fee?");
+        self.result = Some(trust.record_entry(&trade, fee));
         self
     }
 
@@ -49,6 +59,12 @@ impl EntryDialogBuilder {
             Ok(account) => self.account = Some(account),
             Err(error) => println!("Error searching account: {:?}", error),
         }
+        self
+    }
+
+    pub fn fee(mut self) -> Self {
+        let fee_price = Input::new().with_prompt("Fee price").interact().unwrap(); // TODO: Validate
+        self.fee = Some(fee_price);
         self
     }
 
