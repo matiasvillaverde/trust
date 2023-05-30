@@ -141,7 +141,7 @@ impl TradingVehicleSearchDialogBuilder {
     }
 
     pub fn search(mut self, trust: &mut Trust) -> Self {
-        let trading_vehicles = trust.read_all_trading_vehicles();
+        let trading_vehicles = trust.search_trading_vehicles();
         match trading_vehicles {
             Ok(tvs) => {
                 if tvs.is_empty() {

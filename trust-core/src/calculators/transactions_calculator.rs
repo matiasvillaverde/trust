@@ -19,14 +19,14 @@ impl TransactionsCalculator {
         let total_available: Decimal = transactions
             .iter()
             .map(|transaction| match transaction.category {
-                TransactionCategory::FundTrade(_) | TransactionCategory::Withdrawal => {
+                TransactionCategory::FundTrade(_) | TransactionCategory::Withdrawal | TransactionCategory::FeeOpen(_) | TransactionCategory::FeeClose(_) => {
                     -transaction.price.amount
                 }
                 TransactionCategory::PaymentFromTrade(_) | TransactionCategory::Deposit => {
                     transaction.price.amount
                 }
                 default => panic!(
-                    "capital_available: Unexpected transaction category: {}",
+                    "capital_available: does not know how to calculate transaction with category: {}",
                     default
                 ),
             })
@@ -46,7 +46,9 @@ impl TransactionsCalculator {
             match tx.category {
                 TransactionCategory::Withdrawal
                 | TransactionCategory::WithdrawalTax
-                | TransactionCategory::WithdrawalEarnings => {
+                | TransactionCategory::WithdrawalEarnings
+                | TransactionCategory::FeeOpen(_)
+                | TransactionCategory::FeeClose(_) => {
                     total_balance -= tx.price.amount;
                 }
                 TransactionCategory::Deposit => {
@@ -108,7 +110,7 @@ impl TransactionsCalculator {
                 TransactionCategory::PaymentTax(_) => transaction.price.amount,
                 TransactionCategory::WithdrawalTax => -transaction.price.amount,
                 default => panic!(
-                    "capital_taxable: Unexpected transaction category: {}",
+                    "capital_taxable: does not know how to calculate transaction with category: {}",
                     default
                 ),
             })
@@ -146,7 +148,10 @@ impl TransactionsCalculator {
             database.all_transaction_excluding_current_month_and_taxes(account_id, currency)?
         {
             match transaction.category {
-                TransactionCategory::FundTrade(_) => {
+                TransactionCategory::FundTrade(_)
+                | TransactionCategory::Withdrawal
+                | TransactionCategory::FeeOpen(_)
+                | TransactionCategory::FeeClose(_) => {
                     total_beginning_of_month -= transaction.price.amount
                 }
                 TransactionCategory::PaymentFromTrade(_) => {
@@ -155,12 +160,10 @@ impl TransactionsCalculator {
                 TransactionCategory::Deposit => {
                     total_beginning_of_month += transaction.price.amount
                 }
-                TransactionCategory::Withdrawal => {
-                    total_beginning_of_month -= transaction.price.amount
-                }
                 default => panic!(
-                    "capital_at_beginning_of_month: Unexpected transaction category: {}",
-                    default
+                    "capital_at_beginning_of_month: does not know how to calculate transaction with category: {}. Transaction: {:?}",
+                    default,
+                    transaction
                 ),
             }
         }
@@ -200,9 +203,12 @@ impl TransactionsCalculator {
                 TransactionCategory::CloseSafetyStopSlippage(_) => {
                     // This is money that we have used to exit the market at a loss - slippage.
                     total_trade += tx.price.amount
+                },
+                TransactionCategory::FeeOpen(_) | TransactionCategory::FeeClose(_)  => {
+                    // We ignore the fees because they are charged from the account and not from the trade.
                 }
                 default => panic!(
-                    "capital_out_of_market: Unexpected transaction category: {}",
+                    "capital_out_of_market: does not know how to calculate transaction with category: {}",
                     default
                 ),
             }
@@ -230,9 +236,12 @@ impl TransactionsCalculator {
                 | TransactionCategory::CloseSafetyStop(_)
                 | TransactionCategory::CloseSafetyStopSlippage(_) => {
                     total_trade = Decimal::from(0) // We have exited the market, so we have no money in the market.
+                },
+                TransactionCategory::FeeOpen(_) | TransactionCategory::FeeClose(_)  => {
+                    // We ignore the fees because they are charged from the account and not from the trade.
                 }
                 default => panic!(
-                    "capital_in_market: Unexpected transaction category: {}",
+                    "capital_in_market: does not know how to calculate transaction with category: {}",
                     default
                 ),
             }
@@ -253,7 +262,10 @@ impl TransactionsCalculator {
                     // This is money that we have used to enter the market.
                     total_trade += tx.price.amount
                 }
-                default => panic!("funding: Unexpected transaction category: {}", default),
+                default => panic!(
+                    "funding: does not know how to calculate transaction with category: {}",
+                    default
+                ),
             }
         }
 
@@ -272,7 +284,10 @@ impl TransactionsCalculator {
                     // This is money that we have used to enter the market.
                     total_trade += tx.price.amount
                 }
-                default => panic!("taxes: Unexpected transaction category: {}", default),
+                default => panic!(
+                    "taxes: does not know how to calculate transaction with category: {}",
+                    default
+                ),
             }
         }
 

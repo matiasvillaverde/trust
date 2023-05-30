@@ -1,6 +1,7 @@
 use crate::dialogs::AccountSearchDialog;
 use crate::views::{AccountOverviewView, TradeOverviewView, TradeView, TransactionView};
-use dialoguer::{theme::ColorfulTheme, FuzzySelect};
+use dialoguer::{theme::ColorfulTheme, FuzzySelect, Input};
+use rust_decimal::Decimal;
 use std::error::Error;
 use trust_core::Trust;
 use trust_model::{Account, AccountOverview, Trade, TradeOverview, Transaction};
@@ -11,6 +12,7 @@ type ExitDialogBuilderResult =
 pub struct ExitDialogBuilder {
     account: Option<Account>,
     trade: Option<Trade>,
+    fee: Option<Decimal>,
     result: ExitDialogBuilderResult,
 }
 
@@ -19,19 +21,32 @@ impl ExitDialogBuilder {
         ExitDialogBuilder {
             account: None,
             trade: None,
+            fee: None,
             result: None,
         }
     }
 
-    pub fn record_stop(mut self, trust: &mut Trust) -> ExitDialogBuilder {
-        let trade: Trade = self.trade.clone().unwrap();
-        self.result = Some(trust.record_stop(&trade));
+    pub fn build_stop(mut self, trust: &mut Trust) -> ExitDialogBuilder {
+        let trade: Trade = self
+            .trade
+            .clone()
+            .expect("No trade found, did you forget to select one?");
+        let fee = self
+            .fee
+            .expect("No fee found, did you forget to specify a fee?");
+        self.result = Some(trust.stop_trade(&trade, fee));
         self
     }
 
-    pub fn record_target(mut self, trust: &mut Trust) -> ExitDialogBuilder {
-        let trade: Trade = self.trade.clone().unwrap();
-        self.result = Some(trust.record_target(&trade));
+    pub fn build_target(mut self, trust: &mut Trust) -> ExitDialogBuilder {
+        let trade: Trade = self
+            .trade
+            .clone()
+            .expect("No trade found, did you forget to select one?");
+        let fee = self
+            .fee
+            .expect("No fee found, did you forget to specify a fee?");
+        self.result = Some(trust.target_acquired(&trade, fee));
         self
     }
 
@@ -72,7 +87,7 @@ impl ExitDialogBuilder {
     }
 
     pub fn search(mut self, trust: &mut Trust) -> Self {
-        let trades = trust.search_all_trades_in_market(self.account.clone().unwrap().id);
+        let trades = trust.search_open_trades(self.account.clone().unwrap().id);
         match trades {
             Ok(trades) => {
                 if trades.is_empty() {
@@ -92,6 +107,12 @@ impl ExitDialogBuilder {
             Err(error) => self.result = Some(Err(error)),
         }
 
+        self
+    }
+
+    pub fn fee(mut self) -> Self {
+        let fee_price = Input::new().with_prompt("Fee price").interact().unwrap(); // TODO: Validate
+        self.fee = Some(fee_price);
         self
     }
 }

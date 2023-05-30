@@ -47,7 +47,7 @@ impl ArgDispatcher {
             Some(("trade", sub_matches)) => match sub_matches.subcommand() {
                 Some(("create", _)) => self.create_trade(),
                 Some(("approve", _)) => self.create_approve(),
-                Some(("entry", _)) => self.create_entry(),
+                Some(("open", _)) => self.create_open(),
                 Some(("stop", _)) => self.create_stop(),
                 Some(("target", _)) => self.create_target(),
                 _ => unreachable!("No subcommand provided"),
@@ -169,10 +169,11 @@ impl ArgDispatcher {
             .display();
     }
 
-    fn create_entry(&mut self) {
+    fn create_open(&mut self) {
         EntryDialogBuilder::new()
             .account(&mut self.trust)
             .search(&mut self.trust)
+            .fee()
             .build(&mut self.trust)
             .display();
     }
@@ -181,7 +182,7 @@ impl ArgDispatcher {
         ExitDialogBuilder::new()
             .account(&mut self.trust)
             .search(&mut self.trust)
-            .record_stop(&mut self.trust)
+            .build_stop(&mut self.trust)
             .display();
     }
 
@@ -189,7 +190,8 @@ impl ArgDispatcher {
         ExitDialogBuilder::new()
             .account(&mut self.trust)
             .search(&mut self.trust)
-            .record_target(&mut self.trust)
+            .fee()
+            .build_target(&mut self.trust)
             .display();
     }
 }

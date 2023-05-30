@@ -214,10 +214,23 @@ impl TransactionCategory {
                     Err(TransactionCategoryParseError)
                 }
             }
-
             "close_safety_stop" => {
                 if let Some(trade_id) = trade_id {
                     Ok(TransactionCategory::CloseSafetyStop(trade_id))
+                } else {
+                    Err(TransactionCategoryParseError)
+                }
+            }
+            "fee_open" => {
+                if let Some(trade_id) = trade_id {
+                    Ok(TransactionCategory::FeeOpen(trade_id))
+                } else {
+                    Err(TransactionCategoryParseError)
+                }
+            }
+            "fee_close" => {
+                if let Some(trade_id) = trade_id {
+                    Ok(TransactionCategory::FeeClose(trade_id))
                 } else {
                     Err(TransactionCategoryParseError)
                 }
@@ -274,6 +287,22 @@ mod tests {
         let result = TransactionCategory::parse("payment_tax", Some(id))
             .expect("Failed to parse TransactionCategory from string");
         assert_eq!(result, TransactionCategory::PaymentTax(id));
+    }
+
+    #[test]
+    fn test_transaction_category_from_string_fee_open() {
+        let id = Uuid::new_v4();
+        let result = TransactionCategory::parse("fee_open", Some(id))
+            .expect("Failed to parse TransactionCategory from string");
+        assert_eq!(result, TransactionCategory::FeeOpen(id));
+    }
+
+    #[test]
+    fn test_transaction_category_from_string_fee_close() {
+        let id = Uuid::new_v4();
+        let result = TransactionCategory::parse("fee_close", Some(id))
+            .expect("Failed to parse TransactionCategory from string");
+        assert_eq!(result, TransactionCategory::FeeClose(id));
     }
 
     #[test]

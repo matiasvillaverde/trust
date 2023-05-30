@@ -81,11 +81,11 @@ impl Trust {
         RuleWorker::create_rule(&mut *self.database, account, name, description, level)
     }
 
-    pub fn make_rule_inactive(&mut self, rule: &Rule) -> Result<Rule, Box<dyn std::error::Error>> {
+    pub fn deactivate_rule(&mut self, rule: &Rule) -> Result<Rule, Box<dyn std::error::Error>> {
         self.database.make_rule_inactive(rule)
     }
 
-    pub fn read_all_rules(
+    pub fn search_rules(
         &mut self,
         account_id: Uuid,
     ) -> Result<Vec<Rule>, Box<dyn std::error::Error>> {
@@ -103,13 +103,13 @@ impl Trust {
             .create_trading_vehicle(symbol, isin, category, broker)
     }
 
-    pub fn read_all_trading_vehicles(
+    pub fn search_trading_vehicles(
         &mut self,
     ) -> Result<Vec<TradingVehicle>, Box<dyn std::error::Error>> {
         self.database.read_all_trading_vehicles()
     }
 
-    pub fn maximum_quantity(
+    pub fn calculate_maximum_quantity(
         &mut self,
         account_id: Uuid,
         entry_price: Decimal,
@@ -175,57 +175,25 @@ impl Trust {
         Ok(new_trade)
     }
 
-    pub fn search_all_new_trades(
+    pub fn search_new_trades(
         &mut self,
         account_id: Uuid,
     ) -> Result<Vec<Trade>, Box<dyn std::error::Error>> {
         self.database.read_all_new_trades(account_id)
     }
 
-    pub fn search_all_approved_trades_waiting_for_entry(
+    pub fn search_approved_trades(
         &mut self,
         account_id: Uuid,
     ) -> Result<Vec<Trade>, Box<dyn std::error::Error>> {
         self.database.all_approved_trades(account_id)
     }
 
-    pub fn search_all_trades_in_market(
+    pub fn search_open_trades(
         &mut self,
         account_id: Uuid,
     ) -> Result<Vec<Trade>, Box<dyn std::error::Error>> {
         self.database.all_open_trades(account_id)
-    }
-
-    pub fn record_entry(&mut self, trade: &Trade) -> Result<Trade, Box<dyn std::error::Error>> {
-        TradeWorker::update_trade_entry_executed(trade, self.database.as_mut())
-    }
-
-    pub fn record_stop(
-        &mut self,
-        trade: &Trade,
-    ) -> Result<
-        (Transaction, Transaction, TradeOverview, AccountOverview),
-        Box<dyn std::error::Error>,
-    > {
-        let (trade, tx_stop) =
-            TradeWorker::update_trade_stop_executed(trade, self.database.as_mut())?;
-        let (tx_payment, account_overview, trade_overview) =
-            TransactionWorker::transfer_payment_from(&trade, self.database.as_mut())?;
-        Ok((tx_stop, tx_payment, trade_overview, account_overview))
-    }
-
-    pub fn record_target(
-        &mut self,
-        trade: &Trade,
-    ) -> Result<
-        (Transaction, Transaction, TradeOverview, AccountOverview),
-        Box<dyn std::error::Error>,
-    > {
-        let (trade, tx_target) =
-            TradeWorker::update_trade_target_executed(trade, self.database.as_mut())?;
-        let (tx_payment, account_overview, trade_overview) =
-            TransactionWorker::transfer_payment_from(&trade, self.database.as_mut())?;
-        Ok((tx_target, tx_payment, trade_overview, account_overview))
     }
 
     pub fn approve(
@@ -243,6 +211,44 @@ impl Trust {
         let (transaction, account_overview, trade_overview) =
             TransactionWorker::transfer_to_fund_trade(trade, &mut *self.database)?;
         Ok((trade.clone(), transaction, account_overview, trade_overview))
+    }
+
+    pub fn open_trade(
+        &mut self,
+        trade: &Trade,
+        fee: Decimal,
+    ) -> Result<Trade, Box<dyn std::error::Error>> {
+        TradeWorker::open_trade(trade, fee, self.database.as_mut())
+    }
+
+    pub fn stop_trade(
+        &mut self,
+        trade: &Trade,
+        fee: Decimal,
+    ) -> Result<
+        (Transaction, Transaction, TradeOverview, AccountOverview),
+        Box<dyn std::error::Error>,
+    > {
+        let (trade, tx_stop) =
+            TradeWorker::update_trade_stop_executed(trade, fee, self.database.as_mut())?;
+        let (tx_payment, account_overview, trade_overview) =
+            TransactionWorker::transfer_payment_from(&trade, self.database.as_mut())?;
+        Ok((tx_stop, tx_payment, trade_overview, account_overview))
+    }
+
+    pub fn target_acquired(
+        &mut self,
+        trade: &Trade,
+        fee: Decimal,
+    ) -> Result<
+        (Transaction, Transaction, TradeOverview, AccountOverview),
+        Box<dyn std::error::Error>,
+    > {
+        let (trade, tx_target) =
+            TradeWorker::update_trade_target_executed(trade, fee, self.database.as_mut())?;
+        let (tx_payment, account_overview, trade_overview) =
+            TransactionWorker::transfer_payment_from(&trade, self.database.as_mut())?;
+        Ok((tx_target, tx_payment, trade_overview, account_overview))
     }
 }
 
