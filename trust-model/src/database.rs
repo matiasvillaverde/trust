@@ -129,6 +129,12 @@ pub trait ReadTransactionDB {
         currency: &Currency,
     ) -> Result<Vec<Transaction>, Box<dyn Error>>;
 
+    fn all_account_transactions_funding_in_open_trades(
+        &mut self,
+        account_id: Uuid,
+        currency: &Currency,
+    ) -> Result<Vec<Transaction>, Box<dyn Error>>;
+
     fn read_all_account_transactions_taxes(
         &mut self,
         account_id: Uuid,

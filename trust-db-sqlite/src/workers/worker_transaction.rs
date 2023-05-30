@@ -8,7 +8,7 @@ use tracing::error;
 use trust_model::{Currency, Transaction, TransactionCategory};
 use uuid::Uuid;
 
-use super::worker_price::WorkerPrice;
+use super::{worker_price::WorkerPrice, WorkerTrade};
 
 pub struct WorkerTransaction;
 
@@ -104,6 +104,30 @@ impl WorkerTransaction {
             .chain(tx_output.into_iter())
             .chain(tx_input.into_iter())
             .collect())
+    }
+
+    pub fn all_account_transactions_funding_in_open_trades(
+        connection: &mut SqliteConnection,
+        account_id: Uuid,
+        currency: &Currency,
+    ) -> Result<Vec<Transaction>, Box<dyn Error>> {
+        let trades =
+            WorkerTrade::read_all_approved_trades_for_currency(connection, account_id, currency)?;
+
+        let transactions = trades
+            .into_iter()
+            .map(|trade| {
+                WorkerTransaction::read_all_trade_transactions_for_category(
+                    connection,
+                    trade.id,
+                    TransactionCategory::FundTrade(Uuid::new_v4()),
+                )
+            })
+            .flatten()
+            .flatten()
+            .collect();
+
+        Ok(transactions)
     }
 
     pub fn read_all_account_transactions_taxes(

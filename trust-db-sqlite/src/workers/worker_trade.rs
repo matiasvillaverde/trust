@@ -136,16 +136,18 @@ impl WorkerTrade {
         Ok(trades)
     }
 
-    pub fn read_all_open_trades(
+    pub fn read_all_approved_trades_for_currency(
         connection: &mut SqliteConnection,
         account_id: Uuid,
+        currency: &Currency,
     ) -> Result<Vec<Trade>, Box<dyn Error>> {
         let trades: Vec<Trade> = trades::table
             .filter(trades::deleted_at.is_null())
             .filter(trades::account_id.eq(account_id.to_string()))
+            .filter(trades::currency.eq(currency.to_string()))
             .filter(trades::approved_at.is_not_null())
             .filter(trades::rejected_at.is_null())
-            .filter(trades::opened_at.is_not_null())
+            .filter(trades::opened_at.is_null())
             .filter(trades::failed_at.is_null())
             .filter(trades::closed_at.is_null())
             .load::<TradeSQLite>(connection)
@@ -162,20 +164,18 @@ impl WorkerTrade {
         Ok(trades)
     }
 
-    pub fn read_all_approved_trades_for_currency(
+    pub fn read_all_open_trades(
         connection: &mut SqliteConnection,
         account_id: Uuid,
-        currency: &Currency,
     ) -> Result<Vec<Trade>, Box<dyn Error>> {
         let trades: Vec<Trade> = trades::table
             .filter(trades::deleted_at.is_null())
             .filter(trades::account_id.eq(account_id.to_string()))
             .filter(trades::approved_at.is_not_null())
             .filter(trades::rejected_at.is_null())
-            .filter(trades::opened_at.is_null())
+            .filter(trades::opened_at.is_not_null())
             .filter(trades::failed_at.is_null())
             .filter(trades::closed_at.is_null())
-            .filter(trades::currency.eq(currency.to_string()))
             .load::<TradeSQLite>(connection)
             .map(|trades: Vec<TradeSQLite>| {
                 trades

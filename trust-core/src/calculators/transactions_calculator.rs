@@ -82,10 +82,13 @@ impl TransactionsCalculator {
             .iter()
             .map(|transaction| match transaction.category {
                 TransactionCategory::FundTrade(_) => transaction.price.amount,
-                TransactionCategory::PaymentFromTrade(_) => -transaction.price.amount,
                 _ => dec!(0),
             })
             .sum();
+
+        if total_available < dec!(0.0) {
+            return Ok(dec!(0.0)); // If there is a negative meaning that we have a profit. So we return 0.
+        }
 
         Ok(total_available)
     }
