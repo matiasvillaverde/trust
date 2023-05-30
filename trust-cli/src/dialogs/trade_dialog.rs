@@ -143,7 +143,7 @@ impl TradeDialogBuilder {
 
     pub fn quantity(mut self, trust: &mut Trust) -> Self {
         let maximum = trust
-            .maximum_quantity(
+            .calculate_maximum_quantity(
                 self.account.clone().unwrap().id,
                 self.entry_price.unwrap(),
                 self.stop_price.unwrap(),

@@ -163,7 +163,7 @@ impl RuleRemoveDialogBuilder {
 
     pub fn build(mut self, trust: &mut Trust) -> RuleRemoveDialogBuilder {
         let selected_rule = self.rule_to_remove.clone().expect("Select a rule first");
-        self.result = Some(trust.make_rule_inactive(&selected_rule));
+        self.result = Some(trust.deactivate_rule(&selected_rule));
         self
     }
 
@@ -188,7 +188,7 @@ impl RuleRemoveDialogBuilder {
 
     pub fn select_rule(mut self, trust: &mut Trust) -> Self {
         let account_id = self.account.clone().expect("Select an account first").id;
-        let rules = trust.read_all_rules(account_id).unwrap_or_else(|error| {
+        let rules = trust.search_rules(account_id).unwrap_or_else(|error| {
             println!("Error reading rules: {:?}", error);
             vec![]
         });

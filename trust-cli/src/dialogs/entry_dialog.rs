@@ -69,8 +69,7 @@ impl EntryDialogBuilder {
     }
 
     pub fn search(mut self, trust: &mut Trust) -> Self {
-        let trades =
-            trust.search_all_approved_trades_waiting_for_entry(self.account.clone().unwrap().id);
+        let trades = trust.search_approved_trades(self.account.clone().unwrap().id);
         match trades {
             Ok(trades) => {
                 if trades.is_empty() {
