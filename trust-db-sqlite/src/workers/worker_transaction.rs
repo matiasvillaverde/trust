@@ -123,7 +123,7 @@ impl WorkerTransaction {
             .collect())
     }
 
-    pub fn all_account_transactions_funding_in_open_trades(
+    pub fn all_account_transactions_funding_in_approved_trades(
         connection: &mut SqliteConnection,
         account_id: Uuid,
         currency: &Currency,

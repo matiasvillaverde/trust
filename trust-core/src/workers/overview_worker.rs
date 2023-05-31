@@ -2,7 +2,7 @@ use std::error::Error;
 use trust_model::{Account, AccountOverview, Currency, DatabaseFactory, Trade, TradeOverview};
 
 use crate::calculators::{
-    CapitalAvailableCalculator, CapitalBalanceCalculator, CapitalInTradesCalculator,
+    CapitalAvailableCalculator, CapitalBalanceCalculator, CapitalInApprovedTradesCalculator,
     TransactionsCalculator,
 };
 pub struct OverviewWorker;
@@ -18,7 +18,7 @@ impl OverviewWorker {
             currency,
             database.read_transaction_db().as_mut(),
         )?;
-        let total_in_trade = CapitalInTradesCalculator::capital_in_trades(
+        let total_in_trade = CapitalInApprovedTradesCalculator::capital_in_approved_trades(
             account.id,
             currency,
             database.read_transaction_db().as_mut(),

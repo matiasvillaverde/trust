@@ -3,17 +3,17 @@ use rust_decimal_macros::dec;
 use trust_model::{Currency, ReadTransactionDB, TransactionCategory};
 use uuid::Uuid;
 
-pub struct CapitalInTradesCalculator;
+pub struct CapitalInApprovedTradesCalculator;
 
-impl CapitalInTradesCalculator {
-    pub fn capital_in_trades(
+impl CapitalInApprovedTradesCalculator {
+    pub fn capital_in_approved_trades(
         account_id: Uuid,
         currency: &Currency,
         database: &mut dyn ReadTransactionDB,
     ) -> Result<Decimal, Box<dyn std::error::Error>> {
         // Get all transactions
         let transactions =
-            database.all_account_transactions_funding_in_open_trades(account_id, currency)?;
+            database.all_account_transactions_funding_in_approved_trades(account_id, currency)?;
 
         // Sum all transactions
         let total_available: Decimal = transactions
@@ -38,8 +38,11 @@ mod tests {
         let account_id = Uuid::new_v4();
         let mut database = MockDatabase::new();
 
-        let result =
-            CapitalInTradesCalculator::capital_in_trades(account_id, &Currency::USD, &mut database);
+        let result = CapitalInApprovedTradesCalculator::capital_in_approved_trades(
+            account_id,
+            &Currency::USD,
+            &mut database,
+        );
         assert_eq!(result.unwrap(), dec!(0));
     }
 
@@ -51,8 +54,11 @@ mod tests {
         database.set_transaction(TransactionCategory::Deposit, dec!(100));
         database.set_transaction(TransactionCategory::Deposit, dec!(100));
 
-        let result =
-            CapitalInTradesCalculator::capital_in_trades(account_id, &Currency::USD, &mut database);
+        let result = CapitalInApprovedTradesCalculator::capital_in_approved_trades(
+            account_id,
+            &Currency::USD,
+            &mut database,
+        );
         assert_eq!(result.unwrap(), dec!(0));
     }
 
@@ -66,8 +72,11 @@ mod tests {
         database.set_transaction(TransactionCategory::Withdrawal, dec!(50));
         database.set_transaction(TransactionCategory::FundTrade(Uuid::new_v4()), dec!(10.99));
 
-        let result =
-            CapitalInTradesCalculator::capital_in_trades(account_id, &Currency::USD, &mut database);
+        let result = CapitalInApprovedTradesCalculator::capital_in_approved_trades(
+            account_id,
+            &Currency::USD,
+            &mut database,
+        );
         assert_eq!(result.unwrap(), dec!(10.99));
     }
 
@@ -84,8 +93,11 @@ mod tests {
         database.set_transaction(TransactionCategory::FundTrade(Uuid::new_v4()), dec!(323));
         database.set_transaction(TransactionCategory::FundTrade(Uuid::new_v4()), dec!(344));
 
-        let result =
-            CapitalInTradesCalculator::capital_in_trades(account_id, &Currency::USD, &mut database);
+        let result = CapitalInApprovedTradesCalculator::capital_in_approved_trades(
+            account_id,
+            &Currency::USD,
+            &mut database,
+        );
         assert_eq!(result.unwrap(), dec!(976.99));
     }
 }
