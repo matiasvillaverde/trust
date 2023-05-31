@@ -50,6 +50,21 @@ pub trait Database:
 pub trait DatabaseFactory {
     fn read_account_db(&self) -> Box<dyn ReadAccountDB>;
     fn write_account_db(&self) -> Box<dyn WriteAccountDB>;
+    fn read_account_overview_db(&self) -> Box<dyn ReadAccountOverviewDB>;
+    fn write_account_overview_db(&self) -> Box<dyn WriteAccountOverviewDB>;
+    fn read_order_db(&self) -> Box<dyn ReadOrderDB>;
+    fn write_order_db(&self) -> Box<dyn WriteOrderDB>;
+    fn read_price_db(&self) -> Box<dyn ReadPriceDB>;
+    fn write_price_db(&self) -> Box<dyn WritePriceDB>;
+    fn read_transaction_db(&self) -> Box<dyn ReadTransactionDB>;
+    fn write_transaction_db(&self) -> Box<dyn WriteTransactionDB>;
+    fn read_trade_db(&self) -> Box<dyn ReadTradeDB>;
+    fn write_trade_db(&self) -> Box<dyn WriteTradeDB>;
+    fn write_trade_overview_db(&self) -> Box<dyn WriteTradeOverviewDB>;
+    fn read_rule_db(&self) -> Box<dyn ReadRuleDB>;
+    fn write_rule_db(&self) -> Box<dyn WriteRuleDB>;
+    fn read_trading_vehicle_db(&self) -> Box<dyn ReadTradingVehicleDB>;
+    fn write_trading_vehicle_db(&self) -> Box<dyn WriteTradingVehicleDB>;
 }
 
 pub trait ReadAccountDB {

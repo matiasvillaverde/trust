@@ -15,9 +15,10 @@ pub mod database;
 pub use account::{Account, AccountOverview};
 pub use currency::Currency;
 pub use database::{
-    Database, ReadAccountDB, ReadAccountOverviewDB, ReadOrderDB, ReadPriceDB, ReadRuleDB,
-    ReadTradeDB, ReadTradingVehicleDB, ReadTransactionDB, WriteAccountOverviewDB, WriteOrderDB,
-    WritePriceDB, WriteRuleDB, WriteTradeDB, WriteTradingVehicleDB, WriteTransactionDB, DatabaseFactory, WriteAccountDB
+    Database, DatabaseFactory, ReadAccountDB, ReadAccountOverviewDB, ReadOrderDB, ReadPriceDB,
+    ReadRuleDB, ReadTradeDB, ReadTradingVehicleDB, ReadTransactionDB, WriteAccountDB,
+    WriteAccountOverviewDB, WriteOrderDB, WritePriceDB, WriteRuleDB, WriteTradeDB,
+    WriteTradingVehicleDB, WriteTransactionDB,
 };
 pub use order::{Order, OrderAction, OrderCategory};
 pub use price::Price;

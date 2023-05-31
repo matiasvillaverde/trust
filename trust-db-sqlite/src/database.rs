@@ -1,31 +1,32 @@
 use crate::workers::{
     WorkerAccount, WorkerAccountOverview, WorkerOrder, WorkerPrice, WorkerRule, WorkerTarget,
-    WorkerTrade, WorkerTradingVehicle, WorkerTransaction, WriteAccountDBImpl
+    WorkerTrade, WorkerTradingVehicle, WorkerTransaction, WriteAccountDBImpl,
 };
 use diesel::prelude::*;
 use rust_decimal::Decimal;
 use std::error::Error;
+use std::sync::Arc;
+use std::sync::Mutex;
 use trust_model::{
     database::{WriteAccountDB, WriteTradeOverviewDB},
-    Account, AccountOverview, Currency, Database, Order, OrderAction, OrderCategory, Price,
-    ReadAccountDB, ReadAccountOverviewDB, ReadOrderDB, ReadPriceDB, ReadRuleDB, ReadTradeDB,
-    ReadTradingVehicleDB, ReadTransactionDB, Rule, RuleName, Target, Trade, TradeCategory,
-    TradeOverview, TradingVehicle, TradingVehicleCategory, Transaction, TransactionCategory,
-    WriteAccountOverviewDB, WriteOrderDB, WritePriceDB, WriteRuleDB, WriteTradeDB,
-    WriteTradingVehicleDB, WriteTransactionDB, DatabaseFactory
+    Account, AccountOverview, Currency, Database, DatabaseFactory, Order, OrderAction,
+    OrderCategory, Price, ReadAccountDB, ReadAccountOverviewDB, ReadOrderDB, ReadPriceDB,
+    ReadRuleDB, ReadTradeDB, ReadTradingVehicleDB, ReadTransactionDB, Rule, RuleName, Target,
+    Trade, TradeCategory, TradeOverview, TradingVehicle, TradingVehicleCategory, Transaction,
+    TransactionCategory, WriteAccountOverviewDB, WriteOrderDB, WritePriceDB, WriteRuleDB,
+    WriteTradeDB, WriteTradingVehicleDB, WriteTransactionDB,
 };
 use uuid::Uuid;
-use std::sync::Arc;
 
 /// SqliteDatabase is a struct that contains methods for interacting with the
 /// SQLite database.
 pub struct SqliteDatabase {
     /// The connection to the SQLite database.
-    connection: Arc<SqliteConnection>,
+    connection: Arc<Mutex<SqliteConnection>>,
 }
 
-impl DatabaseFactory for SqliteDatabase  {
-
+// TODO: Test that I can use this in Trust
+impl DatabaseFactory for SqliteDatabase {
     fn read_account_db(&self) -> Box<dyn ReadAccountDB> {
         Box::new(ReadAccountDBImpl {
             connection: self.connection.clone(),
@@ -37,23 +38,70 @@ impl DatabaseFactory for SqliteDatabase  {
             connection: self.connection.clone(),
         })
     }
+
+    fn read_account_overview_db(&self) -> Box<dyn ReadAccountOverviewDB> {
+        Box::new(SqliteDatabase::new_from(self.connection.clone()))
+    }
+
+    fn write_account_overview_db(&self) -> Box<dyn WriteAccountOverviewDB> {
+        Box::new(SqliteDatabase::new_from(self.connection.clone()))
+    }
+    fn read_order_db(&self) -> Box<dyn ReadOrderDB> {
+        Box::new(SqliteDatabase::new_from(self.connection.clone()))
+    }
+    fn write_order_db(&self) -> Box<dyn WriteOrderDB> {
+        Box::new(SqliteDatabase::new_from(self.connection.clone()))
+    }
+    fn read_price_db(&self) -> Box<dyn ReadPriceDB> {
+        Box::new(SqliteDatabase::new_from(self.connection.clone()))
+    }
+    fn write_price_db(&self) -> Box<dyn WritePriceDB> {
+        Box::new(SqliteDatabase::new_from(self.connection.clone()))
+    }
+    fn read_transaction_db(&self) -> Box<dyn ReadTransactionDB> {
+        Box::new(SqliteDatabase::new_from(self.connection.clone()))
+    }
+    fn write_transaction_db(&self) -> Box<dyn WriteTransactionDB> {
+        Box::new(SqliteDatabase::new_from(self.connection.clone()))
+    }
+    fn read_trade_db(&self) -> Box<dyn ReadTradeDB> {
+        Box::new(SqliteDatabase::new_from(self.connection.clone()))
+    }
+    fn write_trade_db(&self) -> Box<dyn WriteTradeDB> {
+        Box::new(SqliteDatabase::new_from(self.connection.clone()))
+    }
+    fn write_trade_overview_db(&self) -> Box<dyn WriteTradeOverviewDB> {
+        Box::new(SqliteDatabase::new_from(self.connection.clone()))
+    }
+    fn read_rule_db(&self) -> Box<dyn ReadRuleDB> {
+        Box::new(SqliteDatabase::new_from(self.connection.clone()))
+    }
+    fn write_rule_db(&self) -> Box<dyn WriteRuleDB> {
+        Box::new(SqliteDatabase::new_from(self.connection.clone()))
+    }
+    fn read_trading_vehicle_db(&self) -> Box<dyn ReadTradingVehicleDB> {
+        Box::new(SqliteDatabase::new_from(self.connection.clone()))
+    }
+    fn write_trading_vehicle_db(&self) -> Box<dyn WriteTradingVehicleDB> {
+        Box::new(SqliteDatabase::new_from(self.connection.clone()))
+    }
 }
 
 struct ReadAccountDBImpl {
-    connection: Arc<SqliteConnection>,
+    connection: Arc<Mutex<SqliteConnection>>,
 }
 
 impl<'a> ReadAccountDB for ReadAccountDBImpl {
     fn read_account(&mut self, name: &str) -> Result<Account, Box<dyn Error>> {
-        WorkerAccount::read_account( Arc::get_mut(&mut self.connection).unwrap(), name)
+        WorkerAccount::read_account(&mut *self.connection.lock().unwrap(), name)
     }
 
     fn read_account_id(&mut self, id: Uuid) -> Result<Account, Box<dyn Error>> {
-        WorkerAccount::read( Arc::get_mut(&mut self.connection).unwrap(), id)
+        WorkerAccount::read(&mut *self.connection.lock().unwrap(), id)
     }
 
     fn read_all_accounts(&mut self) -> Result<Vec<Account>, Box<dyn Error>> {
-        let accounts = WorkerAccount::read_all_accounts( Arc::get_mut(&mut self.connection).unwrap());
+        let accounts = WorkerAccount::read_all_accounts(&mut *self.connection.lock().unwrap());
         accounts
     }
 }
@@ -61,17 +109,24 @@ impl<'a> ReadAccountDB for ReadAccountDBImpl {
 impl SqliteDatabase {
     pub fn new(url: &str) -> Self {
         let connection: SqliteConnection = Self::establish_connection(url);
-        SqliteDatabase { connection: Arc::new(connection) }
+        SqliteDatabase {
+            connection: Arc::new(Mutex::new(connection)),
+        }
+    }
+
+    pub fn new_from(connection: Arc<Mutex<SqliteConnection>>) -> Self {
+        SqliteDatabase { connection }
     }
 
     #[doc(hidden)]
     pub fn new_in_memory() -> Self {
-        use diesel_migrations::*;
-        pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
-        let mut connection = SqliteConnection::establish(":memory:").unwrap();
-        connection.run_pending_migrations(MIGRATIONS).unwrap();
-        connection.begin_test_transaction().unwrap();
-        SqliteDatabase { connection: Arc::new(connection) }
+        unimplemented!();
+        // use diesel_migrations::*;
+        // pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
+        // let mut connection = SqliteConnection::establish(":memory:").unwrap();
+        // connection.run_pending_migrations(MIGRATIONS).unwrap();
+        // connection.begin_test_transaction().unwrap();
+        // SqliteDatabase { connection: Arc::new(connection) }
     }
 
     /// Establish a connection to the SQLite database.
@@ -94,17 +149,17 @@ impl SqliteDatabase {
 
 impl ReadAccountDB for SqliteDatabase {
     fn read_account(&mut self, name: &str) -> Result<Account, Box<dyn Error>> {
-        let connection: &mut SqliteConnection = Arc::get_mut(&mut self.connection).unwrap();
+        let connection: &mut SqliteConnection = &mut *self.connection.lock().unwrap();
 
         return WorkerAccount::read_account(connection, name);
     }
 
     fn read_account_id(&mut self, id: Uuid) -> Result<Account, Box<dyn Error>> {
-        WorkerAccount::read( Arc::get_mut(&mut self.connection).unwrap(), id)
+        WorkerAccount::read(&mut *self.connection.lock().unwrap(), id)
     }
 
     fn read_all_accounts(&mut self) -> Result<Vec<Account>, Box<dyn Error>> {
-        let accounts = WorkerAccount::read_all_accounts( Arc::get_mut(&mut self.connection).unwrap());
+        let accounts = WorkerAccount::read_all_accounts(&mut *self.connection.lock().unwrap());
         accounts
     }
 }
@@ -119,7 +174,7 @@ impl WriteOrderDB for SqliteDatabase {
         action: &OrderAction,
     ) -> Result<Order, Box<dyn Error>> {
         WorkerOrder::create(
-             Arc::get_mut(&mut self.connection).unwrap(),
+            &mut *self.connection.lock().unwrap(),
             price,
             currency,
             quantity,
@@ -136,21 +191,28 @@ impl WriteOrderDB for SqliteDatabase {
         order: &Order,
         trade: &Trade,
     ) -> Result<Target, Box<dyn Error>> {
-        WorkerTarget::create( Arc::get_mut(&mut self.connection).unwrap(), price, currency, order, trade)
+        WorkerTarget::create(
+            &mut *self.connection.lock().unwrap(),
+            price,
+            currency,
+            order,
+            trade,
+        )
     }
 
     fn record_order_opening(&mut self, order: &Order) -> Result<Order, Box<dyn Error>> {
-        WorkerOrder::update_opened_at( Arc::get_mut(&mut self.connection).unwrap(), order)
+        WorkerOrder::update_opened_at(&mut *self.connection.lock().unwrap(), order)
     }
 
     fn record_order_closing(&mut self, order: &Order) -> Result<Order, Box<dyn Error>> {
-        WorkerOrder::update_closed_at( Arc::get_mut(&mut self.connection).unwrap(), order)
+        WorkerOrder::update_closed_at(&mut *self.connection.lock().unwrap(), order)
     }
 }
 
 impl WriteAccountDB for SqliteDatabase {
     fn new_account(&mut self, name: &str, description: &str) -> Result<Account, Box<dyn Error>> {
-        let account = WorkerAccount::create_account( Arc::get_mut(&mut self.connection).unwrap(), name, description);
+        let account =
+            WorkerAccount::create_account(&mut *self.connection.lock().unwrap(), name, description);
         account
     }
 }
@@ -160,7 +222,7 @@ impl ReadAccountOverviewDB for SqliteDatabase {
         &mut self,
         account_id: Uuid,
     ) -> Result<Vec<AccountOverview>, Box<dyn Error>> {
-        WorkerAccountOverview::read( Arc::get_mut(&mut self.connection).unwrap(), account_id)
+        WorkerAccountOverview::read(&mut *self.connection.lock().unwrap(), account_id)
     }
 
     fn read_account_overview_currency(
@@ -168,7 +230,11 @@ impl ReadAccountOverviewDB for SqliteDatabase {
         account_id: Uuid,
         currency: &Currency,
     ) -> Result<AccountOverview, Box<dyn Error>> {
-        WorkerAccountOverview::read_for_currency( Arc::get_mut(&mut self.connection).unwrap(), account_id, currency)
+        WorkerAccountOverview::read_for_currency(
+            &mut *self.connection.lock().unwrap(),
+            account_id,
+            currency,
+        )
     }
 }
 
@@ -178,7 +244,11 @@ impl WriteAccountOverviewDB for SqliteDatabase {
         account: &Account,
         currency: &Currency,
     ) -> Result<AccountOverview, Box<dyn Error>> {
-        let overview = WorkerAccountOverview::create( Arc::get_mut(&mut self.connection).unwrap(), account, currency)?;
+        let overview = WorkerAccountOverview::create(
+            &mut *self.connection.lock().unwrap(),
+            account,
+            currency,
+        )?;
         Ok(overview)
     }
 
@@ -191,28 +261,34 @@ impl WriteAccountOverviewDB for SqliteDatabase {
         total_available: Decimal,
         taxed: Decimal,
     ) -> Result<AccountOverview, Box<dyn Error>> {
-        let overview =
-            WorkerAccountOverview::read_for_currency( Arc::get_mut(&mut self.connection).unwrap(), account.id, currency)?;
+        let overview = WorkerAccountOverview::read_for_currency(
+            &mut *self.connection.lock().unwrap(),
+            account.id,
+            currency,
+        )?;
         let updated_overview = WorkerAccountOverview::update_total_available(
-             Arc::get_mut(&mut self.connection).unwrap(),
+            &mut *self.connection.lock().unwrap(),
             overview,
             total_available,
         )?;
 
         let updated_overview = WorkerAccountOverview::update_total_in_trade(
-             Arc::get_mut(&mut self.connection).unwrap(),
+            &mut *self.connection.lock().unwrap(),
             updated_overview,
             total_in_trade,
         )?;
 
         let updated_overview = WorkerAccountOverview::update_total_balance(
-             Arc::get_mut(&mut self.connection).unwrap(),
+            &mut *self.connection.lock().unwrap(),
             updated_overview,
             total_balance,
         )?;
 
-        let updated_overview =
-            WorkerAccountOverview::update_taxed( Arc::get_mut(&mut self.connection).unwrap(), updated_overview, taxed)?;
+        let updated_overview = WorkerAccountOverview::update_taxed(
+            &mut *self.connection.lock().unwrap(),
+            updated_overview,
+            taxed,
+        )?;
 
         Ok(updated_overview)
     }
@@ -224,13 +300,13 @@ impl WritePriceDB for SqliteDatabase {
         currency: &Currency,
         amount: rust_decimal::Decimal,
     ) -> Result<Price, Box<dyn Error>> {
-        WorkerPrice::create( Arc::get_mut(&mut self.connection).unwrap(), currency, amount)
+        WorkerPrice::create(&mut *self.connection.lock().unwrap(), currency, amount)
     }
 }
 
 impl ReadPriceDB for SqliteDatabase {
     fn read_price(&mut self, id: uuid::Uuid) -> Result<Price, Box<dyn Error>> {
-        WorkerPrice::read( Arc::get_mut(&mut self.connection).unwrap(), id)
+        WorkerPrice::read(&mut *self.connection.lock().unwrap(), id)
     }
 }
 
@@ -243,7 +319,7 @@ impl WriteTransactionDB for SqliteDatabase {
         category: TransactionCategory,
     ) -> Result<Transaction, Box<dyn Error>> {
         WorkerTransaction::create_transaction(
-             Arc::get_mut(&mut self.connection).unwrap(),
+            &mut *self.connection.lock().unwrap(),
             account.id,
             amount,
             currency,
@@ -259,7 +335,7 @@ impl ReadTransactionDB for SqliteDatabase {
         currency: &Currency,
     ) -> Result<Vec<Transaction>, Box<dyn Error>> {
         WorkerTransaction::read_all_trade_transactions_excluding_taxes(
-             Arc::get_mut(&mut self.connection).unwrap(),
+            &mut *self.connection.lock().unwrap(),
             account_id,
             currency,
         )
@@ -271,7 +347,7 @@ impl ReadTransactionDB for SqliteDatabase {
         currency: &Currency,
     ) -> Result<Vec<Transaction>, Box<dyn Error>> {
         WorkerTransaction::all_account_transactions_funding_in_open_trades(
-             Arc::get_mut(&mut self.connection).unwrap(),
+            &mut *self.connection.lock().unwrap(),
             account_id,
             currency,
         )
@@ -283,7 +359,7 @@ impl ReadTransactionDB for SqliteDatabase {
         currency: &Currency,
     ) -> Result<Vec<Transaction>, Box<dyn Error>> {
         WorkerTransaction::read_all_account_transactions_taxes(
-             Arc::get_mut(&mut self.connection).unwrap(),
+            &mut *self.connection.lock().unwrap(),
             account_id,
             currency,
         )
@@ -293,7 +369,10 @@ impl ReadTransactionDB for SqliteDatabase {
         &mut self,
         trade: &Trade,
     ) -> Result<Vec<Transaction>, Box<dyn Error>> {
-        WorkerTransaction::read_all_trade_transactions( Arc::get_mut(&mut self.connection).unwrap(), trade.id)
+        WorkerTransaction::read_all_trade_transactions(
+            &mut *self.connection.lock().unwrap(),
+            trade.id,
+        )
     }
 
     fn all_trade_funding_transactions(
@@ -301,7 +380,7 @@ impl ReadTransactionDB for SqliteDatabase {
         trade: &Trade,
     ) -> Result<Vec<Transaction>, Box<dyn Error>> {
         WorkerTransaction::read_all_trade_transactions_for_category(
-             Arc::get_mut(&mut self.connection).unwrap(),
+            &mut *self.connection.lock().unwrap(),
             trade.id,
             TransactionCategory::FundTrade(trade.id),
         )
@@ -312,7 +391,7 @@ impl ReadTransactionDB for SqliteDatabase {
         trade: &Trade,
     ) -> Result<Vec<Transaction>, Box<dyn Error>> {
         WorkerTransaction::read_all_trade_transactions_for_category(
-             Arc::get_mut(&mut self.connection).unwrap(),
+            &mut *self.connection.lock().unwrap(),
             trade.id,
             TransactionCategory::PaymentTax(trade.id),
         )
@@ -324,7 +403,7 @@ impl ReadTransactionDB for SqliteDatabase {
         currency: &Currency,
     ) -> Result<Vec<Transaction>, Box<dyn Error>> {
         WorkerTransaction::read_all_transaction_excluding_current_month_and_taxes(
-             Arc::get_mut(&mut self.connection).unwrap(),
+            &mut *self.connection.lock().unwrap(),
             account_id,
             currency,
         )
@@ -335,13 +414,17 @@ impl ReadTransactionDB for SqliteDatabase {
         account_id: Uuid,
         currency: &Currency,
     ) -> Result<Vec<Transaction>, Box<dyn Error>> {
-        WorkerTransaction::read_all_transactions( Arc::get_mut(&mut self.connection).unwrap(), account_id, currency)
+        WorkerTransaction::read_all_transactions(
+            &mut *self.connection.lock().unwrap(),
+            account_id,
+            currency,
+        )
     }
 }
 
 impl ReadRuleDB for SqliteDatabase {
     fn read_all_rules(&mut self, account_id: Uuid) -> Result<Vec<Rule>, Box<dyn Error>> {
-        WorkerRule::read_all( Arc::get_mut(&mut self.connection).unwrap(), account_id)
+        WorkerRule::read_all(&mut *self.connection.lock().unwrap(), account_id)
     }
 
     fn rule_for_account(
@@ -349,7 +432,11 @@ impl ReadRuleDB for SqliteDatabase {
         account_id: Uuid,
         name: &RuleName,
     ) -> Result<Rule, Box<dyn Error>> {
-        WorkerRule::read_for_account_with_name( Arc::get_mut(&mut self.connection).unwrap(), account_id, name)
+        WorkerRule::read_for_account_with_name(
+            &mut *self.connection.lock().unwrap(),
+            account_id,
+            name,
+        )
     }
 }
 
@@ -363,7 +450,7 @@ impl WriteRuleDB for SqliteDatabase {
         level: &trust_model::RuleLevel,
     ) -> Result<trust_model::Rule, Box<dyn Error>> {
         WorkerRule::create(
-             Arc::get_mut(&mut self.connection).unwrap(),
+            &mut *self.connection.lock().unwrap(),
             name,
             description,
             priority,
@@ -373,7 +460,7 @@ impl WriteRuleDB for SqliteDatabase {
     }
 
     fn make_rule_inactive(&mut self, rule: &Rule) -> Result<Rule, Box<dyn Error>> {
-        WorkerRule::make_inactive( Arc::get_mut(&mut self.connection).unwrap(), rule)
+        WorkerRule::make_inactive(&mut *self.connection.lock().unwrap(), rule)
     }
 }
 
@@ -385,17 +472,23 @@ impl WriteTradingVehicleDB for SqliteDatabase {
         category: &TradingVehicleCategory,
         broker: &str,
     ) -> Result<TradingVehicle, Box<dyn Error>> {
-        WorkerTradingVehicle::create( Arc::get_mut(&mut self.connection).unwrap(), symbol, isin, category, broker)
+        WorkerTradingVehicle::create(
+            &mut *self.connection.lock().unwrap(),
+            symbol,
+            isin,
+            category,
+            broker,
+        )
     }
 }
 
 impl ReadTradingVehicleDB for SqliteDatabase {
     fn read_all_trading_vehicles(&mut self) -> Result<Vec<TradingVehicle>, Box<dyn Error>> {
-        WorkerTradingVehicle::read_all( Arc::get_mut(&mut self.connection).unwrap())
+        WorkerTradingVehicle::read_all(&mut *self.connection.lock().unwrap())
     }
 
     fn read_trading_vehicle(&mut self, id: Uuid) -> Result<TradingVehicle, Box<dyn Error>> {
-        WorkerTradingVehicle::read( Arc::get_mut(&mut self.connection).unwrap(), id)
+        WorkerTradingVehicle::read(&mut *self.connection.lock().unwrap(), id)
     }
 }
 
@@ -410,7 +503,7 @@ impl WriteTradeDB for SqliteDatabase {
         account: &Account,
     ) -> Result<Trade, Box<dyn Error>> {
         WorkerTrade::create(
-             Arc::get_mut(&mut self.connection).unwrap(),
+            &mut *self.connection.lock().unwrap(),
             category,
             currency,
             trading_vehicle,
@@ -421,25 +514,25 @@ impl WriteTradeDB for SqliteDatabase {
     }
 
     fn approve_trade(&mut self, trade: &Trade) -> Result<Trade, Box<dyn Error>> {
-        WorkerTrade::approve_trade( Arc::get_mut(&mut self.connection).unwrap(), trade)
+        WorkerTrade::approve_trade(&mut *self.connection.lock().unwrap(), trade)
     }
 
     fn update_trade_opened_at(&mut self, trade: &Trade) -> Result<Trade, Box<dyn Error>> {
-        WorkerTrade::update_opened_at( Arc::get_mut(&mut self.connection).unwrap(), trade)
+        WorkerTrade::update_opened_at(&mut *self.connection.lock().unwrap(), trade)
     }
 
     fn update_trade_closed_at(&mut self, trade: &Trade) -> Result<Trade, Box<dyn Error>> {
-        WorkerTrade::update_closed_at( Arc::get_mut(&mut self.connection).unwrap(), trade)
+        WorkerTrade::update_closed_at(&mut *self.connection.lock().unwrap(), trade)
     }
 }
 
 impl ReadTradeDB for SqliteDatabase {
     fn read_trade(&mut self, id: Uuid) -> Result<Trade, Box<dyn Error>> {
-        WorkerTrade::read_trade( Arc::get_mut(&mut self.connection).unwrap(), id)
+        WorkerTrade::read_trade(&mut *self.connection.lock().unwrap(), id)
     }
 
     fn read_all_new_trades(&mut self, account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>> {
-        WorkerTrade::read_all_new_trades( Arc::get_mut(&mut self.connection).unwrap(), account_id)
+        WorkerTrade::read_all_new_trades(&mut *self.connection.lock().unwrap(), account_id)
     }
 
     fn all_open_trades_for_currency(
@@ -448,18 +541,18 @@ impl ReadTradeDB for SqliteDatabase {
         currency: &Currency,
     ) -> Result<Vec<Trade>, Box<dyn Error>> {
         WorkerTrade::read_all_approved_trades_for_currency(
-             Arc::get_mut(&mut self.connection).unwrap(),
+            &mut *self.connection.lock().unwrap(),
             account_id,
             currency,
         )
     }
 
     fn all_approved_trades(&mut self, account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>> {
-        WorkerTrade::read_all_approved_trades( Arc::get_mut(&mut self.connection).unwrap(), account_id)
+        WorkerTrade::read_all_approved_trades(&mut *self.connection.lock().unwrap(), account_id)
     }
 
     fn all_open_trades(&mut self, account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>> {
-        WorkerTrade::read_all_open_trades( Arc::get_mut(&mut self.connection).unwrap(), account_id)
+        WorkerTrade::read_all_open_trades(&mut *self.connection.lock().unwrap(), account_id)
     }
 }
 
@@ -474,7 +567,7 @@ impl WriteTradeOverviewDB for SqliteDatabase {
         total_performance: Decimal,
     ) -> Result<TradeOverview, Box<dyn Error>> {
         WorkerTrade::update_trade_overview(
-             Arc::get_mut(&mut self.connection).unwrap(),
+            &mut *self.connection.lock().unwrap(),
             trade,
             funding,
             capital_in_market,
@@ -487,7 +580,7 @@ impl WriteTradeOverviewDB for SqliteDatabase {
 
 impl ReadOrderDB for SqliteDatabase {
     fn read_order(&mut self, id: Uuid) -> Result<Order, Box<dyn Error>> {
-        WorkerOrder::read( Arc::get_mut(&mut self.connection).unwrap(), id)
+        WorkerOrder::read(&mut *self.connection.lock().unwrap(), id)
     }
 }
 

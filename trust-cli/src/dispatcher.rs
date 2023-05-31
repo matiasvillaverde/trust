@@ -17,6 +17,7 @@ pub struct ArgDispatcher {
 impl ArgDispatcher {
     pub fn new_sqlite() -> Self {
         let database = SqliteDatabase::new("sqlite://production.db");
+
         ArgDispatcher {
             trust: Trust::new(Box::new(database)),
         }

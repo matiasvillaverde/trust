@@ -2,21 +2,20 @@ use crate::schema::accounts;
 use chrono::{NaiveDateTime, Utc};
 use diesel::prelude::*;
 use std::error::Error;
-use tracing::error;
-use trust_model::{Account, WriteAccountDB };
-use uuid::Uuid;
 use std::sync::Arc;
-
+use std::sync::Mutex;
+use tracing::error;
+use trust_model::{Account, WriteAccountDB};
+use uuid::Uuid;
 
 /// WorkerAccount is a struct that contains methods for interacting with the
 /// accounts table in the database.
 /// The methods in this struct are used by the worker to create and read
 /// accounts.
-/// 
-
+///
 
 pub struct WriteAccountDBImpl {
-    connection: Arc<SqliteConnection>,
+    pub connection: Arc<Mutex<SqliteConnection>>,
 }
 
 impl WriteAccountDB for WriteAccountDBImpl {
@@ -33,7 +32,7 @@ impl WriteAccountDB for WriteAccountDBImpl {
             description: description.to_lowercase(),
         };
 
-        let connection: &mut SqliteConnection = Arc::get_mut(&mut self.connection).unwrap();
+        let connection: &mut SqliteConnection = &mut *self.connection.lock().unwrap();
 
         let account = diesel::insert_into(accounts::table)
             .values(&new_account)
@@ -46,7 +45,6 @@ impl WriteAccountDB for WriteAccountDBImpl {
         Ok(account)
     }
 }
-
 
 pub struct WorkerAccount;
 
