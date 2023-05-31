@@ -3,7 +3,7 @@ use rust_decimal_macros::dec;
 use trust_model::{Currency, DatabaseFactory};
 use uuid::Uuid;
 
-use super::TransactionsCalculator;
+use super::{CapitalAvailableCalculator, TransactionsCalculator};
 
 pub struct RiskCalculator;
 
@@ -15,7 +15,7 @@ impl RiskCalculator {
         database: &mut dyn DatabaseFactory,
     ) -> Result<Decimal, Box<dyn std::error::Error>> {
         // Calculate the total available this month.
-        let total_available = TransactionsCalculator::capital_available(
+        let total_available = CapitalAvailableCalculator::capital_available(
             account_id,
             currency,
             database.read_transaction_db().as_mut(),

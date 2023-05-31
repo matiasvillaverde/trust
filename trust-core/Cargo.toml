@@ -10,3 +10,4 @@ trust-model = { path = "../trust-model", version = "0.1.0" }
 rust_decimal = {workspace = true}
 rust_decimal_macros = {workspace = true}
 uuid = {workspace = true}
+chrono = {workspace = true}

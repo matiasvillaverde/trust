@@ -3,7 +3,7 @@ use rust_decimal_macros::dec;
 use trust_model::{Currency, DatabaseFactory, RuleName};
 use uuid::Uuid;
 
-use super::{RiskCalculator, TransactionsCalculator};
+use super::{CapitalAvailableCalculator, RiskCalculator};
 
 pub struct QuantityCalculator;
 
@@ -16,7 +16,7 @@ impl QuantityCalculator {
         currency: &Currency,
         database: &mut dyn DatabaseFactory,
     ) -> Result<i64, Box<dyn std::error::Error>> {
-        let total_available = TransactionsCalculator::capital_available(
+        let total_available = CapitalAvailableCalculator::capital_available(
             account_id,
             currency,
             database.read_transaction_db().as_mut(),

@@ -114,7 +114,11 @@ pub trait WriteOrderDB {
 }
 
 pub trait WritePriceDB {
-    fn new_price(&mut self, currency: &Currency, amount: Decimal) -> Result<Price, Box<dyn Error>>;
+    fn create_price(
+        &mut self,
+        currency: &Currency,
+        amount: Decimal,
+    ) -> Result<Price, Box<dyn Error>>;
 }
 
 pub trait ReadPriceDB {

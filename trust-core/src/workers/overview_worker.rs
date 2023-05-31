@@ -1,7 +1,7 @@
 use std::error::Error;
 use trust_model::{Account, AccountOverview, Currency, DatabaseFactory, Trade, TradeOverview};
 
-use crate::calculators::TransactionsCalculator;
+use crate::calculators::{CapitalAvailableCalculator, TransactionsCalculator};
 pub struct OverviewWorker;
 
 impl OverviewWorker {
@@ -10,7 +10,7 @@ impl OverviewWorker {
         account: &Account,
         currency: &Currency,
     ) -> Result<AccountOverview, Box<dyn Error>> {
-        let total_available = TransactionsCalculator::capital_available(
+        let total_available = CapitalAvailableCalculator::capital_available(
             account.id,
             currency,
             database.read_transaction_db().as_mut(),

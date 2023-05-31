@@ -33,7 +33,7 @@ impl WriteAccountDB for AccountDB {
             description: description.to_lowercase(),
         };
 
-        let connection: &mut SqliteConnection = &mut *self.connection.lock().unwrap();
+        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap();
 
         let account = diesel::insert_into(accounts::table)
             .values(&new_account)
@@ -49,7 +49,7 @@ impl WriteAccountDB for AccountDB {
 
 impl ReadAccountDB for AccountDB {
     fn read_account(&mut self, name: &str) -> Result<Account, Box<dyn Error>> {
-        let connection: &mut SqliteConnection = &mut *self.connection.lock().unwrap();
+        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap();
 
         let account = accounts::table
             .filter(accounts::name.eq(name.to_lowercase()))
@@ -63,7 +63,7 @@ impl ReadAccountDB for AccountDB {
     }
 
     fn read_account_id(&mut self, id: Uuid) -> Result<Account, Box<dyn Error>> {
-        let connection: &mut SqliteConnection = &mut *self.connection.lock().unwrap();
+        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap();
 
         let account = accounts::table
             .filter(accounts::id.eq(id.to_string()))
@@ -77,7 +77,7 @@ impl ReadAccountDB for AccountDB {
     }
 
     fn read_all_accounts(&mut self) -> Result<Vec<Account>, Box<dyn Error>> {
-        let connection: &mut SqliteConnection = &mut *self.connection.lock().unwrap();
+        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap();
         let accounts = accounts::table
             .filter(accounts::deleted_at.is_null())
             .load::<AccountSQLite>(connection)
