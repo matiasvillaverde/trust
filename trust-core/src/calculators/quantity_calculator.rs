@@ -1,26 +1,28 @@
 use rust_decimal::{prelude::ToPrimitive, Decimal};
 use rust_decimal_macros::dec;
-use trust_model::{Currency, Database, RuleName};
+use trust_model::{Currency, DatabaseFactory, RuleName};
 use uuid::Uuid;
 
-use super::{RiskCalculator, TransactionsCalculator};
+use super::{CapitalAvailableCalculator, RiskCalculator};
 
 pub struct QuantityCalculator;
 
 impl QuantityCalculator {
     pub fn maximum_quantity(
-        // TODO: Test this function
         account_id: Uuid,
         entry_price: Decimal,
         stop_price: Decimal,
         currency: &Currency,
-        database: &mut dyn Database,
+        database: &mut dyn DatabaseFactory,
     ) -> Result<i64, Box<dyn std::error::Error>> {
-        let total_available =
-            TransactionsCalculator::capital_available(account_id, currency, database)?;
+        let total_available = CapitalAvailableCalculator::capital_available(
+            account_id,
+            currency,
+            database.read_transaction_db().as_mut(),
+        )?;
 
         // Get rules by priority
-        let mut rules = database.read_all_rules(account_id)?;
+        let mut rules = database.read_rule_db().read_all_rules(account_id)?;
         rules.sort_by(|a, b| a.priority.cmp(&b.priority));
 
         let mut risk_per_month = dec!(100.0); // Default to 100% of the available capital

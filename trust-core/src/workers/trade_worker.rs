@@ -1,7 +1,7 @@
 use crate::{OrderWorker, TransactionWorker};
 use rust_decimal::Decimal;
 use std::error::Error;
-use trust_model::{database, Trade, Transaction};
+use trust_model::{DatabaseFactory, Trade, Transaction};
 
 pub struct TradeWorker;
 
@@ -9,7 +9,7 @@ impl TradeWorker {
     pub fn open_trade(
         trade: &Trade,
         fee: Decimal,
-        database: &mut dyn database::Database,
+        database: &mut dyn DatabaseFactory,
     ) -> Result<Trade, Box<dyn Error>> {
         // Create Transaction to pay for fees
         if fee.is_sign_positive() {
@@ -22,16 +22,20 @@ impl TradeWorker {
         TransactionWorker::transfer_to_open_trade(trade, database)?;
 
         // Record timestamp when the order was opened
-        OrderWorker::record_timestamp_entry(trade, database)?;
+        OrderWorker::record_timestamp_entry(
+            trade,
+            database.write_order_db().as_mut(),
+            database.read_trade_db().as_mut(),
+        )?;
 
         // Record timestamp when the trade was opened
-        database.update_trade_opened_at(trade)
+        database.write_trade_db().update_trade_opened_at(trade)
     }
 
     pub fn update_trade_target_executed(
         trade: &Trade,
         fee: Decimal,
-        database: &mut dyn database::Database,
+        database: &mut dyn DatabaseFactory,
     ) -> Result<(Trade, Transaction), Box<dyn Error>> {
         // Create Transaction to pay for fees
         if fee.is_sign_positive() {
@@ -44,10 +48,14 @@ impl TradeWorker {
         let (tx, _) = TransactionWorker::transfer_to_close_target(trade, database)?;
 
         // Record timestamp when the order was closed
-        OrderWorker::record_timestamp_target(trade, database)?;
+        OrderWorker::record_timestamp_target(
+            trade,
+            database.write_order_db().as_mut(),
+            database.read_trade_db().as_mut(),
+        )?;
 
         // Record timestamp when the trade was closed
-        let trade = database.update_trade_closed_at(trade)?;
+        let trade = database.write_trade_db().update_trade_closed_at(trade)?;
 
         Ok((trade, tx))
     }
@@ -55,7 +63,7 @@ impl TradeWorker {
     pub fn update_trade_stop_executed(
         trade: &Trade,
         fee: Decimal,
-        database: &mut dyn database::Database,
+        database: &mut dyn DatabaseFactory,
     ) -> Result<(Trade, Transaction), Box<dyn Error>> {
         // Create Transaction to pay for fees
         if fee.is_sign_positive() {
@@ -68,10 +76,14 @@ impl TradeWorker {
         let (tx, _) = TransactionWorker::transfer_to_close_stop(trade, database)?;
 
         // Record timestamp when the order was closed
-        OrderWorker::record_timestamp_stop(trade, database)?;
+        OrderWorker::record_timestamp_stop(
+            trade,
+            database.write_order_db().as_mut(),
+            database.read_trade_db().as_mut(),
+        )?;
 
         // Record timestamp when the trade was closed
-        let trade = database.update_trade_closed_at(trade)?;
+        let trade = database.write_trade_db().update_trade_closed_at(trade)?;
 
         Ok((trade, tx))
     }

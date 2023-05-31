@@ -1,24 +1,25 @@
 use calculators::QuantityCalculator;
 use rust_decimal::Decimal;
 use trust_model::{
-    Account, AccountOverview, Currency, Database, Rule, RuleLevel, RuleName, Trade, TradeCategory,
-    TradeOverview, TradingVehicle, TradingVehicleCategory, Transaction, TransactionCategory,
+    Account, AccountOverview, Currency, DatabaseFactory, Rule, RuleLevel, RuleName, Trade,
+    TradeCategory, TradeOverview, TradingVehicle, TradingVehicleCategory, Transaction,
+    TransactionCategory,
 };
 use uuid::Uuid;
 use validators::RuleValidator;
 use workers::{OrderWorker, RuleWorker, TradeWorker, TransactionWorker};
 
-pub struct Trust {
-    database: Box<dyn Database>,
+pub struct TrustFacade {
+    factory: Box<dyn DatabaseFactory>,
 }
 
 /// Trust is the main entry point for interacting with the trust-core library.
 /// It is a facade that provides a simple interface for interacting with the
 /// trust-core library.
-impl Trust {
+impl TrustFacade {
     /// Creates a new instance of Trust.
-    pub fn new(database: Box<dyn Database>) -> Self {
-        Trust { database }
+    pub fn new(factory: Box<dyn DatabaseFactory>) -> Self {
+        TrustFacade { factory }
     }
 
     /// Creates a new account.
@@ -27,22 +28,24 @@ impl Trust {
         name: &str,
         description: &str,
     ) -> Result<Account, Box<dyn std::error::Error>> {
-        self.database.new_account(name, description)
+        self.factory
+            .write_account_db()
+            .create_account(name, description)
     }
 
     pub fn search_account(&mut self, name: &str) -> Result<Account, Box<dyn std::error::Error>> {
-        self.database.read_account(name)
+        self.factory.read_account_db().read_account(name)
     }
 
     pub fn search_all_accounts(&mut self) -> Result<Vec<Account>, Box<dyn std::error::Error>> {
-        self.database.read_all_accounts()
+        self.factory.read_account_db().read_all_accounts()
     }
 
     pub fn search_all_rules(
         &mut self,
         account_id: Uuid,
     ) -> Result<Vec<Rule>, Box<dyn std::error::Error>> {
-        self.database.read_all_rules(account_id)
+        self.factory.read_rule_db().read_all_rules(account_id)
     }
 
     pub fn create_transaction(
@@ -52,7 +55,7 @@ impl Trust {
         amount: Decimal,
         currency: &Currency,
     ) -> Result<(Transaction, AccountOverview), Box<dyn std::error::Error>> {
-        TransactionWorker::create(&mut *self.database, category, amount, currency, account.id)
+        TransactionWorker::create(&mut *self.factory, category, amount, currency, account.id)
     }
 
     pub fn search_overview(
@@ -60,7 +63,8 @@ impl Trust {
         account_id: Uuid,
         currency: &Currency,
     ) -> Result<AccountOverview, Box<dyn std::error::Error>> {
-        self.database
+        self.factory
+            .read_account_overview_db()
             .read_account_overview_currency(account_id, currency)
     }
 
@@ -68,7 +72,9 @@ impl Trust {
         &mut self,
         account_id: Uuid,
     ) -> Result<Vec<AccountOverview>, Box<dyn std::error::Error>> {
-        self.database.read_account_overview(account_id)
+        self.factory
+            .read_account_overview_db()
+            .read_account_overview(account_id)
     }
 
     pub fn create_rule(
@@ -78,18 +84,18 @@ impl Trust {
         description: &str,
         level: &RuleLevel,
     ) -> Result<Rule, Box<dyn std::error::Error>> {
-        RuleWorker::create_rule(&mut *self.database, account, name, description, level)
+        RuleWorker::create_rule(&mut *self.factory, account, name, description, level)
     }
 
     pub fn deactivate_rule(&mut self, rule: &Rule) -> Result<Rule, Box<dyn std::error::Error>> {
-        self.database.make_rule_inactive(rule)
+        self.factory.write_rule_db().make_rule_inactive(rule)
     }
 
     pub fn search_rules(
         &mut self,
         account_id: Uuid,
     ) -> Result<Vec<Rule>, Box<dyn std::error::Error>> {
-        self.database.read_all_rules(account_id)
+        self.factory.read_rule_db().read_all_rules(account_id)
     }
 
     pub fn create_trading_vehicle(
@@ -99,14 +105,17 @@ impl Trust {
         category: &TradingVehicleCategory,
         broker: &str,
     ) -> Result<TradingVehicle, Box<dyn std::error::Error>> {
-        self.database
+        self.factory
+            .write_trading_vehicle_db()
             .create_trading_vehicle(symbol, isin, category, broker)
     }
 
     pub fn search_trading_vehicles(
         &mut self,
     ) -> Result<Vec<TradingVehicle>, Box<dyn std::error::Error>> {
-        self.database.read_all_trading_vehicles()
+        self.factory
+            .read_trading_vehicle_db()
+            .read_all_trading_vehicles()
     }
 
     pub fn calculate_maximum_quantity(
@@ -121,13 +130,14 @@ impl Trust {
             entry_price,
             stop_price,
             currency,
-            &mut *self.database,
+            &mut *self.factory,
         )
     }
 
     pub fn create_trade(&mut self, trade: DraftTrade) -> Result<Trade, Box<dyn std::error::Error>> {
         let trading_vehicle = self
-            .database
+            .factory
+            .read_trading_vehicle_db()
             .read_trading_vehicle(trade.trading_vehicle_id)?;
 
         let stop = OrderWorker::create_stop(
@@ -136,7 +146,7 @@ impl Trust {
             trade.stop_price,
             &trade.currency,
             &trade.category,
-            &mut *self.database,
+            &mut *self.factory,
         )?;
 
         let entry = OrderWorker::create_entry(
@@ -145,10 +155,10 @@ impl Trust {
             trade.entry_price,
             &trade.currency,
             &trade.category,
-            &mut *self.database,
+            &mut *self.factory,
         )?;
 
-        let new_trade = self.database.create_trade(
+        let new_trade = self.factory.write_trade_db().create_trade(
             &trade.category,
             &trade.currency,
             &trading_vehicle,
@@ -165,12 +175,12 @@ impl Trust {
                 order_price: target.order_price,
             };
 
-            let target = OrderWorker::create_target(draft, &new_trade, &mut *self.database)?;
+            let target = OrderWorker::create_target(draft, &new_trade, &mut *self.factory)?;
             targets.push(target);
         }
 
         // We need to read again the trade with the recently added targets
-        let new_trade = self.database.read_trade(new_trade.id)?;
+        let new_trade = self.factory.read_trade_db().read_trade(new_trade.id)?;
 
         Ok(new_trade)
     }
@@ -179,21 +189,21 @@ impl Trust {
         &mut self,
         account_id: Uuid,
     ) -> Result<Vec<Trade>, Box<dyn std::error::Error>> {
-        self.database.read_all_new_trades(account_id)
+        self.factory.read_trade_db().read_all_new_trades(account_id)
     }
 
     pub fn search_approved_trades(
         &mut self,
         account_id: Uuid,
     ) -> Result<Vec<Trade>, Box<dyn std::error::Error>> {
-        self.database.all_approved_trades(account_id)
+        self.factory.read_trade_db().all_approved_trades(account_id)
     }
 
     pub fn search_open_trades(
         &mut self,
         account_id: Uuid,
     ) -> Result<Vec<Trade>, Box<dyn std::error::Error>> {
-        self.database.all_open_trades(account_id)
+        self.factory.read_trade_db().all_open_trades(account_id)
     }
 
     pub fn approve(
@@ -202,14 +212,12 @@ impl Trust {
     ) -> Result<(Trade, Transaction, AccountOverview, TradeOverview), Box<dyn std::error::Error>>
     {
         // 1. Validate Trade by running rules
-        RuleValidator::validate_trade(trade, &mut *self.database)?;
-
+        RuleValidator::validate_trade(trade, &mut *self.factory)?;
         // 2. Approve in case rule succeed
-        self.database.approve_trade(trade)?;
-
+        self.factory.write_trade_db().approve_trade(trade)?;
         // 3. Create transaction to fund the trade
         let (transaction, account_overview, trade_overview) =
-            TransactionWorker::transfer_to_fund_trade(trade, &mut *self.database)?;
+            TransactionWorker::transfer_to_fund_trade(trade, &mut *self.factory)?;
         Ok((trade.clone(), transaction, account_overview, trade_overview))
     }
 
@@ -218,7 +226,7 @@ impl Trust {
         trade: &Trade,
         fee: Decimal,
     ) -> Result<Trade, Box<dyn std::error::Error>> {
-        TradeWorker::open_trade(trade, fee, self.database.as_mut())
+        TradeWorker::open_trade(trade, fee, self.factory.as_mut())
     }
 
     pub fn stop_trade(
@@ -230,9 +238,9 @@ impl Trust {
         Box<dyn std::error::Error>,
     > {
         let (trade, tx_stop) =
-            TradeWorker::update_trade_stop_executed(trade, fee, self.database.as_mut())?;
+            TradeWorker::update_trade_stop_executed(trade, fee, self.factory.as_mut())?;
         let (tx_payment, account_overview, trade_overview) =
-            TransactionWorker::transfer_payment_from(&trade, self.database.as_mut())?;
+            TransactionWorker::transfer_payment_from(&trade, self.factory.as_mut())?;
         Ok((tx_stop, tx_payment, trade_overview, account_overview))
     }
 
@@ -245,14 +253,15 @@ impl Trust {
         Box<dyn std::error::Error>,
     > {
         let (trade, tx_target) =
-            TradeWorker::update_trade_target_executed(trade, fee, self.database.as_mut())?;
+            TradeWorker::update_trade_target_executed(trade, fee, self.factory.as_mut())?;
         let (tx_payment, account_overview, trade_overview) =
-            TransactionWorker::transfer_payment_from(&trade, self.database.as_mut())?;
+            TransactionWorker::transfer_payment_from(&trade, self.factory.as_mut())?;
         Ok((tx_target, tx_payment, trade_overview, account_overview))
     }
 }
 
 mod calculators;
+mod mocks;
 mod validators;
 mod workers;
 

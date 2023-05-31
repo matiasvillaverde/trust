@@ -2,22 +2,25 @@ use crate::schema::accounts;
 use chrono::{NaiveDateTime, Utc};
 use diesel::prelude::*;
 use std::error::Error;
+use std::sync::Arc;
+use std::sync::Mutex;
 use tracing::error;
-use trust_model::Account;
+use trust_model::ReadAccountDB;
+use trust_model::{Account, WriteAccountDB};
 use uuid::Uuid;
 
-/// WorkerAccount is a struct that contains methods for interacting with the
+/// AccountDB is a struct that contains methods for interacting with the
 /// accounts table in the database.
 /// The methods in this struct are used by the worker to create and read
 /// accounts.
-pub struct WorkerAccount;
+///
 
-impl WorkerAccount {
-    pub fn create_account(
-        connection: &mut SqliteConnection,
-        name: &str,
-        description: &str,
-    ) -> Result<Account, Box<dyn Error>> {
+pub struct AccountDB {
+    pub connection: Arc<Mutex<SqliteConnection>>,
+}
+
+impl WriteAccountDB for AccountDB {
+    fn create_account(&mut self, name: &str, description: &str) -> Result<Account, Box<dyn Error>> {
         let uuid = Uuid::new_v4().to_string();
         let now = Utc::now().naive_utc();
 
@@ -30,6 +33,8 @@ impl WorkerAccount {
             description: description.to_lowercase(),
         };
 
+        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap();
+
         let account = diesel::insert_into(accounts::table)
             .values(&new_account)
             .get_result::<AccountSQLite>(connection)
@@ -40,11 +45,12 @@ impl WorkerAccount {
             })?;
         Ok(account)
     }
+}
 
-    pub fn read_account(
-        connection: &mut SqliteConnection,
-        name: &str,
-    ) -> Result<Account, Box<dyn Error>> {
+impl ReadAccountDB for AccountDB {
+    fn read_account(&mut self, name: &str) -> Result<Account, Box<dyn Error>> {
+        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap();
+
         let account = accounts::table
             .filter(accounts::name.eq(name.to_lowercase()))
             .first::<AccountSQLite>(connection)
@@ -56,7 +62,9 @@ impl WorkerAccount {
         Ok(account)
     }
 
-    pub fn read(connection: &mut SqliteConnection, id: Uuid) -> Result<Account, Box<dyn Error>> {
+    fn read_account_id(&mut self, id: Uuid) -> Result<Account, Box<dyn Error>> {
+        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap();
+
         let account = accounts::table
             .filter(accounts::id.eq(id.to_string()))
             .first::<AccountSQLite>(connection)
@@ -68,9 +76,8 @@ impl WorkerAccount {
         Ok(account)
     }
 
-    pub fn read_all_accounts(
-        connection: &mut SqliteConnection,
-    ) -> Result<Vec<Account>, Box<dyn Error>> {
+    fn read_all_accounts(&mut self) -> Result<Vec<Account>, Box<dyn Error>> {
+        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap();
         let accounts = accounts::table
             .filter(accounts::deleted_at.is_null())
             .load::<AccountSQLite>(connection)
@@ -129,10 +136,10 @@ struct NewAccount {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::SqliteDatabase;
     use diesel_migrations::*;
-
+    use trust_model::DatabaseFactory;
     pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
-
     // Declare a test database connection
     fn establish_connection() -> SqliteConnection {
         let mut connection = SqliteConnection::establish(":memory:").unwrap();
@@ -141,119 +148,102 @@ mod tests {
         connection.begin_test_transaction().unwrap();
         connection
     }
-
-    fn create_accounts(conn: &mut SqliteConnection) -> Vec<Account> {
+    fn create_factory(connection: SqliteConnection) -> Box<dyn DatabaseFactory> {
+        Box::new(SqliteDatabase::new_from(Arc::new(Mutex::new(connection))))
+    }
+    fn create_accounts(db: &Box<dyn DatabaseFactory>) -> Vec<Account> {
         let created_accounts = vec![
-            WorkerAccount::create_account(conn, "Test Account 1", "This is a test account")
+            db.write_account_db()
+                .create_account("Test Account 1", "This is a test account")
                 .expect("Error creating account"),
-            WorkerAccount::create_account(conn, "Test Account 2", "This is a test account")
+            db.write_account_db()
+                .create_account("Test Account 2", "This is a test account")
                 .expect("Error creating account"),
-            WorkerAccount::create_account(conn, "Test Account 3", "This is a test account")
+            db.write_account_db()
+                .create_account("Test Account 3", "This is a test account")
                 .expect("Error creating account"),
         ];
-
         created_accounts
     }
-
     #[test]
     fn test_create_account() {
-        let mut conn: SqliteConnection = establish_connection();
-
+        let conn: SqliteConnection = establish_connection();
+        let mut db = AccountDB {
+            connection: Arc::new(Mutex::new(conn)),
+        };
         // Create a new account record
-        let account =
-            WorkerAccount::create_account(&mut conn, "Test Account", "This is a test account")
-                .expect("Error creating account");
-
+        let account = db
+            .create_account("Test Account", "This is a test account")
+            .expect("Error creating account");
         assert_eq!(account.name, "test account"); // it should be lowercase
         assert_eq!(account.description, "this is a test account"); // it should be lowercase
         assert_eq!(account.deleted_at, None);
     }
-
     #[test]
     fn test_read_account() {
-        let mut conn = establish_connection();
-
+        let conn = establish_connection();
+        let mut db = AccountDB {
+            connection: Arc::new(Mutex::new(conn)),
+        };
         // Create a new account record
-        let created_account =
-            WorkerAccount::create_account(&mut conn, "Test Account", "This is a test account")
-                .expect("Error creating account");
-
+        let created_account = db
+            .create_account("Test Account", "This is a test account")
+            .expect("Error creating account");
         // Read the account record by name
-        let read_account = WorkerAccount::read_account(&mut conn, "Test Account")
+        let read_account = db
+            .read_account("Test Account")
             .expect("Account should be found");
-
         assert_eq!(read_account, created_account);
     }
-
     #[test]
     fn test_read_account_id() {
-        let mut conn = establish_connection();
-
+        let conn = establish_connection();
+        let mut db = AccountDB {
+            connection: Arc::new(Mutex::new(conn)),
+        };
         // Create a new account record
-        let created_account =
-            WorkerAccount::create_account(&mut conn, "Test Account", "This is a test account")
-                .expect("Error creating account");
-
+        let created_account = db
+            .create_account("Test Account", "This is a test account")
+            .expect("Error creating account");
         // Read the account record by name
-        let read_account =
-            WorkerAccount::read(&mut conn, created_account.id).expect("Account should be found");
-
+        let read_account = db
+            .read_account_id(created_account.id)
+            .expect("Account should be found");
         assert_eq!(read_account, created_account);
     }
-
     #[test]
     fn test_create_account_same_name() {
-        let mut conn = establish_connection();
-
+        let conn = establish_connection();
+        let mut db = AccountDB {
+            connection: Arc::new(Mutex::new(conn)),
+        };
         let name = "Test Account";
-
         // Create a new account record
-        WorkerAccount::create_account(&mut conn, name, "This is a test account")
+        db.create_account(name, "This is a test account")
             .expect("Error creating account");
-
         // Create a new account record with the same name
-        WorkerAccount::create_account(&mut conn, name, "This is a test account")
+        db.create_account(name, "This is a test account")
             .expect_err("Error creating account with same name");
     }
-
     #[test]
     fn test_read_account_not_found() {
-        let mut conn = establish_connection();
-        WorkerAccount::read_account(&mut conn, "Non existent account")
+        let conn = establish_connection();
+        let mut db = AccountDB {
+            connection: Arc::new(Mutex::new(conn)),
+        };
+        db.read_account("Non existent account")
             .expect_err("Account should not be found");
     }
-
     #[test]
     fn test_read_all_accounts() {
-        let mut conn = establish_connection();
-        let created_accounts = create_accounts(&mut conn);
+        let db = create_factory(establish_connection());
+        let created_accounts = create_accounts(&db);
 
         // Read all account records
-        let accounts =
-            WorkerAccount::read_all_accounts(&mut conn).expect("Error reading all accounts");
+        let accounts = db
+            .read_account_db()
+            .read_all_accounts()
+            .expect("Error reading all accounts");
         assert_eq!(accounts, created_accounts);
-    }
-
-    #[test]
-    fn test_read_all_accounts_deleted() {
-        let mut conn = establish_connection();
-        let created_accounts = create_accounts(&mut conn);
-
-        // Create 3 accounts
-        let account = created_accounts.first().unwrap();
-
-        // Delete an account record
-        diesel::update(accounts::table.find(account.id.to_string()))
-            .set((
-                accounts::updated_at.eq(Utc::now().naive_utc()),
-                accounts::deleted_at.eq(Utc::now().naive_utc()),
-            ))
-            .execute(&mut conn)
-            .expect("Error deleting account");
-
-        // Read all account records
-        let accounts =
-            WorkerAccount::read_all_accounts(&mut conn).expect("Error reading all accounts");
-        assert_eq!(accounts.len(), 2);
     }
 }

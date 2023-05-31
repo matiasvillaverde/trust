@@ -1,6 +1,6 @@
 use rust_decimal::Decimal;
 use std::error::Error;
-use trust_model::{Currency, Database, TransactionCategory};
+use trust_model::{Currency, ReadAccountOverviewDB, ReadTradeDB, TransactionCategory};
 use uuid::Uuid;
 pub struct TransactionValidator;
 type TransactionValidationResult = Result<(), Box<TransactionValidationError>>;
@@ -11,7 +11,8 @@ impl TransactionValidator {
         amount: Decimal,
         currency: &Currency,
         account_id: Uuid,
-        database: &mut dyn Database,
+        database: &mut dyn ReadAccountOverviewDB,
+        database_trade: &mut dyn ReadTradeDB,
     ) -> TransactionValidationResult {
         match category {
             TransactionCategory::Deposit => {
@@ -20,9 +21,14 @@ impl TransactionValidator {
             TransactionCategory::Withdrawal => {
                 validate_withdraw(amount, currency, account_id, database)
             }
-            TransactionCategory::FundTrade(trade_id) => {
-                validate_trade(amount, currency, account_id, trade_id, database)
-            }
+            TransactionCategory::FundTrade(trade_id) => validate_trade(
+                amount,
+                currency,
+                account_id,
+                trade_id,
+                database,
+                database_trade,
+            ),
             _default => Err(Box::new(TransactionValidationError {
                 code: TransactionValidationErrorCode::NotAuthorized,
                 message: "Manually creating transaction is not allowed".to_string(),
@@ -35,7 +41,7 @@ fn validate_deposit(
     amount: Decimal,
     currency: &Currency,
     account_id: Uuid,
-    database: &mut dyn Database,
+    database: &mut dyn ReadAccountOverviewDB,
 ) -> TransactionValidationResult {
     if amount.is_sign_negative() {
         Err(Box::new(TransactionValidationError {
@@ -57,7 +63,7 @@ fn validate_withdraw(
     amount: Decimal,
     currency: &Currency,
     account_id: Uuid,
-    database: &mut dyn Database,
+    database: &mut dyn ReadAccountOverviewDB,
 ) -> TransactionValidationResult {
     if amount.is_sign_negative() | amount.is_zero() {
         Err(Box::new(TransactionValidationError {
@@ -90,7 +96,8 @@ fn validate_trade(
     currency: &Currency,
     account_id: Uuid,
     trade_id: Uuid,
-    database: &mut dyn Database,
+    database: &mut dyn ReadAccountOverviewDB,
+    database_trade: &mut dyn ReadTradeDB,
 ) -> TransactionValidationResult {
     if amount.is_sign_negative() | amount.is_zero() {
         Err(Box::new(TransactionValidationError {
@@ -103,7 +110,7 @@ fn validate_trade(
             Ok(overview) => {
                 if overview.total_available.amount >= amount {
 
-                    let trade = database.read_trade(trade_id);
+                    let trade = database_trade.read_trade(trade_id);
 
                     // Validate that the approved_at in the trade is not null (it is approved)
                     match trade {

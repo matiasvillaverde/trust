@@ -6,7 +6,7 @@ use crate::{
 use dialoguer::{theme::ColorfulTheme, FuzzySelect, Input};
 use rust_decimal::Decimal;
 use std::error::Error;
-use trust_core::{DraftTarget, DraftTrade, Trust};
+use trust_core::{DraftTarget, DraftTrade, TrustFacade};
 use trust_model::{Account, Currency, Trade, TradeCategory, TradingVehicle};
 
 pub struct TradeDialogBuilder {
@@ -38,7 +38,7 @@ impl TradeDialogBuilder {
         }
     }
 
-    pub fn build(mut self, trust: &mut Trust) -> TradeDialogBuilder {
+    pub fn build(mut self, trust: &mut TrustFacade) -> TradeDialogBuilder {
         let trading_vehicle_id = self
             .trading_vehicle
             .clone()
@@ -79,7 +79,7 @@ impl TradeDialogBuilder {
         }
     }
 
-    pub fn account(mut self, trust: &mut Trust) -> Self {
+    pub fn account(mut self, trust: &mut TrustFacade) -> Self {
         let account = AccountSearchDialog::new().search(trust).build();
         match account {
             Ok(account) => self.account = Some(account),
@@ -88,7 +88,7 @@ impl TradeDialogBuilder {
         self
     }
 
-    pub fn trading_vehicle(mut self, trust: &mut Trust) -> Self {
+    pub fn trading_vehicle(mut self, trust: &mut TrustFacade) -> Self {
         let tv = TradingVehicleSearchDialogBuilder::new()
             .search(trust)
             .build();
@@ -141,7 +141,7 @@ impl TradeDialogBuilder {
         self
     }
 
-    pub fn quantity(mut self, trust: &mut Trust) -> Self {
+    pub fn quantity(mut self, trust: &mut TrustFacade) -> Self {
         let maximum = trust
             .calculate_maximum_quantity(
                 self.account.clone().unwrap().id,

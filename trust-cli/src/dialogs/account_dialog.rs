@@ -2,7 +2,7 @@ use std::error::Error;
 
 use crate::views::{AccountOverviewView, AccountView, RuleView};
 use dialoguer::{theme::ColorfulTheme, FuzzySelect, Input};
-use trust_core::Trust;
+use trust_core::TrustFacade;
 use trust_model::Account;
 
 pub struct AccountDialogBuilder {
@@ -20,7 +20,7 @@ impl AccountDialogBuilder {
         }
     }
 
-    pub fn build(mut self, trust: &mut Trust) -> AccountDialogBuilder {
+    pub fn build(mut self, trust: &mut TrustFacade) -> AccountDialogBuilder {
         self.result = Some(trust.create_account(&self.name, &self.description));
         self
     }
@@ -66,7 +66,7 @@ impl AccountSearchDialog {
             .expect("No result found, did you forget to call search?")
     }
 
-    pub fn display(self, trust: &mut Trust) {
+    pub fn display(self, trust: &mut TrustFacade) {
         match self
             .result
             .expect("No result found, did you forget to call search?")
@@ -94,7 +94,7 @@ impl AccountSearchDialog {
         }
     }
 
-    pub fn search(mut self, trust: &mut Trust) -> Self {
+    pub fn search(mut self, trust: &mut TrustFacade) -> Self {
         let accounts = trust.search_all_accounts();
         match accounts {
             Ok(accounts) => {

@@ -1,7 +1,7 @@
 use std::error::Error;
 
 use dialoguer::{theme::ColorfulTheme, FuzzySelect, Input};
-use trust_core::Trust;
+use trust_core::TrustFacade;
 use trust_model::{TradingVehicle, TradingVehicleCategory};
 
 use crate::views::TradingVehicleView;
@@ -25,7 +25,7 @@ impl TradingVehicleDialogBuilder {
         }
     }
 
-    pub fn build(mut self, trust: &mut Trust) -> TradingVehicleDialogBuilder {
+    pub fn build(mut self, trust: &mut TrustFacade) -> TradingVehicleDialogBuilder {
         let isin = self.isin.clone().expect("Select isin first");
         let symbol = self.symbol.clone().expect("Select symbol first");
         let category = self.category.expect("Select category first");
@@ -140,7 +140,7 @@ impl TradingVehicleSearchDialogBuilder {
         }
     }
 
-    pub fn search(mut self, trust: &mut Trust) -> Self {
+    pub fn search(mut self, trust: &mut TrustFacade) -> Self {
         let trading_vehicles = trust.search_trading_vehicles();
         match trading_vehicles {
             Ok(tvs) => {

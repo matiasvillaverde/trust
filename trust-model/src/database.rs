@@ -26,25 +26,24 @@ use std::error::Error;
 /// To prevent the database from being used incorrectly, the trait has the following rules:
 /// - Reads can be Uuid
 /// - Writes and updates must be Domain Models
-pub trait Database:
-    ReadAccountDB
-    + WriteAccountDB
-    + ReadAccountOverviewDB
-    + WriteAccountOverviewDB
-    + ReadOrderDB
-    + WriteOrderDB
-    + ReadPriceDB
-    + WritePriceDB
-    + ReadTransactionDB
-    + WriteTransactionDB
-    + ReadTradeDB
-    + WriteTradeDB
-    + WriteTradeOverviewDB
-    + ReadRuleDB
-    + WriteRuleDB
-    + ReadTradingVehicleDB
-    + WriteTradingVehicleDB
-{
+pub trait DatabaseFactory {
+    fn read_account_db(&self) -> Box<dyn ReadAccountDB>;
+    fn write_account_db(&self) -> Box<dyn WriteAccountDB>;
+    fn read_account_overview_db(&self) -> Box<dyn ReadAccountOverviewDB>;
+    fn write_account_overview_db(&self) -> Box<dyn WriteAccountOverviewDB>;
+    fn read_order_db(&self) -> Box<dyn ReadOrderDB>;
+    fn write_order_db(&self) -> Box<dyn WriteOrderDB>;
+    fn read_price_db(&self) -> Box<dyn ReadPriceDB>;
+    fn write_price_db(&self) -> Box<dyn WritePriceDB>;
+    fn read_transaction_db(&self) -> Box<dyn ReadTransactionDB>;
+    fn write_transaction_db(&self) -> Box<dyn WriteTransactionDB>;
+    fn read_trade_db(&self) -> Box<dyn ReadTradeDB>;
+    fn write_trade_db(&self) -> Box<dyn WriteTradeDB>;
+    fn write_trade_overview_db(&self) -> Box<dyn WriteTradeOverviewDB>;
+    fn read_rule_db(&self) -> Box<dyn ReadRuleDB>;
+    fn write_rule_db(&self) -> Box<dyn WriteRuleDB>;
+    fn read_trading_vehicle_db(&self) -> Box<dyn ReadTradingVehicleDB>;
+    fn write_trading_vehicle_db(&self) -> Box<dyn WriteTradingVehicleDB>;
 }
 
 pub trait ReadAccountDB {
@@ -54,7 +53,7 @@ pub trait ReadAccountDB {
 }
 
 pub trait WriteAccountDB {
-    fn new_account(&mut self, name: &str, description: &str) -> Result<Account, Box<dyn Error>>;
+    fn create_account(&mut self, name: &str, description: &str) -> Result<Account, Box<dyn Error>>;
 }
 
 pub trait ReadAccountOverviewDB {
@@ -115,7 +114,11 @@ pub trait WriteOrderDB {
 }
 
 pub trait WritePriceDB {
-    fn new_price(&mut self, currency: &Currency, amount: Decimal) -> Result<Price, Box<dyn Error>>;
+    fn create_price(
+        &mut self,
+        currency: &Currency,
+        amount: Decimal,
+    ) -> Result<Price, Box<dyn Error>>;
 }
 
 pub trait ReadPriceDB {
@@ -168,7 +171,7 @@ pub trait ReadTransactionDB {
 }
 
 pub trait WriteTransactionDB {
-    fn new_transaction(
+    fn create_transaction(
         &mut self,
         account: &Account,
         amount: Decimal,

@@ -3,7 +3,7 @@ use crate::views::{AccountOverviewView, TransactionView};
 use dialoguer::{theme::ColorfulTheme, FuzzySelect, Input};
 use rust_decimal::Decimal;
 use std::error::Error;
-use trust_core::Trust;
+use trust_core::TrustFacade;
 use trust_model::Account;
 use trust_model::AccountOverview;
 use trust_model::Currency;
@@ -29,7 +29,7 @@ impl TransactionDialogBuilder {
         }
     }
 
-    pub fn build(mut self, trust: &mut Trust) -> TransactionDialogBuilder {
+    pub fn build(mut self, trust: &mut TrustFacade) -> TransactionDialogBuilder {
         self.result = Some(
             trust.create_transaction(
                 &self
@@ -63,7 +63,7 @@ impl TransactionDialogBuilder {
         }
     }
 
-    pub fn amount(mut self, trust: &mut Trust) -> Self {
+    pub fn amount(mut self, trust: &mut TrustFacade) -> Self {
         let message = format!("How much do you want to {}?", self.category);
 
         // Show available if withdrawal.
@@ -106,7 +106,7 @@ impl TransactionDialogBuilder {
         self
     }
 
-    pub fn currency(mut self, trust: &mut Trust) -> Self {
+    pub fn currency(mut self, trust: &mut TrustFacade) -> Self {
         let mut currencies = Vec::new();
 
         if self.category == TransactionCategory::Withdrawal {
@@ -141,7 +141,7 @@ impl TransactionDialogBuilder {
         self
     }
 
-    pub fn account(mut self, trust: &mut Trust) -> Self {
+    pub fn account(mut self, trust: &mut TrustFacade) -> Self {
         let account = AccountSearchDialog::new().search(trust).build();
         match account {
             Ok(account) => self.account = Some(account),
