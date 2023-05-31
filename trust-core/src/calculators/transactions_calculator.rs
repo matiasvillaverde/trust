@@ -6,31 +6,6 @@ use uuid::Uuid;
 pub struct TransactionsCalculator;
 
 impl TransactionsCalculator {
-    pub fn capital_in_trades(
-        account_id: Uuid,
-        currency: &Currency,
-        database: &mut dyn ReadTransactionDB,
-    ) -> Result<Decimal, Box<dyn std::error::Error>> {
-        // Get all transactions
-        let transactions =
-            database.all_account_transactions_funding_in_open_trades(account_id, currency)?;
-
-        // Sum all transactions
-        let total_available: Decimal = transactions
-            .iter()
-            .map(|transaction| match transaction.category {
-                TransactionCategory::FundTrade(_) => transaction.price.amount,
-                _ => dec!(0),
-            })
-            .sum();
-
-        if total_available < dec!(0.0) {
-            return Ok(dec!(0.0)); // If there is a negative meaning that we have a profit. So we return 0.
-        }
-
-        Ok(total_available)
-    }
-
     pub fn capital_taxable(
         account_id: Uuid,
         currency: &Currency,
