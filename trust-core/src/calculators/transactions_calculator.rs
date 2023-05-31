@@ -6,40 +6,6 @@ use uuid::Uuid;
 pub struct TransactionsCalculator;
 
 impl TransactionsCalculator {
-    pub fn total_balance(
-        account_id: Uuid,
-        currency: &Currency,
-        database: &mut dyn ReadTransactionDB,
-    ) -> Result<Decimal, Box<dyn std::error::Error>> {
-        let mut total_balance = dec!(0.0);
-        // Get all transactions
-        for tx in database.all_transactions(account_id, currency)? {
-            match tx.category {
-                TransactionCategory::Withdrawal
-                | TransactionCategory::WithdrawalTax
-                | TransactionCategory::WithdrawalEarnings
-                | TransactionCategory::FeeOpen(_)
-                | TransactionCategory::FeeClose(_) => {
-                    total_balance -= tx.price.amount;
-                }
-                TransactionCategory::Deposit => {
-                    total_balance += tx.price.amount;
-                }
-                TransactionCategory::OpenTrade(_) => {
-                    total_balance -= tx.price.amount; // The money is in the market it counts at negative.
-                }
-                TransactionCategory::CloseSafetyStop(_)
-                | TransactionCategory::CloseTarget(_)
-                | TransactionCategory::CloseSafetyStopSlippage(_) => {
-                    total_balance += tx.price.amount; // We add the money that we get by exit the market.
-                }
-                _ => { // We don't want to count the transactions for taxes, earnings and funding trades.
-                }
-            }
-        }
-
-        Ok(total_balance)
-    }
 
     pub fn capital_in_trades(
         account_id: Uuid,
