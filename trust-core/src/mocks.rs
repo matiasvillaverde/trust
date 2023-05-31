@@ -36,10 +36,10 @@ pub mod read_transaction_db_mocks {
                     created_at: now,
                     updated_at: now,
                     deleted_at: None,
-                    currency: currency,
+                    currency,
                     amount,
                 },
-                currency: currency,
+                currency,
                 category,
             };
             self.transactions.push(transaction);

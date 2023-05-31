@@ -1,4 +1,5 @@
 use rust_decimal::Decimal;
+use rust_decimal_macros::dec;
 use trust_model::{Currency, ReadTransactionDB, TransactionCategory};
 use uuid::Uuid;
 
@@ -13,6 +14,10 @@ impl CapitalAvailableCalculator {
         // Get all transactions
         let transactions =
             database.all_account_transactions_excluding_taxes(account_id, currency)?;
+
+            if transactions.is_empty() {
+                return Ok(dec!(0));
+            }
 
         // Sum all transactions
         let total_available: Decimal = transactions
@@ -32,10 +37,10 @@ impl CapitalAvailableCalculator {
             .sum();
 
         if total_available.is_sign_negative() {
-            Err(format!(
+            return Err(format!(
                 "capital_available: total available is negative: {}",
                 total_available
-            ))?;
+            ).into())
         }
 
         Ok(total_available)

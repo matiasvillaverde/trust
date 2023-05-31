@@ -9,7 +9,6 @@ pub struct QuantityCalculator;
 
 impl QuantityCalculator {
     pub fn maximum_quantity(
-        // TODO: Test this function
         account_id: Uuid,
         entry_price: Decimal,
         stop_price: Decimal,
