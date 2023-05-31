@@ -6,7 +6,6 @@ use uuid::Uuid;
 pub struct TransactionsCalculator;
 
 impl TransactionsCalculator {
-
     pub fn capital_in_trades(
         account_id: Uuid,
         currency: &Currency,

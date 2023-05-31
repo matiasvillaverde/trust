@@ -2,7 +2,7 @@ use crate::views::{AccountOverviewView, TradeOverviewView, TradeView};
 use crate::{dialogs::AccountSearchDialog, views::TransactionView};
 use dialoguer::{theme::ColorfulTheme, FuzzySelect};
 use std::error::Error;
-use trust_core::Trust;
+use trust_core::TrustFacade;
 use trust_model::{Account, AccountOverview, Trade, TradeOverview, Transaction};
 
 type TradeDialogApproverBuilderResult =
@@ -23,7 +23,7 @@ impl TradeDialogApproverBuilder {
         }
     }
 
-    pub fn build(mut self, trust: &mut Trust) -> TradeDialogApproverBuilder {
+    pub fn build(mut self, trust: &mut TrustFacade) -> TradeDialogApproverBuilder {
         let trade: Trade = self.trade.clone().unwrap();
         self.result = Some(trust.approve(&trade));
         self
@@ -53,7 +53,7 @@ impl TradeDialogApproverBuilder {
         }
     }
 
-    pub fn account(mut self, trust: &mut Trust) -> Self {
+    pub fn account(mut self, trust: &mut TrustFacade) -> Self {
         let account = AccountSearchDialog::new().search(trust).build();
         match account {
             Ok(account) => self.account = Some(account),
@@ -62,7 +62,7 @@ impl TradeDialogApproverBuilder {
         self
     }
 
-    pub fn search(mut self, trust: &mut Trust) -> Self {
+    pub fn search(mut self, trust: &mut TrustFacade) -> Self {
         let trades = trust.search_new_trades(self.account.clone().unwrap().id);
         match trades {
             Ok(trades) => {

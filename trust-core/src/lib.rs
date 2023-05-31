@@ -9,17 +9,17 @@ use uuid::Uuid;
 use validators::RuleValidator;
 use workers::{OrderWorker, RuleWorker, TradeWorker, TransactionWorker};
 
-pub struct Trust {
+pub struct TrustFacade {
     factory: Box<dyn DatabaseFactory>,
 }
 
 /// Trust is the main entry point for interacting with the trust-core library.
 /// It is a facade that provides a simple interface for interacting with the
 /// trust-core library.
-impl Trust {
+impl TrustFacade {
     /// Creates a new instance of Trust.
     pub fn new(factory: Box<dyn DatabaseFactory>) -> Self {
-        Trust { factory }
+        TrustFacade { factory }
     }
 
     /// Creates a new account.

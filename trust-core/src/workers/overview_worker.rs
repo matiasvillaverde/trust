@@ -1,7 +1,9 @@
 use std::error::Error;
 use trust_model::{Account, AccountOverview, Currency, DatabaseFactory, Trade, TradeOverview};
 
-use crate::calculators::{CapitalAvailableCalculator, TransactionsCalculator, CapitalBalanceCalculator};
+use crate::calculators::{
+    CapitalAvailableCalculator, CapitalBalanceCalculator, TransactionsCalculator,
+};
 pub struct OverviewWorker;
 
 impl OverviewWorker {

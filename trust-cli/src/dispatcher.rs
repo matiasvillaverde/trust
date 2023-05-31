@@ -6,12 +6,12 @@ use crate::dialogs::{
 use crate::dialogs::{RuleDialogBuilder, RuleRemoveDialogBuilder};
 use clap::ArgMatches;
 use std::ffi::OsString;
-use trust_core::Trust;
+use trust_core::TrustFacade;
 use trust_db_sqlite::SqliteDatabase;
 use trust_model::TransactionCategory;
 
 pub struct ArgDispatcher {
-    trust: Trust,
+    trust: TrustFacade,
 }
 
 impl ArgDispatcher {
@@ -19,7 +19,7 @@ impl ArgDispatcher {
         let database = SqliteDatabase::new("sqlite://production.db");
 
         ArgDispatcher {
-            trust: Trust::new(Box::new(database)),
+            trust: TrustFacade::new(Box::new(database)),
         }
     }
 

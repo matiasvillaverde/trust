@@ -2,7 +2,7 @@ use std::error::Error;
 
 use crate::{dialogs::AccountSearchDialog, views::RuleView};
 use dialoguer::{theme::ColorfulTheme, FuzzySelect, Input};
-use trust_core::Trust;
+use trust_core::TrustFacade;
 use trust_model::{Account, Rule, RuleLevel, RuleName};
 
 pub struct RuleDialogBuilder {
@@ -24,7 +24,7 @@ impl RuleDialogBuilder {
         }
     }
 
-    pub fn build(mut self, trust: &mut Trust) -> RuleDialogBuilder {
+    pub fn build(mut self, trust: &mut TrustFacade) -> RuleDialogBuilder {
         self.result = Some(
             trust.create_rule(
                 &self
@@ -54,7 +54,7 @@ impl RuleDialogBuilder {
         }
     }
 
-    pub fn account(mut self, trust: &mut Trust) -> Self {
+    pub fn account(mut self, trust: &mut TrustFacade) -> Self {
         let account = AccountSearchDialog::new().search(trust).build();
         match account {
             Ok(account) => self.account = Some(account),
@@ -161,7 +161,7 @@ impl RuleRemoveDialogBuilder {
         }
     }
 
-    pub fn build(mut self, trust: &mut Trust) -> RuleRemoveDialogBuilder {
+    pub fn build(mut self, trust: &mut TrustFacade) -> RuleRemoveDialogBuilder {
         let selected_rule = self.rule_to_remove.clone().expect("Select a rule first");
         self.result = Some(trust.deactivate_rule(&selected_rule));
         self
@@ -177,7 +177,7 @@ impl RuleRemoveDialogBuilder {
         }
     }
 
-    pub fn account(mut self, trust: &mut Trust) -> Self {
+    pub fn account(mut self, trust: &mut TrustFacade) -> Self {
         let account = AccountSearchDialog::new().search(trust).build();
         match account {
             Ok(account) => self.account = Some(account),
@@ -186,7 +186,7 @@ impl RuleRemoveDialogBuilder {
         self
     }
 
-    pub fn select_rule(mut self, trust: &mut Trust) -> Self {
+    pub fn select_rule(mut self, trust: &mut TrustFacade) -> Self {
         let account_id = self.account.clone().expect("Select an account first").id;
         let rules = trust.search_rules(account_id).unwrap_or_else(|error| {
             println!("Error reading rules: {:?}", error);

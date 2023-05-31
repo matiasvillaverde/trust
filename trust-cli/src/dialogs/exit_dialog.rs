@@ -3,7 +3,7 @@ use crate::views::{AccountOverviewView, TradeOverviewView, TradeView, Transactio
 use dialoguer::{theme::ColorfulTheme, FuzzySelect, Input};
 use rust_decimal::Decimal;
 use std::error::Error;
-use trust_core::Trust;
+use trust_core::TrustFacade;
 use trust_model::{Account, AccountOverview, Trade, TradeOverview, Transaction};
 
 type ExitDialogBuilderResult =
@@ -26,7 +26,7 @@ impl ExitDialogBuilder {
         }
     }
 
-    pub fn build_stop(mut self, trust: &mut Trust) -> ExitDialogBuilder {
+    pub fn build_stop(mut self, trust: &mut TrustFacade) -> ExitDialogBuilder {
         let trade: Trade = self
             .trade
             .clone()
@@ -38,7 +38,7 @@ impl ExitDialogBuilder {
         self
     }
 
-    pub fn build_target(mut self, trust: &mut Trust) -> ExitDialogBuilder {
+    pub fn build_target(mut self, trust: &mut TrustFacade) -> ExitDialogBuilder {
         let trade: Trade = self
             .trade
             .clone()
@@ -77,7 +77,7 @@ impl ExitDialogBuilder {
         }
     }
 
-    pub fn account(mut self, trust: &mut Trust) -> Self {
+    pub fn account(mut self, trust: &mut TrustFacade) -> Self {
         let account = AccountSearchDialog::new().search(trust).build();
         match account {
             Ok(account) => self.account = Some(account),
@@ -86,7 +86,7 @@ impl ExitDialogBuilder {
         self
     }
 
-    pub fn search(mut self, trust: &mut Trust) -> Self {
+    pub fn search(mut self, trust: &mut TrustFacade) -> Self {
         let trades = trust.search_open_trades(self.account.clone().unwrap().id);
         match trades {
             Ok(trades) => {

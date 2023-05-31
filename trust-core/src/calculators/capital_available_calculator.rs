@@ -15,9 +15,9 @@ impl CapitalAvailableCalculator {
         let transactions =
             database.all_account_transactions_excluding_taxes(account_id, currency)?;
 
-            if transactions.is_empty() {
-                return Ok(dec!(0));
-            }
+        if transactions.is_empty() {
+            return Ok(dec!(0));
+        }
 
         // Sum all transactions
         let total_available: Decimal = transactions
@@ -40,7 +40,8 @@ impl CapitalAvailableCalculator {
             return Err(format!(
                 "capital_available: total available is negative: {}",
                 total_available
-            ).into())
+            )
+            .into());
         }
 
         Ok(total_available)
