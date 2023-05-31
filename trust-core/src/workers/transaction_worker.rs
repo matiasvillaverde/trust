@@ -60,7 +60,7 @@ impl TransactionWorker {
             database.read_trade_db().as_mut(),
         ) {
             Ok(_) => {
-                let transaction = database.write_transaction_db().new_transaction(
+                let transaction = database.write_transaction_db().create_transaction(
                     &account,
                     amount,
                     currency,
@@ -72,7 +72,7 @@ impl TransactionWorker {
             }
             Err(error) => {
                 if error.code == TransactionValidationErrorCode::OverviewNotFound {
-                    let transaction = database.write_transaction_db().new_transaction(
+                    let transaction = database.write_transaction_db().create_transaction(
                         &account,
                         amount,
                         currency,
@@ -108,7 +108,7 @@ impl TransactionWorker {
             database.read_trade_db().as_mut(),
         ) {
             Ok(_) => {
-                let transaction = database.write_transaction_db().new_transaction(
+                let transaction = database.write_transaction_db().create_transaction(
                     &account,
                     amount,
                     currency,
@@ -142,7 +142,7 @@ impl TransactionWorker {
             database.read_trade_db().as_mut(),
         ) {
             Ok(_) => {
-                let transaction = database.write_transaction_db().new_transaction(
+                let transaction = database.write_transaction_db().create_transaction(
                     &account,
                     trade_total,
                     &trade.currency,
@@ -172,7 +172,7 @@ impl TransactionWorker {
 
         let total = trade.entry.unit_price.amount * Decimal::from(trade.entry.quantity);
 
-        let transaction = database.write_transaction_db().new_transaction(
+        let transaction = database.write_transaction_db().create_transaction(
             &account,
             total,
             &trade.currency,
@@ -195,7 +195,7 @@ impl TransactionWorker {
             .read_account_db()
             .read_account_id(trade.account_id)?;
 
-        let transaction = database.write_transaction_db().new_transaction(
+        let transaction = database.write_transaction_db().create_transaction(
             &account,
             fee,
             &trade.currency,
@@ -219,7 +219,7 @@ impl TransactionWorker {
             .read_account_db()
             .read_account_id(trade.account_id)?;
 
-        let transaction = database.write_transaction_db().new_transaction(
+        let transaction = database.write_transaction_db().create_transaction(
             &account,
             fee,
             &trade.currency,
@@ -246,7 +246,7 @@ impl TransactionWorker {
         let total = trade.exit_targets.first().unwrap().order.unit_price.amount
             * Decimal::from(trade.entry.quantity);
 
-        let transaction = database.write_transaction_db().new_transaction(
+        let transaction = database.write_transaction_db().create_transaction(
             &account,
             total,
             &trade.currency,
@@ -271,7 +271,7 @@ impl TransactionWorker {
 
         let total = trade.safety_stop.unit_price.amount * Decimal::from(trade.entry.quantity);
 
-        let transaction = database.write_transaction_db().new_transaction(
+        let transaction = database.write_transaction_db().create_transaction(
             &account,
             total,
             &trade.currency,
@@ -297,7 +297,7 @@ impl TransactionWorker {
             database.read_transaction_db().as_mut(),
         )?;
 
-        let transaction = database.write_transaction_db().new_transaction(
+        let transaction = database.write_transaction_db().create_transaction(
             &account,
             total_to_withdrawal,
             &trade.currency,

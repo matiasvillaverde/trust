@@ -53,7 +53,7 @@ pub trait ReadAccountDB {
 }
 
 pub trait WriteAccountDB {
-    fn new_account(&mut self, name: &str, description: &str) -> Result<Account, Box<dyn Error>>;
+    fn create_account(&mut self, name: &str, description: &str) -> Result<Account, Box<dyn Error>>;
 }
 
 pub trait ReadAccountOverviewDB {
@@ -167,7 +167,7 @@ pub trait ReadTransactionDB {
 }
 
 pub trait WriteTransactionDB {
-    fn new_transaction(
+    fn create_transaction(
         &mut self,
         account: &Account,
         amount: Decimal,

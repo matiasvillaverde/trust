@@ -367,11 +367,13 @@ pub struct NewTransaction {
 
 #[cfg(test)]
 mod tests {
-    use crate::workers::worker_account::WorkerAccount;
     use rust_decimal_macros::dec;
 
     use super::*;
+    use crate::SqliteDatabase;
     use diesel_migrations::*;
+    use std::sync::{Arc, Mutex};
+    use trust_model::DatabaseFactory;
 
     pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
 
@@ -384,22 +386,30 @@ mod tests {
         connection
     }
 
+    fn create_factory() -> Box<dyn DatabaseFactory> {
+        Box::new(SqliteDatabase::new_from(Arc::new(Mutex::new(
+            establish_connection(),
+        ))))
+    }
+
     #[test]
     fn test_create_transaction() {
-        let mut conn: SqliteConnection = establish_connection();
+        let db: Box<dyn DatabaseFactory> = create_factory();
 
         // Create a new account record
-        let account =
-            WorkerAccount::create_account(&mut conn, "Test Account", "This is a test account")
-                .expect("Error creating account");
-        let tx = WorkerTransaction::create_transaction(
-            &mut conn,
-            account.id,
-            dec!(10.99),
-            &Currency::BTC,
-            TransactionCategory::Deposit,
-        )
-        .expect("Error creating transaction");
+        let account = db
+            .write_account_db()
+            .create_account("Test Account 3", "This is a test account")
+            .expect("Error creating account");
+        let tx = db
+            .write_transaction_db()
+            .create_transaction(
+                &account,
+                dec!(10.99),
+                &Currency::BTC,
+                TransactionCategory::Deposit,
+            )
+            .expect("Error creating transaction");
 
         assert_eq!(tx.account_id, account.id);
         assert_eq!(tx.price.amount, dec!(10.99));
@@ -410,22 +420,24 @@ mod tests {
 
     #[test]
     fn test_create_transaction_with_trade_id() {
-        let mut conn: SqliteConnection = establish_connection();
+        let db = create_factory();
 
         let trade_id = Uuid::new_v4();
 
         // Create a new account record
-        let account =
-            WorkerAccount::create_account(&mut conn, "Test Account", "This is a test account")
-                .expect("Error creating account");
-        let tx = WorkerTransaction::create_transaction(
-            &mut conn,
-            account.id,
-            dec!(10.99),
-            &Currency::BTC,
-            TransactionCategory::FundTrade(trade_id),
-        )
-        .expect("Error creating transaction");
+        let account = db
+            .write_account_db()
+            .create_account("Test Account 3", "This is a test account")
+            .expect("Error creating account");
+        let tx = db
+            .write_transaction_db()
+            .create_transaction(
+                &account,
+                dec!(10.99),
+                &Currency::BTC,
+                TransactionCategory::FundTrade(trade_id),
+            )
+            .expect("Error creating transaction");
 
         assert_eq!(tx.account_id, account.id);
         assert_eq!(tx.price.amount, dec!(10.99));

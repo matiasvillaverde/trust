@@ -1,6 +1,6 @@
 use crate::workers::{
-    WorkerAccount, WorkerAccountOverview, WorkerOrder, WorkerPrice, WorkerRule, WorkerTarget,
-    WorkerTrade, WorkerTradingVehicle, WorkerTransaction, WriteAccountDBImpl,
+    AccountDB, WorkerAccountOverview, WorkerOrder, WorkerPrice, WorkerRule, WorkerTarget,
+    WorkerTrade, WorkerTradingVehicle, WorkerTransaction,
 };
 use diesel::prelude::*;
 use rust_decimal::Decimal;
@@ -24,13 +24,13 @@ pub struct SqliteDatabase {
 
 impl DatabaseFactory for SqliteDatabase {
     fn read_account_db(&self) -> Box<dyn ReadAccountDB> {
-        Box::new(ReadAccountDBImpl {
+        Box::new(AccountDB {
             connection: self.connection.clone(),
         })
     }
 
     fn write_account_db(&self) -> Box<dyn WriteAccountDB> {
-        Box::new(WriteAccountDBImpl {
+        Box::new(AccountDB {
             connection: self.connection.clone(),
         })
     }
@@ -83,25 +83,6 @@ impl DatabaseFactory for SqliteDatabase {
     }
 }
 
-struct ReadAccountDBImpl {
-    connection: Arc<Mutex<SqliteConnection>>,
-}
-
-impl<'a> ReadAccountDB for ReadAccountDBImpl {
-    fn read_account(&mut self, name: &str) -> Result<Account, Box<dyn Error>> {
-        WorkerAccount::read_account(&mut *self.connection.lock().unwrap(), name)
-    }
-
-    fn read_account_id(&mut self, id: Uuid) -> Result<Account, Box<dyn Error>> {
-        WorkerAccount::read(&mut *self.connection.lock().unwrap(), id)
-    }
-
-    fn read_all_accounts(&mut self) -> Result<Vec<Account>, Box<dyn Error>> {
-        let accounts = WorkerAccount::read_all_accounts(&mut *self.connection.lock().unwrap());
-        accounts
-    }
-}
-
 impl SqliteDatabase {
     pub fn new(url: &str) -> Self {
         let connection: SqliteConnection = Self::establish_connection(url);
@@ -141,23 +122,6 @@ impl SqliteDatabase {
         }
 
         connection
-    }
-}
-
-impl ReadAccountDB for SqliteDatabase {
-    fn read_account(&mut self, name: &str) -> Result<Account, Box<dyn Error>> {
-        let connection: &mut SqliteConnection = &mut *self.connection.lock().unwrap();
-
-        return WorkerAccount::read_account(connection, name);
-    }
-
-    fn read_account_id(&mut self, id: Uuid) -> Result<Account, Box<dyn Error>> {
-        WorkerAccount::read(&mut *self.connection.lock().unwrap(), id)
-    }
-
-    fn read_all_accounts(&mut self) -> Result<Vec<Account>, Box<dyn Error>> {
-        let accounts = WorkerAccount::read_all_accounts(&mut *self.connection.lock().unwrap());
-        accounts
     }
 }
 
@@ -203,14 +167,6 @@ impl WriteOrderDB for SqliteDatabase {
 
     fn record_order_closing(&mut self, order: &Order) -> Result<Order, Box<dyn Error>> {
         WorkerOrder::update_closed_at(&mut *self.connection.lock().unwrap(), order)
-    }
-}
-
-impl WriteAccountDB for SqliteDatabase {
-    fn new_account(&mut self, name: &str, description: &str) -> Result<Account, Box<dyn Error>> {
-        let account =
-            WorkerAccount::create_account(&mut *self.connection.lock().unwrap(), name, description);
-        account
     }
 }
 
@@ -308,7 +264,7 @@ impl ReadPriceDB for SqliteDatabase {
 }
 
 impl WriteTransactionDB for SqliteDatabase {
-    fn new_transaction(
+    fn create_transaction(
         &mut self,
         account: &Account,
         amount: rust_decimal::Decimal,

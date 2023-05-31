@@ -30,7 +30,7 @@ impl Trust {
     ) -> Result<Account, Box<dyn std::error::Error>> {
         self.factory
             .write_account_db()
-            .new_account(name, description)
+            .create_account(name, description)
     }
 
     pub fn search_account(&mut self, name: &str) -> Result<Account, Box<dyn std::error::Error>> {
