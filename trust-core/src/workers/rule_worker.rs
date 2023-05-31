@@ -1,4 +1,4 @@
-use trust_model::{Account, Database, Rule, RuleLevel, RuleName};
+use trust_model::{Account, DatabaseFactory, Rule, RuleLevel, RuleName};
 
 use crate::validators::RuleValidator;
 
@@ -6,14 +6,14 @@ pub struct RuleWorker;
 
 impl RuleWorker {
     pub fn create_rule(
-        database: &mut dyn Database,
+        database: &mut dyn DatabaseFactory,
         account: &Account,
         name: &RuleName,
         description: &str,
         level: &RuleLevel,
     ) -> Result<Rule, Box<dyn std::error::Error>> {
-        RuleValidator::validate_creation(account, name, database)?;
-        database.create_rule(
+        RuleValidator::validate_creation(account, name, database.read_rule_db().as_mut())?;
+        database.write_rule_db().create_rule(
             account,
             name,
             description,

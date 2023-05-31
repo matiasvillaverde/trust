@@ -1,6 +1,9 @@
 use crate::DraftTarget;
 use rust_decimal::Decimal;
-use trust_model::{Currency, Database, Order, OrderAction, Target, Trade, TradeCategory};
+use trust_model::{
+    Currency, DatabaseFactory, Order, OrderAction, ReadTradeDB, Target, Trade, TradeCategory,
+    WriteOrderDB,
+};
 use uuid::Uuid;
 
 pub struct OrderWorker;
@@ -12,10 +15,12 @@ impl OrderWorker {
         price: Decimal,
         currency: &Currency,
         category: &TradeCategory,
-        database: &mut dyn Database,
+        database: &mut dyn DatabaseFactory,
     ) -> Result<Order, Box<dyn std::error::Error>> {
-        let tv = database.read_trading_vehicle(trading_vehicle_id)?;
-        database.create_order(
+        let tv = database
+            .read_trading_vehicle_db()
+            .read_trading_vehicle(trading_vehicle_id)?;
+        database.write_order_db().create_order(
             &tv,
             quantity,
             price,
@@ -30,10 +35,12 @@ impl OrderWorker {
         price: Decimal,
         currency: &Currency,
         category: &TradeCategory,
-        database: &mut dyn Database,
+        database: &mut dyn DatabaseFactory,
     ) -> Result<Order, Box<dyn std::error::Error>> {
-        let tv = database.read_trading_vehicle(trading_vehicle_id)?;
-        database.create_order(
+        let tv = database
+            .read_trading_vehicle_db()
+            .read_trading_vehicle(trading_vehicle_id)?;
+        database.write_order_db().create_order(
             &tv,
             quantity,
             price,
@@ -45,10 +52,12 @@ impl OrderWorker {
     pub fn create_target(
         draft: DraftTarget,
         trade: &Trade,
-        database: &mut dyn Database,
+        database: &mut dyn DatabaseFactory,
     ) -> Result<Target, Box<dyn std::error::Error>> {
-        let tv = database.read_trading_vehicle(trade.trading_vehicle.id)?;
-        let order = database.create_order(
+        let tv = database
+            .read_trading_vehicle_db()
+            .read_trading_vehicle(trade.trading_vehicle.id)?;
+        let order = database.write_order_db().create_order(
             &tv,
             draft.quantity,
             draft.order_price,
@@ -56,31 +65,36 @@ impl OrderWorker {
             &OrderWorker::action_for_target(&trade.category),
         )?;
 
-        database.create_target(draft.target_price, &trade.currency, &order, trade)
+        database
+            .write_order_db()
+            .create_target(draft.target_price, &trade.currency, &order, trade)
     }
 
     pub fn record_timestamp_entry(
         trade: &Trade,
-        database: &mut dyn Database,
+        write_database: &mut dyn WriteOrderDB,
+        read_database: &mut dyn ReadTradeDB,
     ) -> Result<Trade, Box<dyn std::error::Error>> {
-        database.record_order_opening(&trade.entry)?;
-        database.read_trade(trade.id)
+        write_database.record_order_opening(&trade.entry)?;
+        read_database.read_trade(trade.id)
     }
 
     pub fn record_timestamp_stop(
         trade: &Trade,
-        database: &mut dyn Database,
+        write_database: &mut dyn WriteOrderDB,
+        read_database: &mut dyn ReadTradeDB,
     ) -> Result<Trade, Box<dyn std::error::Error>> {
-        database.record_order_closing(&trade.safety_stop)?;
-        database.read_trade(trade.id)
+        write_database.record_order_closing(&trade.safety_stop)?;
+        read_database.read_trade(trade.id)
     }
 
     pub fn record_timestamp_target(
         trade: &Trade,
-        database: &mut dyn Database,
+        write_database: &mut dyn WriteOrderDB,
+        read_database: &mut dyn ReadTradeDB,
     ) -> Result<Trade, Box<dyn std::error::Error>> {
-        database.record_order_closing(&trade.exit_targets.first().unwrap().order)?;
-        database.read_trade(trade.id)
+        write_database.record_order_closing(&trade.exit_targets.first().unwrap().order)?;
+        read_database.read_trade(trade.id)
     }
 
     fn action_for_stop(category: &TradeCategory) -> OrderAction {

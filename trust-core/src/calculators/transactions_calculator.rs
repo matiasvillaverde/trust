@@ -1,6 +1,6 @@
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
-use trust_model::{Currency, Database, Trade, TransactionCategory};
+use trust_model::{Currency, DatabaseFactory, ReadTransactionDB, Trade, TransactionCategory};
 use uuid::Uuid;
 
 pub struct TransactionsCalculator;
@@ -9,7 +9,7 @@ impl TransactionsCalculator {
     pub fn capital_available(
         account_id: Uuid,
         currency: &Currency,
-        database: &mut dyn Database,
+        database: &mut dyn ReadTransactionDB,
     ) -> Result<Decimal, Box<dyn std::error::Error>> {
         // Get all transactions
         let transactions =
@@ -38,7 +38,7 @@ impl TransactionsCalculator {
     pub fn total_balance(
         account_id: Uuid,
         currency: &Currency,
-        database: &mut dyn Database,
+        database: &mut dyn ReadTransactionDB,
     ) -> Result<Decimal, Box<dyn std::error::Error>> {
         let mut total_balance = dec!(0.0);
         // Get all transactions
@@ -73,7 +73,7 @@ impl TransactionsCalculator {
     pub fn capital_in_trades(
         account_id: Uuid,
         currency: &Currency,
-        database: &mut dyn Database,
+        database: &mut dyn ReadTransactionDB,
     ) -> Result<Decimal, Box<dyn std::error::Error>> {
         // Get all transactions
         let transactions =
@@ -98,7 +98,7 @@ impl TransactionsCalculator {
     pub fn capital_taxable(
         account_id: Uuid,
         currency: &Currency,
-        database: &mut dyn Database,
+        database: &mut dyn ReadTransactionDB,
     ) -> Result<Decimal, Box<dyn std::error::Error>> {
         // Get all transactions
         let transactions = database.read_all_account_transactions_taxes(account_id, currency)?;
@@ -122,10 +122,12 @@ impl TransactionsCalculator {
     pub fn capital_in_trades_not_at_risk(
         account_id: Uuid,
         currency: &Currency,
-        database: &mut dyn Database,
+        database: &mut dyn DatabaseFactory,
     ) -> Result<Decimal, Box<dyn std::error::Error>> {
         // Get the capital of the open trades that is not at risk to the total available.
-        let open_trades = database.all_open_trades_for_currency(account_id, currency)?;
+        let open_trades = database
+            .read_trade_db()
+            .all_open_trades_for_currency(account_id, currency)?;
         let mut total_capital_not_at_risk = dec!(0.0);
 
         for trade in open_trades {
@@ -140,7 +142,7 @@ impl TransactionsCalculator {
     pub fn capital_at_beginning_of_month(
         account_id: Uuid,
         currency: &Currency,
-        database: &mut dyn Database,
+        database: &mut dyn ReadTransactionDB,
     ) -> Result<Decimal, Box<dyn std::error::Error>> {
         // Calculate all the transactions at the beginning of the month
         let mut total_beginning_of_month = dec!(0.0);
@@ -174,7 +176,7 @@ impl TransactionsCalculator {
 
     pub fn capital_out_of_market(
         trade: &Trade,
-        database: &mut dyn Database,
+        database: &mut dyn ReadTransactionDB,
     ) -> Result<Decimal, Box<dyn std::error::Error>> {
         let mut total_trade = dec!(0);
 
@@ -219,7 +221,7 @@ impl TransactionsCalculator {
 
     pub fn capital_in_market(
         trade: &Trade,
-        database: &mut dyn Database,
+        database: &mut dyn ReadTransactionDB,
     ) -> Result<Decimal, Box<dyn std::error::Error>> {
         let mut total_trade = dec!(0);
 
@@ -252,7 +254,7 @@ impl TransactionsCalculator {
 
     pub fn funding(
         trade: &Trade,
-        database: &mut dyn Database,
+        database: &mut dyn ReadTransactionDB,
     ) -> Result<Decimal, Box<dyn std::error::Error>> {
         let mut total_trade = dec!(0);
 
@@ -274,7 +276,7 @@ impl TransactionsCalculator {
 
     pub fn taxes(
         trade: &Trade,
-        database: &mut dyn Database,
+        database: &mut dyn ReadTransactionDB,
     ) -> Result<Decimal, Box<dyn std::error::Error>> {
         let mut total_trade = dec!(0);
 
@@ -296,7 +298,7 @@ impl TransactionsCalculator {
 
     pub fn total_performance(
         trade: &Trade,
-        database: &mut dyn Database,
+        database: &mut dyn ReadTransactionDB,
     ) -> Result<Decimal, Box<dyn std::error::Error>> {
         let mut performance = dec!(0);
 

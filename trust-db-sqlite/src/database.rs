@@ -9,23 +9,19 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use trust_model::{
     database::{WriteAccountDB, WriteTradeOverviewDB},
-    Account, AccountOverview, Currency, Database, DatabaseFactory, Order, OrderAction,
-    OrderCategory, Price, ReadAccountDB, ReadAccountOverviewDB, ReadOrderDB, ReadPriceDB,
-    ReadRuleDB, ReadTradeDB, ReadTradingVehicleDB, ReadTransactionDB, Rule, RuleName, Target,
-    Trade, TradeCategory, TradeOverview, TradingVehicle, TradingVehicleCategory, Transaction,
-    TransactionCategory, WriteAccountOverviewDB, WriteOrderDB, WritePriceDB, WriteRuleDB,
-    WriteTradeDB, WriteTradingVehicleDB, WriteTransactionDB,
+    Account, AccountOverview, Currency, DatabaseFactory, Order, OrderAction, OrderCategory, Price,
+    ReadAccountDB, ReadAccountOverviewDB, ReadOrderDB, ReadPriceDB, ReadRuleDB, ReadTradeDB,
+    ReadTradingVehicleDB, ReadTransactionDB, Rule, RuleName, Target, Trade, TradeCategory,
+    TradeOverview, TradingVehicle, TradingVehicleCategory, Transaction, TransactionCategory,
+    WriteAccountOverviewDB, WriteOrderDB, WritePriceDB, WriteRuleDB, WriteTradeDB,
+    WriteTradingVehicleDB, WriteTransactionDB,
 };
 use uuid::Uuid;
 
-/// SqliteDatabase is a struct that contains methods for interacting with the
-/// SQLite database.
 pub struct SqliteDatabase {
-    /// The connection to the SQLite database.
     connection: Arc<Mutex<SqliteConnection>>,
 }
 
-// TODO: Test that I can use this in Trust
 impl DatabaseFactory for SqliteDatabase {
     fn read_account_db(&self) -> Box<dyn ReadAccountDB> {
         Box::new(ReadAccountDBImpl {
@@ -120,13 +116,14 @@ impl SqliteDatabase {
 
     #[doc(hidden)]
     pub fn new_in_memory() -> Self {
-        unimplemented!();
-        // use diesel_migrations::*;
-        // pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
-        // let mut connection = SqliteConnection::establish(":memory:").unwrap();
-        // connection.run_pending_migrations(MIGRATIONS).unwrap();
-        // connection.begin_test_transaction().unwrap();
-        // SqliteDatabase { connection: Arc::new(connection) }
+        use diesel_migrations::*;
+        pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
+        let mut connection = SqliteConnection::establish(":memory:").unwrap();
+        connection.run_pending_migrations(MIGRATIONS).unwrap();
+        connection.begin_test_transaction().unwrap();
+        SqliteDatabase {
+            connection: Arc::new(Mutex::new(connection)),
+        }
     }
 
     /// Establish a connection to the SQLite database.
@@ -583,5 +580,3 @@ impl ReadOrderDB for SqliteDatabase {
         WorkerOrder::read(&mut *self.connection.lock().unwrap(), id)
     }
 }
-
-impl Database for SqliteDatabase {}

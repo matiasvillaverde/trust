@@ -1,8 +1,8 @@
 use calculators::QuantityCalculator;
 use rust_decimal::Decimal;
 use trust_model::{
-    Account, AccountOverview, Currency, Database, DatabaseFactory, Rule, RuleLevel, RuleName,
-    Trade, TradeCategory, TradeOverview, TradingVehicle, TradingVehicleCategory, Transaction,
+    Account, AccountOverview, Currency, DatabaseFactory, Rule, RuleLevel, RuleName, Trade,
+    TradeCategory, TradeOverview, TradingVehicle, TradingVehicleCategory, Transaction,
     TransactionCategory,
 };
 use uuid::Uuid;
@@ -55,8 +55,7 @@ impl Trust {
         amount: Decimal,
         currency: &Currency,
     ) -> Result<(Transaction, AccountOverview), Box<dyn std::error::Error>> {
-        unimplemented!();
-        //TransactionWorker::create(&mut *self.database, category, amount, currency, account.id)
+        TransactionWorker::create(&mut *self.factory, category, amount, currency, account.id)
     }
 
     pub fn search_overview(
@@ -85,8 +84,7 @@ impl Trust {
         description: &str,
         level: &RuleLevel,
     ) -> Result<Rule, Box<dyn std::error::Error>> {
-        unimplemented!();
-        //RuleWorker::create_rule(&mut *self.database, account, name, description, level)
+        RuleWorker::create_rule(&mut *self.factory, account, name, description, level)
     }
 
     pub fn deactivate_rule(&mut self, rule: &Rule) -> Result<Rule, Box<dyn std::error::Error>> {
@@ -127,14 +125,13 @@ impl Trust {
         stop_price: Decimal,
         currency: &Currency,
     ) -> Result<i64, Box<dyn std::error::Error>> {
-        unimplemented!();
-        // QuantityCalculator::maximum_quantity(
-        //     account_id,
-        //     entry_price,
-        //     stop_price,
-        //     currency,
-        //     &mut *self.database,
-        // )
+        QuantityCalculator::maximum_quantity(
+            account_id,
+            entry_price,
+            stop_price,
+            currency,
+            &mut *self.factory,
+        )
     }
 
     pub fn create_trade(&mut self, trade: DraftTrade) -> Result<Trade, Box<dyn std::error::Error>> {
@@ -142,50 +139,50 @@ impl Trust {
             .factory
             .read_trading_vehicle_db()
             .read_trading_vehicle(trade.trading_vehicle_id)?;
-        unimplemented!();
-        // let stop = OrderWorker::create_stop(
-        //     trade.trading_vehicle_id,
-        //     trade.quantity,
-        //     trade.stop_price,
-        //     &trade.currency,
-        //     &trade.category,
-        //     &mut *self.database,
-        // )?;
 
-        // let entry = OrderWorker::create_entry(
-        //     trade.trading_vehicle_id,
-        //     trade.quantity,
-        //     trade.entry_price,
-        //     &trade.currency,
-        //     &trade.category,
-        //     &mut *self.database,
-        // )?;
+        let stop = OrderWorker::create_stop(
+            trade.trading_vehicle_id,
+            trade.quantity,
+            trade.stop_price,
+            &trade.currency,
+            &trade.category,
+            &mut *self.factory,
+        )?;
 
-        // let new_trade = self.factory.write_trade_db().create_trade(
-        //     &trade.category,
-        //     &trade.currency,
-        //     &trading_vehicle,
-        //     &stop,
-        //     &entry,
-        //     &trade.account,
-        // )?;
+        let entry = OrderWorker::create_entry(
+            trade.trading_vehicle_id,
+            trade.quantity,
+            trade.entry_price,
+            &trade.currency,
+            &trade.category,
+            &mut *self.factory,
+        )?;
 
-        // let mut targets = Vec::new();
-        // for target in trade.targets {
-        //     let draft = DraftTarget {
-        //         target_price: target.target_price,
-        //         quantity: target.quantity,
-        //         order_price: target.order_price,
-        //     };
+        let new_trade = self.factory.write_trade_db().create_trade(
+            &trade.category,
+            &trade.currency,
+            &trading_vehicle,
+            &stop,
+            &entry,
+            &trade.account,
+        )?;
 
-        //     let target = OrderWorker::create_target(draft, &new_trade, &mut *self.database)?;
-        //     targets.push(target);
-        // }
+        let mut targets = Vec::new();
+        for target in trade.targets {
+            let draft = DraftTarget {
+                target_price: target.target_price,
+                quantity: target.quantity,
+                order_price: target.order_price,
+            };
 
-        // // We need to read again the trade with the recently added targets
-        // let new_trade = self.factory.read_trade_db().read_trade(new_trade.id)?;
+            let target = OrderWorker::create_target(draft, &new_trade, &mut *self.factory)?;
+            targets.push(target);
+        }
 
-        // Ok(new_trade)
+        // We need to read again the trade with the recently added targets
+        let new_trade = self.factory.read_trade_db().read_trade(new_trade.id)?;
+
+        Ok(new_trade)
     }
 
     pub fn search_new_trades(
@@ -214,17 +211,14 @@ impl Trust {
         trade: &Trade,
     ) -> Result<(Trade, Transaction, AccountOverview, TradeOverview), Box<dyn std::error::Error>>
     {
-        unimplemented!();
-        //     // 1. Validate Trade by running rules
-        //     RuleValidator::validate_trade(trade, &mut *self.database)?;
-
-        //     // 2. Approve in case rule succeed
-        //     self.factory.write_trade_db().approve_trade(trade)?;
-
-        //     // 3. Create transaction to fund the trade
-        //     let (transaction, account_overview, trade_overview) =
-        //         TransactionWorker::transfer_to_fund_trade(trade, &mut *self.database)?;
-        //     Ok((trade.clone(), transaction, account_overview, trade_overview))
+        // 1. Validate Trade by running rules
+        RuleValidator::validate_trade(trade, &mut *self.factory)?;
+        // 2. Approve in case rule succeed
+        self.factory.write_trade_db().approve_trade(trade)?;
+        // 3. Create transaction to fund the trade
+        let (transaction, account_overview, trade_overview) =
+            TransactionWorker::transfer_to_fund_trade(trade, &mut *self.factory)?;
+        Ok((trade.clone(), transaction, account_overview, trade_overview))
     }
 
     pub fn open_trade(
@@ -232,8 +226,7 @@ impl Trust {
         trade: &Trade,
         fee: Decimal,
     ) -> Result<Trade, Box<dyn std::error::Error>> {
-        unimplemented!();
-        // TradeWorker::open_trade(trade, fee, self.database.as_mut())
+        TradeWorker::open_trade(trade, fee, self.factory.as_mut())
     }
 
     pub fn stop_trade(
@@ -244,12 +237,11 @@ impl Trust {
         (Transaction, Transaction, TradeOverview, AccountOverview),
         Box<dyn std::error::Error>,
     > {
-        unimplemented!();
-        // let (trade, tx_stop) =
-        //     TradeWorker::update_trade_stop_executed(trade, fee, self.database.as_mut())?;
-        // let (tx_payment, account_overview, trade_overview) =
-        //     TransactionWorker::transfer_payment_from(&trade, self.database.as_mut())?;
-        // Ok((tx_stop, tx_payment, trade_overview, account_overview))
+        let (trade, tx_stop) =
+            TradeWorker::update_trade_stop_executed(trade, fee, self.factory.as_mut())?;
+        let (tx_payment, account_overview, trade_overview) =
+            TransactionWorker::transfer_payment_from(&trade, self.factory.as_mut())?;
+        Ok((tx_stop, tx_payment, trade_overview, account_overview))
     }
 
     pub fn target_acquired(
@@ -260,12 +252,11 @@ impl Trust {
         (Transaction, Transaction, TradeOverview, AccountOverview),
         Box<dyn std::error::Error>,
     > {
-        unimplemented!();
-        // let (trade, tx_target) =
-        //     TradeWorker::update_trade_target_executed(trade, fee, self.database.as_mut())?;
-        // let (tx_payment, account_overview, trade_overview) =
-        //     TransactionWorker::transfer_payment_from(&trade, self.database.as_mut())?;
-        // Ok((tx_target, tx_payment, trade_overview, account_overview))
+        let (trade, tx_target) =
+            TradeWorker::update_trade_target_executed(trade, fee, self.factory.as_mut())?;
+        let (tx_payment, account_overview, trade_overview) =
+            TransactionWorker::transfer_payment_from(&trade, self.factory.as_mut())?;
+        Ok((tx_target, tx_payment, trade_overview, account_overview))
     }
 }
 

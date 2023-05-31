@@ -2,7 +2,7 @@ use crate::calculators::RiskCalculator;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use std::error::Error;
-use trust_model::{Account, Database, RuleName, Trade};
+use trust_model::{Account, DatabaseFactory, ReadRuleDB, RuleName, Trade};
 
 pub struct RuleValidator;
 type RuleValidationResult = Result<(), Box<RuleValidationError>>;
@@ -11,7 +11,7 @@ impl RuleValidator {
     pub fn validate_creation(
         account: &Account,
         name: &RuleName,
-        database: &mut dyn Database,
+        database: &mut dyn ReadRuleDB,
     ) -> RuleValidationResult {
         if database.rule_for_account(account.id, name).is_ok() {
             Err(Box::new(RuleValidationError {
@@ -26,8 +26,13 @@ impl RuleValidator {
         }
     }
 
-    pub fn validate_trade(trade: &Trade, database: &mut dyn Database) -> RuleValidationResult {
-        let overview = database.read_account_overview_currency(trade.account_id, &trade.currency);
+    pub fn validate_trade(
+        trade: &Trade,
+        database: &mut dyn DatabaseFactory,
+    ) -> RuleValidationResult {
+        let overview = database
+            .read_account_overview_db()
+            .read_account_overview_currency(trade.account_id, &trade.currency);
         let overview = match overview {
             Ok(overview) => overview,
             Err(error) => {
@@ -54,6 +59,7 @@ impl RuleValidator {
 
         // Get rules by priority
         let mut rules = database
+            .read_rule_db()
             .read_all_rules(trade.account_id)
             .unwrap_or_else(|_| vec![]);
         rules.sort_by(|a, b| a.priority.cmp(&b.priority));

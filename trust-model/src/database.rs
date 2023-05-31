@@ -26,27 +26,6 @@ use std::error::Error;
 /// To prevent the database from being used incorrectly, the trait has the following rules:
 /// - Reads can be Uuid
 /// - Writes and updates must be Domain Models
-pub trait Database:
-    ReadAccountDB
-    + WriteAccountDB
-    + ReadAccountOverviewDB
-    + WriteAccountOverviewDB
-    + ReadOrderDB
-    + WriteOrderDB
-    + ReadPriceDB
-    + WritePriceDB
-    + ReadTransactionDB
-    + WriteTransactionDB
-    + ReadTradeDB
-    + WriteTradeDB
-    + WriteTradeOverviewDB
-    + ReadRuleDB
-    + WriteRuleDB
-    + ReadTradingVehicleDB
-    + WriteTradingVehicleDB
-{
-}
-
 pub trait DatabaseFactory {
     fn read_account_db(&self) -> Box<dyn ReadAccountDB>;
     fn write_account_db(&self) -> Box<dyn WriteAccountDB>;
