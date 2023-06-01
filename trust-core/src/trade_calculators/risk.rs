@@ -93,7 +93,6 @@ mod tests {
         let total_capital_not_at_risk = Decimal::new(0, 0);
         let risk = 10.0;
 
-        // First trade of the month
         let result = RiskCalculator::calculate_capital_allowed_to_risk(
             total_beginning_of_month,
             total_balance_current_month,
@@ -110,7 +109,6 @@ mod tests {
         let total_capital_not_at_risk = Decimal::new(0, 0);
         let risk = 10.0;
 
-        // First trade of the month
         let result = RiskCalculator::calculate_capital_allowed_to_risk(
             total_beginning_of_month,
             total_balance_current_month,
@@ -127,7 +125,6 @@ mod tests {
         let total_capital_not_at_risk = Decimal::new(0, 0);
         let risk = 10.0;
 
-        // First trade of the month
         let result = RiskCalculator::calculate_capital_allowed_to_risk(
             total_beginning_of_month,
             total_balance_current_month,
@@ -144,7 +141,6 @@ mod tests {
         let total_capital_not_at_risk = Decimal::new(100, 0);
         let risk = 10.0;
 
-        // First trade of the month
         let result = RiskCalculator::calculate_capital_allowed_to_risk(
             total_beginning_of_month,
             total_balance_current_month,

@@ -48,7 +48,7 @@ pub mod read_transaction_db_mocks {
             self.transactions.push(transaction);
         }
 
-        pub fn set_trade(&mut self, entry: Decimal, target: Decimal, stop: Decimal) {
+        pub fn set_trade(&mut self, entry: Decimal, target: Decimal, stop: Decimal, quantity: u64) {
             let now: chrono::NaiveDateTime = Utc::now().naive_utc();
 
             let target = Target {
@@ -57,7 +57,12 @@ pub mod read_transaction_db_mocks {
                 updated_at: now,
                 deleted_at: None,
                 target_price: Price::default(),
-                order: MockDatabase::order(target, OrderCategory::Market, OrderAction::Sell),
+                order: MockDatabase::order(
+                    target,
+                    OrderCategory::Market,
+                    OrderAction::Sell,
+                    quantity,
+                ),
                 trade_id: Uuid::new_v4(),
             };
 
@@ -68,8 +73,13 @@ pub mod read_transaction_db_mocks {
                 deleted_at: None,
                 trading_vehicle: TradingVehicle::default(),
                 currency: Currency::USD,
-                safety_stop: MockDatabase::order(stop, OrderCategory::Stop, OrderAction::Sell),
-                entry: MockDatabase::order(entry, OrderCategory::Limit, OrderAction::Buy),
+                safety_stop: MockDatabase::order(
+                    stop,
+                    OrderCategory::Stop,
+                    OrderAction::Sell,
+                    quantity,
+                ),
+                entry: MockDatabase::order(entry, OrderCategory::Limit, OrderAction::Buy, quantity),
                 exit_targets: vec![target],
                 category: TradeCategory::Long,
                 account_id: self.account_id,
@@ -85,15 +95,22 @@ pub mod read_transaction_db_mocks {
             self.trades.push(trade);
         }
 
-        fn order(amount: Decimal, category: OrderCategory, action: OrderAction) -> Order {
+        fn order(
+            amount: Decimal,
+            category: OrderCategory,
+            action: OrderAction,
+            quantity: u64,
+        ) -> Order {
             let now: chrono::NaiveDateTime = Utc::now().naive_utc();
+            let mut price = Price::default();
+            price.amount = amount;
             Order {
                 id: Uuid::new_v4(),
                 created_at: now,
                 updated_at: now,
                 deleted_at: None,
-                unit_price: Price::default(),
-                quantity: 10,
+                unit_price: price,
+                quantity: quantity,
                 trading_vehicle_id: Uuid::new_v4(),
                 category: category,
                 action: action,
