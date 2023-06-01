@@ -6,30 +6,6 @@ use uuid::Uuid;
 pub struct TransactionsCalculator;
 
 impl TransactionsCalculator {
-    pub fn capital_taxable(
-        account_id: Uuid,
-        currency: &Currency,
-        database: &mut dyn ReadTransactionDB,
-    ) -> Result<Decimal, Box<dyn std::error::Error>> {
-        // Get all transactions
-        let transactions = database.read_all_account_transactions_taxes(account_id, currency)?;
-
-        // Sum all transactions
-        let total_available: Decimal = transactions
-            .iter()
-            .map(|transaction| match transaction.category {
-                TransactionCategory::PaymentTax(_) => transaction.price.amount,
-                TransactionCategory::WithdrawalTax => -transaction.price.amount,
-                default => panic!(
-                    "capital_taxable: does not know how to calculate transaction with category: {}",
-                    default
-                ),
-            })
-            .sum();
-
-        Ok(total_available)
-    }
-
     pub fn capital_in_trades_not_at_risk(
         account_id: Uuid,
         currency: &Currency,

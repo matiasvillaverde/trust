@@ -3,7 +3,7 @@ use trust_model::{Account, AccountOverview, Currency, DatabaseFactory, Trade, Tr
 
 use crate::calculators::{
     CapitalAvailableCalculator, CapitalBalanceCalculator, CapitalInApprovedTradesCalculator,
-    TransactionsCalculator,
+    CapitalTaxableCalculator, TransactionsCalculator,
 };
 pub struct OverviewWorker;
 
@@ -23,7 +23,7 @@ impl OverviewWorker {
             currency,
             database.read_transaction_db().as_mut(),
         )?;
-        let taxed = TransactionsCalculator::capital_taxable(
+        let taxed = CapitalTaxableCalculator::capital_taxable(
             account.id,
             currency,
             database.read_transaction_db().as_mut(),
