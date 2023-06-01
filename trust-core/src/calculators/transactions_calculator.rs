@@ -28,51 +28,6 @@ impl TradeTransactionsCalculator {
 
     // Trade transactions
 
-    pub fn capital_out_of_market(
-        trade: &Trade,
-        database: &mut dyn ReadTransactionDB,
-    ) -> Result<Decimal, Box<dyn std::error::Error>> {
-        let mut total_trade = dec!(0);
-
-        for tx in database.all_trade_transactions(trade.id)? {
-            match tx.category {
-                TransactionCategory::FundTrade(_) => {
-                    // This is money that we have put into the trade
-                    total_trade += tx.price.amount
-                }
-                TransactionCategory::PaymentFromTrade(_) => {
-                    // This is money that we have extracted from the trade
-                    total_trade -= tx.price.amount
-                }
-                TransactionCategory::OpenTrade(_) => {
-                    // This is money that we have used to enter the market.
-                    total_trade -= tx.price.amount
-                }
-                TransactionCategory::CloseTarget(_) => {
-                    // This is money that we have used to exit the market.
-                    total_trade += tx.price.amount
-                }
-                TransactionCategory::CloseSafetyStop(_) => {
-                    // This is money that we have used to exit the market at a loss.
-                    total_trade += tx.price.amount
-                }
-                TransactionCategory::CloseSafetyStopSlippage(_) => {
-                    // This is money that we have used to exit the market at a loss - slippage.
-                    total_trade += tx.price.amount
-                },
-                TransactionCategory::FeeOpen(_) | TransactionCategory::FeeClose(_)  => {
-                    // We ignore the fees because they are charged from the account and not from the trade.
-                }
-                default => panic!(
-                    "capital_out_of_market: does not know how to calculate transaction with category: {}",
-                    default
-                ),
-            }
-        }
-
-        Ok(total_trade)
-    }
-
     pub fn capital_in_market(
         trade: &Trade,
         database: &mut dyn ReadTransactionDB,

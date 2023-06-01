@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use crate::{
     calculators::TradeTransactionsCalculator,
-    validators::{TransactionValidationErrorCode, TransactionValidator},
+    validators::{TransactionValidationErrorCode, TransactionValidator}, trade_calculators::TradeCapitalOutOfMarket,
 };
 
 use super::OverviewWorker;
@@ -289,8 +289,8 @@ impl TransactionWorker {
         let account = database
             .read_account_db()
             .read_account_id(trade.account_id)?;
-        let total_to_withdrawal = TradeTransactionsCalculator::capital_out_of_market(
-            trade,
+        let total_to_withdrawal = TradeCapitalOutOfMarket::calculate(
+            trade.id,
             database.read_transaction_db().as_mut(),
         )?;
 

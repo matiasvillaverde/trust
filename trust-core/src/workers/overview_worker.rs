@@ -1,10 +1,10 @@
 use std::error::Error;
 use trust_model::{Account, AccountOverview, Currency, DatabaseFactory, Trade, TradeOverview};
 
-use crate::calculators::{
+use crate::{calculators::{
     AccountCapitalAvailable, AccountCapitalBalance, AccountCapitalInApprovedTrades,
     AccountCapitalTaxable, TradeTransactionsCalculator,
-};
+}, trade_calculators::TradeCapitalOutOfMarket};
 pub struct OverviewWorker;
 
 impl OverviewWorker {
@@ -56,8 +56,8 @@ impl OverviewWorker {
             trade,
             database.read_transaction_db().as_mut(),
         )?;
-        let capital_out_market = TradeTransactionsCalculator::capital_out_of_market(
-            trade,
+        let capital_out_market = TradeCapitalOutOfMarket::calculate(
+            trade.id,
             database.read_transaction_db().as_mut(),
         )?;
         let taxed =
