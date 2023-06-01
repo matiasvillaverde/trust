@@ -10,23 +10,23 @@ impl TradePerformance {
         trade_id: Uuid,
         database: &mut dyn ReadTransactionDB,
     ) -> Result<Decimal, Box<dyn std::error::Error>> {
-        let mut performance = dec!(0);
+        let mut total = dec!(0);
 
         for tx in database.all_trade_transactions(trade_id)? {
             match tx.category {
                 TransactionCategory::OpenTrade(_)
                 | TransactionCategory::FeeClose(_)
                 | TransactionCategory::FeeOpen(_)
-                | TransactionCategory::PaymentTax(_) => performance -= tx.price.amount,
+                | TransactionCategory::PaymentTax(_) => total -= tx.price.amount,
 
                 TransactionCategory::CloseTarget(_)
                 | TransactionCategory::CloseSafetyStop(_)
-                | TransactionCategory::CloseSafetyStopSlippage(_) => performance += tx.price.amount,
+                | TransactionCategory::CloseSafetyStopSlippage(_) => total += tx.price.amount,
                 _ => {} // We don't want to count the transactions paid out of the trade or fund the trade.
             }
         }
 
-        Ok(performance)
+        Ok(total)
     }
 }
 
@@ -38,10 +38,9 @@ mod tests {
 
     #[test]
     fn test_calculate_with_empty_transactions() {
-        let trade_id = Uuid::new_v4();
         let mut database = MockDatabase::new();
 
-        let result = TradePerformance::calculate(trade_id, &mut database);
+        let result = TradePerformance::calculate(Uuid::new_v4(), &mut database);
         assert_eq!(result.unwrap(), dec!(0));
     }
 
@@ -80,7 +79,6 @@ mod tests {
 
     #[test]
     fn test_calculate_with_transactions_hit_safety_stop() {
-        let trade_id = Uuid::new_v4();
         let mut database = MockDatabase::new();
 
         database.set_transaction(TransactionCategory::FundTrade(Uuid::new_v4()), dec!(100));
@@ -93,13 +91,12 @@ mod tests {
             dec!(80),
         );
 
-        let result = TradePerformance::calculate(trade_id, &mut database);
+        let result = TradePerformance::calculate(Uuid::new_v4(), &mut database);
         assert_eq!(result.unwrap(), dec!(-22));
     }
 
     #[test]
     fn test_calculate_with_transactions_hit_safety_stop_slippage() {
-        let trade_id = Uuid::new_v4();
         let mut database = MockDatabase::new();
 
         database.set_transaction(TransactionCategory::FundTrade(Uuid::new_v4()), dec!(100));
@@ -112,7 +109,7 @@ mod tests {
             dec!(50),
         );
 
-        let result = TradePerformance::calculate(trade_id, &mut database);
+        let result = TradePerformance::calculate(Uuid::new_v4(), &mut database);
         assert_eq!(result.unwrap(), dec!(-52));
     }
 }

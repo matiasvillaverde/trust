@@ -16,7 +16,7 @@ impl AccountCapitalInApprovedTrades {
             database.all_account_transactions_funding_in_approved_trades(account_id, currency)?;
 
         // Sum all transactions
-        let total_available: Decimal = transactions
+        let total: Decimal = transactions
             .iter()
             .map(|transaction| match transaction.category {
                 TransactionCategory::FundTrade(_) => transaction.price.amount,
@@ -24,7 +24,7 @@ impl AccountCapitalInApprovedTrades {
             })
             .sum();
 
-        Ok(total_available)
+        Ok(total)
     }
 }
 
@@ -35,30 +35,33 @@ mod tests {
     use rust_decimal_macros::dec;
     #[test]
     fn test_total_balance_with_empty_transactions() {
-        let account_id = Uuid::new_v4();
         let mut database = MockDatabase::new();
 
-        let result =
-            AccountCapitalInApprovedTrades::calculate(account_id, &Currency::USD, &mut database);
+        let result = AccountCapitalInApprovedTrades::calculate(
+            Uuid::new_v4(),
+            &Currency::USD,
+            &mut database,
+        );
         assert_eq!(result.unwrap(), dec!(0));
     }
 
     #[test]
     fn test_total_balance_with_deposit_transactions() {
-        let account_id = Uuid::new_v4();
         let mut database = MockDatabase::new();
 
         database.set_transaction(TransactionCategory::Deposit, dec!(100));
         database.set_transaction(TransactionCategory::Deposit, dec!(100));
 
-        let result =
-            AccountCapitalInApprovedTrades::calculate(account_id, &Currency::USD, &mut database);
+        let result = AccountCapitalInApprovedTrades::calculate(
+            Uuid::new_v4(),
+            &Currency::USD,
+            &mut database,
+        );
         assert_eq!(result.unwrap(), dec!(0));
     }
 
     #[test]
     fn test_capital_in_trades_with_fund_one_trade() {
-        let account_id = Uuid::new_v4();
         let mut database = MockDatabase::new();
 
         // One deposit and one withdrawal transaction in the database
@@ -66,14 +69,16 @@ mod tests {
         database.set_transaction(TransactionCategory::Withdrawal, dec!(50));
         database.set_transaction(TransactionCategory::FundTrade(Uuid::new_v4()), dec!(10.99));
 
-        let result =
-            AccountCapitalInApprovedTrades::calculate(account_id, &Currency::USD, &mut database);
+        let result = AccountCapitalInApprovedTrades::calculate(
+            Uuid::new_v4(),
+            &Currency::USD,
+            &mut database,
+        );
         assert_eq!(result.unwrap(), dec!(10.99));
     }
 
     #[test]
     fn test_capital_in_trades_with_fund_five_trade() {
-        let account_id = Uuid::new_v4();
         let mut database = MockDatabase::new();
 
         // One deposit and one withdrawal transaction in the database
@@ -84,8 +89,11 @@ mod tests {
         database.set_transaction(TransactionCategory::FundTrade(Uuid::new_v4()), dec!(323));
         database.set_transaction(TransactionCategory::FundTrade(Uuid::new_v4()), dec!(344));
 
-        let result =
-            AccountCapitalInApprovedTrades::calculate(account_id, &Currency::USD, &mut database);
+        let result = AccountCapitalInApprovedTrades::calculate(
+            Uuid::new_v4(),
+            &Currency::USD,
+            &mut database,
+        );
         assert_eq!(result.unwrap(), dec!(976.99));
     }
 }

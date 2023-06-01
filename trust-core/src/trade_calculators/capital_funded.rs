@@ -43,29 +43,26 @@ mod tests {
 
     #[test]
     fn test_calculate_with_empty_transactions() {
-        let trade_id = Uuid::new_v4();
         let mut database = MockDatabase::new();
 
-        let result = TradeCapitalFunded::calculate(trade_id, &mut database);
+        let result = TradeCapitalFunded::calculate(Uuid::new_v4(), &mut database);
         assert_eq!(result.unwrap(), dec!(0));
     }
 
     #[test]
     fn test_calculate_with_positive_transactions() {
-        let trade_id = Uuid::new_v4();
         let mut database = MockDatabase::new();
 
         // One deposit transaction in the database
         database.set_transaction(TransactionCategory::FundTrade(Uuid::new_v4()), dec!(100));
         database.set_transaction(TransactionCategory::FundTrade(Uuid::new_v4()), dec!(83.2));
 
-        let result = TradeCapitalFunded::calculate(trade_id, &mut database);
+        let result = TradeCapitalFunded::calculate(Uuid::new_v4(), &mut database);
         assert_eq!(result.unwrap(), dec!(183.2));
     }
 
     #[test]
     fn test_calculate_with_multiple_transactions() {
-        let trade_id = Uuid::new_v4();
         let mut database = MockDatabase::new();
 
         database.set_transaction(TransactionCategory::FundTrade(Uuid::new_v4()), dec!(100));
@@ -78,7 +75,7 @@ mod tests {
             dec!(8293.22),
         );
 
-        let result = TradeCapitalFunded::calculate(trade_id, &mut database);
+        let result = TradeCapitalFunded::calculate(Uuid::new_v4(), &mut database);
         assert_eq!(result.unwrap(), dec!(8992.22));
     }
 
@@ -87,23 +84,21 @@ mod tests {
         expected = "TradeCapitalFunded: does not know how to calculate transaction with category: withdrawal_tax"
     )]
     fn test_calculate_with_unknown_category() {
-        let trade_id = Uuid::new_v4();
         let mut database = MockDatabase::new();
 
         // Transactions
         database.set_transaction(TransactionCategory::WithdrawalTax, dec!(100));
 
-        TradeCapitalFunded::calculate(trade_id, &mut database).unwrap();
+        TradeCapitalFunded::calculate(Uuid::new_v4(), &mut database).unwrap();
     }
 
     #[test]
     fn test_calculate_is_negative() {
-        let trade_id = Uuid::new_v4();
         let mut database = MockDatabase::new();
 
         database.set_transaction(TransactionCategory::FundTrade(Uuid::new_v4()), dec!(-100));
 
-        TradeCapitalFunded::calculate(trade_id, &mut database)
+        TradeCapitalFunded::calculate(Uuid::new_v4(), &mut database)
             .expect_err("TradeCapitalFunded: capital funded is negative: -100");
     }
 }

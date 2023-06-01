@@ -124,13 +124,12 @@ mod tests {
         expected = "TradeCapitalOutOfMarket: does not know how to calculate transaction with category: withdrawal_tax"
     )]
     fn test_calculate_with_unknown_category() {
-        let trade_id = Uuid::new_v4();
         let mut database = MockDatabase::new();
 
         // Transactions
         database.set_transaction(TransactionCategory::WithdrawalTax, dec!(100));
 
-        TradeCapitalOutOfMarket::calculate(trade_id, &mut database).unwrap();
+        TradeCapitalOutOfMarket::calculate(Uuid::new_v4(), &mut database).unwrap();
     }
 
     #[test]

@@ -136,23 +136,21 @@ mod tests {
         expected = "TradeCapitalInMarket: does not know how to calculate transaction with category: withdrawal_tax"
     )]
     fn test_calculate_with_unknown_category() {
-        let trade_id = Uuid::new_v4();
         let mut database = MockDatabase::new();
 
         // Transactions
         database.set_transaction(TransactionCategory::WithdrawalTax, dec!(100));
 
-        TradeCapitalInMarket::calculate(trade_id, &mut database).unwrap();
+        TradeCapitalInMarket::calculate(Uuid::new_v4(), &mut database).unwrap();
     }
 
     #[test]
     fn test_calculate_is_negative() {
-        let trade_id = Uuid::new_v4();
         let mut database = MockDatabase::new();
 
         database.set_transaction(TransactionCategory::OpenTrade(Uuid::new_v4()), dec!(-100));
 
-        TradeCapitalInMarket::calculate(trade_id, &mut database)
+        TradeCapitalInMarket::calculate(Uuid::new_v4(), &mut database)
             .expect_err("TradeCapitalInMarket: capital funded is negative: -100");
     }
 }

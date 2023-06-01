@@ -3,7 +3,8 @@ use rust_decimal_macros::dec;
 use trust_model::{Currency, DatabaseFactory, RuleName};
 use uuid::Uuid;
 
-use super::{AccountCapitalAvailable, RiskCalculator};
+use crate::account_calculators::AccountCapitalAvailable;
+use crate::trade_calculators::RiskCalculator;
 
 pub struct QuantityCalculator;
 

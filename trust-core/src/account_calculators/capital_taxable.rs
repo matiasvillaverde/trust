@@ -14,7 +14,7 @@ impl AccountCapitalTaxable {
         let transactions = database.read_all_account_transactions_taxes(account_id, currency)?;
 
         // Sum all transactions
-        let total_available: Decimal = transactions
+        let total: Decimal = transactions
             .iter()
             .map(|transaction| match transaction.category {
                 TransactionCategory::PaymentTax(_) => transaction.price.amount,
@@ -26,7 +26,7 @@ impl AccountCapitalTaxable {
             })
             .sum();
 
-        Ok(total_available)
+        Ok(total)
     }
 }
 
@@ -38,27 +38,26 @@ mod tests {
 
     #[test]
     fn test_capital_taxable_with_empty_transactions() {
-        let account_id = Uuid::new_v4();
         let mut database = MockDatabase::new();
 
-        let result = AccountCapitalTaxable::calculate(account_id, &Currency::USD, &mut database);
+        let result =
+            AccountCapitalTaxable::calculate(Uuid::new_v4(), &Currency::USD, &mut database);
         assert_eq!(result.unwrap(), dec!(0));
     }
 
     #[test]
     fn test_capital_taxable_with_one_transaction() {
-        let account_id = Uuid::new_v4();
         let mut database = MockDatabase::new();
 
         database.set_transaction(TransactionCategory::PaymentTax(Uuid::new_v4()), dec!(100));
 
-        let result = AccountCapitalTaxable::calculate(account_id, &Currency::USD, &mut database);
+        let result =
+            AccountCapitalTaxable::calculate(Uuid::new_v4(), &Currency::USD, &mut database);
         assert_eq!(result.unwrap(), dec!(100));
     }
 
     #[test]
     fn test_capital_taxable_many_transactions() {
-        let account_id = Uuid::new_v4();
         let mut database = MockDatabase::new();
 
         database.set_transaction(TransactionCategory::PaymentTax(Uuid::new_v4()), dec!(100.7));
@@ -68,13 +67,13 @@ mod tests {
             dec!(383.322),
         );
 
-        let result = AccountCapitalTaxable::calculate(account_id, &Currency::USD, &mut database);
+        let result =
+            AccountCapitalTaxable::calculate(Uuid::new_v4(), &Currency::USD, &mut database);
         assert_eq!(result.unwrap(), dec!(32976.022));
     }
 
     #[test]
     fn test_capital_taxable_many_transactions_including_withdrawals() {
-        let account_id = Uuid::new_v4();
         let mut database = MockDatabase::new();
 
         // One deposit and one withdrawal transaction in the database
@@ -82,7 +81,8 @@ mod tests {
         database.set_transaction(TransactionCategory::PaymentTax(Uuid::new_v4()), dec!(934));
         database.set_transaction(TransactionCategory::WithdrawalTax, dec!(38.322));
 
-        let result = AccountCapitalTaxable::calculate(account_id, &Currency::USD, &mut database);
+        let result =
+            AccountCapitalTaxable::calculate(Uuid::new_v4(), &Currency::USD, &mut database);
         assert_eq!(result.unwrap(), dec!(903.378));
     }
 
@@ -91,13 +91,11 @@ mod tests {
         expected = "capital_taxable: does not know how to calculate transaction with category: deposit"
     )]
     fn test_capital_taxable_with_unknown_category() {
-        let account_id = Uuid::new_v4();
-        let currency = Currency::USD;
         let mut database = MockDatabase::new();
 
         // Transactions
         database.set_transaction(TransactionCategory::Deposit, dec!(100));
 
-        AccountCapitalTaxable::calculate(account_id, &currency, &mut database).unwrap();
+        AccountCapitalTaxable::calculate(Uuid::new_v4(), &Currency::USD, &mut database).unwrap();
     }
 }

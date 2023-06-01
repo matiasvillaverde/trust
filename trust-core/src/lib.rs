@@ -1,5 +1,5 @@
-use calculators::QuantityCalculator;
 use rust_decimal::Decimal;
+use trade_calculators::QuantityCalculator;
 use trust_model::{
     Account, AccountOverview, Currency, DatabaseFactory, Rule, RuleLevel, RuleName, Trade,
     TradeCategory, TradeOverview, TradingVehicle, TradingVehicleCategory, Transaction,
@@ -260,7 +260,7 @@ impl TrustFacade {
     }
 }
 
-mod calculators;
+mod account_calculators;
 mod mocks;
 mod trade_calculators;
 mod validators;
