@@ -1,5 +1,4 @@
 use rust_decimal::Decimal;
-use rust_decimal_macros::dec;
 use trust_model::{Currency, ReadTransactionDB, TransactionCategory};
 use uuid::Uuid;
 
@@ -11,37 +10,34 @@ impl AccountCapitalAvailable {
         currency: &Currency,
         database: &mut dyn ReadTransactionDB,
     ) -> Result<Decimal, Box<dyn std::error::Error>> {
-        // Get all transactions
+        // Get all transactions for the account and currency
         let transactions =
             database.all_account_transactions_excluding_taxes(account_id, currency)?;
 
-        if transactions.is_empty() {
-            return Ok(dec!(0));
-        }
-
-        // Sum all transactions
-        let total: Decimal = transactions
-            .iter()
-            .map(|transaction| match transaction.category {
-                TransactionCategory::FundTrade(_) | TransactionCategory::Withdrawal | TransactionCategory::FeeOpen(_) | TransactionCategory::FeeClose(_) => {
-                    -transaction.price.amount
+        // Sum all transactions based on their category
+        let total: Decimal = transactions.iter().map(|transaction| {
+                match transaction.category {
+                    TransactionCategory::FundTrade(_) |
+                    TransactionCategory::Withdrawal |
+                    TransactionCategory::FeeOpen(_) |
+                    TransactionCategory::FeeClose(_) => -transaction.price.amount,
+                    TransactionCategory::PaymentFromTrade(_) |
+                    TransactionCategory::Deposit => transaction.price.amount,
+                    _ => panic!(
+                        "capital_available: does not know how to calculate transaction with category: {}",
+                        transaction.category
+                    ),
                 }
-                TransactionCategory::PaymentFromTrade(_) | TransactionCategory::Deposit => {
-                    transaction.price.amount
-                }
-                default => panic!(
-                    "capital_available: does not know how to calculate transaction with category: {}",
-                    default
-                ),
-            })
-            .sum();
+            }).sum();
 
+        // Check if the total is negative, if it is then return an error
         if total.is_sign_negative() {
             return Err(
                 format!("capital_available: total available is negative: {}", total).into(),
             );
         }
 
+        // If total is positive, return the value of total
         Ok(total)
     }
 }
