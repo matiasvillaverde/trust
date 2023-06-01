@@ -6,7 +6,6 @@ use uuid::Uuid;
 pub struct TradeCapitalNotAtRisk;
 
 impl TradeCapitalNotAtRisk {
-    // TODO: Test this!
     pub fn calculate(
         account_id: Uuid,
         currency: &Currency,
@@ -51,5 +50,20 @@ mod tests {
         let result =
             TradeCapitalNotAtRisk::calculate(Uuid::new_v4(), &Currency::USD, &mut database);
         assert_eq!(result.unwrap(), dec!(90));
+    }
+
+    #[test]
+    fn test_calculate_with_many_trades() {
+        let mut database = MockDatabase::new();
+
+        database.set_trade(dec!(10), dec!(15), dec!(9), 10); // 90
+        database.set_trade(dec!(450), dec!(1000), dec!(440), 10); // 4400
+        database.set_trade(dec!(323), dec!(1000), dec!(300), 10); // 3000
+        database.set_trade(dec!(9), dec!(1000), dec!(6.4), 10); // 64
+        database.set_trade(dec!(7.7), dec!(1000), dec!(4.5), 10); // 45
+
+        let result =
+            TradeCapitalNotAtRisk::calculate(Uuid::new_v4(), &Currency::USD, &mut database);
+        assert_eq!(result.unwrap(), dec!(7599.0));
     }
 }
