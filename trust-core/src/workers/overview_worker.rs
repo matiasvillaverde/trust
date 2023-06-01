@@ -1,10 +1,14 @@
 use std::error::Error;
 use trust_model::{Account, AccountOverview, Currency, DatabaseFactory, Trade, TradeOverview};
 
-use crate::{calculators::{
-    AccountCapitalAvailable, AccountCapitalBalance, AccountCapitalInApprovedTrades,
-    AccountCapitalTaxable, TradeTransactionsCalculator,
-}, trade_calculators::TradeCapitalOutOfMarket};
+use crate::{
+    calculators::{
+        AccountCapitalAvailable, AccountCapitalBalance, AccountCapitalInApprovedTrades,
+        AccountCapitalTaxable, TradeTransactionsCalculator,
+    },
+    trade_calculators::TradeCapitalInMarket,
+    trade_calculators::TradeCapitalOutOfMarket,
+};
 pub struct OverviewWorker;
 
 impl OverviewWorker {
@@ -52,14 +56,10 @@ impl OverviewWorker {
     ) -> Result<TradeOverview, Box<dyn Error>> {
         let funding =
             TradeTransactionsCalculator::funding(trade, database.read_transaction_db().as_mut())?;
-        let capital_in_market = TradeTransactionsCalculator::capital_in_market(
-            trade,
-            database.read_transaction_db().as_mut(),
-        )?;
-        let capital_out_market = TradeCapitalOutOfMarket::calculate(
-            trade.id,
-            database.read_transaction_db().as_mut(),
-        )?;
+        let capital_in_market =
+            TradeCapitalInMarket::calculate(trade.id, database.read_transaction_db().as_mut())?;
+        let capital_out_market =
+            TradeCapitalOutOfMarket::calculate(trade.id, database.read_transaction_db().as_mut())?;
         let taxed =
             TradeTransactionsCalculator::taxes(trade, database.read_transaction_db().as_mut())?;
         let total_performance = TradeTransactionsCalculator::total_performance(

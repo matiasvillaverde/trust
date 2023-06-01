@@ -4,9 +4,7 @@ pub mod read_transaction_db_mocks {
     use chrono::Utc;
     use rust_decimal::Decimal;
     use std::error::Error;
-    use trust_model::{
-        Currency, Price, ReadTransactionDB, Trade, Transaction, TransactionCategory,
-    };
+    use trust_model::{Currency, Price, ReadTransactionDB, Transaction, TransactionCategory};
     use uuid::Uuid;
 
     pub struct MockDatabase {

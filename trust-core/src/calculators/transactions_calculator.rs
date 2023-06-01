@@ -28,39 +28,6 @@ impl TradeTransactionsCalculator {
 
     // Trade transactions
 
-    pub fn capital_in_market(
-        trade: &Trade,
-        database: &mut dyn ReadTransactionDB,
-    ) -> Result<Decimal, Box<dyn std::error::Error>> {
-        let mut total_trade = dec!(0);
-
-        for tx in database.all_trade_transactions(trade.id)? {
-            match tx.category {
-                TransactionCategory::FundTrade(_) | TransactionCategory::PaymentFromTrade(_) => {
-                    // Nothing
-                }
-                TransactionCategory::OpenTrade(_) => {
-                    // This is money that we have used to enter the market.
-                    total_trade += tx.price.amount
-                }
-                TransactionCategory::CloseTarget(_)
-                | TransactionCategory::CloseSafetyStop(_)
-                | TransactionCategory::CloseSafetyStopSlippage(_) => {
-                    total_trade = Decimal::from(0) // We have exited the market, so we have no money in the market.
-                },
-                TransactionCategory::FeeOpen(_) | TransactionCategory::FeeClose(_)  => {
-                    // We ignore the fees because they are charged from the account and not from the trade.
-                }
-                default => panic!(
-                    "capital_in_market: does not know how to calculate transaction with category: {}",
-                    default
-                ),
-            }
-        }
-
-        Ok(total_trade)
-    }
-
     pub fn funding(
         trade: &Trade,
         database: &mut dyn ReadTransactionDB,
