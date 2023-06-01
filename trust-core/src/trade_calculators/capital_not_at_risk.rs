@@ -6,22 +6,35 @@ use uuid::Uuid;
 pub struct TradeCapitalNotAtRisk;
 
 impl TradeCapitalNotAtRisk {
+    /// This function calculates the total capital not at risk for a given account and currency.
+    /// The total capital not at risk is the sum of the capital not at risk for each open trade.
+    /// The capital not at risk for a trade is the difference between the entry price and the safety stop price.
+    /// The capital not at risk is the amount of money that is not at risk of being lost if the trade is closed.
+    ///
+    /// IMPORTANT: more capital can be at risk in case the safety stops has slippage.
+    ///
+    /// The capital not at risk is calculated as follows:
+    ///    (entry price - safety stop price) * quantity
     pub fn calculate(
         account_id: Uuid,
         currency: &Currency,
         database: &mut dyn ReadTradeDB,
     ) -> Result<Decimal, Box<dyn std::error::Error>> {
-        // Get the capital of the open trades that is not at risk to the total available.
+        // Get all open trades for the account and currency from the database.
         let open_trades = database.all_open_trades_for_currency(account_id, currency)?;
-        let mut total_capital_not_at_risk = dec!(0.0);
 
-        for trade in open_trades {
+        // Calculate the total capital not at risk by iterating over the open trades and accumulating the values.
+        let total_capital_not_at_risk = open_trades.iter().fold(dec!(0.0), |acc, trade| {
+            // Calculate the risk per share for the trade.
             let risk_per_share =
                 trade.entry.unit_price.amount - trade.safety_stop.unit_price.amount;
-            let total_risk = risk_per_share * Decimal::from(trade.entry.quantity);
-            let total_trade = trade.entry.unit_price.amount * Decimal::from(trade.entry.quantity);
-            total_capital_not_at_risk += total_trade - total_risk;
-        }
+
+            // Calculate the total capital not at risk for the trade and add it to the accumulator.
+            acc + (trade.entry.unit_price.amount - risk_per_share)
+                * Decimal::from(trade.entry.quantity)
+        });
+
+        // Return the total capital not at risk as the result of the function.
         Ok(total_capital_not_at_risk)
     }
 }
