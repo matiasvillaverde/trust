@@ -291,12 +291,12 @@ impl ReadTransactionDB for SqliteDatabase {
         )
     }
 
-    fn all_account_transactions_funding_in_open_trades(
+    fn all_account_transactions_funding_in_approved_trades(
         &mut self,
         account_id: Uuid,
         currency: &Currency,
     ) -> Result<Vec<Transaction>, Box<dyn Error>> {
-        WorkerTransaction::all_account_transactions_funding_in_open_trades(
+        WorkerTransaction::all_account_transactions_funding_in_approved_trades(
             &mut self.connection.lock().unwrap(),
             account_id,
             currency,
@@ -317,33 +317,33 @@ impl ReadTransactionDB for SqliteDatabase {
 
     fn all_trade_transactions(
         &mut self,
-        trade: &Trade,
+        trade_id: Uuid,
     ) -> Result<Vec<Transaction>, Box<dyn Error>> {
         WorkerTransaction::read_all_trade_transactions(
             &mut self.connection.lock().unwrap(),
-            trade.id,
+            trade_id,
         )
     }
 
     fn all_trade_funding_transactions(
         &mut self,
-        trade: &Trade,
+        trade_id: Uuid,
     ) -> Result<Vec<Transaction>, Box<dyn Error>> {
         WorkerTransaction::read_all_trade_transactions_for_category(
             &mut self.connection.lock().unwrap(),
-            trade.id,
-            TransactionCategory::FundTrade(trade.id),
+            trade_id,
+            TransactionCategory::FundTrade(trade_id),
         )
     }
 
     fn all_trade_taxes_transactions(
         &mut self,
-        trade: &Trade,
+        trade_id: Uuid,
     ) -> Result<Vec<Transaction>, Box<dyn Error>> {
         WorkerTransaction::read_all_trade_transactions_for_category(
             &mut self.connection.lock().unwrap(),
-            trade.id,
-            TransactionCategory::PaymentTax(trade.id),
+            trade_id,
+            TransactionCategory::PaymentTax(trade_id),
         )
     }
 

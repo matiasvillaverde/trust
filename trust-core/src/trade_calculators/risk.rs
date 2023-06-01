@@ -3,7 +3,8 @@ use rust_decimal_macros::dec;
 use trust_model::{Currency, DatabaseFactory};
 use uuid::Uuid;
 
-use super::{CapitalAvailableCalculator, TransactionsCalculator};
+use crate::account_calculators::{AccountCapitalAvailable, AccountCapitalBeginningOfMonth};
+use crate::trade_calculators::TradeCapitalNotAtRisk;
 
 pub struct RiskCalculator;
 
@@ -15,18 +16,21 @@ impl RiskCalculator {
         database: &mut dyn DatabaseFactory,
     ) -> Result<Decimal, Box<dyn std::error::Error>> {
         // Calculate the total available this month.
-        let total_available = CapitalAvailableCalculator::capital_available(
+        let total_available = AccountCapitalAvailable::calculate(
             account_id,
             currency,
             database.read_transaction_db().as_mut(),
         )?;
 
         // Calculate the capital of the open trades that is not at risk.
-        let total_capital_not_at_risk =
-            TransactionsCalculator::capital_in_trades_not_at_risk(account_id, currency, database)?;
+        let total_capital_not_at_risk = TradeCapitalNotAtRisk::calculate(
+            account_id,
+            currency,
+            database.read_trade_db().as_mut(),
+        )?;
 
         // Calculate the total capital at the beginning of the month.
-        let total_beginning_of_month = TransactionsCalculator::capital_at_beginning_of_month(
+        let total_beginning_of_month = AccountCapitalBeginningOfMonth::calculate(
             account_id,
             currency,
             database.read_transaction_db().as_mut(),
@@ -89,7 +93,6 @@ mod tests {
         let total_capital_not_at_risk = Decimal::new(0, 0);
         let risk = 10.0;
 
-        // First trade of the month
         let result = RiskCalculator::calculate_capital_allowed_to_risk(
             total_beginning_of_month,
             total_balance_current_month,
@@ -106,7 +109,6 @@ mod tests {
         let total_capital_not_at_risk = Decimal::new(0, 0);
         let risk = 10.0;
 
-        // First trade of the month
         let result = RiskCalculator::calculate_capital_allowed_to_risk(
             total_beginning_of_month,
             total_balance_current_month,
@@ -123,7 +125,6 @@ mod tests {
         let total_capital_not_at_risk = Decimal::new(0, 0);
         let risk = 10.0;
 
-        // First trade of the month
         let result = RiskCalculator::calculate_capital_allowed_to_risk(
             total_beginning_of_month,
             total_balance_current_month,
@@ -140,7 +141,6 @@ mod tests {
         let total_capital_not_at_risk = Decimal::new(100, 0);
         let risk = 10.0;
 
-        // First trade of the month
         let result = RiskCalculator::calculate_capital_allowed_to_risk(
             total_beginning_of_month,
             total_balance_current_month,

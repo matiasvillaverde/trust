@@ -132,7 +132,7 @@ pub trait ReadTransactionDB {
         currency: &Currency,
     ) -> Result<Vec<Transaction>, Box<dyn Error>>;
 
-    fn all_account_transactions_funding_in_open_trades(
+    fn all_account_transactions_funding_in_approved_trades(
         &mut self,
         account_id: Uuid,
         currency: &Currency,
@@ -144,17 +144,19 @@ pub trait ReadTransactionDB {
         currency: &Currency,
     ) -> Result<Vec<Transaction>, Box<dyn Error>>;
 
-    fn all_trade_transactions(&mut self, trade: &Trade)
-        -> Result<Vec<Transaction>, Box<dyn Error>>;
+    fn all_trade_transactions(
+        &mut self,
+        trade_id: Uuid,
+    ) -> Result<Vec<Transaction>, Box<dyn Error>>;
 
     fn all_trade_funding_transactions(
         &mut self,
-        trade: &Trade,
+        trade_id: Uuid,
     ) -> Result<Vec<Transaction>, Box<dyn Error>>;
 
     fn all_trade_taxes_transactions(
         &mut self,
-        trade: &Trade,
+        trade_id: Uuid,
     ) -> Result<Vec<Transaction>, Box<dyn Error>>;
 
     fn all_transaction_excluding_current_month_and_taxes(

@@ -1,8 +1,13 @@
 use std::error::Error;
 use trust_model::{Account, AccountOverview, Currency, DatabaseFactory, Trade, TradeOverview};
 
-use crate::calculators::{
-    CapitalAvailableCalculator, CapitalBalanceCalculator, TransactionsCalculator,
+use crate::{
+    account_calculators::{
+        AccountCapitalAvailable, AccountCapitalBalance, AccountCapitalInApprovedTrades,
+        AccountCapitalTaxable,
+    },
+    trade_calculators::{TradeCapitalFunded, TradeCapitalInMarket},
+    trade_calculators::{TradeCapitalOutOfMarket, TradeCapitalTaxable, TradePerformance},
 };
 pub struct OverviewWorker;
 
@@ -12,22 +17,22 @@ impl OverviewWorker {
         account: &Account,
         currency: &Currency,
     ) -> Result<AccountOverview, Box<dyn Error>> {
-        let total_available = CapitalAvailableCalculator::capital_available(
+        let total_available = AccountCapitalAvailable::calculate(
             account.id,
             currency,
             database.read_transaction_db().as_mut(),
         )?;
-        let total_in_trade = TransactionsCalculator::capital_in_trades(
+        let total_in_trade = AccountCapitalInApprovedTrades::calculate(
             account.id,
             currency,
             database.read_transaction_db().as_mut(),
         )?;
-        let taxed = TransactionsCalculator::capital_taxable(
+        let taxed = AccountCapitalTaxable::calculate(
             account.id,
             currency,
             database.read_transaction_db().as_mut(),
         )?;
-        let total_balance = CapitalBalanceCalculator::total_balance(
+        let total_balance = AccountCapitalBalance::calculate(
             account.id,
             currency,
             database.read_transaction_db().as_mut(),
@@ -50,20 +55,15 @@ impl OverviewWorker {
         trade: &Trade,
     ) -> Result<TradeOverview, Box<dyn Error>> {
         let funding =
-            TransactionsCalculator::funding(trade, database.read_transaction_db().as_mut())?;
-        let capital_in_market = TransactionsCalculator::capital_in_market(
-            trade,
-            database.read_transaction_db().as_mut(),
-        )?;
-        let capital_out_market = TransactionsCalculator::capital_out_of_market(
-            trade,
-            database.read_transaction_db().as_mut(),
-        )?;
-        let taxed = TransactionsCalculator::taxes(trade, database.read_transaction_db().as_mut())?;
-        let total_performance = TransactionsCalculator::total_performance(
-            trade,
-            database.read_transaction_db().as_mut(),
-        )?;
+            TradeCapitalFunded::calculate(trade.id, database.read_transaction_db().as_mut())?;
+        let capital_in_market =
+            TradeCapitalInMarket::calculate(trade.id, database.read_transaction_db().as_mut())?;
+        let capital_out_market =
+            TradeCapitalOutOfMarket::calculate(trade.id, database.read_transaction_db().as_mut())?;
+        let taxed =
+            TradeCapitalTaxable::calculate(trade.id, database.read_transaction_db().as_mut())?;
+        let total_performance =
+            TradePerformance::calculate(trade.id, database.read_transaction_db().as_mut())?;
 
         database.write_trade_overview_db().update_trade_overview(
             trade,

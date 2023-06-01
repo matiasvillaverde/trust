@@ -7,7 +7,7 @@ use trust_model::{
 use uuid::Uuid;
 
 use crate::{
-    calculators::TransactionsCalculator,
+    trade_calculators::TradeCapitalOutOfMarket,
     validators::{TransactionValidationErrorCode, TransactionValidator},
 };
 
@@ -99,28 +99,29 @@ impl TransactionWorker {
     ) -> Result<(Transaction, AccountOverview), Box<dyn Error>> {
         let account = database.read_account_db().read_account_id(account_id)?;
 
-        match TransactionValidator::validate(
+        // Validate that account has enough funds to withdraw
+        TransactionValidator::validate(
             TransactionCategory::Withdrawal,
             amount,
             currency,
             account_id,
             database.read_account_overview_db().as_mut(),
             database.read_trade_db().as_mut(),
-        ) {
-            Ok(_) => {
-                let transaction = database.write_transaction_db().create_transaction(
-                    &account,
-                    amount,
-                    currency,
-                    TransactionCategory::Withdrawal,
-                )?;
+        )?;
 
-                let updated_overview =
-                    OverviewWorker::update_account_overview(database, &account, currency)?;
-                Ok((transaction, updated_overview))
-            }
-            Err(error) => Err(error),
-        }
+        // Create transaction
+        let transaction = database.write_transaction_db().create_transaction(
+            &account,
+            amount,
+            currency,
+            TransactionCategory::Withdrawal,
+        )?;
+
+        // Update account overview
+        let updated_overview =
+            OverviewWorker::update_account_overview(database, &account, currency)?;
+
+        Ok((transaction, updated_overview))
     }
 
     pub fn transfer_to_fund_trade(
@@ -133,32 +134,28 @@ impl TransactionWorker {
 
         let trade_total = trade.entry.unit_price.amount * Decimal::from(trade.entry.quantity);
 
-        match TransactionValidator::validate(
+        TransactionValidator::validate(
             TransactionCategory::FundTrade(trade.id),
             trade_total,
             &trade.currency,
             account.id,
             database.read_account_overview_db().as_mut(),
             database.read_trade_db().as_mut(),
-        ) {
-            Ok(_) => {
-                let transaction = database.write_transaction_db().create_transaction(
-                    &account,
-                    trade_total,
-                    &trade.currency,
-                    TransactionCategory::FundTrade(trade.id),
-                )?;
+        )?;
 
-                let account_overview =
-                    OverviewWorker::update_account_overview(database, &account, &trade.currency)?;
+        let transaction = database.write_transaction_db().create_transaction(
+            &account,
+            trade_total,
+            &trade.currency,
+            TransactionCategory::FundTrade(trade.id),
+        )?;
 
-                let trade_overview: TradeOverview =
-                    OverviewWorker::update_trade_overview(database, trade)?;
+        let account_overview =
+            OverviewWorker::update_account_overview(database, &account, &trade.currency)?;
 
-                Ok((transaction, account_overview, trade_overview))
-            }
-            Err(error) => Err(error),
-        }
+        let trade_overview: TradeOverview = OverviewWorker::update_trade_overview(database, trade)?;
+
+        Ok((transaction, account_overview, trade_overview))
     }
 
     pub fn transfer_to_open_trade(
@@ -292,10 +289,8 @@ impl TransactionWorker {
         let account = database
             .read_account_db()
             .read_account_id(trade.account_id)?;
-        let total_to_withdrawal = TransactionsCalculator::capital_out_of_market(
-            trade,
-            database.read_transaction_db().as_mut(),
-        )?;
+        let total_to_withdrawal =
+            TradeCapitalOutOfMarket::calculate(trade.id, database.read_transaction_db().as_mut())?;
 
         let transaction = database.write_transaction_db().create_transaction(
             &account,

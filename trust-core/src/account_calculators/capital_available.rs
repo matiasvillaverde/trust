@@ -1,50 +1,44 @@
 use rust_decimal::Decimal;
-use rust_decimal_macros::dec;
 use trust_model::{Currency, ReadTransactionDB, TransactionCategory};
 use uuid::Uuid;
 
-pub struct CapitalAvailableCalculator;
+pub struct AccountCapitalAvailable;
 
-impl CapitalAvailableCalculator {
-    pub fn capital_available(
+impl AccountCapitalAvailable {
+    pub fn calculate(
         account_id: Uuid,
         currency: &Currency,
         database: &mut dyn ReadTransactionDB,
     ) -> Result<Decimal, Box<dyn std::error::Error>> {
-        // Get all transactions
+        // Get all transactions for the account and currency
         let transactions =
             database.all_account_transactions_excluding_taxes(account_id, currency)?;
 
-        if transactions.is_empty() {
-            return Ok(dec!(0));
+        // Sum all transactions based on their category
+        let total: Decimal = transactions.iter().map(|transaction| {
+                match transaction.category {
+                    TransactionCategory::FundTrade(_) |
+                    TransactionCategory::Withdrawal |
+                    TransactionCategory::FeeOpen(_) |
+                    TransactionCategory::FeeClose(_) => -transaction.price.amount,
+                    TransactionCategory::PaymentFromTrade(_) |
+                    TransactionCategory::Deposit => transaction.price.amount,
+                    _ => panic!(
+                        "capital_available: does not know how to calculate transaction with category: {}",
+                        transaction.category
+                    ),
+                }
+            }).sum();
+
+        // Check if the total is negative, if it is then return an error
+        if total.is_sign_negative() {
+            return Err(
+                format!("capital_available: total available is negative: {}", total).into(),
+            );
         }
 
-        // Sum all transactions
-        let total_available: Decimal = transactions
-            .iter()
-            .map(|transaction| match transaction.category {
-                TransactionCategory::FundTrade(_) | TransactionCategory::Withdrawal | TransactionCategory::FeeOpen(_) | TransactionCategory::FeeClose(_) => {
-                    -transaction.price.amount
-                }
-                TransactionCategory::PaymentFromTrade(_) | TransactionCategory::Deposit => {
-                    transaction.price.amount
-                }
-                default => panic!(
-                    "capital_available: does not know how to calculate transaction with category: {}",
-                    default
-                ),
-            })
-            .sum();
-
-        if total_available.is_sign_negative() {
-            return Err(format!(
-                "capital_available: total available is negative: {}",
-                total_available
-            )
-            .into());
-        }
-
-        Ok(total_available)
+        // If total is positive, return the value of total
+        Ok(total)
     }
 }
 
@@ -56,19 +50,15 @@ mod tests {
 
     #[test]
     fn test_capital_available_with_empty_transactions() {
-        let account_id = Uuid::new_v4();
-        let currency = Currency::USD;
         let mut database = MockDatabase::new();
 
         let result =
-            CapitalAvailableCalculator::capital_available(account_id, &currency, &mut database);
+            AccountCapitalAvailable::calculate(Uuid::new_v4(), &Currency::USD, &mut database);
         assert_eq!(result.unwrap(), dec!(0));
     }
 
     #[test]
     fn test_capital_available_with_positive_transactions() {
-        let account_id = Uuid::new_v4();
-        let currency = Currency::USD;
         let mut database = MockDatabase::new();
 
         // One deposit transaction in the database
@@ -76,14 +66,12 @@ mod tests {
         database.set_transaction(TransactionCategory::Deposit, dec!(100));
 
         let result =
-            CapitalAvailableCalculator::capital_available(account_id, &currency, &mut database);
+            AccountCapitalAvailable::calculate(Uuid::new_v4(), &Currency::USD, &mut database);
         assert_eq!(result.unwrap(), dec!(200));
     }
 
     #[test]
     fn test_capital_available_with_negative_transactions() {
-        let account_id = Uuid::new_v4();
-        let currency = Currency::USD;
         let mut database = MockDatabase::new();
 
         // Transactions
@@ -91,14 +79,12 @@ mod tests {
         database.set_transaction(TransactionCategory::Withdrawal, dec!(50));
 
         let result =
-            CapitalAvailableCalculator::capital_available(account_id, &currency, &mut database);
+            AccountCapitalAvailable::calculate(Uuid::new_v4(), &Currency::USD, &mut database);
         assert_eq!(result.unwrap(), dec!(50));
     }
 
     #[test]
     fn test_capital_available_with_multiple_transactions() {
-        let account_id = Uuid::new_v4();
-        let currency = Currency::USD;
         let mut database = MockDatabase::new();
 
         // Transactions
@@ -117,7 +103,31 @@ mod tests {
         database.set_transaction(TransactionCategory::Withdrawal, dec!(50));
 
         let result =
-            CapitalAvailableCalculator::capital_available(account_id, &currency, &mut database);
+            AccountCapitalAvailable::calculate(Uuid::new_v4(), &Currency::USD, &mut database);
+        assert_eq!(result.unwrap(), dec!(3526));
+    }
+
+    #[test]
+    fn test_capital_available_with_with() {
+        let mut database = MockDatabase::new();
+
+        // Transactions
+        database.set_transaction(TransactionCategory::Deposit, dec!(100));
+        database.set_transaction(TransactionCategory::FundTrade(Uuid::new_v4()), dec!(50));
+        database.set_transaction(TransactionCategory::Withdrawal, dec!(50));
+        database.set_transaction(TransactionCategory::Deposit, dec!(100));
+        database.set_transaction(TransactionCategory::FeeOpen(Uuid::new_v4()), dec!(1.4));
+        database.set_transaction(TransactionCategory::FeeOpen(Uuid::new_v4()), dec!(4.6));
+        database.set_transaction(
+            TransactionCategory::PaymentFromTrade(Uuid::new_v4()),
+            dec!(3432),
+        );
+        database.set_transaction(TransactionCategory::Withdrawal, dec!(50));
+        database.set_transaction(TransactionCategory::Deposit, dec!(100));
+        database.set_transaction(TransactionCategory::Withdrawal, dec!(50));
+
+        let result =
+            AccountCapitalAvailable::calculate(Uuid::new_v4(), &Currency::USD, &mut database);
         assert_eq!(result.unwrap(), dec!(3526));
     }
 
@@ -126,28 +136,23 @@ mod tests {
         expected = "capital_available: does not know how to calculate transaction with category: withdrawal_tax"
     )]
     fn test_capital_available_with_unknown_category() {
-        let account_id = Uuid::new_v4();
-        let currency = Currency::USD;
         let mut database = MockDatabase::new();
 
         // Transactions
         database.set_transaction(TransactionCategory::WithdrawalTax, dec!(100));
 
-        CapitalAvailableCalculator::capital_available(account_id, &currency, &mut database)
-            .unwrap();
+        AccountCapitalAvailable::calculate(Uuid::new_v4(), &Currency::USD, &mut database).unwrap();
     }
 
     #[test]
     fn test_capital_available_is_negative() {
-        let account_id = Uuid::new_v4();
-        let currency = Currency::USD;
         let mut database = MockDatabase::new();
 
         // Transactions
         database.set_transaction(TransactionCategory::Deposit, dec!(100));
         database.set_transaction(TransactionCategory::Withdrawal, dec!(200));
 
-        CapitalAvailableCalculator::capital_available(account_id, &currency, &mut database)
+        AccountCapitalAvailable::calculate(Uuid::new_v4(), &Currency::USD, &mut database)
             .expect_err("capital_available: total available is negative: -100");
     }
 }
