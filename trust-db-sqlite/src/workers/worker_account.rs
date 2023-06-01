@@ -151,20 +151,7 @@ mod tests {
     fn create_factory(connection: SqliteConnection) -> Box<dyn DatabaseFactory> {
         Box::new(SqliteDatabase::new_from(Arc::new(Mutex::new(connection))))
     }
-    fn create_accounts(db: &Box<dyn DatabaseFactory>) -> Vec<Account> {
-        let created_accounts = vec![
-            db.write_account_db()
-                .create_account("Test Account 1", "This is a test account")
-                .expect("Error creating account"),
-            db.write_account_db()
-                .create_account("Test Account 2", "This is a test account")
-                .expect("Error creating account"),
-            db.write_account_db()
-                .create_account("Test Account 3", "This is a test account")
-                .expect("Error creating account"),
-        ];
-        created_accounts
-    }
+
     #[test]
     fn test_create_account() {
         let conn: SqliteConnection = establish_connection();
@@ -237,7 +224,17 @@ mod tests {
     #[test]
     fn test_read_all_accounts() {
         let db = create_factory(establish_connection());
-        let created_accounts = create_accounts(&db);
+        let created_accounts = vec![
+            db.write_account_db()
+                .create_account("Test Account 1", "This is a test account")
+                .expect("Error creating account"),
+            db.write_account_db()
+                .create_account("Test Account 2", "This is a test account")
+                .expect("Error creating account"),
+            db.write_account_db()
+                .create_account("Test Account 3", "This is a test account")
+                .expect("Error creating account"),
+        ];
 
         // Read all account records
         let accounts = db

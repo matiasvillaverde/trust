@@ -102,18 +102,20 @@ pub mod read_transaction_db_mocks {
             quantity: u64,
         ) -> Order {
             let now: chrono::NaiveDateTime = Utc::now().naive_utc();
-            let mut price = Price::default();
-            price.amount = amount;
+            let price = Price {
+                amount,
+                ..Default::default()
+            };
             Order {
                 id: Uuid::new_v4(),
                 created_at: now,
                 updated_at: now,
                 deleted_at: None,
                 unit_price: price,
-                quantity: quantity,
+                quantity,
                 trading_vehicle_id: Uuid::new_v4(),
-                category: category,
-                action: action,
+                category,
+                action,
                 opened_at: None,
                 closed_at: None,
             }
@@ -188,25 +190,25 @@ pub mod read_transaction_db_mocks {
     impl ReadTradeDB for MockDatabase {
         fn all_open_trades_for_currency(
             &mut self,
-            account_id: Uuid,
-            currency: &Currency,
+            _account_id: Uuid,
+            _currency: &Currency,
         ) -> Result<Vec<Trade>, Box<dyn Error>> {
             Ok(self.trades.clone())
         }
 
-        fn all_approved_trades(&mut self, account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>> {
+        fn all_approved_trades(&mut self, _account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>> {
             Ok(self.trades.clone())
         }
 
-        fn all_open_trades(&mut self, account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>> {
+        fn all_open_trades(&mut self, _account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>> {
             Ok(self.trades.clone())
         }
 
-        fn read_trade(&mut self, id: Uuid) -> Result<Trade, Box<dyn Error>> {
+        fn read_trade(&mut self, _id: Uuid) -> Result<Trade, Box<dyn Error>> {
             Ok(self.trades.first().unwrap().clone())
         }
 
-        fn read_all_new_trades(&mut self, account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>> {
+        fn read_all_new_trades(&mut self, _account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>> {
             Ok(self.trades.clone())
         }
     }
