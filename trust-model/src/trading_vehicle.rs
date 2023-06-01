@@ -1,4 +1,5 @@
 use chrono::NaiveDateTime;
+use chrono::Utc;
 use uuid::Uuid;
 
 /// TradingVehicle entity. Like a Stock, Crypto, Fiat, Future, etc.
@@ -86,6 +87,22 @@ impl std::fmt::Display for TradingVehicle {
             self.broker.to_uppercase(),
             self.isin.to_uppercase(),
         )
+    }
+}
+
+impl Default for TradingVehicle {
+    fn default() -> Self {
+        let now = Utc::now().naive_utc();
+        TradingVehicle {
+            id: Uuid::new_v4(),
+            created_at: now,
+            updated_at: now,
+            deleted_at: None,
+            symbol: "AAPL".to_string(),
+            isin: "AAPL".to_string(),
+            category: TradingVehicleCategory::Stock,
+            broker: "NASDAQ".to_string(),
+        }
     }
 }
 

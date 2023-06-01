@@ -4,6 +4,7 @@ use crate::price::Price;
 use crate::target::Target;
 use crate::trading_vehicle::TradingVehicle;
 use chrono::NaiveDateTime;
+use chrono::Utc;
 use uuid::Uuid;
 
 /// Trade entity - represents a single trade.
@@ -144,4 +145,21 @@ pub struct TradeOverview {
 
     /// Total amount of money that we have earned or lost from the trade
     pub total_performance: Price,
+}
+
+impl Default for TradeOverview {
+    fn default() -> Self {
+        let now = Utc::now().naive_utc();
+        TradeOverview {
+            id: Uuid::new_v4(),
+            created_at: now,
+            updated_at: now,
+            deleted_at: None,
+            funding: Price::default(),
+            capital_in_market: Price::default(),
+            capital_out_market: Price::default(),
+            taxed: Price::default(),
+            total_performance: Price::default(),
+        }
+    }
 }

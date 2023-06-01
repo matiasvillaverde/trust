@@ -39,7 +39,6 @@ mod tests {
     use rust_decimal_macros::dec;
     #[test]
     fn test_total_balance_with_empty_transactions() {
-        let account_id = Uuid::new_v4();
         let mut database = MockDatabase::new();
 
         let result =
