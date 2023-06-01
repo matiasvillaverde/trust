@@ -6,8 +6,8 @@ use crate::{
         AccountCapitalAvailable, AccountCapitalBalance, AccountCapitalInApprovedTrades,
         AccountCapitalTaxable, TradeTransactionsCalculator,
     },
-    trade_calculators::{TradeCapitalOutOfMarket, TradeCapitalTaxable},
     trade_calculators::{TradeCapitalFunded, TradeCapitalInMarket},
+    trade_calculators::{TradeCapitalOutOfMarket, TradeCapitalTaxable, TradePerformance},
 };
 pub struct OverviewWorker;
 
@@ -62,10 +62,8 @@ impl OverviewWorker {
             TradeCapitalOutOfMarket::calculate(trade.id, database.read_transaction_db().as_mut())?;
         let taxed =
             TradeCapitalTaxable::calculate(trade.id, database.read_transaction_db().as_mut())?;
-        let total_performance = TradeTransactionsCalculator::total_performance(
-            trade,
-            database.read_transaction_db().as_mut(),
-        )?;
+        let total_performance =
+            TradePerformance::calculate(trade.id, database.read_transaction_db().as_mut())?;
 
         database.write_trade_overview_db().update_trade_overview(
             trade,
