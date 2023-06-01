@@ -7,7 +7,7 @@ use trust_model::{
 use uuid::Uuid;
 
 use crate::{
-    calculators::TransactionsCalculator,
+    calculators::TradeTransactionsCalculator,
     validators::{TransactionValidationErrorCode, TransactionValidator},
 };
 
@@ -289,7 +289,7 @@ impl TransactionWorker {
         let account = database
             .read_account_db()
             .read_account_id(trade.account_id)?;
-        let total_to_withdrawal = TransactionsCalculator::capital_out_of_market(
+        let total_to_withdrawal = TradeTransactionsCalculator::capital_out_of_market(
             trade,
             database.read_transaction_db().as_mut(),
         )?;

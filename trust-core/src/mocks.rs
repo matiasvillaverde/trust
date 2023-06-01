@@ -74,21 +74,21 @@ pub mod read_transaction_db_mocks {
 
         fn all_trade_transactions(
             &mut self,
-            _trade: &Trade,
+            _trade_id: Uuid,
         ) -> Result<Vec<Transaction>, Box<dyn Error>> {
             Ok(self.transactions.clone())
         }
 
         fn all_trade_funding_transactions(
             &mut self,
-            _trade: &Trade,
+            _trade_id: Uuid,
         ) -> Result<Vec<Transaction>, Box<dyn Error>> {
             Ok(self.transactions.clone())
         }
 
         fn all_trade_taxes_transactions(
             &mut self,
-            _trade: &Trade,
+            _trade_id: Uuid,
         ) -> Result<Vec<Transaction>, Box<dyn Error>> {
             Ok(self.transactions.clone())
         }

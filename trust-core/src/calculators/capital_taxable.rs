@@ -2,10 +2,10 @@ use rust_decimal::Decimal;
 use trust_model::{Currency, ReadTransactionDB, TransactionCategory};
 use uuid::Uuid;
 
-pub struct CapitalTaxableCalculator;
+pub struct AccountCapitalTaxable;
 
-impl CapitalTaxableCalculator {
-    pub fn capital_taxable(
+impl AccountCapitalTaxable {
+    pub fn calculate(
         account_id: Uuid,
         currency: &Currency,
         database: &mut dyn ReadTransactionDB,
@@ -41,8 +41,7 @@ mod tests {
         let account_id = Uuid::new_v4();
         let mut database = MockDatabase::new();
 
-        let result =
-            CapitalTaxableCalculator::capital_taxable(account_id, &Currency::USD, &mut database);
+        let result = AccountCapitalTaxable::calculate(account_id, &Currency::USD, &mut database);
         assert_eq!(result.unwrap(), dec!(0));
     }
 
@@ -53,8 +52,7 @@ mod tests {
 
         database.set_transaction(TransactionCategory::PaymentTax(Uuid::new_v4()), dec!(100));
 
-        let result =
-            CapitalTaxableCalculator::capital_taxable(account_id, &Currency::USD, &mut database);
+        let result = AccountCapitalTaxable::calculate(account_id, &Currency::USD, &mut database);
         assert_eq!(result.unwrap(), dec!(100));
     }
 
@@ -70,8 +68,7 @@ mod tests {
             dec!(383.322),
         );
 
-        let result =
-            CapitalTaxableCalculator::capital_taxable(account_id, &Currency::USD, &mut database);
+        let result = AccountCapitalTaxable::calculate(account_id, &Currency::USD, &mut database);
         assert_eq!(result.unwrap(), dec!(32976.022));
     }
 
@@ -85,8 +82,7 @@ mod tests {
         database.set_transaction(TransactionCategory::PaymentTax(Uuid::new_v4()), dec!(934));
         database.set_transaction(TransactionCategory::WithdrawalTax, dec!(38.322));
 
-        let result =
-            CapitalTaxableCalculator::capital_taxable(account_id, &Currency::USD, &mut database);
+        let result = AccountCapitalTaxable::calculate(account_id, &Currency::USD, &mut database);
         assert_eq!(result.unwrap(), dec!(903.378));
     }
 
@@ -102,8 +98,6 @@ mod tests {
         // Transactions
         database.set_transaction(TransactionCategory::Deposit, dec!(100));
 
-        CapitalTaxableCalculator::capital_taxable(account_id, &currency, &mut database)
-            .unwrap();
+        AccountCapitalTaxable::calculate(account_id, &currency, &mut database).unwrap();
     }
-
 }

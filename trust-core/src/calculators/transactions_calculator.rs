@@ -3,9 +3,9 @@ use rust_decimal_macros::dec;
 use trust_model::{Currency, DatabaseFactory, ReadTransactionDB, Trade, TransactionCategory};
 use uuid::Uuid;
 
-pub struct TransactionsCalculator;
+pub struct TradeTransactionsCalculator;
 
-impl TransactionsCalculator {
+impl TradeTransactionsCalculator {
     pub fn capital_in_trades_not_at_risk(
         account_id: Uuid,
         currency: &Currency,
@@ -26,39 +26,6 @@ impl TransactionsCalculator {
         Ok(total_capital_not_at_risk)
     }
 
-    pub fn capital_at_beginning_of_month(
-        account_id: Uuid,
-        currency: &Currency,
-        database: &mut dyn ReadTransactionDB,
-    ) -> Result<Decimal, Box<dyn std::error::Error>> {
-        // Calculate all the transactions at the beginning of the month
-        let mut total_beginning_of_month = dec!(0.0);
-        for transaction in
-            database.all_transaction_excluding_current_month_and_taxes(account_id, currency)?
-        {
-            match transaction.category {
-                TransactionCategory::FundTrade(_)
-                | TransactionCategory::Withdrawal
-                | TransactionCategory::FeeOpen(_)
-                | TransactionCategory::FeeClose(_) => {
-                    total_beginning_of_month -= transaction.price.amount
-                }
-                TransactionCategory::PaymentFromTrade(_) => {
-                    total_beginning_of_month += transaction.price.amount
-                }
-                TransactionCategory::Deposit => {
-                    total_beginning_of_month += transaction.price.amount
-                }
-                default => panic!(
-                    "capital_at_beginning_of_month: does not know how to calculate transaction with category: {}. Transaction: {:?}",
-                    default,
-                    transaction
-                ),
-            }
-        }
-        Ok(total_beginning_of_month)
-    }
-
     // Trade transactions
 
     pub fn capital_out_of_market(
@@ -67,7 +34,7 @@ impl TransactionsCalculator {
     ) -> Result<Decimal, Box<dyn std::error::Error>> {
         let mut total_trade = dec!(0);
 
-        for tx in database.all_trade_transactions(trade)? {
+        for tx in database.all_trade_transactions(trade.id)? {
             match tx.category {
                 TransactionCategory::FundTrade(_) => {
                     // This is money that we have put into the trade
@@ -112,7 +79,7 @@ impl TransactionsCalculator {
     ) -> Result<Decimal, Box<dyn std::error::Error>> {
         let mut total_trade = dec!(0);
 
-        for tx in database.all_trade_transactions(trade)? {
+        for tx in database.all_trade_transactions(trade.id)? {
             match tx.category {
                 TransactionCategory::FundTrade(_) | TransactionCategory::PaymentFromTrade(_) => {
                     // Nothing
@@ -145,7 +112,7 @@ impl TransactionsCalculator {
     ) -> Result<Decimal, Box<dyn std::error::Error>> {
         let mut total_trade = dec!(0);
 
-        for tx in database.all_trade_funding_transactions(trade)? {
+        for tx in database.all_trade_funding_transactions(trade.id)? {
             match tx.category {
                 TransactionCategory::FundTrade(_) => {
                     // This is money that we have used to enter the market.
@@ -167,7 +134,7 @@ impl TransactionsCalculator {
     ) -> Result<Decimal, Box<dyn std::error::Error>> {
         let mut total_trade = dec!(0);
 
-        for tx in database.all_trade_taxes_transactions(trade)? {
+        for tx in database.all_trade_taxes_transactions(trade.id)? {
             match tx.category {
                 TransactionCategory::PaymentTax(_) => {
                     // This is money that we have used to enter the market.
@@ -189,7 +156,7 @@ impl TransactionsCalculator {
     ) -> Result<Decimal, Box<dyn std::error::Error>> {
         let mut performance = dec!(0);
 
-        for tx in database.all_trade_transactions(trade)? {
+        for tx in database.all_trade_transactions(trade.id)? {
             match tx.category {
                 TransactionCategory::OpenTrade(_)
                 | TransactionCategory::FeeClose(_)

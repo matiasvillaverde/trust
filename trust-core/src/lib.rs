@@ -262,6 +262,7 @@ impl TrustFacade {
 
 mod calculators;
 mod mocks;
+mod trade_calculators;
 mod validators;
 mod workers;
 

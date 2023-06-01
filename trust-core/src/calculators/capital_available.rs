@@ -3,10 +3,10 @@ use rust_decimal_macros::dec;
 use trust_model::{Currency, ReadTransactionDB, TransactionCategory};
 use uuid::Uuid;
 
-pub struct CapitalAvailableCalculator;
+pub struct AccountCapitalAvailable;
 
-impl CapitalAvailableCalculator {
-    pub fn capital_available(
+impl AccountCapitalAvailable {
+    pub fn calculate(
         account_id: Uuid,
         currency: &Currency,
         database: &mut dyn ReadTransactionDB,
@@ -60,8 +60,7 @@ mod tests {
         let currency = Currency::USD;
         let mut database = MockDatabase::new();
 
-        let result =
-            CapitalAvailableCalculator::capital_available(account_id, &currency, &mut database);
+        let result = AccountCapitalAvailable::calculate(account_id, &currency, &mut database);
         assert_eq!(result.unwrap(), dec!(0));
     }
 
@@ -75,8 +74,7 @@ mod tests {
         database.set_transaction(TransactionCategory::Deposit, dec!(100));
         database.set_transaction(TransactionCategory::Deposit, dec!(100));
 
-        let result =
-            CapitalAvailableCalculator::capital_available(account_id, &currency, &mut database);
+        let result = AccountCapitalAvailable::calculate(account_id, &currency, &mut database);
         assert_eq!(result.unwrap(), dec!(200));
     }
 
@@ -90,8 +88,7 @@ mod tests {
         database.set_transaction(TransactionCategory::Deposit, dec!(100));
         database.set_transaction(TransactionCategory::Withdrawal, dec!(50));
 
-        let result =
-            CapitalAvailableCalculator::capital_available(account_id, &currency, &mut database);
+        let result = AccountCapitalAvailable::calculate(account_id, &currency, &mut database);
         assert_eq!(result.unwrap(), dec!(50));
     }
 
@@ -116,8 +113,32 @@ mod tests {
         database.set_transaction(TransactionCategory::Deposit, dec!(100));
         database.set_transaction(TransactionCategory::Withdrawal, dec!(50));
 
-        let result =
-            CapitalAvailableCalculator::capital_available(account_id, &currency, &mut database);
+        let result = AccountCapitalAvailable::calculate(account_id, &currency, &mut database);
+        assert_eq!(result.unwrap(), dec!(3526));
+    }
+
+    #[test]
+    fn test_capital_available_with_with() {
+        let account_id = Uuid::new_v4();
+        let currency = Currency::USD;
+        let mut database = MockDatabase::new();
+
+        // Transactions
+        database.set_transaction(TransactionCategory::Deposit, dec!(100));
+        database.set_transaction(TransactionCategory::FundTrade(Uuid::new_v4()), dec!(50));
+        database.set_transaction(TransactionCategory::Withdrawal, dec!(50));
+        database.set_transaction(TransactionCategory::Deposit, dec!(100));
+        database.set_transaction(TransactionCategory::FeeOpen(Uuid::new_v4()), dec!(1.4));
+        database.set_transaction(TransactionCategory::FeeOpen(Uuid::new_v4()), dec!(4.6));
+        database.set_transaction(
+            TransactionCategory::PaymentFromTrade(Uuid::new_v4()),
+            dec!(3432),
+        );
+        database.set_transaction(TransactionCategory::Withdrawal, dec!(50));
+        database.set_transaction(TransactionCategory::Deposit, dec!(100));
+        database.set_transaction(TransactionCategory::Withdrawal, dec!(50));
+
+        let result = AccountCapitalAvailable::calculate(account_id, &currency, &mut database);
         assert_eq!(result.unwrap(), dec!(3526));
     }
 
@@ -133,8 +154,7 @@ mod tests {
         // Transactions
         database.set_transaction(TransactionCategory::WithdrawalTax, dec!(100));
 
-        CapitalAvailableCalculator::capital_available(account_id, &currency, &mut database)
-            .unwrap();
+        AccountCapitalAvailable::calculate(account_id, &currency, &mut database).unwrap();
     }
 
     #[test]
@@ -147,7 +167,7 @@ mod tests {
         database.set_transaction(TransactionCategory::Deposit, dec!(100));
         database.set_transaction(TransactionCategory::Withdrawal, dec!(200));
 
-        CapitalAvailableCalculator::capital_available(account_id, &currency, &mut database)
+        AccountCapitalAvailable::calculate(account_id, &currency, &mut database)
             .expect_err("capital_available: total available is negative: -100");
     }
 }

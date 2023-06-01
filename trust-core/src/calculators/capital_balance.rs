@@ -3,10 +3,10 @@ use rust_decimal_macros::dec;
 use trust_model::{Currency, ReadTransactionDB, TransactionCategory};
 use uuid::Uuid;
 
-pub struct CapitalBalanceCalculator;
+pub struct AccountCapitalBalance;
 
-impl CapitalBalanceCalculator {
-    pub fn total_balance(
+impl AccountCapitalBalance {
+    pub fn calculate(
         account_id: Uuid,
         currency: &Currency,
         database: &mut dyn ReadTransactionDB,
@@ -42,8 +42,7 @@ mod tests {
         let account_id = Uuid::new_v4();
         let mut database = MockDatabase::new();
 
-        let result =
-            CapitalBalanceCalculator::total_balance(account_id, &Currency::USD, &mut database);
+        let result = AccountCapitalBalance::calculate(account_id, &Currency::USD, &mut database);
         assert_eq!(result.unwrap(), dec!(0));
     }
 
@@ -56,8 +55,7 @@ mod tests {
         database.set_transaction(TransactionCategory::Deposit, dec!(100));
         database.set_transaction(TransactionCategory::Deposit, dec!(100));
 
-        let result =
-            CapitalBalanceCalculator::total_balance(account_id, &Currency::USD, &mut database);
+        let result = AccountCapitalBalance::calculate(account_id, &Currency::USD, &mut database);
         assert_eq!(result.unwrap(), dec!(200));
     }
 
@@ -70,8 +68,7 @@ mod tests {
         database.set_transaction(TransactionCategory::Deposit, dec!(100));
         database.set_transaction(TransactionCategory::Withdrawal, dec!(50));
 
-        let result =
-            CapitalBalanceCalculator::total_balance(account_id, &Currency::USD, &mut database);
+        let result = AccountCapitalBalance::calculate(account_id, &Currency::USD, &mut database);
         assert_eq!(result.unwrap(), dec!(50));
     }
 
@@ -85,8 +82,7 @@ mod tests {
         database.set_transaction(TransactionCategory::FundTrade(Uuid::new_v4()), dec!(100));
         database.set_transaction(TransactionCategory::OpenTrade(Uuid::new_v4()), dec!(100));
 
-        let result =
-            CapitalBalanceCalculator::total_balance(account_id, &Currency::USD, &mut database);
+        let result = AccountCapitalBalance::calculate(account_id, &Currency::USD, &mut database);
         assert_eq!(result.unwrap(), dec!(150));
     }
 
@@ -104,8 +100,7 @@ mod tests {
             dec!(90),
         );
 
-        let result =
-            CapitalBalanceCalculator::total_balance(account_id, &Currency::USD, &mut database);
+        let result = AccountCapitalBalance::calculate(account_id, &Currency::USD, &mut database);
         assert_eq!(result.unwrap(), dec!(240));
     }
 
@@ -124,8 +119,7 @@ mod tests {
             dec!(10),
         );
 
-        let result =
-            CapitalBalanceCalculator::total_balance(account_id, &Currency::USD, &mut database);
+        let result = AccountCapitalBalance::calculate(account_id, &Currency::USD, &mut database);
         assert_eq!(result.unwrap(), dec!(860));
     }
 
@@ -151,8 +145,7 @@ mod tests {
             dec!(10),
         );
 
-        let result =
-            CapitalBalanceCalculator::total_balance(account_id, &Currency::USD, &mut database);
+        let result = AccountCapitalBalance::calculate(account_id, &Currency::USD, &mut database);
         assert_eq!(result.unwrap(), dec!(860));
     }
 }
