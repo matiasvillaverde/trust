@@ -6,8 +6,8 @@ use crate::{
         AccountCapitalAvailable, AccountCapitalBalance, AccountCapitalInApprovedTrades,
         AccountCapitalTaxable, TradeTransactionsCalculator,
     },
-    trade_calculators::TradeCapitalInMarket,
     trade_calculators::TradeCapitalOutOfMarket,
+    trade_calculators::{TradeCapitalFunded, TradeCapitalInMarket},
 };
 pub struct OverviewWorker;
 
@@ -55,7 +55,7 @@ impl OverviewWorker {
         trade: &Trade,
     ) -> Result<TradeOverview, Box<dyn Error>> {
         let funding =
-            TradeTransactionsCalculator::funding(trade, database.read_transaction_db().as_mut())?;
+            TradeCapitalFunded::calculate(trade.id, database.read_transaction_db().as_mut())?;
         let capital_in_market =
             TradeCapitalInMarket::calculate(trade.id, database.read_transaction_db().as_mut())?;
         let capital_out_market =

@@ -28,28 +28,6 @@ impl TradeTransactionsCalculator {
 
     // Trade transactions
 
-    pub fn funding(
-        trade: &Trade,
-        database: &mut dyn ReadTransactionDB,
-    ) -> Result<Decimal, Box<dyn std::error::Error>> {
-        let mut total_trade = dec!(0);
-
-        for tx in database.all_trade_funding_transactions(trade.id)? {
-            match tx.category {
-                TransactionCategory::FundTrade(_) => {
-                    // This is money that we have used to enter the market.
-                    total_trade += tx.price.amount
-                }
-                default => panic!(
-                    "funding: does not know how to calculate transaction with category: {}",
-                    default
-                ),
-            }
-        }
-
-        Ok(total_trade)
-    }
-
     pub fn taxes(
         trade: &Trade,
         database: &mut dyn ReadTransactionDB,
