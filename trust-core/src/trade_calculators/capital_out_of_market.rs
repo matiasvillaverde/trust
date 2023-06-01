@@ -1,6 +1,6 @@
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
-use trust_model::{ReadTransactionDB, Trade, TransactionCategory};
+use trust_model::{ReadTransactionDB, TransactionCategory};
 use uuid::Uuid;
 
 pub struct TradeCapitalOutOfMarket;

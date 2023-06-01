@@ -4,7 +4,7 @@ use trust_model::{Account, AccountOverview, Currency, DatabaseFactory, Trade, Tr
 use crate::{
     calculators::{
         AccountCapitalAvailable, AccountCapitalBalance, AccountCapitalInApprovedTrades,
-        AccountCapitalTaxable, TradeTransactionsCalculator,
+        AccountCapitalTaxable,
     },
     trade_calculators::{TradeCapitalFunded, TradeCapitalInMarket},
     trade_calculators::{TradeCapitalOutOfMarket, TradeCapitalTaxable, TradePerformance},

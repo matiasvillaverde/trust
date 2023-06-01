@@ -3,10 +3,9 @@ use rust_decimal_macros::dec;
 use trust_model::{Currency, DatabaseFactory};
 use uuid::Uuid;
 
-use super::{
-    capital_beginning_of_month::AccountCapitalBeginningOfMonth, AccountCapitalAvailable,
-    TradeTransactionsCalculator,
-};
+use crate::trade_calculators::TradeCapitalNotAtRisk;
+
+use super::{capital_beginning_of_month::AccountCapitalBeginningOfMonth, AccountCapitalAvailable};
 
 pub struct RiskCalculator;
 
@@ -25,9 +24,8 @@ impl RiskCalculator {
         )?;
 
         // Calculate the capital of the open trades that is not at risk.
-        let total_capital_not_at_risk = TradeTransactionsCalculator::capital_in_trades_not_at_risk(
-            account_id, currency, database,
-        )?;
+        let total_capital_not_at_risk =
+            TradeCapitalNotAtRisk::calculate(account_id, currency, database)?;
 
         // Calculate the total capital at the beginning of the month.
         let total_beginning_of_month = AccountCapitalBeginningOfMonth::calculate(

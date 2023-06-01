@@ -7,7 +7,6 @@ use trust_model::{
 use uuid::Uuid;
 
 use crate::{
-    calculators::TradeTransactionsCalculator,
     trade_calculators::TradeCapitalOutOfMarket,
     validators::{TransactionValidationErrorCode, TransactionValidator},
 };
