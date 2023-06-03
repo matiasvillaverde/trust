@@ -1,6 +1,6 @@
 use crate::workers::{
-    AccountDB, WorkerAccountOverview, WorkerOrder, WorkerPrice, WorkerRule, WorkerTarget,
-    WorkerTrade, WorkerTradingVehicle, WorkerTransaction,
+    AccountDB, WorkerAccountOverview, WorkerOrder, WorkerPrice, WorkerRule, WorkerTrade,
+    WorkerTradingVehicle, WorkerTransaction,
 };
 use diesel::prelude::*;
 use rust_decimal::Decimal;
@@ -11,8 +11,8 @@ use trust_model::{
     database::{WriteAccountDB, WriteTradeOverviewDB},
     Account, AccountOverview, Currency, DatabaseFactory, Order, OrderAction, OrderCategory, Price,
     ReadAccountDB, ReadAccountOverviewDB, ReadOrderDB, ReadPriceDB, ReadRuleDB, ReadTradeDB,
-    ReadTradingVehicleDB, ReadTransactionDB, Rule, RuleName, Target, Trade, TradeCategory,
-    TradeOverview, TradingVehicle, TradingVehicleCategory, Transaction, TransactionCategory,
+    ReadTradingVehicleDB, ReadTransactionDB, Rule, RuleName, Trade, TradeCategory, TradeOverview,
+    TradingVehicle, TradingVehicleCategory, Transaction, TransactionCategory,
     WriteAccountOverviewDB, WriteOrderDB, WritePriceDB, WriteRuleDB, WriteTradeDB,
     WriteTradingVehicleDB, WriteTransactionDB,
 };
@@ -142,22 +142,6 @@ impl WriteOrderDB for SqliteDatabase {
             action,
             &OrderCategory::Market, // All stops should be market to go out as fast as possible
             trading_vehicle,
-        )
-    }
-
-    fn create_target(
-        &mut self,
-        price: Decimal,
-        currency: &Currency,
-        order: &Order,
-        trade: &Trade,
-    ) -> Result<Target, Box<dyn Error>> {
-        WorkerTarget::create(
-            &mut self.connection.lock().unwrap(),
-            price,
-            currency,
-            order,
-            trade,
         )
     }
 
@@ -450,6 +434,7 @@ impl WriteTradeDB for SqliteDatabase {
         trading_vehicle: &TradingVehicle,
         safety_stop: &Order,
         entry: &Order,
+        target: &Order,
         account: &Account,
     ) -> Result<Trade, Box<dyn Error>> {
         WorkerTrade::create(
@@ -459,6 +444,7 @@ impl WriteTradeDB for SqliteDatabase {
             trading_vehicle,
             safety_stop,
             entry,
+            target,
             account,
         )
     }

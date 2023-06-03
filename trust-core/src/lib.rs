@@ -158,26 +158,24 @@ impl TrustFacade {
             &mut *self.factory,
         )?;
 
+        let target = OrderWorker::create_target(
+            trade.trading_vehicle_id,
+            trade.quantity,
+            trade.target_price,
+            &trade.currency,
+            &trade.category,
+            &mut *self.factory,
+        )?;
+
         let new_trade = self.factory.write_trade_db().create_trade(
             &trade.category,
             &trade.currency,
             &trading_vehicle,
             &stop,
             &entry,
+            &target,
             &trade.account,
         )?;
-
-        let mut targets = Vec::new();
-        for target in trade.targets {
-            let draft = DraftTarget {
-                target_price: target.target_price,
-                quantity: target.quantity,
-                order_price: target.order_price,
-            };
-
-            let target = OrderWorker::create_target(draft, &new_trade, &mut *self.factory)?;
-            targets.push(target);
-        }
 
         // We need to read again the trade with the recently added targets
         let new_trade = self.factory.read_trade_db().read_trade(new_trade.id)?;
@@ -274,11 +272,5 @@ pub struct DraftTrade {
     pub category: TradeCategory,
     pub stop_price: Decimal,
     pub entry_price: Decimal,
-    pub targets: Vec<DraftTarget>,
-}
-
-pub struct DraftTarget {
     pub target_price: Decimal,
-    pub quantity: i64,
-    pub order_price: Decimal,
 }

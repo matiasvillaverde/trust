@@ -1,7 +1,6 @@
 use crate::currency::Currency;
 use crate::order::Order;
 use crate::price::Price;
-use crate::target::Target;
 use crate::trading_vehicle::TradingVehicle;
 use chrono::NaiveDateTime;
 use chrono::Utc;
@@ -38,9 +37,8 @@ pub struct Trade {
     pub entry: Order,
 
     /// The exit targets orders - the orders that are used to exit the trade.
-    /// The exit targets orders should be of type limit order to get the best price.
-    /// The exit targets orders can be used to secure part of the profit.
-    pub exit_targets: Vec<Target>,
+    /// It is a take_profit order that is used to close the trade with a profit.
+    pub target: Order,
 
     /// The account that the trade is associated with
     pub account_id: Uuid,
@@ -73,14 +71,14 @@ impl std::fmt::Display for Trade {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "{}: quantity: {}, category: {}, currency: {}, safety_stop: {}, entry: {}, exit_targets: {}",
+            "{}: quantity: {}, category: {}, currency: {}, safety_stop: {}, entry: {}, target: {}",
             self.trading_vehicle.symbol,
             self.safety_stop.quantity,
             self.category,
             self.currency,
             self.safety_stop.unit_price.amount,
             self.entry.unit_price.amount,
-            self.exit_targets.len(),
+            self.target.unit_price.amount,
         )
     }
 }

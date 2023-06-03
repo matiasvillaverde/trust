@@ -80,16 +80,6 @@ CREATE TABLE "orders" (
 	closed_at			DATETIME
 );
 
-CREATE TABLE "targets" (
-	id 			TEXT NOT NULL PRIMARY KEY,
-	created_at			DATETIME NOT NULL,
-	updated_at			DATETIME NOT NULL,
-	deleted_at			DATETIME,
-	target_price_id		TEXT NOT NULL REFERENCES prices (id),
-	order_id			TEXT NOT NULL REFERENCES orders (id),
-	trade_id			TEXT NOT NULL REFERENCES trades (id)
-);
-
 CREATE TABLE "trades" (
 	id 			TEXT NOT NULL PRIMARY KEY,
 	created_at			DATETIME NOT NULL,
@@ -100,6 +90,7 @@ CREATE TABLE "trades" (
 	trading_vehicle_id	TEXT NOT NULL REFERENCES trading_vehicles (id),
 	safety_stop_id 		TEXT NOT NULL REFERENCES orders (id),
 	entry_id 			TEXT NOT NULL REFERENCES orders (id),
+	target_id 			TEXT NOT NULL REFERENCES orders (id),
 	account_id 			TEXT NOT NULL REFERENCES accounts (id),
 	approved_at			DATETIME,
 	rejected_at			DATETIME,

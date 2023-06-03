@@ -1,13 +1,7 @@
-use crate::Currency;
-use crate::OrderAction;
-use crate::Price;
-use crate::Target;
-use crate::TradingVehicle;
-use crate::TradingVehicleCategory;
-use crate::Transaction;
-use crate::TransactionCategory;
 use crate::{
-    Account, AccountOverview, Order, Rule, RuleLevel, RuleName, Trade, TradeCategory, TradeOverview,
+    Account, AccountOverview, Currency, Order, OrderAction, Price, Rule, RuleLevel, RuleName,
+    Trade, TradeCategory, TradeOverview, TradingVehicle, TradingVehicleCategory, Transaction,
+    TransactionCategory,
 };
 use rust_decimal::Decimal;
 use uuid::Uuid;
@@ -100,15 +94,6 @@ pub trait WriteOrderDB {
         currency: &Currency,
         action: &OrderAction,
     ) -> Result<Order, Box<dyn Error>>;
-
-    fn create_target(
-        &mut self,
-        price: Decimal,
-        currency: &Currency,
-        order: &Order,
-        trade: &Trade,
-    ) -> Result<Target, Box<dyn Error>>;
-
     fn record_order_opening(&mut self, order: &Order) -> Result<Order, Box<dyn Error>>;
     fn record_order_closing(&mut self, order: &Order) -> Result<Order, Box<dyn Error>>;
 }
@@ -208,6 +193,7 @@ pub trait WriteTradeDB {
         trading_vehicle: &TradingVehicle,
         safety_stop: &Order,
         entry: &Order,
+        target: &Order,
         account: &Account,
     ) -> Result<Trade, Box<dyn Error>>;
 

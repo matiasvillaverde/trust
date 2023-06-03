@@ -157,7 +157,6 @@ impl ArgDispatcher {
             .currency()
             .quantity(&mut self.trust)
             .target_price()
-            .order_target_price()
             .build(&mut self.trust)
             .display();
     }

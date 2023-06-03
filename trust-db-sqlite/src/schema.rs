@@ -95,18 +95,6 @@ diesel::table! {
 }
 
 diesel::table! {
-    targets (id) {
-        id -> Text,
-        created_at -> Timestamp,
-        updated_at -> Timestamp,
-        deleted_at -> Nullable<Timestamp>,
-        target_price_id -> Text,
-        order_id -> Text,
-        trade_id -> Text,
-    }
-}
-
-diesel::table! {
     trades (id) {
         id -> Text,
         created_at -> Timestamp,
@@ -117,6 +105,7 @@ diesel::table! {
         trading_vehicle_id -> Text,
         safety_stop_id -> Text,
         entry_id -> Text,
+        target_id -> Text,
         account_id -> Text,
         approved_at -> Nullable<Timestamp>,
         rejected_at -> Nullable<Timestamp>,
@@ -147,9 +136,6 @@ diesel::joinable!(accounts_overviews -> accounts (account_id));
 diesel::joinable!(accounts_overviews -> prices (total_balance_id));
 diesel::joinable!(orders -> prices (price_id));
 diesel::joinable!(orders -> trading_vehicles (trading_vehicle_id));
-diesel::joinable!(targets -> prices (target_price_id));
-diesel::joinable!(targets -> orders (order_id));
-diesel::joinable!(targets -> trades (trade_id));
 diesel::joinable!(trades -> accounts (account_id));
 diesel::joinable!(trades -> trades_overviews (overview_id));
 diesel::joinable!(trades -> trading_vehicles (trading_vehicle_id));

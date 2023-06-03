@@ -13,7 +13,6 @@ pub struct TradeView {
     pub stop_price: String,
     pub entry_price: String,
     pub target_price: String,
-    pub take_profit: String,
 }
 
 impl TradeView {
@@ -26,21 +25,7 @@ impl TradeView {
             quantity: trade.entry.quantity.to_string(),
             stop_price: trade.safety_stop.unit_price.amount.to_string(),
             entry_price: trade.entry.unit_price.amount.to_string(),
-            target_price: trade
-                .exit_targets
-                .first()
-                .unwrap()
-                .target_price
-                .amount
-                .to_string(),
-            take_profit: trade
-                .exit_targets
-                .first()
-                .unwrap()
-                .order
-                .unit_price
-                .amount
-                .to_string(),
+            target_price: trade.target.unit_price.amount.to_string(),
         }
     }
 

@@ -6,7 +6,7 @@ use crate::{
 use dialoguer::{theme::ColorfulTheme, FuzzySelect, Input};
 use rust_decimal::Decimal;
 use std::error::Error;
-use trust_core::{DraftTarget, DraftTrade, TrustFacade};
+use trust_core::{DraftTrade, TrustFacade};
 use trust_model::{Account, Currency, Trade, TradeCategory, TradingVehicle};
 
 pub struct TradeDialogBuilder {
@@ -18,7 +18,6 @@ pub struct TradeDialogBuilder {
     currency: Option<Currency>,
     quantity: Option<i64>,
     target_price: Option<Decimal>,
-    target_order_price: Option<Decimal>,
     result: Option<Result<Trade, Box<dyn Error>>>,
 }
 
@@ -33,7 +32,6 @@ impl TradeDialogBuilder {
             currency: None,
             quantity: None,
             target_price: None,
-            target_order_price: None,
             result: None,
         }
     }
@@ -45,12 +43,6 @@ impl TradeDialogBuilder {
             .expect("Did you forget to specify trading vehicle")
             .id;
 
-        let target = DraftTarget {
-            target_price: self.target_price.unwrap(),
-            quantity: self.quantity.unwrap(),
-            order_price: self.target_order_price.unwrap(),
-        };
-
         let draft = DraftTrade {
             account: self.account.clone().unwrap(),
             trading_vehicle_id,
@@ -59,7 +51,7 @@ impl TradeDialogBuilder {
             category: self.category.unwrap(),
             stop_price: self.stop_price.unwrap(),
             entry_price: self.entry_price.unwrap(),
-            targets: vec![target],
+            target_price: self.target_price.unwrap(),
         };
 
         self.result = Some(trust.create_trade(draft));
@@ -185,15 +177,6 @@ impl TradeDialogBuilder {
     pub fn target_price(mut self) -> Self {
         let target_price = Input::new().with_prompt("Target price").interact().unwrap();
         self.target_price = Some(target_price);
-        self
-    }
-
-    pub fn order_target_price(mut self) -> Self {
-        let order_price = Input::new()
-            .with_prompt("Order price when target is hit")
-            .interact()
-            .unwrap(); // TODO: validate that is a valid price
-        self.target_order_price = Some(order_price);
         self
     }
 }

@@ -10,7 +10,7 @@ use trust_model::{Account, Currency};
 use trust_model::{Order, Trade, TradeCategory, TradeOverview, TradingVehicle};
 use uuid::Uuid;
 
-use super::{WorkerOrder, WorkerPrice, WorkerTarget, WorkerTradingVehicle};
+use super::{WorkerOrder, WorkerPrice, WorkerTradingVehicle};
 pub struct WorkerTrade;
 
 impl WorkerTrade {
@@ -21,6 +21,7 @@ impl WorkerTrade {
         trading_vehicle: &TradingVehicle,
         safety_stop: &Order,
         entry: &Order,
+        target: &Order,
         account: &Account,
     ) -> Result<Trade, Box<dyn Error>> {
         let id = Uuid::new_v4().to_string();
@@ -38,6 +39,7 @@ impl WorkerTrade {
             trading_vehicle_id: trading_vehicle.id.to_string(),
             safety_stop_id: safety_stop.id.to_string(),
             entry_id: entry.id.to_string(),
+            target_id: target.id.to_string(),
             account_id: account.id.to_string(),
             approved_at: None,
             rejected_at: None,
@@ -330,6 +332,7 @@ struct TradeSQLite {
     trading_vehicle_id: String,
     safety_stop_id: String,
     entry_id: String,
+    target_id: String,
     account_id: String,
     approved_at: Option<NaiveDateTime>,
     rejected_at: Option<NaiveDateTime>,
@@ -351,12 +354,11 @@ impl TradeSQLite {
             WorkerOrder::read(connection, Uuid::parse_str(&self.safety_stop_id).unwrap()).unwrap();
         let entry =
             WorkerOrder::read(connection, Uuid::parse_str(&self.entry_id).unwrap()).unwrap();
+        let targets =
+            WorkerOrder::read(connection, Uuid::parse_str(&self.target_id).unwrap()).unwrap();
         let overview =
             WorkerTrade::read_overview(connection, Uuid::parse_str(&self.overview_id).unwrap())
                 .unwrap();
-
-        let targets =
-            WorkerTarget::read_all(Uuid::parse_str(&self.id).unwrap(), connection).unwrap();
 
         Trade {
             id: Uuid::parse_str(&self.id).unwrap(),
@@ -368,7 +370,7 @@ impl TradeSQLite {
             currency: Currency::from_str(&self.currency).unwrap(),
             safety_stop,
             entry,
-            exit_targets: targets,
+            target: targets,
             account_id: Uuid::parse_str(&self.account_id).unwrap(),
             approved_at: self.approved_at,
             rejected_at: self.rejected_at,
@@ -395,6 +397,7 @@ struct NewTrade {
     currency: String,
     trading_vehicle_id: String,
     safety_stop_id: String,
+    target_id: String,
     entry_id: String,
     account_id: String,
     approved_at: Option<NaiveDateTime>,
