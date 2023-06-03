@@ -1,20 +1,20 @@
 use crate::workers::{
-    AccountDB, WorkerAccountOverview, WorkerOrder, WorkerPrice, WorkerRule, WorkerTarget,
-    WorkerTrade, WorkerTradingVehicle, WorkerTransaction,
+    AccountDB, WorkerAccountOverview, WorkerOrder, WorkerPrice, WorkerRule, WorkerTrade,
+    WorkerTradingVehicle, WorkerTransaction,
 };
 use diesel::prelude::*;
 use rust_decimal::Decimal;
 use std::error::Error;
 use std::sync::Arc;
 use std::sync::Mutex;
+use trust_model::DraftTrade;
 use trust_model::{
     database::{WriteAccountDB, WriteTradeOverviewDB},
     Account, AccountOverview, Currency, DatabaseFactory, Order, OrderAction, OrderCategory, Price,
     ReadAccountDB, ReadAccountOverviewDB, ReadOrderDB, ReadPriceDB, ReadRuleDB, ReadTradeDB,
-    ReadTradingVehicleDB, ReadTransactionDB, Rule, RuleName, Target, Trade, TradeCategory,
-    TradeOverview, TradingVehicle, TradingVehicleCategory, Transaction, TransactionCategory,
-    WriteAccountOverviewDB, WriteOrderDB, WritePriceDB, WriteRuleDB, WriteTradeDB,
-    WriteTradingVehicleDB, WriteTransactionDB,
+    ReadTradingVehicleDB, ReadTransactionDB, Rule, RuleName, Trade, TradeOverview, TradingVehicle,
+    TradingVehicleCategory, Transaction, TransactionCategory, WriteAccountOverviewDB, WriteOrderDB,
+    WritePriceDB, WriteRuleDB, WriteTradeDB, WriteTradingVehicleDB, WriteTransactionDB,
 };
 use uuid::Uuid;
 
@@ -142,22 +142,6 @@ impl WriteOrderDB for SqliteDatabase {
             action,
             &OrderCategory::Market, // All stops should be market to go out as fast as possible
             trading_vehicle,
-        )
-    }
-
-    fn create_target(
-        &mut self,
-        price: Decimal,
-        currency: &Currency,
-        order: &Order,
-        trade: &Trade,
-    ) -> Result<Target, Box<dyn Error>> {
-        WorkerTarget::create(
-            &mut self.connection.lock().unwrap(),
-            price,
-            currency,
-            order,
-            trade,
         )
     }
 
@@ -445,21 +429,17 @@ impl ReadTradingVehicleDB for SqliteDatabase {
 impl WriteTradeDB for SqliteDatabase {
     fn create_trade(
         &mut self,
-        category: &TradeCategory,
-        currency: &Currency,
-        trading_vehicle: &TradingVehicle,
-        safety_stop: &Order,
+        draft: DraftTrade,
+        stop: &Order,
         entry: &Order,
-        account: &Account,
+        target: &Order,
     ) -> Result<Trade, Box<dyn Error>> {
         WorkerTrade::create(
             &mut self.connection.lock().unwrap(),
-            category,
-            currency,
-            trading_vehicle,
-            safety_stop,
+            draft,
+            stop,
             entry,
-            account,
+            target,
         )
     }
 

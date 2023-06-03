@@ -157,7 +157,6 @@ impl ArgDispatcher {
             .currency()
             .quantity(&mut self.trust)
             .target_price()
-            .order_target_price()
             .build(&mut self.trust)
             .display();
     }
@@ -183,6 +182,7 @@ impl ArgDispatcher {
         ExitDialogBuilder::new()
             .account(&mut self.trust)
             .search(&mut self.trust)
+            .fee()
             .build_stop(&mut self.trust)
             .display();
     }

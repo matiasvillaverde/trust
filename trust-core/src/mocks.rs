@@ -5,8 +5,8 @@ pub mod read_transaction_db_mocks {
     use rust_decimal::Decimal;
     use std::error::Error;
     use trust_model::{
-        Currency, Order, OrderAction, OrderCategory, Price, ReadTradeDB, ReadTransactionDB, Target,
-        Trade, TradeCategory, TradeOverview, TradingVehicle, Transaction, TransactionCategory,
+        Currency, Order, OrderAction, OrderCategory, Price, ReadTradeDB, ReadTransactionDB, Trade,
+        TradeCategory, TradeOverview, TradingVehicle, Transaction, TransactionCategory,
     };
     use uuid::Uuid;
 
@@ -51,21 +51,6 @@ pub mod read_transaction_db_mocks {
         pub fn set_trade(&mut self, entry: Decimal, target: Decimal, stop: Decimal, quantity: u64) {
             let now: chrono::NaiveDateTime = Utc::now().naive_utc();
 
-            let target = Target {
-                id: Uuid::new_v4(),
-                created_at: now,
-                updated_at: now,
-                deleted_at: None,
-                target_price: Price::default(),
-                order: MockDatabase::order(
-                    target,
-                    OrderCategory::Market,
-                    OrderAction::Sell,
-                    quantity,
-                ),
-                trade_id: Uuid::new_v4(),
-            };
-
             let trade = Trade {
                 id: Uuid::new_v4(),
                 created_at: now,
@@ -80,7 +65,12 @@ pub mod read_transaction_db_mocks {
                     quantity,
                 ),
                 entry: MockDatabase::order(entry, OrderCategory::Limit, OrderAction::Buy, quantity),
-                exit_targets: vec![target],
+                target: MockDatabase::order(
+                    target,
+                    OrderCategory::Limit,
+                    OrderAction::Sell,
+                    quantity,
+                ),
                 category: TradeCategory::Long,
                 account_id: self.account_id,
                 approved_at: None,

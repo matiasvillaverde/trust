@@ -240,8 +240,7 @@ impl TransactionWorker {
             .read_account_db()
             .read_account_id(trade.account_id)?;
 
-        let total = trade.exit_targets.first().unwrap().order.unit_price.amount
-            * Decimal::from(trade.entry.quantity);
+        let total = trade.target.unit_price.amount * Decimal::from(trade.entry.quantity);
 
         let transaction = database.write_transaction_db().create_transaction(
             &account,
