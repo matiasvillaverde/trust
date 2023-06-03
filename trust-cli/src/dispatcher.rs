@@ -182,6 +182,7 @@ impl ArgDispatcher {
         ExitDialogBuilder::new()
             .account(&mut self.trust)
             .search(&mut self.trust)
+            .fee()
             .build_stop(&mut self.trust)
             .display();
     }
