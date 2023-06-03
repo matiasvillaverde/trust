@@ -6,8 +6,8 @@ use rust_decimal_macros::dec;
 use std::error::Error;
 use std::str::FromStr;
 use tracing::error;
-use trust_model::{Account, Currency};
-use trust_model::{Order, Trade, TradeCategory, TradeOverview, TradingVehicle};
+use trust_model::{Currency, DraftTrade};
+use trust_model::{Order, Trade, TradeCategory, TradeOverview};
 use uuid::Uuid;
 
 use super::{WorkerOrder, WorkerPrice, WorkerTradingVehicle};
@@ -16,31 +16,28 @@ pub struct WorkerTrade;
 impl WorkerTrade {
     pub fn create(
         connection: &mut SqliteConnection,
-        category: &TradeCategory,
-        currency: &Currency,
-        trading_vehicle: &TradingVehicle,
+        draft: DraftTrade,
         safety_stop: &Order,
         entry: &Order,
         target: &Order,
-        account: &Account,
     ) -> Result<Trade, Box<dyn Error>> {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().naive_utc();
 
-        let overview = WorkerTrade::create_overview(connection, currency, now)?;
+        let overview = WorkerTrade::create_overview(connection, &draft.currency, now)?;
 
         let new_trade = NewTrade {
             id,
             created_at: now,
             updated_at: now,
             deleted_at: None,
-            category: category.to_string(),
-            currency: currency.to_string(),
-            trading_vehicle_id: trading_vehicle.id.to_string(),
+            category: draft.category.to_string(),
+            currency: draft.currency.to_string(),
+            trading_vehicle_id: draft.trading_vehicle.id.to_string(),
             safety_stop_id: safety_stop.id.to_string(),
             entry_id: entry.id.to_string(),
             target_id: target.id.to_string(),
-            account_id: account.id.to_string(),
+            account_id: draft.account.id.to_string(),
             approved_at: None,
             rejected_at: None,
             opened_at: None,

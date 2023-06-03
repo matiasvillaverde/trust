@@ -6,8 +6,8 @@ use crate::{
 use dialoguer::{theme::ColorfulTheme, FuzzySelect, Input};
 use rust_decimal::Decimal;
 use std::error::Error;
-use trust_core::{DraftTrade, TrustFacade};
-use trust_model::{Account, Currency, Trade, TradeCategory, TradingVehicle};
+use trust_core::TrustFacade;
+use trust_model::{Account, Currency, DraftTrade, Trade, TradeCategory, TradingVehicle};
 
 pub struct TradeDialogBuilder {
     account: Option<Account>,
@@ -37,24 +37,25 @@ impl TradeDialogBuilder {
     }
 
     pub fn build(mut self, trust: &mut TrustFacade) -> TradeDialogBuilder {
-        let trading_vehicle_id = self
+        let trading_vehicle = self
             .trading_vehicle
             .clone()
-            .expect("Did you forget to specify trading vehicle")
-            .id;
+            .expect("Did you forget to specify trading vehicle");
 
         let draft = DraftTrade {
             account: self.account.clone().unwrap(),
-            trading_vehicle_id,
+            trading_vehicle,
             quantity: self.quantity.unwrap(),
             currency: self.currency.unwrap(),
             category: self.category.unwrap(),
-            stop_price: self.stop_price.unwrap(),
-            entry_price: self.entry_price.unwrap(),
-            target_price: self.target_price.unwrap(),
         };
 
-        self.result = Some(trust.create_trade(draft));
+        self.result = Some(trust.create_trade(
+            draft,
+            self.stop_price.unwrap(),
+            self.entry_price.unwrap(),
+            self.target_price.unwrap(),
+        ));
         self
     }
 

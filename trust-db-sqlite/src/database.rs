@@ -7,14 +7,14 @@ use rust_decimal::Decimal;
 use std::error::Error;
 use std::sync::Arc;
 use std::sync::Mutex;
+use trust_model::DraftTrade;
 use trust_model::{
     database::{WriteAccountDB, WriteTradeOverviewDB},
     Account, AccountOverview, Currency, DatabaseFactory, Order, OrderAction, OrderCategory, Price,
     ReadAccountDB, ReadAccountOverviewDB, ReadOrderDB, ReadPriceDB, ReadRuleDB, ReadTradeDB,
-    ReadTradingVehicleDB, ReadTransactionDB, Rule, RuleName, Trade, TradeCategory, TradeOverview,
-    TradingVehicle, TradingVehicleCategory, Transaction, TransactionCategory,
-    WriteAccountOverviewDB, WriteOrderDB, WritePriceDB, WriteRuleDB, WriteTradeDB,
-    WriteTradingVehicleDB, WriteTransactionDB,
+    ReadTradingVehicleDB, ReadTransactionDB, Rule, RuleName, Trade, TradeOverview, TradingVehicle,
+    TradingVehicleCategory, Transaction, TransactionCategory, WriteAccountOverviewDB, WriteOrderDB,
+    WritePriceDB, WriteRuleDB, WriteTradeDB, WriteTradingVehicleDB, WriteTransactionDB,
 };
 use uuid::Uuid;
 
@@ -429,23 +429,17 @@ impl ReadTradingVehicleDB for SqliteDatabase {
 impl WriteTradeDB for SqliteDatabase {
     fn create_trade(
         &mut self,
-        category: &TradeCategory,
-        currency: &Currency,
-        trading_vehicle: &TradingVehicle,
-        safety_stop: &Order,
+        draft: DraftTrade,
+        stop: &Order,
         entry: &Order,
         target: &Order,
-        account: &Account,
     ) -> Result<Trade, Box<dyn Error>> {
         WorkerTrade::create(
             &mut self.connection.lock().unwrap(),
-            category,
-            currency,
-            trading_vehicle,
-            safety_stop,
+            draft,
+            stop,
             entry,
             target,
-            account,
         )
     }
 

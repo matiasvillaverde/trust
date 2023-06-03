@@ -1,9 +1,8 @@
 use rust_decimal::Decimal;
 use trade_calculators::QuantityCalculator;
 use trust_model::{
-    Account, AccountOverview, Currency, DatabaseFactory, Rule, RuleLevel, RuleName, Trade,
-    TradeCategory, TradeOverview, TradingVehicle, TradingVehicleCategory, Transaction,
-    TransactionCategory,
+    Account, AccountOverview, Currency, DatabaseFactory, DraftTrade, Rule, RuleLevel, RuleName,
+    Trade, TradeOverview, TradingVehicle, TradingVehicleCategory, Transaction, TransactionCategory,
 };
 use uuid::Uuid;
 use validators::RuleValidator;
@@ -134,53 +133,51 @@ impl TrustFacade {
         )
     }
 
-    pub fn create_trade(&mut self, trade: DraftTrade) -> Result<Trade, Box<dyn std::error::Error>> {
-        let trading_vehicle = self
-            .factory
-            .read_trading_vehicle_db()
-            .read_trading_vehicle(trade.trading_vehicle_id)?;
-
+    pub fn create_trade(
+        &mut self,
+        trade: DraftTrade,
+        stop_price: Decimal,
+        entry_price: Decimal,
+        target_price: Decimal,
+    ) -> Result<Trade, Box<dyn std::error::Error>> {
         let stop = OrderWorker::create_stop(
-            trade.trading_vehicle_id,
+            trade.trading_vehicle.id,
             trade.quantity,
-            trade.stop_price,
+            stop_price,
             &trade.currency,
             &trade.category,
             &mut *self.factory,
         )?;
 
         let entry = OrderWorker::create_entry(
-            trade.trading_vehicle_id,
+            trade.trading_vehicle.id,
             trade.quantity,
-            trade.entry_price,
+            entry_price,
             &trade.currency,
             &trade.category,
             &mut *self.factory,
         )?;
 
         let target = OrderWorker::create_target(
-            trade.trading_vehicle_id,
+            trade.trading_vehicle.id,
             trade.quantity,
-            trade.target_price,
+            target_price,
             &trade.currency,
             &trade.category,
             &mut *self.factory,
         )?;
 
-        let new_trade = self.factory.write_trade_db().create_trade(
-            &trade.category,
-            &trade.currency,
-            &trading_vehicle,
-            &stop,
-            &entry,
-            &target,
-            &trade.account,
-        )?;
+        let draft = DraftTrade {
+            account: trade.account,
+            trading_vehicle: trade.trading_vehicle,
+            quantity: trade.quantity,
+            currency: trade.currency,
+            category: trade.category,
+        };
 
-        // We need to read again the trade with the recently added targets
-        let new_trade = self.factory.read_trade_db().read_trade(new_trade.id)?;
-
-        Ok(new_trade)
+        self.factory
+            .write_trade_db()
+            .create_trade(draft, &stop, &entry, &target)
     }
 
     pub fn search_new_trades(
@@ -263,14 +260,3 @@ mod mocks;
 mod trade_calculators;
 mod validators;
 mod workers;
-
-pub struct DraftTrade {
-    pub account: Account,
-    pub trading_vehicle_id: Uuid,
-    pub quantity: i64,
-    pub currency: Currency,
-    pub category: TradeCategory,
-    pub stop_price: Decimal,
-    pub entry_price: Decimal,
-    pub target_price: Decimal,
-}

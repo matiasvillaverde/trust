@@ -185,16 +185,21 @@ pub trait ReadTradeDB {
     fn read_all_new_trades(&mut self, account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>>;
 }
 
+pub struct DraftTrade {
+    pub account: Account,
+    pub trading_vehicle: TradingVehicle,
+    pub quantity: i64,
+    pub currency: Currency,
+    pub category: TradeCategory,
+}
+
 pub trait WriteTradeDB {
     fn create_trade(
         &mut self,
-        category: &TradeCategory,
-        currency: &Currency,
-        trading_vehicle: &TradingVehicle,
-        safety_stop: &Order,
+        draft: DraftTrade,
+        stop: &Order,
         entry: &Order,
         target: &Order,
-        account: &Account,
     ) -> Result<Trade, Box<dyn Error>>;
 
     fn approve_trade(&mut self, trade: &Trade) -> Result<Trade, Box<dyn Error>>;

@@ -63,7 +63,7 @@ impl OrderWorker {
 
         database
             .write_order_db()
-            .create_order(&tv, quantity, price, &currency, &action)
+            .create_order(&tv, quantity, price, currency, &action)
     }
 
     pub fn record_timestamp_entry(
