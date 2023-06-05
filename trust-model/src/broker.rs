@@ -2,6 +2,7 @@ use crate::Trade;
 use chrono::NaiveDateTime;
 use std::error::Error;
 use uuid::Uuid;
+use async_trait::async_trait;
 
 pub struct BrokerLog {
     pub id: Uuid,
@@ -16,6 +17,7 @@ pub struct BrokerLog {
     pub log: String,
 }
 
+#[async_trait]
 pub trait Broker {
-    fn submit_order(&mut self, trade: Trade) -> Result<BrokerLog, Box<dyn Error>>;
+    async fn submit_order(trade: &Trade) -> Result<BrokerLog, Box<dyn Error>>;
 }

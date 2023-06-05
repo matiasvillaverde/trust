@@ -1,8 +1,9 @@
 use rust_decimal::Decimal;
 use trade_calculators::QuantityCalculator;
 use trust_model::{
-    Account, AccountOverview, Currency, DatabaseFactory, DraftTrade, Rule, RuleLevel, RuleName,
-    Trade, TradeOverview, TradingVehicle, TradingVehicleCategory, Transaction, TransactionCategory,
+    Account, AccountOverview, Broker, Currency, DatabaseFactory, DraftTrade, Rule, RuleLevel,
+    RuleName, Trade, TradeOverview, TradingVehicle, TradingVehicleCategory, Transaction,
+    TransactionCategory,
 };
 use uuid::Uuid;
 use validators::RuleValidator;
@@ -216,7 +217,7 @@ impl TrustFacade {
         Ok((trade.clone(), transaction, account_overview, trade_overview))
     }
 
-    pub fn open_trade(
+    pub fn manually_open_trade(
         &mut self,
         trade: &Trade,
         fee: Decimal,
@@ -224,7 +225,7 @@ impl TrustFacade {
         TradeWorker::open_trade(trade, fee, self.factory.as_mut())
     }
 
-    pub fn stop_trade(
+    pub fn manually_stop_trade(
         &mut self,
         trade: &Trade,
         fee: Decimal,
@@ -239,7 +240,7 @@ impl TrustFacade {
         Ok((tx_stop, tx_payment, trade_overview, account_overview))
     }
 
-    pub fn target_acquired(
+    pub fn manually_target_acquired(
         &mut self,
         trade: &Trade,
         fee: Decimal,

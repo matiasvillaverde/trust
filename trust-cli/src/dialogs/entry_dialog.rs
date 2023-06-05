@@ -33,7 +33,7 @@ impl EntryDialogBuilder {
         let fee = self
             .fee
             .expect("No fee found, did you forget to specify a fee?");
-        self.result = Some(trust.open_trade(&trade, fee));
+        self.result = Some(trust.manually_open_trade(&trade, fee));
         self
     }
 
