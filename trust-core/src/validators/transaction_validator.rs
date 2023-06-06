@@ -1,6 +1,6 @@
 use rust_decimal::Decimal;
 use std::error::Error;
-use trust_model::{Currency, ReadAccountOverviewDB, ReadTradeDB, TransactionCategory};
+use trust_model::{Currency, ReadAccountOverviewDB, ReadTradeDB, Status, TransactionCategory};
 use uuid::Uuid;
 pub struct TransactionValidator;
 type TransactionValidationResult = Result<(), Box<TransactionValidationError>>;
@@ -112,15 +112,15 @@ fn validate_trade(
 
                     let trade = database_trade.read_trade(trade_id);
 
-                    // Validate that the approved_at in the trade is not null (it is approved)
+                    // Validate that state in the trade is not null (it is approved)
                     match trade {
                         Ok(trade) => {
-                            if trade.approved_at.is_some() {
+                            if trade.status == Status::Funded {
                                 Ok(())
                             } else {
                                 Err(Box::new(TransactionValidationError {
                                     code: TransactionValidationErrorCode::NotAuthorized,
-                                    message: "Trade is not approved".to_string(),
+                                    message: "Trade is not funded".to_string(),
                                 }))
                             }
                         },

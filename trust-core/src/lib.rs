@@ -1,8 +1,9 @@
 use rust_decimal::Decimal;
 use trade_calculators::QuantityCalculator;
 use trust_model::{
-    Account, AccountOverview, Currency, DatabaseFactory, DraftTrade, Rule, RuleLevel, RuleName,
-    Trade, TradeOverview, TradingVehicle, TradingVehicleCategory, Transaction, TransactionCategory,
+    Account, AccountOverview, Broker, BrokerLog, Currency, DatabaseFactory, DraftTrade, Order,
+    Rule, RuleLevel, RuleName, Trade, TradeOverview, TradingVehicle, TradingVehicleCategory,
+    Transaction, TransactionCategory,
 };
 use uuid::Uuid;
 use validators::RuleValidator;
@@ -10,6 +11,7 @@ use workers::{OrderWorker, RuleWorker, TradeWorker, TransactionWorker};
 
 pub struct TrustFacade {
     factory: Box<dyn DatabaseFactory>,
+    broker: Box<dyn Broker>,
 }
 
 /// Trust is the main entry point for interacting with the trust-core library.
@@ -17,8 +19,8 @@ pub struct TrustFacade {
 /// trust-core library.
 impl TrustFacade {
     /// Creates a new instance of Trust.
-    pub fn new(factory: Box<dyn DatabaseFactory>) -> Self {
-        TrustFacade { factory }
+    pub fn new(factory: Box<dyn DatabaseFactory>, broker: Box<dyn Broker>) -> Self {
+        TrustFacade { factory, broker }
     }
 
     /// Creates a new account.
@@ -187,21 +189,23 @@ impl TrustFacade {
         self.factory.read_trade_db().read_all_new_trades(account_id)
     }
 
-    pub fn search_approved_trades(
+    pub fn search_funded_trades(
         &mut self,
         account_id: Uuid,
     ) -> Result<Vec<Trade>, Box<dyn std::error::Error>> {
-        self.factory.read_trade_db().all_approved_trades(account_id)
+        self.factory.read_trade_db().all_funded_trades(account_id)
     }
 
-    pub fn search_open_trades(
+    pub fn search_filled_trades(
         &mut self,
         account_id: Uuid,
     ) -> Result<Vec<Trade>, Box<dyn std::error::Error>> {
-        self.factory.read_trade_db().all_open_trades(account_id)
+        self.factory.read_trade_db().all_filled_trades(account_id)
     }
 
-    pub fn approve(
+    // Trade Steps
+
+    pub fn fund_trade(
         &mut self,
         trade: &Trade,
     ) -> Result<(Trade, Transaction, AccountOverview, TradeOverview), Box<dyn std::error::Error>>
@@ -209,14 +213,32 @@ impl TrustFacade {
         // 1. Validate Trade by running rules
         RuleValidator::validate_trade(trade, &mut *self.factory)?;
         // 2. Approve in case rule succeed
-        self.factory.write_trade_db().approve_trade(trade)?;
+        self.factory.write_trade_db().fund_trade(trade)?;
         // 3. Create transaction to fund the trade
         let (transaction, account_overview, trade_overview) =
             TransactionWorker::transfer_to_fund_trade(trade, &mut *self.factory)?;
         Ok((trade.clone(), transaction, account_overview, trade_overview))
     }
 
-    pub fn open_trade(
+    pub fn submit_trade(
+        &mut self,
+        trade: &Trade,
+    ) -> Result<(Trade, Order, BrokerLog), Box<dyn std::error::Error>> {
+        // 1. Validate Trade
+        RuleValidator::validate_submit(trade)?;
+
+        // 2. Submit trade to broker
+        let log = self.broker.submit_trade(trade)?; // TODO: Persist log in DB
+
+        // 3. Mark Trade as submitted
+        let trade = self.factory.write_trade_db().submit_trade(trade)?;
+
+        // 4. Update Entry order to submitted
+        let order = self.factory.write_order_db().record_submit(&trade.entry)?;
+
+        Ok((trade, order, log))
+    }
+    pub fn fill_trade(
         &mut self,
         trade: &Trade,
         fee: Decimal,

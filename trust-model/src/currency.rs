@@ -3,7 +3,9 @@ use std::fmt;
 /// Currency entity
 #[derive(PartialEq, Debug, Hash, Eq, Clone, Copy)]
 #[non_exhaustive] // This enum may be extended in the future
+#[derive(Default)]
 pub enum Currency {
+    #[default]
     USD,
     EUR,
     BTC,
@@ -42,6 +44,7 @@ impl fmt::Display for Currency {
         }
     }
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;

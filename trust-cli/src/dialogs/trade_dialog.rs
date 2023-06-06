@@ -66,7 +66,7 @@ impl TradeDialogBuilder {
         {
             Ok(trade) => {
                 TradeView::display_trade(&trade, &self.account.unwrap().name);
-                TradeOverviewView::display(trade.overview);
+                TradeOverviewView::display(&trade.overview);
             }
             Err(error) => println!("Error creating account: {:?}", error),
         }

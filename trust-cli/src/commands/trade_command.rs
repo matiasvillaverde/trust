@@ -25,22 +25,30 @@ impl TradeCommandBuilder {
         self
     }
 
-    pub fn approve_trade(mut self) -> Self {
+    pub fn fund_trade(mut self) -> Self {
         self.subcommands
-            .push(Command::new("approve").about("Approve a trade to be executed"));
+            .push(Command::new("fund").about("Fund a trade with your account balance"));
         self
     }
 
-    pub fn entry_trade(mut self) -> Self {
+    pub fn submit_trade(mut self) -> Self {
         self.subcommands.push(
-            Command::new("open").about("Execute manually the opening of a trade. Meaning that the trade is now open and the entry order is placed."),
+            Command::new("submit")
+                .about("Submit a trade to a broker for execution. This will create an entry order in the broker's system"),
+        );
+        self
+    }
+
+    pub fn fill_trade(mut self) -> Self {
+        self.subcommands.push(
+            Command::new("fill").about("Execute manually the filling of a trade. Meaning that the entry order was filled and we own the trading vehicle."),
         );
         self
     }
 
     pub fn stop_trade(mut self) -> Self {
         self.subcommands
-            .push(Command::new("stop").about("Execute manually the safety of a trade"));
+            .push(Command::new("stop").about("Execute manually the safety stop of a trade"));
         self
     }
 

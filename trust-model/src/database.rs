@@ -94,7 +94,8 @@ pub trait WriteOrderDB {
         currency: &Currency,
         action: &OrderAction,
     ) -> Result<Order, Box<dyn Error>>;
-    fn record_order_opening(&mut self, order: &Order) -> Result<Order, Box<dyn Error>>;
+    fn record_submit(&mut self, order: &Order) -> Result<Order, Box<dyn Error>>;
+    fn record_filled(&mut self, order: &Order) -> Result<Order, Box<dyn Error>>;
     fn record_order_closing(&mut self, order: &Order) -> Result<Order, Box<dyn Error>>;
 }
 
@@ -176,9 +177,9 @@ pub trait ReadTradeDB {
         currency: &Currency,
     ) -> Result<Vec<Trade>, Box<dyn Error>>;
 
-    fn all_approved_trades(&mut self, account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>>;
+    fn all_funded_trades(&mut self, account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>>;
 
-    fn all_open_trades(&mut self, account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>>;
+    fn all_filled_trades(&mut self, account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>>;
 
     fn read_trade(&mut self, id: Uuid) -> Result<Trade, Box<dyn Error>>;
 
@@ -202,9 +203,11 @@ pub trait WriteTradeDB {
         target: &Order,
     ) -> Result<Trade, Box<dyn Error>>;
 
-    fn approve_trade(&mut self, trade: &Trade) -> Result<Trade, Box<dyn Error>>;
-    fn update_trade_opened_at(&mut self, trade: &Trade) -> Result<Trade, Box<dyn Error>>;
-    fn update_trade_closed_at(&mut self, trade: &Trade) -> Result<Trade, Box<dyn Error>>;
+    fn fund_trade(&mut self, trade: &Trade) -> Result<Trade, Box<dyn Error>>;
+    fn submit_trade(&mut self, trade: &Trade) -> Result<Trade, Box<dyn Error>>;
+    fn fill_trade(&mut self, trade: &Trade) -> Result<Trade, Box<dyn Error>>;
+    fn stop_trade(&mut self, trade: &Trade) -> Result<Trade, Box<dyn Error>>;
+    fn target_trade(&mut self, trade: &Trade) -> Result<Trade, Box<dyn Error>>;
 }
 
 pub trait WriteTradeOverviewDB {

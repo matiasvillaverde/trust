@@ -8,6 +8,7 @@ use std::error::Error;
 use std::sync::Arc;
 use std::sync::Mutex;
 use trust_model::DraftTrade;
+use trust_model::Status;
 use trust_model::{
     database::{WriteAccountDB, WriteTradeOverviewDB},
     Account, AccountOverview, Currency, DatabaseFactory, Order, OrderAction, OrderCategory, Price,
@@ -145,8 +146,12 @@ impl WriteOrderDB for SqliteDatabase {
         )
     }
 
-    fn record_order_opening(&mut self, order: &Order) -> Result<Order, Box<dyn Error>> {
-        WorkerOrder::update_opened_at(&mut self.connection.lock().unwrap(), order)
+    fn record_submit(&mut self, order: &Order) -> Result<Order, Box<dyn Error>> {
+        WorkerOrder::update_submitted_at(&mut self.connection.lock().unwrap(), order)
+    }
+
+    fn record_filled(&mut self, order: &Order) -> Result<Order, Box<dyn Error>> {
+        WorkerOrder::update_filled_at(&mut self.connection.lock().unwrap(), order)
     }
 
     fn record_order_closing(&mut self, order: &Order) -> Result<Order, Box<dyn Error>> {
@@ -443,16 +448,44 @@ impl WriteTradeDB for SqliteDatabase {
         )
     }
 
-    fn approve_trade(&mut self, trade: &Trade) -> Result<Trade, Box<dyn Error>> {
-        WorkerTrade::approve_trade(&mut self.connection.lock().unwrap(), trade)
+    fn fund_trade(&mut self, trade: &Trade) -> Result<Trade, Box<dyn Error>> {
+        WorkerTrade::update_trade_status(
+            &mut self.connection.lock().unwrap(),
+            Status::Funded,
+            trade,
+        )
     }
 
-    fn update_trade_opened_at(&mut self, trade: &Trade) -> Result<Trade, Box<dyn Error>> {
-        WorkerTrade::update_opened_at(&mut self.connection.lock().unwrap(), trade)
+    fn submit_trade(&mut self, trade: &Trade) -> Result<Trade, Box<dyn Error>> {
+        WorkerTrade::update_trade_status(
+            &mut self.connection.lock().unwrap(),
+            Status::Submitted,
+            trade,
+        )
     }
 
-    fn update_trade_closed_at(&mut self, trade: &Trade) -> Result<Trade, Box<dyn Error>> {
-        WorkerTrade::update_closed_at(&mut self.connection.lock().unwrap(), trade)
+    fn fill_trade(&mut self, trade: &Trade) -> Result<Trade, Box<dyn Error>> {
+        WorkerTrade::update_trade_status(
+            &mut self.connection.lock().unwrap(),
+            Status::Filled,
+            trade,
+        )
+    }
+
+    fn stop_trade(&mut self, trade: &Trade) -> Result<Trade, Box<dyn Error>> {
+        WorkerTrade::update_trade_status(
+            &mut self.connection.lock().unwrap(),
+            Status::ClosedStopLoss,
+            trade,
+        )
+    }
+
+    fn target_trade(&mut self, trade: &Trade) -> Result<Trade, Box<dyn Error>> {
+        WorkerTrade::update_trade_status(
+            &mut self.connection.lock().unwrap(),
+            Status::ClosedTarget,
+            trade,
+        )
     }
 }
 
@@ -470,19 +503,19 @@ impl ReadTradeDB for SqliteDatabase {
         account_id: Uuid,
         currency: &Currency,
     ) -> Result<Vec<Trade>, Box<dyn Error>> {
-        WorkerTrade::read_all_approved_trades_for_currency(
+        WorkerTrade::read_all_funded_trades_for_currency(
             &mut self.connection.lock().unwrap(),
             account_id,
             currency,
         )
     }
 
-    fn all_approved_trades(&mut self, account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>> {
-        WorkerTrade::read_all_approved_trades(&mut self.connection.lock().unwrap(), account_id)
+    fn all_funded_trades(&mut self, account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>> {
+        WorkerTrade::read_all_funded_trades(&mut self.connection.lock().unwrap(), account_id)
     }
 
-    fn all_open_trades(&mut self, account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>> {
-        WorkerTrade::read_all_open_trades(&mut self.connection.lock().unwrap(), account_id)
+    fn all_filled_trades(&mut self, account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>> {
+        WorkerTrade::read_all_filled_trades(&mut self.connection.lock().unwrap(), account_id)
     }
 }
 
