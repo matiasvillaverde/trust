@@ -14,3 +14,4 @@ chrono = {workspace = true}
 apca = {workspace = true}
 num-decimal = {workspace = true}
 tokio = {workspace = true}
+dotenv = {workspace = true}

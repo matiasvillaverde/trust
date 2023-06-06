@@ -3,39 +3,34 @@ use apca::api::v2::order::{
 };
 use apca::ApiInfo;
 use apca::Client;
+
 use num_decimal::Num;
 use rust_decimal::prelude::ToPrimitive;
-use tokio::runtime::Runtime; // 0.3.5
+use tokio::runtime::Runtime;
 use uuid::Uuid;
 
 use std::error::Error;
-use trust_model::{Broker, BrokerLog, Trade};
+use trust_model::{Broker, BrokerLog, Trade, TradeCategory};
 
-pub struct AlpacaBroker {
-    api_base_url: String,
-    key_id: String,
-    secret: String,
-}
+pub struct AlpacaBroker;
 
 impl Broker for AlpacaBroker {
     fn submit_order(self, trade: &Trade) -> Result<BrokerLog, Box<dyn Error>> {
-        let api_info = ApiInfo::from_parts(self.api_base_url, self.key_id, self.secret).unwrap();
+        let api_info = read_api_key();
         let client = Client::new(api_info);
 
-        let request = OrderReqInit {
-            class: Class::Bracket,
-            type_: Type::Limit,
-            limit_price: Some(Num::from(184)),
-            take_profit: Some(TakeProfit::Limit(Num::from(185))),
-            stop_loss: Some(StopLoss::Stop(Num::from(178))),
-            ..Default::default()
-        }
-        .init("AAPL", Side::Buy, Amount::quantity(1));
-
+        let request = new_request(trade);
         let order = Runtime::new().unwrap().block_on(submit(client, request))?;
 
         Ok(new_log(trade, format!("{:?}", order)))
     }
+}
+
+fn read_api_key() -> ApiInfo {
+    let url = dotenv::var("ALPACA_API_URL").expect("ALPACA_API_URL must be set");
+    let key_id = dotenv::var("ALPACA_API_KEY_ID").expect("ALPACA_API_KEY_ID must be set");
+    let secret = dotenv::var("ALPACA_API_SECRET").expect("ALPACA_API_SECRET must be set");
+    ApiInfo::from_parts(url, key_id, secret).unwrap()
 }
 
 async fn submit(client: Client, request: OrderReq) -> Result<Order, Box<dyn Error>> {
@@ -55,19 +50,34 @@ fn new_log(trade: &Trade, log: String) -> BrokerLog {
         updated_at: now,
         deleted_at: None,
         trade_id: trade.id,
-        log: log,
+        log,
     }
 }
 
 fn new_request(trade: &Trade) -> OrderReq {
-    let request = OrderReqInit {
+    let entry = Num::from(trade.entry.unit_price.amount.to_u128().unwrap());
+    let stop = Num::from(trade.safety_stop.unit_price.amount.to_u128().unwrap());
+    let target = Num::from(trade.target.unit_price.amount.to_u128().unwrap());
+
+    
+    OrderReqInit {
         class: Class::Bracket,
         type_: Type::Limit,
-        limit_price: Some(Num::from(trade.entry.unit_price.amount.to_u128().unwrap())),
-        take_profit: Some(TakeProfit::Limit(Num::from(185))),
-        stop_loss: Some(StopLoss::Stop(Num::from(178))),
+        limit_price: Some(entry),
+        take_profit: Some(TakeProfit::Limit(stop)),
+        stop_loss: Some(StopLoss::Stop(target)),
         ..Default::default()
     }
-    .init("AAPL", Side::Buy, Amount::quantity(1));
-    request
+    .init(
+        trade.trading_vehicle.symbol.to_uppercase(),
+        side(trade),
+        Amount::quantity(trade.entry.quantity),
+    )
+}
+
+fn side(trade: &Trade) -> Side {
+    match trade.category {
+        TradeCategory::Long => Side::Buy,
+        TradeCategory::Short => Side::Sell,
+    }
 }

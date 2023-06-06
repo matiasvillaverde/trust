@@ -67,6 +67,22 @@ pub struct Trade {
     pub overview: TradeOverview,
 }
 
+/// A description of the time for which an Trade is valid. // TODO: Add to Trade
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TimeInForce {
+    /// The order is good for the day, and it will be canceled
+    /// automatically at the end of Regular Trading Hours if unfilled.
+    Day,
+    /// The order is good until canceled.
+    UntilCanceled,
+    /// This order is eligible to execute only in the market opening
+    /// auction. Any unfilled orders after the open will be canceled.
+    UntilMarketOpen,
+    /// This order is eligible to execute only in the market closing
+    /// auction. Any unfilled orders after the close will be canceled.
+    UntilMarketClose,
+}
+
 impl std::fmt::Display for Trade {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(

@@ -30,3 +30,4 @@ tracing-subscriber = "0.3"
 apca = "0.26.2"
 num-decimal = {version = "0.2.4", default-features = false, features = ["num-v04", "serde"]}
 tokio = {version = "1.28.2", default-features = false, features = ["net", "rt-multi-thread", "macros"]}
+dotenv = "0.15.0"
