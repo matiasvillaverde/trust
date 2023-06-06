@@ -94,7 +94,8 @@ pub trait WriteOrderDB {
         currency: &Currency,
         action: &OrderAction,
     ) -> Result<Order, Box<dyn Error>>;
-    fn record_order_opening(&mut self, order: &Order) -> Result<Order, Box<dyn Error>>;
+    fn record_submit(&mut self, order: &Order) -> Result<Order, Box<dyn Error>>;
+    fn record_filled(&mut self, order: &Order) -> Result<Order, Box<dyn Error>>;
     fn record_order_closing(&mut self, order: &Order) -> Result<Order, Box<dyn Error>>;
 }
 
@@ -203,6 +204,7 @@ pub trait WriteTradeDB {
     ) -> Result<Trade, Box<dyn Error>>;
 
     fn fund_trade(&mut self, trade: &Trade) -> Result<Trade, Box<dyn Error>>;
+    fn submit_trade(&mut self, trade: &Trade) -> Result<Trade, Box<dyn Error>>;
     fn fill_trade(&mut self, trade: &Trade) -> Result<Trade, Box<dyn Error>>;
     fn stop_trade(&mut self, trade: &Trade) -> Result<Trade, Box<dyn Error>>;
     fn target_trade(&mut self, trade: &Trade) -> Result<Trade, Box<dyn Error>>;

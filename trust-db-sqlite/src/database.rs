@@ -146,7 +146,11 @@ impl WriteOrderDB for SqliteDatabase {
         )
     }
 
-    fn record_order_opening(&mut self, order: &Order) -> Result<Order, Box<dyn Error>> {
+    fn record_submit(&mut self, order: &Order) -> Result<Order, Box<dyn Error>> {
+        WorkerOrder::update_submitted_at(&mut self.connection.lock().unwrap(), order)
+    }
+
+    fn record_filled(&mut self, order: &Order) -> Result<Order, Box<dyn Error>> {
         WorkerOrder::update_filled_at(&mut self.connection.lock().unwrap(), order)
     }
 
@@ -452,13 +456,20 @@ impl WriteTradeDB for SqliteDatabase {
         )
     }
 
+    fn submit_trade(&mut self, trade: &Trade) -> Result<Trade, Box<dyn Error>> {
+        WorkerTrade::update_trade_status(
+            &mut self.connection.lock().unwrap(),
+            Status::Submitted,
+            trade,
+        )
+    }
+
     fn fill_trade(&mut self, trade: &Trade) -> Result<Trade, Box<dyn Error>> {
         WorkerTrade::update_trade_status(
             &mut self.connection.lock().unwrap(),
             Status::Filled,
             trade,
         )
-        // TODO: Update Entry Order
     }
 
     fn stop_trade(&mut self, trade: &Trade) -> Result<Trade, Box<dyn Error>> {
@@ -467,7 +478,6 @@ impl WriteTradeDB for SqliteDatabase {
             Status::ClosedStopLoss,
             trade,
         )
-        // TODO: Update Stop Order
     }
 
     fn target_trade(&mut self, trade: &Trade) -> Result<Trade, Box<dyn Error>> {
@@ -476,7 +486,6 @@ impl WriteTradeDB for SqliteDatabase {
             Status::ClosedTarget,
             trade,
         )
-        // TODO: Update Target Order
     }
 }
 

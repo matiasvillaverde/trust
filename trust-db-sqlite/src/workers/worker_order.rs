@@ -72,6 +72,19 @@ impl WorkerOrder {
         Ok(order)
     }
 
+    pub fn update_submitted_at(
+        connection: &mut SqliteConnection,
+        order: &Order,
+    ) -> Result<Order, Box<dyn Error>> {
+        let now = Utc::now().naive_utc();
+        diesel::update(orders::table)
+            .filter(orders::id.eq(&order.id.to_string()))
+            .set(orders::submitted_at.eq(now))
+            .execute(connection)?;
+
+        return WorkerOrder::read(connection, order.id);
+    }
+
     pub fn update_filled_at(
         connection: &mut SqliteConnection,
         order: &Order,

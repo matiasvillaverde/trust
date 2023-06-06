@@ -71,7 +71,7 @@ impl OrderWorker {
         write_database: &mut dyn WriteOrderDB,
         read_database: &mut dyn ReadTradeDB,
     ) -> Result<Trade, Box<dyn std::error::Error>> {
-        write_database.record_order_opening(&trade.entry)?;
+        write_database.record_submit(&trade.entry)?;
         read_database.read_trade(trade.id)
     }
 

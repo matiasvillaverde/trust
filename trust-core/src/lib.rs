@@ -1,8 +1,9 @@
 use rust_decimal::Decimal;
 use trade_calculators::QuantityCalculator;
 use trust_model::{
-    Account, AccountOverview, Currency, DatabaseFactory, DraftTrade, Rule, RuleLevel, RuleName,
-    Trade, TradeOverview, TradingVehicle, TradingVehicleCategory, Transaction, TransactionCategory,
+    Account, AccountOverview, Currency, DatabaseFactory, DraftTrade, Order, Rule, RuleLevel,
+    RuleName, Trade, TradeOverview, TradingVehicle, TradingVehicleCategory, Transaction,
+    TransactionCategory,
 };
 use uuid::Uuid;
 use validators::RuleValidator;
@@ -221,9 +222,17 @@ impl TrustFacade {
     pub fn submit_trade(
         &mut self,
         trade: &Trade,
-    ) -> Result<(Trade, Transaction, AccountOverview, TradeOverview), Box<dyn std::error::Error>>
-    {
-        unimplemented!();
+    ) -> Result<(Trade, Order), Box<dyn std::error::Error>> {
+        // 1. Validate Trade by running rules
+        // RuleValidator::validate_trade(trade, &mut *self.factory)?; // TODO: Add validation
+
+        // 2. Mark Trade as submitted
+        let trade = self.factory.write_trade_db().submit_trade(trade)?;
+
+        // 3. Update Entry order to submitted
+        let order = self.factory.write_order_db().record_submit(&trade.entry)?;
+
+        Ok((trade, order))
     }
     pub fn fill_trade(
         &mut self,
