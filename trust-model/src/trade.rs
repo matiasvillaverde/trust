@@ -200,6 +200,33 @@ pub struct TradeOverview {
     pub total_performance: Price,
 }
 
+impl Default for Trade {
+    fn default() -> Self {
+        let now = Utc::now().naive_utc();
+        Trade {
+            id: Uuid::new_v4(),
+            created_at: now,
+            updated_at: now,
+            deleted_at: None,
+            status: Status::default(),
+            category: TradeCategory::default(),
+            currency: Currency::default(),
+            trading_vehicle: TradingVehicle::default(),
+            safety_stop: Order::default(),
+            entry: Order::default(),
+            target: Order::default(),
+            account_id: Uuid::new_v4(),
+            overview: TradeOverview::default(),
+        }
+    }
+}
+
+impl Default for TradeCategory {
+    fn default() -> Self {
+        TradeCategory::Long
+    }
+}
+
 impl Default for TradeOverview {
     fn default() -> Self {
         let now = Utc::now().naive_utc();

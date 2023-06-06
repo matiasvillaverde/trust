@@ -2,7 +2,7 @@ use crate::trade_calculators::RiskCalculator;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use std::error::Error;
-use trust_model::{Account, DatabaseFactory, ReadRuleDB, RuleName, Trade};
+use trust_model::{Account, DatabaseFactory, ReadRuleDB, RuleName, Status, Trade};
 
 pub struct RuleValidator;
 type RuleValidationResult = Result<(), Box<RuleValidationError>>;
@@ -23,6 +23,20 @@ impl RuleValidator {
             }))
         } else {
             Ok(())
+        }
+    }
+
+    pub fn validate_submit(trade: &Trade) -> RuleValidationResult {
+        if trade.status == Status::Funded {
+            Ok(())
+        } else {
+            Err(Box::new(RuleValidationError {
+                code: RuleValidationErrorCode::TradeNotFunded,
+                message: format!(
+                    "Trade with id {} is not funded, cannot submit rule",
+                    trade.id
+                ),
+            }))
         }
     }
 
@@ -125,6 +139,7 @@ pub enum RuleValidationErrorCode {
     RiskPerTradeExceeded,
     RiskPerMonthExceeded,
     NotEnoughFunds,
+    TradeNotFunded,
 }
 
 #[derive(Debug)]
@@ -142,5 +157,28 @@ impl std::fmt::Display for RuleValidationError {
 impl Error for RuleValidationError {
     fn description(&self) -> &str {
         &self.message
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_validate_submit_funded() {
+        let trade = Trade {
+            status: Status::Funded,
+            ..Default::default()
+        };
+        assert_eq!(RuleValidator::validate_submit(&trade).is_ok(), true);
+    }
+
+    #[test]
+    fn test_validate_submit_not_funded() {
+        let trade = Trade {
+            status: Status::New,
+            ..Default::default()
+        };
+        assert_eq!(RuleValidator::validate_submit(&trade).is_err(), true);
     }
 }

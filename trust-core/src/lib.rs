@@ -224,16 +224,16 @@ impl TrustFacade {
         &mut self,
         trade: &Trade,
     ) -> Result<(Trade, Order), Box<dyn std::error::Error>> {
-        // 1. Validate Trade by running rules
-        // RuleValidator::validate_trade(trade, &mut *self.factory)?; // TODO: Add validation
+        // 1. Validate Trade
+        RuleValidator::validate_submit(trade)?;
 
-        // 2. Submit trade
+        // 2. Submit trade to broker
         let _log = self.broker.submit_trade(trade)?; // TODO: Save log
 
-        // 2. Mark Trade as submitted
+        // 3. Mark Trade as submitted
         let trade = self.factory.write_trade_db().submit_trade(trade)?;
 
-        // 3. Update Entry order to submitted
+        // 4. Update Entry order to submitted
         let order = self.factory.write_order_db().record_submit(&trade.entry)?;
 
         Ok((trade, order))

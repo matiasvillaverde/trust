@@ -42,6 +42,12 @@ impl fmt::Display for Currency {
         }
     }
 }
+
+impl Default for Currency {
+    fn default() -> Self {
+        Currency::USD
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
