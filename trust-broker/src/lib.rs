@@ -1,5 +1,5 @@
 use apca::api::v2::order::{
-    Amount, Class, Order, OrderReq, OrderReqInit, Post, Side, StopLoss, TakeProfit, Type,
+    Amount, Class, OrderReq, OrderReqInit, Post, Side, StopLoss, TakeProfit, TimeInForce, Type,
 };
 use apca::ApiInfo;
 use apca::Client;
@@ -10,7 +10,7 @@ use tokio::runtime::Runtime;
 use uuid::Uuid;
 
 use std::error::Error;
-use trust_model::{Broker, BrokerLog, Trade, TradeCategory};
+use trust_model::{Broker, BrokerLog, Order, Trade, TradeCategory};
 
 pub struct AlpacaBroker;
 
@@ -39,7 +39,10 @@ fn read_api_key() -> ApiInfo {
     ApiInfo::from_parts(url, key_id, secret).unwrap()
 }
 
-async fn submit(client: Client, request: OrderReq) -> Result<Order, Box<dyn Error>> {
+async fn submit(
+    client: Client,
+    request: OrderReq,
+) -> Result<apca::api::v2::order::Order, Box<dyn Error>> {
     let result = client.issue::<Post>(&request).await;
 
     match result {
@@ -69,9 +72,11 @@ fn new_request(trade: &Trade) -> OrderReq {
         class: Class::Bracket,
         type_: Type::Limit,
         limit_price: Some(entry),
-        take_profit: Some(TakeProfit::Limit(stop)),
-        stop_loss: Some(StopLoss::Stop(target)),
-        ..Default::default() // TODO: Test and add other fields
+        take_profit: Some(TakeProfit::Limit(target)),
+        stop_loss: Some(StopLoss::Stop(stop)),
+        time_in_force: time_in_force(&trade.entry),
+        extended_hours: trade.entry.extended_hours,
+        ..Default::default()
     }
     .init(
         trade.trading_vehicle.symbol.to_uppercase(),
@@ -80,9 +85,85 @@ fn new_request(trade: &Trade) -> OrderReq {
     )
 }
 
+fn time_in_force(entry: &Order) -> TimeInForce {
+    match entry.time_in_force {
+        trust_model::TimeInForce::Day => TimeInForce::Day,
+        trust_model::TimeInForce::UntilCanceled => TimeInForce::UntilCanceled,
+        trust_model::TimeInForce::UntilMarketClose => TimeInForce::UntilMarketClose,
+        trust_model::TimeInForce::UntilMarketOpen => TimeInForce::UntilMarketOpen,
+    }
+}
+
 fn side(trade: &Trade) -> Side {
     match trade.category {
         TradeCategory::Long => Side::Buy,
         TradeCategory::Short => Side::Sell,
+    }
+}
+#[cfg(test)]
+mod tests {
+    use std::default;
+
+    use rust_decimal_macros::dec;
+    use trust_model::Price;
+
+    use super::*;
+
+    #[test]
+    fn test_new_request() {
+        // Create a sample trade object
+        let trade = Trade {
+            safety_stop: Order {
+                unit_price: Price {
+                    amount: dec!(10.27),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            entry: Order {
+                unit_price: Price {
+                    amount: dec!(13.22),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            target: Order {
+                unit_price: Price {
+                    amount: dec!(15.03),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        // Call the new_request function with the sample trade object
+        let order_req = new_request(&trade);
+
+        // Check if the returned OrderReq object has the correct values
+        assert_eq!(order_req.class, Class::Bracket);
+        assert_eq!(order_req.type_, Type::Limit);
+        assert_eq!(
+            order_req.limit_price.unwrap(),
+            Num::from(trade.entry.unit_price.amount.to_u128().unwrap())
+        );
+        assert_eq!(
+            order_req.take_profit.unwrap(),
+            TakeProfit::Limit(Num::from(trade.target.unit_price.amount.to_u128().unwrap()))
+        );
+        assert_eq!(
+            order_req.stop_loss.unwrap(),
+            StopLoss::Stop(Num::from(
+                trade.safety_stop.unit_price.amount.to_u128().unwrap()
+            ))
+        );
+        assert_eq!(
+            order_req.symbol.to_string(),
+            trade.trading_vehicle.symbol.to_uppercase()
+        );
+        assert_eq!(order_req.side, side(&trade));
+        assert_eq!(order_req.amount, Amount::quantity(trade.entry.quantity));
+        assert_eq!(order_req.time_in_force, time_in_force(&trade.entry));
+        assert_eq!(order_req.extended_hours, trade.entry.extended_hours);
     }
 }
