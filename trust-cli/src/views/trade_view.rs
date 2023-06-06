@@ -68,7 +68,7 @@ impl TradeOverviewView {
     }
 
     pub fn display(overview: &TradeOverview) {
-        TradeOverviewView::display_overviews(vec![&overview]);
+        TradeOverviewView::display_overviews(vec![overview]);
     }
 
     pub fn display_overviews(overviews: Vec<&TradeOverview>) {

@@ -32,7 +32,7 @@ impl WorkerOrder {
             updated_at: now,
             deleted_at: None,
             price_id: price.id.to_string(),
-            quantity: quantity,
+            quantity,
             category: category.to_string(),
             trading_vehicle_id: trading_vehicle.id.to_string(),
             action: action.to_string(),

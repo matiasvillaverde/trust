@@ -69,10 +69,11 @@ impl std::fmt::Display for Trade {
 }
 
 /// The status an order can have.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Default)]
 pub enum Status {
     /// The trade has been created and waiting for
     /// funding. This is the usual initial state of trade.
+    #[default]
     New,
     /// The trade has been funded and it is ready to be submitted.
     Funded,
@@ -92,12 +93,6 @@ pub enum Status {
     ClosedStopLoss,
     /// The trade has been closed by the broker in the target.
     ClosedTarget,
-}
-
-impl Default for Status {
-    fn default() -> Self {
-        Status::New
-    }
 }
 
 impl std::fmt::Display for Status {
@@ -140,9 +135,10 @@ impl std::str::FromStr for Status {
 }
 
 /// The category of the trade - Being a bull or a bear
-#[derive(PartialEq, Debug, Clone, Copy)]
+#[derive(PartialEq, Debug, Clone, Copy, Default)]
 pub enum TradeCategory {
     /// Long trade - Bull - buy an asset and sell it later at a higher price
+    #[default]
     Long,
     /// Short trade - Bear - sell an asset and buy it later at a lower price
     Short,
@@ -218,12 +214,6 @@ impl Default for Trade {
             account_id: Uuid::new_v4(),
             overview: TradeOverview::default(),
         }
-    }
-}
-
-impl Default for TradeCategory {
-    fn default() -> Self {
-        TradeCategory::Long
     }
 }
 

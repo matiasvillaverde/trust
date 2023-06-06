@@ -20,7 +20,7 @@ impl ArgDispatcher {
         let database = SqliteDatabase::new("sqlite://production.db");
 
         ArgDispatcher {
-            trust: TrustFacade::new(Box::new(database), Box::new(AlpacaBroker::new())),
+            trust: TrustFacade::new(Box::new(database), Box::<AlpacaBroker>::default()),
         }
     }
 

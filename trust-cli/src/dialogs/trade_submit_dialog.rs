@@ -33,7 +33,7 @@ impl SubmitDialogBuilder {
             .result
             .expect("No result found, did you forget to call search?")
         {
-            Ok((trade, order, log)) => {
+            Ok((trade, _order, _log)) => {
                 println!("Trade submitted:");
                 TradeView::display_trade(&trade, &self.account.unwrap().name);
 

@@ -89,12 +89,13 @@ pub enum OrderAction {
     Short,
 }
 
-#[derive(PartialEq, Debug, Clone, Copy)]
+#[derive(PartialEq, Debug, Clone, Copy, Default)]
 pub enum TimeInForce {
     /// The order is good for the day, and it will be canceled
     /// automatically at the end of Regular Trading Hours if unfilled.
     Day,
     /// The order is good until canceled.
+    #[default]
     UntilCanceled,
     /// This order is eligible to execute only in the market opening
     /// auction. Any unfilled orders after the open will be canceled.
@@ -102,12 +103,6 @@ pub enum TimeInForce {
     /// This order is eligible to execute only in the market closing
     /// auction. Any unfilled orders after the close will be canceled.
     UntilMarketClose,
-}
-
-impl Default for TimeInForce {
-    fn default() -> Self {
-        TimeInForce::UntilCanceled
-    }
 }
 
 impl std::fmt::Display for OrderCategory {

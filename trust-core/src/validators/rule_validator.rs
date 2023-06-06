@@ -170,7 +170,7 @@ mod tests {
             status: Status::Funded,
             ..Default::default()
         };
-        assert_eq!(RuleValidator::validate_submit(&trade).is_ok(), true);
+        assert!(RuleValidator::validate_submit(&trade).is_ok());
     }
 
     #[test]
@@ -179,6 +179,6 @@ mod tests {
             status: Status::New,
             ..Default::default()
         };
-        assert_eq!(RuleValidator::validate_submit(&trade).is_err(), true);
+        assert!(RuleValidator::validate_submit(&trade).is_err());
     }
 }

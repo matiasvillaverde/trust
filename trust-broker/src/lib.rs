@@ -12,13 +12,8 @@ use uuid::Uuid;
 use std::error::Error;
 use trust_model::{Broker, BrokerLog, Order, Trade, TradeCategory};
 
+#[derive(Default)]
 pub struct AlpacaBroker;
-
-impl AlpacaBroker {
-    pub fn new() -> Self {
-        AlpacaBroker {}
-    }
-}
 
 impl Broker for AlpacaBroker {
     fn submit_trade(&self, trade: &Trade) -> Result<BrokerLog, Box<dyn Error>> {
@@ -102,7 +97,6 @@ fn side(trade: &Trade) -> Side {
 }
 #[cfg(test)]
 mod tests {
-    use std::default;
 
     use rust_decimal_macros::dec;
     use trust_model::Price;
