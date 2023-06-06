@@ -1,8 +1,8 @@
 use rust_decimal::Decimal;
 use trade_calculators::QuantityCalculator;
 use trust_model::{
-    Account, AccountOverview, Currency, DatabaseFactory, DraftTrade, Order, Rule, RuleLevel,
-    RuleName, Trade, TradeOverview, TradingVehicle, TradingVehicleCategory, Transaction,
+    Account, AccountOverview, Broker, Currency, DatabaseFactory, DraftTrade, Order, Rule,
+    RuleLevel, RuleName, Trade, TradeOverview, TradingVehicle, TradingVehicleCategory, Transaction,
     TransactionCategory,
 };
 use uuid::Uuid;
@@ -11,6 +11,7 @@ use workers::{OrderWorker, RuleWorker, TradeWorker, TransactionWorker};
 
 pub struct TrustFacade {
     factory: Box<dyn DatabaseFactory>,
+    broker: Box<dyn Broker>,
 }
 
 /// Trust is the main entry point for interacting with the trust-core library.
@@ -18,8 +19,8 @@ pub struct TrustFacade {
 /// trust-core library.
 impl TrustFacade {
     /// Creates a new instance of Trust.
-    pub fn new(factory: Box<dyn DatabaseFactory>) -> Self {
-        TrustFacade { factory }
+    pub fn new(factory: Box<dyn DatabaseFactory>, broker: Box<dyn Broker>) -> Self {
+        TrustFacade { factory, broker }
     }
 
     /// Creates a new account.
@@ -225,6 +226,9 @@ impl TrustFacade {
     ) -> Result<(Trade, Order), Box<dyn std::error::Error>> {
         // 1. Validate Trade by running rules
         // RuleValidator::validate_trade(trade, &mut *self.factory)?; // TODO: Add validation
+
+        // 2. Submit trade
+        let _log = self.broker.submit_trade(trade)?; // TODO: Save log
 
         // 2. Mark Trade as submitted
         let trade = self.factory.write_trade_db().submit_trade(trade)?;

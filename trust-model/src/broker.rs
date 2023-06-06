@@ -17,5 +17,5 @@ pub struct BrokerLog {
 }
 
 pub trait Broker {
-    fn submit_order(self, trade: &Trade) -> Result<BrokerLog, Box<dyn Error>>;
+    fn submit_trade(&self, trade: &Trade) -> Result<BrokerLog, Box<dyn Error>>;
 }

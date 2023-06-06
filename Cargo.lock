@@ -1915,7 +1915,7 @@ dependencies = [
 
 [[package]]
 name = "trust-broker"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "apca",
  "chrono",
@@ -1937,6 +1937,7 @@ dependencies = [
  "rust_decimal",
  "rust_decimal_macros",
  "tabled",
+ "trust-broker",
  "trust-core",
  "trust-db-sqlite",
  "trust-model",

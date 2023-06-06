@@ -6,6 +6,7 @@ use crate::dialogs::{
 use crate::dialogs::{RuleDialogBuilder, RuleRemoveDialogBuilder};
 use clap::ArgMatches;
 use std::ffi::OsString;
+use trust_broker::AlpacaBroker;
 use trust_core::TrustFacade;
 use trust_db_sqlite::SqliteDatabase;
 use trust_model::TransactionCategory;
@@ -19,7 +20,7 @@ impl ArgDispatcher {
         let database = SqliteDatabase::new("sqlite://production.db");
 
         ArgDispatcher {
-            trust: TrustFacade::new(Box::new(database)),
+            trust: TrustFacade::new(Box::new(database), Box::new(AlpacaBroker::new())),
         }
     }
 

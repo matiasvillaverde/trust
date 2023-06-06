@@ -14,8 +14,14 @@ use trust_model::{Broker, BrokerLog, Trade, TradeCategory};
 
 pub struct AlpacaBroker;
 
+impl AlpacaBroker {
+    pub fn new() -> Self {
+        AlpacaBroker {}
+    }
+}
+
 impl Broker for AlpacaBroker {
-    fn submit_order(self, trade: &Trade) -> Result<BrokerLog, Box<dyn Error>> {
+    fn submit_trade(&self, trade: &Trade) -> Result<BrokerLog, Box<dyn Error>> {
         let api_info = read_api_key();
         let client = Client::new(api_info);
 
