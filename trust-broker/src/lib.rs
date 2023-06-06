@@ -71,7 +71,7 @@ fn new_request(trade: &Trade) -> OrderReq {
         limit_price: Some(entry),
         take_profit: Some(TakeProfit::Limit(stop)),
         stop_loss: Some(StopLoss::Stop(target)),
-        ..Default::default()
+        ..Default::default() // TODO: Test and add other fields
     }
     .init(
         trade.trading_vehicle.symbol.to_uppercase(),

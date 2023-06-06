@@ -1,7 +1,7 @@
 use crate::dialogs::{
     AccountDialogBuilder, AccountSearchDialog, EntryDialogBuilder, ExitDialogBuilder,
-    SubmitDialogBuilder, TradeDialogBuilder, FundingDialogBuilder,
-    TradingVehicleDialogBuilder, TradingVehicleSearchDialogBuilder, TransactionDialogBuilder,
+    FundingDialogBuilder, SubmitDialogBuilder, TradeDialogBuilder, TradingVehicleDialogBuilder,
+    TradingVehicleSearchDialogBuilder, TransactionDialogBuilder,
 };
 use crate::dialogs::{RuleDialogBuilder, RuleRemoveDialogBuilder};
 use clap::ArgMatches;

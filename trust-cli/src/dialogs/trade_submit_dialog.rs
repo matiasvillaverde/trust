@@ -60,7 +60,7 @@ impl SubmitDialogBuilder {
     }
 
     pub fn search(mut self, trust: &mut TrustFacade) -> Self {
-        let trades = trust.search_new_trades(self.account.clone().unwrap().id);
+        let trades = trust.search_funded_trades(self.account.clone().unwrap().id);
         match trades {
             Ok(trades) => {
                 if trades.is_empty() {
