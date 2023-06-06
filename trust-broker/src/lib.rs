@@ -59,7 +59,6 @@ fn new_request(trade: &Trade) -> OrderReq {
     let stop = Num::from(trade.safety_stop.unit_price.amount.to_u128().unwrap());
     let target = Num::from(trade.target.unit_price.amount.to_u128().unwrap());
 
-    
     OrderReqInit {
         class: Class::Bracket,
         type_: Type::Limit,

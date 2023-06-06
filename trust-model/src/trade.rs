@@ -24,6 +24,9 @@ pub struct Trade {
     /// The category of the trade - long or short
     pub category: TradeCategory,
 
+    /// The status of the trade. Reflecting the lifecycle of the trade and its internal orders.
+    pub status: Status,
+
     /// The currency of the trade
     pub currency: Currency,
 
@@ -43,44 +46,10 @@ pub struct Trade {
     /// The account that the trade is associated with
     pub account_id: Uuid,
 
-    /// When the trade was approved by applying the rules of the account
-    pub approved_at: Option<NaiveDateTime>,
-
-    /// When the trade was rejected by applying the rules of the account
-    pub rejected_at: Option<NaiveDateTime>,
-
-    /// When the trade started to be executed by the broker
-    pub opened_at: Option<NaiveDateTime>,
-
-    /// When the trade failed to be executed by the broker
-    pub failed_at: Option<NaiveDateTime>,
-
-    /// When the trade was closed by the broker. All their orders were executed.
-    pub closed_at: Option<NaiveDateTime>,
-
-    /// The rule that rejected the trade. It has to be a rule of type error.
-    pub rejected_by_rule_id: Option<Uuid>,
-
     /// The overview of the trade - It is a cache of the calculations of the trade.
     /// It is a snapshot of the trade. It should be updated every time the trade is updated.
     /// WARNING: It is read-only and it can be out of sync if the trade is open.
     pub overview: TradeOverview,
-}
-
-/// A description of the time for which an Trade is valid. // TODO: Add to Trade
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum TimeInForce {
-    /// The order is good for the day, and it will be canceled
-    /// automatically at the end of Regular Trading Hours if unfilled.
-    Day,
-    /// The order is good until canceled.
-    UntilCanceled,
-    /// This order is eligible to execute only in the market opening
-    /// auction. Any unfilled orders after the open will be canceled.
-    UntilMarketOpen,
-    /// This order is eligible to execute only in the market closing
-    /// auction. Any unfilled orders after the close will be canceled.
-    UntilMarketClose,
 }
 
 impl std::fmt::Display for Trade {
@@ -99,12 +68,82 @@ impl std::fmt::Display for Trade {
     }
 }
 
+/// The status an order can have.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Status {
+    /// The trade has been created and waiting for
+    /// funding. This is the usual initial state of trade.
+    New,
+    /// The trade has been funded and it is ready to be submitted.
+    Funded,
+    /// The trade has been submitted to the broker.
+    Submitted,
+    /// The trade has been partially filled.
+    PartiallyFilled,
+    /// The trade has been completely filled.
+    Filled,
+    /// The trade has been canceled by the user or the broker.
+    Canceled,
+    /// The trade has been expired.
+    Expired,
+    /// The trade has been rejected by the broker or internal rules.
+    Rejected,
+    /// The trade has been closed by the broker in the stop.
+    ClosedStopLoss,
+    /// The trade has been closed by the broker in the target.
+    ClosedTarget,
+}
+
+impl Default for Status {
+    fn default() -> Self {
+        Status::New
+    }
+}
+
+impl std::fmt::Display for Status {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let status = match self {
+            Status::New => "new",
+            Status::Funded => "funded",
+            Status::Submitted => "submitted",
+            Status::PartiallyFilled => "partially_filled",
+            Status::Filled => "filled",
+            Status::Canceled => "canceled",
+            Status::Expired => "expired",
+            Status::Rejected => "rejected",
+            Status::ClosedStopLoss => "closed_stop_loss",
+            Status::ClosedTarget => "closed_target",
+        };
+        write!(f, "{}", status)
+    }
+}
+
+#[derive(Debug)]
+pub struct TradeStatusParseError;
+impl std::str::FromStr for Status {
+    type Err = TradeStatusParseError;
+    fn from_str(status: &str) -> Result<Self, Self::Err> {
+        match status {
+            "new" => Ok(Status::New),
+            "funded" => Ok(Status::Funded),
+            "submitted" => Ok(Status::Submitted),
+            "partially_filled" => Ok(Status::PartiallyFilled),
+            "filled" => Ok(Status::Filled),
+            "canceled" => Ok(Status::Canceled),
+            "expired" => Ok(Status::Expired),
+            "rejected" => Ok(Status::Rejected),
+            "closed_stop_loss" => Ok(Status::ClosedStopLoss),
+            "closed_target" => Ok(Status::ClosedTarget),
+            _ => Err(TradeStatusParseError),
+        }
+    }
+}
+
 /// The category of the trade - Being a bull or a bear
 #[derive(PartialEq, Debug, Clone, Copy)]
 pub enum TradeCategory {
     /// Long trade - Bull - buy an asset and sell it later at a higher price
     Long,
-
     /// Short trade - Bear - sell an asset and buy it later at a lower price
     Short,
 }

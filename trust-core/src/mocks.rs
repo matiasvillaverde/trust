@@ -5,8 +5,8 @@ pub mod read_transaction_db_mocks {
     use rust_decimal::Decimal;
     use std::error::Error;
     use trust_model::{
-        Currency, Order, OrderAction, OrderCategory, Price, ReadTradeDB, ReadTransactionDB, Trade,
-        TradeCategory, TradeOverview, TradingVehicle, Transaction, TransactionCategory,
+        Currency, Order, OrderAction, OrderCategory, Price, ReadTradeDB, ReadTransactionDB, Status,
+        Trade, TradeCategory, TradeOverview, TradingVehicle, Transaction, TransactionCategory,
     };
     use uuid::Uuid;
 
@@ -56,8 +56,9 @@ pub mod read_transaction_db_mocks {
                 created_at: now,
                 updated_at: now,
                 deleted_at: None,
-                trading_vehicle: TradingVehicle::default(),
                 currency: Currency::USD,
+                status: Status::default(),
+                trading_vehicle: TradingVehicle::default(),
                 safety_stop: MockDatabase::order(
                     stop,
                     OrderCategory::Stop,
@@ -73,12 +74,6 @@ pub mod read_transaction_db_mocks {
                 ),
                 category: TradeCategory::Long,
                 account_id: self.account_id,
-                approved_at: None,
-                rejected_at: None,
-                opened_at: None,
-                failed_at: None,
-                closed_at: None,
-                rejected_by_rule_id: None,
                 overview: TradeOverview::default(),
             };
 
@@ -91,23 +86,16 @@ pub mod read_transaction_db_mocks {
             action: OrderAction,
             quantity: u64,
         ) -> Order {
-            let now: chrono::NaiveDateTime = Utc::now().naive_utc();
             let price = Price {
                 amount,
                 ..Default::default()
             };
             Order {
-                id: Uuid::new_v4(),
-                created_at: now,
-                updated_at: now,
-                deleted_at: None,
                 unit_price: price,
                 quantity,
-                trading_vehicle_id: Uuid::new_v4(),
                 category,
                 action,
-                opened_at: None,
-                closed_at: None,
+                ..Default::default()
             }
         }
     }

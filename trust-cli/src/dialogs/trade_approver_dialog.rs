@@ -25,7 +25,7 @@ impl TradeDialogApproverBuilder {
 
     pub fn build(mut self, trust: &mut TrustFacade) -> TradeDialogApproverBuilder {
         let trade: Trade = self.trade.clone().unwrap();
-        self.result = Some(trust.approve(&trade));
+        self.result = Some(trust.fund_trade(&trade));
         self
     }
 

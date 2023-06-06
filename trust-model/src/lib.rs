@@ -21,10 +21,10 @@ pub use database::{
     WriteAccountOverviewDB, WriteOrderDB, WritePriceDB, WriteRuleDB, WriteTradeDB,
     WriteTradingVehicleDB, WriteTransactionDB,
 };
-pub use order::{Order, OrderAction, OrderCategory};
+pub use order::{Order, OrderAction, OrderCategory, TimeInForce};
 pub use price::Price;
 pub use rule::{Rule, RuleLevel, RuleName};
 pub use strategy::Strategy;
-pub use trade::{Trade, TradeCategory, TradeOverview};
+pub use trade::{Status, Trade, TradeCategory, TradeOverview};
 pub use trading_vehicle::{TradingVehicle, TradingVehicleCategory};
 pub use transaction::{Transaction, TransactionCategory};

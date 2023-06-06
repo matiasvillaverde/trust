@@ -5,7 +5,7 @@ use rust_decimal::Decimal;
 use std::error::Error;
 use std::str::FromStr;
 use tracing::error;
-use trust_model::{Currency, Order, OrderAction, OrderCategory, TradingVehicle};
+use trust_model::{Currency, Order, OrderAction, OrderCategory, TimeInForce, TradingVehicle};
 use uuid::Uuid;
 
 use super::WorkerPrice;
@@ -33,10 +33,19 @@ impl WorkerOrder {
             deleted_at: None,
             price_id: price.id.to_string(),
             quantity,
+            category: category.to_string(),
             trading_vehicle_id: trading_vehicle.id.to_string(),
             action: action.to_string(),
-            category: category.to_string(),
-            opened_at: None,
+            time_in_force: TimeInForce::default().to_string(),
+            trailing_percentage: None,
+            trailing_price: None,
+            filled_quantity: 0,
+            average_filled_price: None,
+            extended_hours: false,
+            filled_at: None,
+            submitted_at: None,
+            expired_at: None,
+            cancelled_at: None,
             closed_at: None,
         };
 
@@ -63,14 +72,14 @@ impl WorkerOrder {
         Ok(order)
     }
 
-    pub fn update_opened_at(
+    pub fn update_filled_at(
         connection: &mut SqliteConnection,
         order: &Order,
     ) -> Result<Order, Box<dyn Error>> {
         let now = Utc::now().naive_utc();
         diesel::update(orders::table)
             .filter(orders::id.eq(&order.id.to_string()))
-            .set(orders::opened_at.eq(now))
+            .set(orders::filled_at.eq(now))
             .execute(connection)?;
 
         return WorkerOrder::read(connection, order.id);
@@ -99,10 +108,19 @@ struct OrderSQLite {
     deleted_at: Option<NaiveDateTime>,
     price_id: String,
     quantity: i64,
+    category: String,
     trading_vehicle_id: String,
     action: String,
-    category: String,
-    opened_at: Option<NaiveDateTime>,
+    time_in_force: String,
+    trailing_percentage: Option<String>,
+    trailing_price: Option<String>,
+    filled_quantity: i64,
+    average_filled_price: Option<String>,
+    extended_hours: bool,
+    submitted_at: Option<NaiveDateTime>,
+    filled_at: Option<NaiveDateTime>,
+    expired_at: Option<NaiveDateTime>,
+    cancelled_at: Option<NaiveDateTime>,
     closed_at: Option<NaiveDateTime>,
 }
 
@@ -119,7 +137,20 @@ impl OrderSQLite {
             action: OrderAction::from_str(&self.action).unwrap(),
             category: OrderCategory::from_str(&self.category).unwrap(),
             trading_vehicle_id: Uuid::parse_str(&self.trading_vehicle_id).unwrap(),
-            opened_at: self.opened_at,
+            time_in_force: TimeInForce::from_str(&self.time_in_force).unwrap(),
+            trailing_percent: self
+                .trailing_percentage
+                .map(|p| Decimal::from_str(&p).unwrap()),
+            trailing_price: self.trailing_price.map(|p| Decimal::from_str(&p).unwrap()),
+            filled_quantity: self.filled_quantity as u64,
+            average_filled_price: self
+                .average_filled_price
+                .map(|p| Decimal::from_str(&p).unwrap()),
+            extended_hours: self.extended_hours,
+            submitted_at: self.submitted_at,
+            filled_at: self.filled_at,
+            expired_at: self.expired_at,
+            cancelled_at: self.cancelled_at,
             closed_at: self.closed_at,
         }
     }
@@ -135,10 +166,19 @@ struct NewOrder {
     deleted_at: Option<NaiveDateTime>,
     price_id: String,
     quantity: i64,
+    category: String,
     trading_vehicle_id: String,
     action: String,
-    category: String,
-    opened_at: Option<NaiveDateTime>,
+    time_in_force: String,
+    trailing_percentage: Option<String>,
+    trailing_price: Option<String>,
+    filled_quantity: i64,
+    average_filled_price: Option<String>,
+    extended_hours: bool,
+    submitted_at: Option<NaiveDateTime>,
+    filled_at: Option<NaiveDateTime>,
+    expired_at: Option<NaiveDateTime>,
+    cancelled_at: Option<NaiveDateTime>,
     closed_at: Option<NaiveDateTime>,
 }
 
@@ -193,7 +233,7 @@ mod tests {
         assert_eq!(order.action, OrderAction::Buy);
         assert_eq!(order.category, OrderCategory::Limit);
         assert_eq!(order.trading_vehicle_id, trading_vehicle.id);
-        assert_eq!(order.opened_at, None);
+        assert_eq!(order.filled_at, None);
         assert_eq!(order.closed_at, None);
         assert_eq!(order.created_at, order.updated_at);
         assert_eq!(order.deleted_at, None);

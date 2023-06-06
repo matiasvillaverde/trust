@@ -201,7 +201,9 @@ impl TrustFacade {
         self.factory.read_trade_db().all_open_trades(account_id)
     }
 
-    pub fn approve(
+    // Trade Steps
+
+    pub fn fund_trade(
         &mut self,
         trade: &Trade,
     ) -> Result<(Trade, Transaction, AccountOverview, TradeOverview), Box<dyn std::error::Error>>
@@ -209,14 +211,21 @@ impl TrustFacade {
         // 1. Validate Trade by running rules
         RuleValidator::validate_trade(trade, &mut *self.factory)?;
         // 2. Approve in case rule succeed
-        self.factory.write_trade_db().approve_trade(trade)?;
+        self.factory.write_trade_db().fund_trade(trade)?;
         // 3. Create transaction to fund the trade
         let (transaction, account_overview, trade_overview) =
             TransactionWorker::transfer_to_fund_trade(trade, &mut *self.factory)?;
         Ok((trade.clone(), transaction, account_overview, trade_overview))
     }
 
-    pub fn manually_open_trade(
+    pub fn submit_trade(
+        &mut self,
+        trade: &Trade,
+    ) -> Result<(Trade, Transaction, AccountOverview, TradeOverview), Box<dyn std::error::Error>>
+    {
+        unimplemented!();
+    }
+    pub fn fill_trade(
         &mut self,
         trade: &Trade,
         fee: Decimal,
@@ -224,7 +233,7 @@ impl TrustFacade {
         TradeWorker::open_trade(trade, fee, self.factory.as_mut())
     }
 
-    pub fn manually_stop_trade(
+    pub fn stop_trade(
         &mut self,
         trade: &Trade,
         fee: Decimal,
@@ -239,7 +248,7 @@ impl TrustFacade {
         Ok((tx_stop, tx_payment, trade_overview, account_overview))
     }
 
-    pub fn manually_target_acquired(
+    pub fn target_acquired(
         &mut self,
         trade: &Trade,
         fee: Decimal,

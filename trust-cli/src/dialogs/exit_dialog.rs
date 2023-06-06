@@ -34,7 +34,7 @@ impl ExitDialogBuilder {
         let fee = self
             .fee
             .expect("No fee found, did you forget to specify a fee?");
-        self.result = Some(trust.manually_stop_trade(&trade, fee));
+        self.result = Some(trust.stop_trade(&trade, fee));
         self
     }
 
@@ -46,7 +46,7 @@ impl ExitDialogBuilder {
         let fee = self
             .fee
             .expect("No fee found, did you forget to specify a fee?");
-        self.result = Some(trust.manually_target_acquired(&trade, fee));
+        self.result = Some(trust.target_acquired(&trade, fee));
         self
     }
 

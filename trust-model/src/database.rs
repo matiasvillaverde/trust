@@ -202,9 +202,10 @@ pub trait WriteTradeDB {
         target: &Order,
     ) -> Result<Trade, Box<dyn Error>>;
 
-    fn approve_trade(&mut self, trade: &Trade) -> Result<Trade, Box<dyn Error>>;
-    fn update_trade_opened_at(&mut self, trade: &Trade) -> Result<Trade, Box<dyn Error>>;
-    fn update_trade_closed_at(&mut self, trade: &Trade) -> Result<Trade, Box<dyn Error>>;
+    fn fund_trade(&mut self, trade: &Trade) -> Result<Trade, Box<dyn Error>>;
+    fn fill_trade(&mut self, trade: &Trade) -> Result<Trade, Box<dyn Error>>;
+    fn stop_trade(&mut self, trade: &Trade) -> Result<Trade, Box<dyn Error>>;
+    fn target_trade(&mut self, trade: &Trade) -> Result<Trade, Box<dyn Error>>;
 }
 
 pub trait WriteTradeOverviewDB {

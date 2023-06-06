@@ -129,7 +129,7 @@ impl WorkerTransaction {
         currency: &Currency,
     ) -> Result<Vec<Transaction>, Box<dyn Error>> {
         let trades =
-            WorkerTrade::read_all_approved_trades_for_currency(connection, account_id, currency)?;
+            WorkerTrade::read_all_funded_trades_for_currency(connection, account_id, currency)?;
 
         let transactions = trades
             .into_iter()

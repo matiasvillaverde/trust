@@ -29,7 +29,7 @@ impl TradeWorker {
         )?;
 
         // Record timestamp when the trade was opened
-        database.write_trade_db().update_trade_opened_at(trade)
+        database.write_trade_db().fill_trade(trade)
     }
 
     pub fn update_trade_target_executed(
@@ -55,7 +55,7 @@ impl TradeWorker {
         )?;
 
         // Record timestamp when the trade was closed
-        let trade = database.write_trade_db().update_trade_closed_at(trade)?;
+        let trade = database.write_trade_db().stop_trade(trade)?;
 
         Ok((trade, tx))
     }
@@ -83,7 +83,7 @@ impl TradeWorker {
         )?;
 
         // Record timestamp when the trade was closed
-        let trade = database.write_trade_db().update_trade_closed_at(trade)?;
+        let trade = database.write_trade_db().stop_trade(trade)?;
 
         Ok((trade, tx))
     }

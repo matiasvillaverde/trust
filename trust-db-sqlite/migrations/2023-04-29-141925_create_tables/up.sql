@@ -68,16 +68,25 @@ CREATE TABLE "trading_vehicles" (
 
 CREATE TABLE "orders" (
 	id 			TEXT NOT NULL PRIMARY KEY,
-	created_at			DATETIME NOT NULL,
-	updated_at			DATETIME NOT NULL,
-	deleted_at			DATETIME,
-	price_id			TEXT NOT NULL REFERENCES prices (id),
-	quantity			INTEGER NOT NULL,
-	trading_vehicle_id	TEXT NOT NULL REFERENCES trading_vehicles (id),
-	action 				TEXT CHECK(action IN ('sell', 'buy', 'short')) NOT NULL,
-	category 			TEXT CHECK(category IN ('market', 'limit', 'stop')) NOT NULL,
-	opened_at			DATETIME,
-	closed_at			DATETIME
+	created_at				DATETIME NOT NULL,
+	updated_at				DATETIME NOT NULL,
+	deleted_at				DATETIME,
+	price_id				TEXT NOT NULL REFERENCES prices (id),
+	quantity				INTEGER NOT NULL,
+	trading_vehicle_id		TEXT NOT NULL REFERENCES trading_vehicles (id),
+	category 				TEXT CHECK(category IN ('market', 'limit', 'stop')) NOT NULL,
+	action 					TEXT CHECK(action IN ('sell', 'buy', 'short')) NOT NULL,
+	time_in_force 			TEXT CHECK(time_in_force IN ('until_canceled', 'day', 'until_market_open', 'until_market_close')) NOT NULL,
+	trailing_percentage		TEXT,
+	trailing_price			TEXT,
+	filled_quantity			INTEGER,
+	average_filled_price	TEXT,
+	extended_hours			BOOLEAN NOT NULL,
+	submitted_at			DATETIME,
+	filled_at				DATETIME,
+	expired_at				DATETIME,
+	cancelled_at			DATETIME,
+	closed_at				DATETIME
 );
 
 CREATE TABLE "trades" (
@@ -86,19 +95,14 @@ CREATE TABLE "trades" (
 	updated_at			DATETIME NOT NULL,
 	deleted_at			DATETIME,
 	category 			TEXT CHECK(category IN ('long', 'short')) NOT NULL,
-	currency 				TEXT CHECK(currency IN ('EUR', 'USD', 'BTC')) NOT NULL,
+	status 				TEXT CHECK(status IN ('long', 'short')) NOT NULL,
+	currency 			TEXT CHECK(currency IN ('new', 'funded', 'submitted' , 'partially_filled', 'filled', 'canceled', 'expired', 'rejected', 'closed_stop_loss', 'closed_target')) NOT NULL,
 	trading_vehicle_id	TEXT NOT NULL REFERENCES trading_vehicles (id),
 	safety_stop_id 		TEXT NOT NULL REFERENCES orders (id),
 	entry_id 			TEXT NOT NULL REFERENCES orders (id),
 	target_id 			TEXT NOT NULL REFERENCES orders (id),
 	account_id 			TEXT NOT NULL REFERENCES accounts (id),
-	approved_at			DATETIME,
-	rejected_at			DATETIME,
-	opened_at			DATETIME,
-	failed_at			DATETIME,
-	closed_at			DATETIME,
-	rejected_by_rule_id	TEXT REFERENCES rules (id),
-	overview_id 			TEXT NOT NULL REFERENCES trades_overviews (id)
+	overview_id 		TEXT NOT NULL REFERENCES trades_overviews (id)
 );
 
 CREATE TABLE "trades_overviews" (
