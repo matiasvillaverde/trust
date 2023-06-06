@@ -1,25 +1,47 @@
 use crate::dialogs::{
     AccountDialogBuilder, AccountSearchDialog, EntryDialogBuilder, ExitDialogBuilder,
-    TradeDialogApproverBuilder, TradeDialogBuilder, TradingVehicleDialogBuilder,
+    FundingDialogBuilder, SubmitDialogBuilder, TradeDialogBuilder, TradingVehicleDialogBuilder,
     TradingVehicleSearchDialogBuilder, TransactionDialogBuilder,
 };
 use crate::dialogs::{RuleDialogBuilder, RuleRemoveDialogBuilder};
 use clap::ArgMatches;
 use std::ffi::OsString;
+use trust_broker::AlpacaBroker;
 use trust_core::TrustFacade;
 use trust_db_sqlite::SqliteDatabase;
 use trust_model::TransactionCategory;
+use shellexpand::tilde;
 
 pub struct ArgDispatcher {
     trust: TrustFacade,
 }
 
+use std::fs;
+
+fn create_dir_if_necessary() {
+    let directory_path = tilde("~/.trust").to_string();
+
+    // Check if directory already exists or not
+    if !fs::metadata(&directory_path).is_ok() {
+        return;
+    }
+
+    // We need to create a directory
+    match fs::create_dir(directory_path.clone()) {
+        Ok(_) => println!("Directory {} created successfully!", directory_path),
+        Err(err) => eprintln!("Failed to create directory: {}", err),
+    }
+}
+
 impl ArgDispatcher {
     pub fn new_sqlite() -> Self {
-        let database = SqliteDatabase::new("sqlite://production.db");
+
+        create_dir_if_necessary();
+        let db_url = tilde("~/.trust/production.db").to_string();
+        let database = SqliteDatabase::new(&db_url);
 
         ArgDispatcher {
-            trust: TrustFacade::new(Box::new(database)),
+            trust: TrustFacade::new(Box::new(database), Box::<AlpacaBroker>::default()),
         }
     }
 
@@ -47,8 +69,9 @@ impl ArgDispatcher {
             },
             Some(("trade", sub_matches)) => match sub_matches.subcommand() {
                 Some(("create", _)) => self.create_trade(),
-                Some(("approve", _)) => self.create_approve(),
-                Some(("open", _)) => self.create_open(),
+                Some(("fund", _)) => self.create_funding(),
+                Some(("submit", _)) => self.create_submit(),
+                Some(("fill", _)) => self.create_fill(),
                 Some(("stop", _)) => self.create_stop(),
                 Some(("target", _)) => self.create_target(),
                 _ => unreachable!("No subcommand provided"),
@@ -161,15 +184,23 @@ impl ArgDispatcher {
             .display();
     }
 
-    fn create_approve(&mut self) {
-        TradeDialogApproverBuilder::new()
+    fn create_funding(&mut self) {
+        FundingDialogBuilder::new()
             .account(&mut self.trust)
             .search(&mut self.trust)
             .build(&mut self.trust)
             .display();
     }
 
-    fn create_open(&mut self) {
+    fn create_submit(&mut self) {
+        SubmitDialogBuilder::new()
+            .account(&mut self.trust)
+            .search(&mut self.trust)
+            .build(&mut self.trust)
+            .display();
+    }
+
+    fn create_fill(&mut self) {
         EntryDialogBuilder::new()
             .account(&mut self.trust)
             .search(&mut self.trust)

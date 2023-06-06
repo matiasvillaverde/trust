@@ -1,4 +1,5 @@
 mod account;
+mod broker;
 mod currency;
 mod order;
 mod price;
@@ -12,6 +13,7 @@ pub mod database;
 
 // Re-export the types from the trust-model crate.
 pub use account::{Account, AccountOverview};
+pub use broker::{Broker, BrokerLog};
 pub use currency::Currency;
 pub use database::{
     DatabaseFactory, DraftTrade, ReadAccountDB, ReadAccountOverviewDB, ReadOrderDB, ReadPriceDB,
@@ -19,10 +21,10 @@ pub use database::{
     WriteAccountOverviewDB, WriteOrderDB, WritePriceDB, WriteRuleDB, WriteTradeDB,
     WriteTradingVehicleDB, WriteTransactionDB,
 };
-pub use order::{Order, OrderAction, OrderCategory};
+pub use order::{Order, OrderAction, OrderCategory, TimeInForce};
 pub use price::Price;
 pub use rule::{Rule, RuleLevel, RuleName};
 pub use strategy::Strategy;
-pub use trade::{Trade, TradeCategory, TradeOverview};
+pub use trade::{Status, Trade, TradeCategory, TradeOverview};
 pub use trading_vehicle::{TradingVehicle, TradingVehicleCategory};
 pub use transaction::{Transaction, TransactionCategory};

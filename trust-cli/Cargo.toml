@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 trust-model = { path = "../trust-model", version = "0.2.0" }
 trust-core = { path = "../trust-core", version = "0.2.0" }
+trust-broker = { path = "../trust-broker", version = "0.2.0" }
 trust-db-sqlite = { path = "../trust-db-sqlite", version = "0.2.0" }
 
 clap = {workspace = true}
@@ -15,3 +16,4 @@ dialoguer = {workspace = true}
 tabled = {workspace = true}
 rust_decimal_macros = {workspace = true}
 rust_decimal = {workspace = true}
+shellexpand = {workspace = true}

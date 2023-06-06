@@ -6,7 +6,7 @@ use rust_decimal_macros::dec;
 use std::error::Error;
 use std::str::FromStr;
 use tracing::error;
-use trust_model::{Currency, DraftTrade};
+use trust_model::{Currency, DraftTrade, Status};
 use trust_model::{Order, Trade, TradeCategory, TradeOverview};
 use uuid::Uuid;
 
@@ -32,18 +32,13 @@ impl WorkerTrade {
             updated_at: now,
             deleted_at: None,
             category: draft.category.to_string(),
+            status: Status::default().to_string(),
             currency: draft.currency.to_string(),
             trading_vehicle_id: draft.trading_vehicle.id.to_string(),
             safety_stop_id: safety_stop.id.to_string(),
             entry_id: entry.id.to_string(),
             target_id: target.id.to_string(),
             account_id: draft.account.id.to_string(),
-            approved_at: None,
-            rejected_at: None,
-            opened_at: None,
-            failed_at: None,
-            closed_at: None,
-            rejected_by_rule_id: None,
             overview_id: overview.id.to_string(),
         };
 
@@ -90,11 +85,7 @@ impl WorkerTrade {
         let trades: Vec<Trade> = trades::table
             .filter(trades::deleted_at.is_null())
             .filter(trades::account_id.eq(account_id.to_string()))
-            .filter(trades::approved_at.is_null())
-            .filter(trades::rejected_at.is_null())
-            .filter(trades::opened_at.is_null())
-            .filter(trades::failed_at.is_null())
-            .filter(trades::closed_at.is_null())
+            .filter(trades::status.eq(Status::New.to_string()))
             .load::<TradeSQLite>(connection)
             .map(|trades: Vec<TradeSQLite>| {
                 trades
@@ -109,18 +100,14 @@ impl WorkerTrade {
         Ok(trades)
     }
 
-    pub fn read_all_approved_trades(
+    pub fn read_all_funded_trades(
         connection: &mut SqliteConnection,
         account_id: Uuid,
     ) -> Result<Vec<Trade>, Box<dyn Error>> {
         let trades: Vec<Trade> = trades::table
             .filter(trades::deleted_at.is_null())
             .filter(trades::account_id.eq(account_id.to_string()))
-            .filter(trades::approved_at.is_not_null())
-            .filter(trades::rejected_at.is_null())
-            .filter(trades::opened_at.is_null())
-            .filter(trades::failed_at.is_null())
-            .filter(trades::closed_at.is_null())
+            .filter(trades::status.eq(Status::Funded.to_string()))
             .load::<TradeSQLite>(connection)
             .map(|trades: Vec<TradeSQLite>| {
                 trades
@@ -135,7 +122,7 @@ impl WorkerTrade {
         Ok(trades)
     }
 
-    pub fn read_all_approved_trades_for_currency(
+    pub fn read_all_funded_trades_for_currency(
         connection: &mut SqliteConnection,
         account_id: Uuid,
         currency: &Currency,
@@ -144,11 +131,7 @@ impl WorkerTrade {
             .filter(trades::deleted_at.is_null())
             .filter(trades::account_id.eq(account_id.to_string()))
             .filter(trades::currency.eq(currency.to_string()))
-            .filter(trades::approved_at.is_not_null())
-            .filter(trades::rejected_at.is_null())
-            .filter(trades::opened_at.is_null())
-            .filter(trades::failed_at.is_null())
-            .filter(trades::closed_at.is_null())
+            .filter(trades::status.eq(Status::Funded.to_string()))
             .load::<TradeSQLite>(connection)
             .map(|trades: Vec<TradeSQLite>| {
                 trades
@@ -163,18 +146,14 @@ impl WorkerTrade {
         Ok(trades)
     }
 
-    pub fn read_all_open_trades(
+    pub fn read_all_filled_trades(
         connection: &mut SqliteConnection,
         account_id: Uuid,
     ) -> Result<Vec<Trade>, Box<dyn Error>> {
         let trades: Vec<Trade> = trades::table
             .filter(trades::deleted_at.is_null())
             .filter(trades::account_id.eq(account_id.to_string()))
-            .filter(trades::approved_at.is_not_null())
-            .filter(trades::rejected_at.is_null())
-            .filter(trades::opened_at.is_not_null())
-            .filter(trades::failed_at.is_null())
-            .filter(trades::closed_at.is_null())
+            .filter(trades::status.eq(Status::Filled.to_string()))
             .load::<TradeSQLite>(connection)
             .map(|trades: Vec<TradeSQLite>| {
                 trades
@@ -263,48 +242,18 @@ impl WorkerTrade {
         Ok(overview)
     }
 
-    pub fn approve_trade(
+    pub fn update_trade_status(
         connection: &mut SqliteConnection,
+        status: Status,
         trade: &Trade,
     ) -> Result<Trade, Box<dyn Error>> {
         let now = Utc::now().naive_utc();
         let trade = diesel::update(trades::table)
             .filter(trades::id.eq(trade.id.to_string()))
-            .set((trades::updated_at.eq(now), trades::approved_at.eq(now)))
-            .get_result::<TradeSQLite>(connection)
-            .map(|trade| trade.domain_model(connection))
-            .map_err(|error| {
-                error!("Error approving trade: {:?}", error);
-                error
-            })?;
-        Ok(trade)
-    }
-
-    pub fn update_opened_at(
-        connection: &mut SqliteConnection,
-        trade: &Trade,
-    ) -> Result<Trade, Box<dyn Error>> {
-        let now = Utc::now().naive_utc();
-        let trade = diesel::update(trades::table)
-            .filter(trades::id.eq(trade.id.to_string()))
-            .set((trades::updated_at.eq(now), trades::opened_at.eq(now)))
-            .get_result::<TradeSQLite>(connection)
-            .map(|trade| trade.domain_model(connection))
-            .map_err(|error| {
-                error!("Error executing trade: {:?}", error);
-                error
-            })?;
-        Ok(trade)
-    }
-
-    pub fn update_closed_at(
-        connection: &mut SqliteConnection,
-        trade: &Trade,
-    ) -> Result<Trade, Box<dyn Error>> {
-        let now = Utc::now().naive_utc();
-        let trade = diesel::update(trades::table)
-            .filter(trades::id.eq(trade.id.to_string()))
-            .set((trades::updated_at.eq(now), trades::closed_at.eq(now)))
+            .set((
+                trades::updated_at.eq(now),
+                trades::status.eq(status.to_string()),
+            ))
             .get_result::<TradeSQLite>(connection)
             .map(|trade| trade.domain_model(connection))
             .map_err(|error| {
@@ -325,18 +274,13 @@ struct TradeSQLite {
     updated_at: NaiveDateTime,
     deleted_at: Option<NaiveDateTime>,
     category: String,
+    status: String,
     currency: String,
     trading_vehicle_id: String,
     safety_stop_id: String,
     entry_id: String,
     target_id: String,
     account_id: String,
-    approved_at: Option<NaiveDateTime>,
-    rejected_at: Option<NaiveDateTime>,
-    opened_at: Option<NaiveDateTime>,
-    failed_at: Option<NaiveDateTime>,
-    closed_at: Option<NaiveDateTime>,
-    rejected_by_rule_id: Option<String>,
     overview_id: String,
 }
 
@@ -364,19 +308,12 @@ impl TradeSQLite {
             deleted_at: self.deleted_at,
             trading_vehicle,
             category: TradeCategory::from_str(&self.category).unwrap(),
+            status: Status::from_str(&self.status).unwrap(),
             currency: Currency::from_str(&self.currency).unwrap(),
             safety_stop,
             entry,
             target: targets,
             account_id: Uuid::parse_str(&self.account_id).unwrap(),
-            approved_at: self.approved_at,
-            rejected_at: self.rejected_at,
-            opened_at: self.opened_at,
-            failed_at: self.failed_at,
-            closed_at: self.closed_at,
-            rejected_by_rule_id: self
-                .rejected_by_rule_id
-                .map(|id| Uuid::parse_str(&id).unwrap()),
             overview,
         }
     }
@@ -391,18 +328,13 @@ struct NewTrade {
     updated_at: NaiveDateTime,
     deleted_at: Option<NaiveDateTime>,
     category: String,
+    status: String,
     currency: String,
     trading_vehicle_id: String,
     safety_stop_id: String,
     target_id: String,
     entry_id: String,
     account_id: String,
-    approved_at: Option<NaiveDateTime>,
-    rejected_at: Option<NaiveDateTime>,
-    opened_at: Option<NaiveDateTime>,
-    failed_at: Option<NaiveDateTime>,
-    closed_at: Option<NaiveDateTime>,
-    rejected_by_rule_id: Option<String>,
     overview_id: String,
 }
 

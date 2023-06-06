@@ -86,10 +86,19 @@ diesel::table! {
         deleted_at -> Nullable<Timestamp>,
         price_id -> Text,
         quantity -> BigInt,
+        category -> Text,
         trading_vehicle_id -> Text,
         action -> Text,
-        category -> Text,
-        opened_at -> Nullable<Timestamp>,
+        time_in_force  -> Text,
+        trailing_percentage -> Nullable<Text>,
+        trailing_price -> Nullable<Text>,
+        filled_quantity -> BigInt,
+        average_filled_price-> Nullable<Text>,
+        extended_hours-> Bool,
+        submitted_at -> Nullable<Timestamp>,
+        filled_at -> Nullable<Timestamp>,
+        expired_at -> Nullable<Timestamp>,
+        cancelled_at -> Nullable<Timestamp>,
         closed_at -> Nullable<Timestamp>,
     }
 }
@@ -101,18 +110,13 @@ diesel::table! {
         updated_at -> Timestamp,
         deleted_at -> Nullable<Timestamp>,
         category -> Text,
+        status -> Text,
         currency -> Text,
         trading_vehicle_id -> Text,
         safety_stop_id -> Text,
         entry_id -> Text,
         target_id -> Text,
         account_id -> Text,
-        approved_at -> Nullable<Timestamp>,
-        rejected_at -> Nullable<Timestamp>,
-        opened_at -> Nullable<Timestamp>,
-        failed_at -> Nullable<Timestamp>,
-        closed_at -> Nullable<Timestamp>,
-        rejected_by_rule_id -> Nullable<Text>,
         overview_id -> Text,
     }
 }
@@ -140,4 +144,3 @@ diesel::joinable!(trades -> accounts (account_id));
 diesel::joinable!(trades -> trades_overviews (overview_id));
 diesel::joinable!(trades -> trading_vehicles (trading_vehicle_id));
 diesel::joinable!(trades -> orders (safety_stop_id));
-diesel::joinable!(trades -> rules (rejected_by_rule_id));
