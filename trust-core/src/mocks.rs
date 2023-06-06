@@ -174,11 +174,11 @@ pub mod read_transaction_db_mocks {
             Ok(self.trades.clone())
         }
 
-        fn all_approved_trades(&mut self, _account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>> {
+        fn all_funded_trades(&mut self, _account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>> {
             Ok(self.trades.clone())
         }
 
-        fn all_open_trades(&mut self, _account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>> {
+        fn all_filled_trades(&mut self, _account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>> {
             Ok(self.trades.clone())
         }
 

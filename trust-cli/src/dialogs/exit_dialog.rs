@@ -68,7 +68,7 @@ impl ExitDialogBuilder {
                 TransactionView::display(&tx_payment, account_name.as_str());
 
                 println!("Trade overview:");
-                TradeOverviewView::display(trade_overview);
+                TradeOverviewView::display(&trade_overview);
 
                 println!("Account overview:");
                 AccountOverviewView::display(account_overview, account_name.as_str());
@@ -87,7 +87,7 @@ impl ExitDialogBuilder {
     }
 
     pub fn search(mut self, trust: &mut TrustFacade) -> Self {
-        let trades = trust.search_open_trades(self.account.clone().unwrap().id);
+        let trades = trust.search_filled_trades(self.account.clone().unwrap().id);
         match trades {
             Ok(trades) => {
                 if trades.is_empty() {

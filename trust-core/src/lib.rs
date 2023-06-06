@@ -1,9 +1,9 @@
 use rust_decimal::Decimal;
 use trade_calculators::QuantityCalculator;
 use trust_model::{
-    Account, AccountOverview, Broker, Currency, DatabaseFactory, DraftTrade, Order, Rule,
-    RuleLevel, RuleName, Trade, TradeOverview, TradingVehicle, TradingVehicleCategory, Transaction,
-    TransactionCategory,
+    Account, AccountOverview, Broker, BrokerLog, Currency, DatabaseFactory, DraftTrade, Order,
+    Rule, RuleLevel, RuleName, Trade, TradeOverview, TradingVehicle, TradingVehicleCategory,
+    Transaction, TransactionCategory,
 };
 use uuid::Uuid;
 use validators::RuleValidator;
@@ -189,18 +189,18 @@ impl TrustFacade {
         self.factory.read_trade_db().read_all_new_trades(account_id)
     }
 
-    pub fn search_approved_trades(
+    pub fn search_funded_trades(
         &mut self,
         account_id: Uuid,
     ) -> Result<Vec<Trade>, Box<dyn std::error::Error>> {
-        self.factory.read_trade_db().all_approved_trades(account_id)
+        self.factory.read_trade_db().all_funded_trades(account_id)
     }
 
-    pub fn search_open_trades(
+    pub fn search_filled_trades(
         &mut self,
         account_id: Uuid,
     ) -> Result<Vec<Trade>, Box<dyn std::error::Error>> {
-        self.factory.read_trade_db().all_open_trades(account_id)
+        self.factory.read_trade_db().all_filled_trades(account_id)
     }
 
     // Trade Steps
@@ -223,12 +223,12 @@ impl TrustFacade {
     pub fn submit_trade(
         &mut self,
         trade: &Trade,
-    ) -> Result<(Trade, Order), Box<dyn std::error::Error>> {
+    ) -> Result<(Trade, Order, BrokerLog), Box<dyn std::error::Error>> {
         // 1. Validate Trade
         RuleValidator::validate_submit(trade)?;
 
         // 2. Submit trade to broker
-        let _log = self.broker.submit_trade(trade)?; // TODO: Save log
+        let log = self.broker.submit_trade(trade)?; // TODO: Persist log in DB
 
         // 3. Mark Trade as submitted
         let trade = self.factory.write_trade_db().submit_trade(trade)?;
@@ -236,7 +236,7 @@ impl TrustFacade {
         // 4. Update Entry order to submitted
         let order = self.factory.write_order_db().record_submit(&trade.entry)?;
 
-        Ok((trade, order))
+        Ok((trade, order, log))
     }
     pub fn fill_trade(
         &mut self,

@@ -42,8 +42,9 @@ fn main() {
         .subcommand(
             TradeCommandBuilder::new()
                 .create_trade()
-                .approve_trade()
-                .entry_trade()
+                .fund_trade()
+                .submit_trade()
+                .fill_trade()
                 .stop_trade()
                 .target_trade()
                 .build(),

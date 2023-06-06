@@ -177,9 +177,9 @@ pub trait ReadTradeDB {
         currency: &Currency,
     ) -> Result<Vec<Trade>, Box<dyn Error>>;
 
-    fn all_approved_trades(&mut self, account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>>;
+    fn all_funded_trades(&mut self, account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>>;
 
-    fn all_open_trades(&mut self, account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>>;
+    fn all_filled_trades(&mut self, account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>>;
 
     fn read_trade(&mut self, id: Uuid) -> Result<Trade, Box<dyn Error>>;
 

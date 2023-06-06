@@ -1,39 +1,30 @@
 use crate::dialogs::AccountSearchDialog;
 use crate::views::{TradeOverviewView, TradeView};
-use dialoguer::{theme::ColorfulTheme, FuzzySelect, Input};
-use rust_decimal::Decimal;
+use dialoguer::{theme::ColorfulTheme, FuzzySelect};
 use std::error::Error;
 use trust_core::TrustFacade;
-use trust_model::{Account, Trade};
+use trust_model::{Account, BrokerLog, Order, Trade};
 
-type EntryDialogBuilderResult = Option<Result<Trade, Box<dyn Error>>>;
+type TradeDialogApproverBuilderResult = Option<Result<(Trade, Order, BrokerLog), Box<dyn Error>>>;
 
-pub struct EntryDialogBuilder {
+pub struct SubmitDialogBuilder {
     account: Option<Account>,
     trade: Option<Trade>,
-    fee: Option<Decimal>,
-    result: EntryDialogBuilderResult,
+    result: TradeDialogApproverBuilderResult,
 }
 
-impl EntryDialogBuilder {
+impl SubmitDialogBuilder {
     pub fn new() -> Self {
-        EntryDialogBuilder {
+        SubmitDialogBuilder {
             account: None,
             trade: None,
-            fee: None,
             result: None,
         }
     }
 
-    pub fn build(mut self, trust: &mut TrustFacade) -> EntryDialogBuilder {
-        let trade: Trade = self
-            .trade
-            .clone()
-            .expect("No trade found, did you forget to select one?");
-        let fee = self
-            .fee
-            .expect("No fee found, did you forget to specify a fee?");
-        self.result = Some(trust.fill_trade(&trade, fee));
+    pub fn build(mut self, trust: &mut TrustFacade) -> SubmitDialogBuilder {
+        let trade: Trade = self.trade.clone().unwrap();
+        self.result = Some(trust.submit_trade(&trade));
         self
     }
 
@@ -42,13 +33,20 @@ impl EntryDialogBuilder {
             .result
             .expect("No result found, did you forget to call search?")
         {
-            Ok(trade) => {
-                println!("Trade entry executed:");
+            Ok((trade, order, log)) => {
+                println!("Trade submitted:");
                 TradeView::display_trade(&trade, &self.account.unwrap().name);
+
                 println!("Trade overview:");
                 TradeOverviewView::display(&trade.overview);
+
+                // println!("Order:");
+                // OrderView::display(&order); // TODO: Display Order and logs
+
+                // println!("Broker log:");
+                // BrokerLogView::display(&log);
             }
-            Err(error) => println!("Error approving trade: {:?}", error),
+            Err(error) => println!("Error funding trade: {:?}", error),
         }
     }
 
@@ -61,14 +59,8 @@ impl EntryDialogBuilder {
         self
     }
 
-    pub fn fee(mut self) -> Self {
-        let fee_price = Input::new().with_prompt("Fee price").interact().unwrap(); // TODO: Validate
-        self.fee = Some(fee_price);
-        self
-    }
-
     pub fn search(mut self, trust: &mut TrustFacade) -> Self {
-        let trades = trust.search_funded_trades(self.account.clone().unwrap().id);
+        let trades = trust.search_new_trades(self.account.clone().unwrap().id);
         match trades {
             Ok(trades) => {
                 if trades.is_empty() {

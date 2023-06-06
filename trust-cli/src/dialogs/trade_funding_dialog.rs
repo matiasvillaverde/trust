@@ -8,22 +8,22 @@ use trust_model::{Account, AccountOverview, Trade, TradeOverview, Transaction};
 type TradeDialogApproverBuilderResult =
     Option<Result<(Trade, Transaction, AccountOverview, TradeOverview), Box<dyn Error>>>;
 
-pub struct TradeDialogApproverBuilder {
+pub struct TradeDialogFundingBuilder {
     account: Option<Account>,
     trade: Option<Trade>,
     result: TradeDialogApproverBuilderResult,
 }
 
-impl TradeDialogApproverBuilder {
+impl TradeDialogFundingBuilder {
     pub fn new() -> Self {
-        TradeDialogApproverBuilder {
+        TradeDialogFundingBuilder {
             account: None,
             trade: None,
             result: None,
         }
     }
 
-    pub fn build(mut self, trust: &mut TrustFacade) -> TradeDialogApproverBuilder {
+    pub fn build(mut self, trust: &mut TrustFacade) -> TradeDialogFundingBuilder {
         let trade: Trade = self.trade.clone().unwrap();
         self.result = Some(trust.fund_trade(&trade));
         self
@@ -41,7 +41,7 @@ impl TradeDialogApproverBuilder {
                 TradeView::display_trade(&trade, &self.account.unwrap().name);
 
                 println!("Trade overview:");
-                TradeOverviewView::display(trade_overview);
+                TradeOverviewView::display(&trade_overview);
 
                 println!("Transaction moving funds to trade:");
                 TransactionView::display(&tx, account.as_str());

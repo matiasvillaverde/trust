@@ -56,7 +56,7 @@ pub struct TradeOverviewView {
 }
 
 impl TradeOverviewView {
-    fn new(overview: TradeOverview) -> TradeOverviewView {
+    fn new(overview: &TradeOverview) -> TradeOverviewView {
         TradeOverviewView {
             funding: overview.funding.amount.to_string(),
             capital_in_market: overview.capital_in_market.amount.to_string(),
@@ -67,11 +67,11 @@ impl TradeOverviewView {
         }
     }
 
-    pub fn display(overview: TradeOverview) {
-        TradeOverviewView::display_overviews(vec![overview]);
+    pub fn display(overview: &TradeOverview) {
+        TradeOverviewView::display_overviews(vec![&overview]);
     }
 
-    pub fn display_overviews(overviews: Vec<TradeOverview>) {
+    pub fn display_overviews(overviews: Vec<&TradeOverview>) {
         let views: Vec<TradeOverviewView> =
             overviews.into_iter().map(TradeOverviewView::new).collect();
         let mut table = Table::new(views);
