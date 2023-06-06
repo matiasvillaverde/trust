@@ -1,9 +1,8 @@
 use rust_decimal::Decimal;
 use trade_calculators::QuantityCalculator;
 use trust_model::{
-    Account, AccountOverview, Broker, Currency, DatabaseFactory, DraftTrade, Rule, RuleLevel,
-    RuleName, Trade, TradeOverview, TradingVehicle, TradingVehicleCategory, Transaction,
-    TransactionCategory,
+    Account, AccountOverview, Currency, DatabaseFactory, DraftTrade, Rule, RuleLevel, RuleName,
+    Trade, TradeOverview, TradingVehicle, TradingVehicleCategory, Transaction, TransactionCategory,
 };
 use uuid::Uuid;
 use validators::RuleValidator;

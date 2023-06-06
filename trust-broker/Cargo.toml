@@ -1,0 +1,16 @@
+[package]
+name = "trust-broker"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+trust-model = { path = "../trust-model", version = "0.2.0" }
+rust_decimal = {workspace = true}
+rust_decimal_macros = {workspace = true}
+uuid = {workspace = true}
+chrono = {workspace = true}
+apca = {workspace = true}
+num-decimal = {workspace = true}
+tokio = {workspace = true}

@@ -10,4 +10,3 @@ uuid = {workspace = true}
 chrono = {workspace = true}
 rust_decimal = {workspace = true}
 rust_decimal_macros = {workspace = true}
-async-trait = {workspace = true}
