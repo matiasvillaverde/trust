@@ -1,6 +1,6 @@
 use crate::dialogs::{
     AccountDialogBuilder, AccountSearchDialog, EntryDialogBuilder, ExitDialogBuilder,
-    SubmitDialogBuilder, TradeDialogBuilder, TradeDialogFundingBuilder,
+    SubmitDialogBuilder, TradeDialogBuilder, FundingDialogBuilder,
     TradingVehicleDialogBuilder, TradingVehicleSearchDialogBuilder, TransactionDialogBuilder,
 };
 use crate::dialogs::{RuleDialogBuilder, RuleRemoveDialogBuilder};
@@ -164,7 +164,7 @@ impl ArgDispatcher {
     }
 
     fn create_funding(&mut self) {
-        TradeDialogFundingBuilder::new()
+        FundingDialogBuilder::new()
             .account(&mut self.trust)
             .search(&mut self.trust)
             .build(&mut self.trust)
