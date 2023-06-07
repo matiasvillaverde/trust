@@ -1,6 +1,6 @@
 use crate::workers::{
-    AccountDB, WorkerAccountOverview, WorkerOrder, WorkerPrice, WorkerRule, WorkerTrade,
-    WorkerTradingVehicle, WorkerTransaction,
+    AccountDB, BrokerLogDB, WorkerAccountOverview, WorkerOrder, WorkerPrice, WorkerRule,
+    WorkerTrade, WorkerTradingVehicle, WorkerTransaction,
 };
 use diesel::prelude::*;
 use rust_decimal::Decimal;
@@ -32,6 +32,18 @@ impl DatabaseFactory for SqliteDatabase {
 
     fn write_account_db(&self) -> Box<dyn WriteAccountDB> {
         Box::new(AccountDB {
+            connection: self.connection.clone(),
+        })
+    }
+
+    fn read_broker_log_db(&self) -> Box<dyn trust_model::ReadBrokerLogsDB> {
+        Box::new(BrokerLogDB {
+            connection: self.connection.clone(),
+        })
+    }
+
+    fn write_broker_log_db(&self) -> Box<dyn trust_model::WriteBrokerLogsDB> {
+        Box::new(BrokerLogDB {
             connection: self.connection.clone(),
         })
     }
