@@ -228,12 +228,17 @@ impl TrustFacade {
         RuleValidator::validate_submit(trade)?;
 
         // 2. Submit trade to broker
-        let log = self.broker.submit_trade(trade)?; // TODO: Persist log in DB
+        let log = self.broker.submit_trade(trade)?;
 
-        // 3. Mark Trade as submitted
+        // 3. Save log in the DB
+        self.factory
+            .write_broker_log_db()
+            .create_log(log.log.as_str(), trade)?;
+
+        // 4. Mark Trade as submitted
         let trade = self.factory.write_trade_db().submit_trade(trade)?;
 
-        // 4. Update Entry order to submitted
+        // 5. Update Entry order to submitted
         let order = self.factory.write_order_db().record_submit(&trade.entry)?;
 
         Ok((trade, order, log))
