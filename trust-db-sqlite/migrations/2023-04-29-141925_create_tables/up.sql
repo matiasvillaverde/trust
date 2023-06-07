@@ -116,3 +116,12 @@ CREATE TABLE "trades_overviews" (
 	taxed_id		TEXT NOT NULL REFERENCES prices (id),
 	total_performance_id	TEXT NOT NULL REFERENCES prices (id)
 );
+
+CREATE TABLE "logs" (
+	id 			TEXT NOT NULL PRIMARY KEY,
+	created_at	DATETIME NOT NULL,
+	updated_at	DATETIME NOT NULL,
+	deleted_at	DATETIME,
+	log			TEXT NOT NULL,
+	trade_id	TEXT NOT NULL REFERENCES trades (id)
+);

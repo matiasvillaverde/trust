@@ -7,11 +7,11 @@ use crate::dialogs::{RuleDialogBuilder, RuleRemoveDialogBuilder};
 use clap::ArgMatches;
 use shellexpand::tilde;
 use std::ffi::OsString;
+use std::fs;
 use trust_broker::AlpacaBroker;
 use trust_core::TrustFacade;
 use trust_db_sqlite::SqliteDatabase;
 use trust_model::TransactionCategory;
-use std::fs;
 
 pub struct ArgDispatcher {
     trust: TrustFacade,
@@ -21,7 +21,7 @@ fn create_dir_if_necessary() {
     let directory_path = tilde("~/.trust").to_string();
 
     // Check if directory already exists or not
-    if !fs::metadata(&directory_path).is_ok() {
+    if fs::metadata(&directory_path).is_ok() {
         return;
     }
 
