@@ -5,18 +5,17 @@ use crate::dialogs::{
 };
 use crate::dialogs::{RuleDialogBuilder, RuleRemoveDialogBuilder};
 use clap::ArgMatches;
+use shellexpand::tilde;
 use std::ffi::OsString;
 use trust_broker::AlpacaBroker;
 use trust_core::TrustFacade;
 use trust_db_sqlite::SqliteDatabase;
 use trust_model::TransactionCategory;
-use shellexpand::tilde;
+use std::fs;
 
 pub struct ArgDispatcher {
     trust: TrustFacade,
 }
-
-use std::fs;
 
 fn create_dir_if_necessary() {
     let directory_path = tilde("~/.trust").to_string();
@@ -35,7 +34,6 @@ fn create_dir_if_necessary() {
 
 impl ArgDispatcher {
     pub fn new_sqlite() -> Self {
-
         create_dir_if_necessary();
         let db_url = tilde("~/.trust/production.db").to_string();
         let database = SqliteDatabase::new(&db_url);

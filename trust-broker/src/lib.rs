@@ -27,7 +27,8 @@ impl Broker for AlpacaBroker {
     }
 }
 
-fn read_api_key() -> ApiInfo { // TODO: allow to input api key
+fn read_api_key() -> ApiInfo {
+    // TODO: allow to input api key
     let url = dotenv::var("ALPACA_API_URL").expect("ALPACA_API_URL must be set");
     let key_id = dotenv::var("ALPACA_API_KEY_ID").expect("ALPACA_API_KEY_ID must be set");
     let secret = dotenv::var("ALPACA_API_SECRET").expect("ALPACA_API_SECRET must be set");
