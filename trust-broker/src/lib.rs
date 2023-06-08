@@ -36,15 +36,25 @@ impl AlpacaBroker {
         secret: &str,
         url: &str,
         environment: &Environment,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<Keys, Box<dyn Error>> {
         let keys = Keys::new(key_id, secret, url);
-        keys.store(environment)?;
+        let keys = keys.store(environment)?;
+        Ok(keys)
+    }
+
+    pub fn read_keys(environment: &Environment) -> Result<Keys, Box<dyn Error>> {
+        let keys = Keys::read(environment)?;
+        Ok(keys)
+    }
+
+    pub fn delete_keys(environment: &Environment) -> Result<(), Box<dyn Error>> {
+        Keys::delete(environment)?;
         Ok(())
     }
 }
 
 fn read_api_key() -> Result<ApiInfo, Box<dyn Error>> {
-    let keys = Keys::get(&Environment::Live)?;
+    let keys = Keys::read(&Environment::Live)?;
     let info = ApiInfo::from_parts(keys.url, keys.key_id, keys.secret)?;
     Ok(info)
 }

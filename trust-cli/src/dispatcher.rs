@@ -1,6 +1,7 @@
 use crate::dialogs::{
     AccountDialogBuilder, AccountSearchDialog, EntryDialogBuilder, ExitDialogBuilder,
-    FundingDialogBuilder, SubmitDialogBuilder, TradeDialogBuilder, TradingVehicleDialogBuilder,
+    FundingDialogBuilder, KeysDeleteDialogBuilder, KeysReadDialogBuilder, KeysWriteDialogBuilder,
+    SubmitDialogBuilder, TradeDialogBuilder, TradingVehicleDialogBuilder,
     TradingVehicleSearchDialogBuilder, TransactionDialogBuilder,
 };
 use crate::dialogs::{RuleDialogBuilder, RuleRemoveDialogBuilder};
@@ -219,15 +220,24 @@ impl ArgDispatcher {
 
 impl ArgDispatcher {
     fn create_keys(&mut self) {
-        unimplemented!("create-keys")
+        KeysWriteDialogBuilder::new()
+            .environment()
+            .url()
+            .key_id()
+            .key_secret()
+            .build()
+            .display();
     }
 
     fn show_keys(&mut self) {
-        unimplemented!()
+        KeysReadDialogBuilder::new().environment().build().display();
     }
 
     fn delete_keys(&mut self) {
-        unimplemented!()
+        KeysDeleteDialogBuilder::new()
+            .environment()
+            .build()
+            .display();
     }
 }
 

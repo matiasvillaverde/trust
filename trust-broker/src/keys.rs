@@ -18,22 +18,34 @@ impl Keys {
 }
 
 impl Keys {
-    pub fn get(environment: &Environment) -> Result<Keys> {
+    pub fn read(environment: &Environment) -> Result<Keys> {
         let keys = get_keys(environment)?;
         Ok(keys)
     }
 
-    pub fn store(self, environment: &Environment) -> Result<()> {
-        store_keys(self, environment)?;
+    pub fn store(self, environment: &Environment) -> Result<Keys> {
+        let keys = store_keys(self, environment)?;
+        Ok(keys)
+    }
+
+    pub fn delete(environment: &Environment) -> Result<()> {
+        delete_keys(environment)?;
         Ok(())
     }
 }
 
-fn store_keys(keys: Keys, environment: &Environment) -> Result<()> {
+fn delete_keys(environment: &Environment) -> Result<()> {
+    delete(EntryType::KeyId, environment)?;
+    delete(EntryType::Secret, environment)?;
+    delete(EntryType::Url, environment)?;
+    Ok(())
+}
+
+fn store_keys(keys: Keys, environment: &Environment) -> Result<Keys> {
     store(EntryType::KeyId, environment, keys.key_id.as_str())?;
     store(EntryType::Secret, environment, keys.secret.as_str())?;
     store(EntryType::Url, environment, keys.url.as_str())?;
-    Ok(())
+    Ok(keys)
 }
 
 fn get_keys(environment: &Environment) -> Result<Keys> {
@@ -55,13 +67,26 @@ fn store(entry: EntryType, environment: &Environment, value: &str) -> Result<()>
 
 fn get(entry: EntryType, environment: &Environment) -> Result<String> {
     let entry = Entry::new(environment.to_string().as_str(), entry.to_string().as_str())?;
-    let url = entry.get_password()?;
-    Ok(url)
+    let password = entry.get_password()?;
+    Ok(password)
 }
 
+fn delete(entry: EntryType, environment: &Environment) -> Result<()> {
+    let entry = Entry::new(environment.to_string().as_str(), entry.to_string().as_str())?;
+    let result = entry.delete_password()?;
+    Ok(result)
+}
+
+#[derive(Debug, Clone, Copy)]
 pub enum Environment {
     Paper,
     Live,
+}
+
+impl Environment {
+    pub fn all() -> Vec<Environment> {
+        vec![Environment::Paper, Environment::Live]
+    }
 }
 
 pub enum EntryType {

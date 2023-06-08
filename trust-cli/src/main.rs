@@ -19,6 +19,7 @@ fn main() {
             KeysCommandBuilder::new()
                 .create_keys()
                 .read_environment()
+                .delete_environment()
                 .build(),
         )
         .subcommand(

@@ -1,4 +1,5 @@
 mod account_dialog;
+mod keys_dialog;
 mod rule_dialog;
 mod trade_dialog;
 mod trade_entry_dialog;
@@ -10,6 +11,9 @@ mod transaction_dialog;
 
 pub use account_dialog::AccountDialogBuilder;
 pub use account_dialog::AccountSearchDialog;
+pub use keys_dialog::KeysDeleteDialogBuilder;
+pub use keys_dialog::KeysReadDialogBuilder;
+pub use keys_dialog::KeysWriteDialogBuilder;
 pub use rule_dialog::RuleDialogBuilder;
 pub use rule_dialog::RuleRemoveDialogBuilder;
 pub use trade_dialog::TradeDialogBuilder;
