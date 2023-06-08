@@ -22,7 +22,7 @@ impl Broker for AlpacaBroker {
     fn submit_trade(&self, trade: &Trade, account: &Account) -> Result<BrokerLog, Box<dyn Error>> {
         assert!(trade.account_id == account.id); // Verify that the trade is for the account
 
-        let api_info = read_api_key(&account.environment)?;
+        let api_info = read_api_key(&account.environment, account)?;
         let client = Client::new(api_info);
 
         let request = new_request(trade);
@@ -38,25 +38,26 @@ impl AlpacaBroker {
         secret: &str,
         url: &str,
         environment: &Environment,
+        account: &Account,
     ) -> Result<Keys, Box<dyn Error>> {
         let keys = Keys::new(key_id, secret, url);
-        let keys = keys.store(environment)?;
+        let keys = keys.store(environment, &account.name)?;
         Ok(keys)
     }
 
-    pub fn read_keys(environment: &Environment) -> Result<Keys, Box<dyn Error>> {
-        let keys = Keys::read(environment)?;
+    pub fn read_keys(environment: &Environment, account: &Account) -> Result<Keys, Box<dyn Error>> {
+        let keys = Keys::read(environment, &account.name)?;
         Ok(keys)
     }
 
-    pub fn delete_keys(environment: &Environment) -> Result<(), Box<dyn Error>> {
-        Keys::delete(environment)?;
+    pub fn delete_keys(environment: &Environment, account: &Account) -> Result<(), Box<dyn Error>> {
+        Keys::delete(environment, &account.name)?;
         Ok(())
     }
 }
 
-fn read_api_key(env: &Environment) -> Result<ApiInfo, Box<dyn Error>> {
-    let keys = Keys::read(env)?;
+fn read_api_key(env: &Environment, account: &Account) -> Result<ApiInfo, Box<dyn Error>> {
+    let keys = Keys::read(env, &account.name)?;
     let info = ApiInfo::from_parts(keys.url, keys.key_id, keys.secret)?;
     Ok(info)
 }

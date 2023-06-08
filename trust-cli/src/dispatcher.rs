@@ -222,6 +222,7 @@ impl ArgDispatcher {
 impl ArgDispatcher {
     fn create_keys(&mut self) {
         KeysWriteDialogBuilder::new()
+            .account(&mut self.trust)
             .environment()
             .url()
             .key_id()
@@ -231,11 +232,16 @@ impl ArgDispatcher {
     }
 
     fn show_keys(&mut self) {
-        KeysReadDialogBuilder::new().environment().build().display();
+        KeysReadDialogBuilder::new()
+            .account(&mut self.trust)
+            .environment()
+            .build()
+            .display();
     }
 
     fn delete_keys(&mut self) {
         KeysDeleteDialogBuilder::new()
+            .account(&mut self.trust)
             .environment()
             .build()
             .display();

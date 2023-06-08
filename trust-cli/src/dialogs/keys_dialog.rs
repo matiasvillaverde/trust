@@ -1,14 +1,17 @@
 use std::error::Error;
 
+use crate::dialogs::AccountSearchDialog;
 use dialoguer::{theme::ColorfulTheme, FuzzySelect, Input};
 use trust_broker::{AlpacaBroker, Keys};
-use trust_model::Environment;
+use trust_core::TrustFacade;
+use trust_model::{Account, Environment};
 
 pub struct KeysWriteDialogBuilder {
     url: String,
     key_id: String,
     key_secret: String,
     environment: Option<Environment>,
+    account: Option<Account>,
     result: Option<Result<Keys, Box<dyn Error>>>,
 }
 
@@ -19,6 +22,7 @@ impl KeysWriteDialogBuilder {
             key_id: "".to_string(),
             key_secret: "".to_string(),
             environment: None,
+            account: None,
             result: None,
         }
     }
@@ -31,6 +35,10 @@ impl KeysWriteDialogBuilder {
             &self
                 .environment
                 .expect("Did you forget to select an environment?"),
+            &self
+                .account
+                .clone()
+                .expect("Did you forget to select an account?"),
         ));
         self
     }
@@ -82,10 +90,20 @@ impl KeysWriteDialogBuilder {
             .unwrap();
         self
     }
+
+    pub fn account(mut self, trust: &mut TrustFacade) -> Self {
+        let account = AccountSearchDialog::new().search(trust).build();
+        match account {
+            Ok(account) => self.account = Some(account),
+            Err(error) => println!("Error searching account: {:?}", error),
+        }
+        self
+    }
 }
 
 pub struct KeysReadDialogBuilder {
     environment: Option<Environment>,
+    account: Option<Account>,
     result: Option<Result<Keys, Box<dyn Error>>>,
 }
 
@@ -93,6 +111,7 @@ impl KeysReadDialogBuilder {
     pub fn new() -> Self {
         KeysReadDialogBuilder {
             environment: None,
+            account: None,
             result: None,
         }
     }
@@ -102,6 +121,10 @@ impl KeysReadDialogBuilder {
             &self
                 .environment
                 .expect("Did you forget to select an environment?"),
+            &self
+                .account
+                .clone()
+                .expect("Did you forget to select an account?"),
         ));
         self
     }
@@ -129,10 +152,20 @@ impl KeysReadDialogBuilder {
         self.environment = Some(*env);
         self
     }
+
+    pub fn account(mut self, trust: &mut TrustFacade) -> Self {
+        let account = AccountSearchDialog::new().search(trust).build();
+        match account {
+            Ok(account) => self.account = Some(account),
+            Err(error) => println!("Error searching account: {:?}", error),
+        }
+        self
+    }
 }
 
 pub struct KeysDeleteDialogBuilder {
     environment: Option<Environment>,
+    account: Option<Account>,
     result: Option<Result<(), Box<dyn Error>>>,
 }
 
@@ -140,6 +173,7 @@ impl KeysDeleteDialogBuilder {
     pub fn new() -> Self {
         KeysDeleteDialogBuilder {
             environment: None,
+            account: None,
             result: None,
         }
     }
@@ -149,6 +183,10 @@ impl KeysDeleteDialogBuilder {
             &self
                 .environment
                 .expect("Did you forget to select an environment?"),
+            &self
+                .account
+                .clone()
+                .expect("Did you forget to select an account?"),
         ));
         self
     }
@@ -174,6 +212,15 @@ impl KeysDeleteDialogBuilder {
             .unwrap();
 
         self.environment = Some(*env);
+        self
+    }
+
+    pub fn account(mut self, trust: &mut TrustFacade) -> Self {
+        let account = AccountSearchDialog::new().search(trust).build();
+        match account {
+            Ok(account) => self.account = Some(account),
+            Err(error) => println!("Error searching account: {:?}", error),
+        }
         self
     }
 }

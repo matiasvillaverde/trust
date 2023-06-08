@@ -1,5 +1,8 @@
-use keyring::{Entry, Result};
-use std::fmt::{self, Display, Formatter};
+use keyring::Entry;
+use std::{
+    fmt::{self, Display, Formatter},
+    str::FromStr,
+};
 use trust_model::Environment;
 
 pub struct Keys {
@@ -18,80 +21,44 @@ impl Keys {
     }
 }
 
+impl Display for Keys {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{} {} {}", self.url, self.key_id, self.secret)
+    }
+}
+
+#[derive(PartialEq, Debug)]
+pub struct KeysParseError;
+impl FromStr for Keys {
+    type Err = KeysParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut split = s.split_whitespace();
+        let url = split.next().unwrap_or_default().to_string();
+        let key_id = split.next().unwrap_or_default().to_string();
+        let secret = split.next().unwrap_or_default().to_string();
+        Ok(Keys::new(key_id.as_str(), secret.as_str(), url.as_str()))
+    }
+}
+
 impl Keys {
-    pub fn read(environment: &Environment) -> Result<Keys> {
-        let keys = get_keys(environment)?;
+    pub fn read(environment: &Environment, account_name: &str) -> keyring::Result<Keys> {
+        let entry = Entry::new(account_name, environment.to_string().as_str())?;
+        let password = entry.get_password()?;
+        let keys = Keys::from_str(password.as_str()).expect("Failed to parse Keys from string");
         Ok(keys)
     }
 
-    pub fn store(self, environment: &Environment) -> Result<Keys> {
-        let keys = store_keys(self, environment)?;
-        Ok(keys)
+    pub fn store(self, environment: &Environment, account_name: &str) -> keyring::Result<Keys> {
+        let entry = Entry::new(account_name, environment.to_string().as_str())?;
+        entry.set_password(self.to_string().as_str())?;
+        Ok(self)
     }
 
-    pub fn delete(environment: &Environment) -> Result<()> {
-        delete_keys(environment)?;
+    pub fn delete(environment: &Environment, account_name: &str) -> keyring::Result<()> {
+        let entry = Entry::new(account_name, environment.to_string().as_str())?;
+        entry.delete_password()?;
         Ok(())
-    }
-}
-
-fn delete_keys(environment: &Environment) -> Result<()> {
-    delete(EntryType::KeyId, environment)?;
-    delete(EntryType::Secret, environment)?;
-    delete(EntryType::Url, environment)?;
-    Ok(())
-}
-
-fn store_keys(keys: Keys, environment: &Environment) -> Result<Keys> {
-    // TODO: store in only one entry.
-    store(EntryType::KeyId, environment, keys.key_id.as_str())?;
-    store(EntryType::Secret, environment, keys.secret.as_str())?;
-    store(EntryType::Url, environment, keys.url.as_str())?;
-    Ok(keys)
-}
-
-fn get_keys(environment: &Environment) -> Result<Keys> {
-    let key_id = get(EntryType::KeyId, environment)?;
-    let secret = get(EntryType::Secret, environment)?;
-    let url = get(EntryType::Url, environment)?;
-    Ok(Keys {
-        key_id,
-        secret,
-        url,
-    })
-}
-
-fn store(entry: EntryType, environment: &Environment, value: &str) -> Result<()> {
-    let entry = Entry::new(environment.to_string().as_str(), entry.to_string().as_str())?;
-    entry.set_password(value)?;
-    Ok(())
-}
-
-fn get(entry: EntryType, environment: &Environment) -> Result<String> {
-    let entry = Entry::new(environment.to_string().as_str(), entry.to_string().as_str())?;
-    let password = entry.get_password()?;
-    Ok(password)
-}
-
-fn delete(entry: EntryType, environment: &Environment) -> Result<()> {
-    let entry = Entry::new(environment.to_string().as_str(), entry.to_string().as_str())?;
-    let result = entry.delete_password()?;
-    Ok(result)
-}
-
-pub enum EntryType {
-    KeyId,
-    Secret,
-    Url,
-}
-
-impl Display for EntryType {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        match *self {
-            EntryType::KeyId => write!(f, "KeyId"),
-            EntryType::Secret => write!(f, "Secret"),
-            EntryType::Url => write!(f, "Url"),
-        }
     }
 }
 
