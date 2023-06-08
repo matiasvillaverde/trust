@@ -1,4 +1,5 @@
-mod worker_account;
+mod accounts;
+mod broker_logs;
 mod worker_account_overview;
 mod worker_order;
 mod worker_price;
@@ -7,7 +8,8 @@ mod worker_trade;
 mod worker_trading_vehicle;
 mod worker_transaction;
 
-pub use worker_account::AccountDB;
+pub use accounts::AccountDB;
+pub use broker_logs::BrokerLogDB;
 pub use worker_account_overview::WorkerAccountOverview;
 pub use worker_order::WorkerOrder;
 pub use worker_price::WorkerPrice;

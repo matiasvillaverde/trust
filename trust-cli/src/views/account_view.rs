@@ -7,6 +7,7 @@ use trust_model::{Account, AccountOverview};
 pub struct AccountView {
     pub name: String,
     pub description: String,
+    pub env: String,
 }
 
 impl AccountView {
@@ -14,6 +15,7 @@ impl AccountView {
         AccountView {
             name: account.name,
             description: account.description,
+            env: account.environment.to_string(),
         }
     }
 

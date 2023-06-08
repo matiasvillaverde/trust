@@ -3,11 +3,12 @@ use std::error::Error;
 use crate::views::{AccountOverviewView, AccountView, RuleView};
 use dialoguer::{theme::ColorfulTheme, FuzzySelect, Input};
 use trust_core::TrustFacade;
-use trust_model::Account;
+use trust_model::{Account, Environment};
 
 pub struct AccountDialogBuilder {
     name: String,
     description: String,
+    environment: Option<Environment>,
     result: Option<Result<Account, Box<dyn Error>>>,
 }
 
@@ -16,12 +17,14 @@ impl AccountDialogBuilder {
         AccountDialogBuilder {
             name: "".to_string(),
             description: "".to_string(),
+            environment: None,
             result: None,
         }
     }
 
     pub fn build(mut self, trust: &mut TrustFacade) -> AccountDialogBuilder {
-        self.result = Some(trust.create_account(&self.name, &self.description));
+        self.result =
+            Some(trust.create_account(&self.name, &self.description, self.environment.unwrap()));
         self
     }
 
@@ -48,6 +51,20 @@ impl AccountDialogBuilder {
             .with_prompt("Description: ")
             .interact_text()
             .unwrap();
+        self
+    }
+
+    pub fn environment(mut self) -> Self {
+        let available_env = Environment::all();
+
+        let env: &Environment = FuzzySelect::with_theme(&ColorfulTheme::default())
+            .with_prompt("Environment:")
+            .items(&available_env[..])
+            .interact()
+            .map(|index| available_env.get(index).unwrap())
+            .unwrap();
+
+        self.environment = Some(*env);
         self
     }
 }

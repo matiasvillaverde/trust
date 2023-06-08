@@ -2,25 +2,25 @@ use crate::schema::accounts;
 use chrono::{NaiveDateTime, Utc};
 use diesel::prelude::*;
 use std::error::Error;
+use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::Mutex;
 use tracing::error;
 use trust_model::ReadAccountDB;
-use trust_model::{Account, WriteAccountDB};
+use trust_model::{Account, Environment, WriteAccountDB};
 use uuid::Uuid;
-
-/// AccountDB is a struct that contains methods for interacting with the
-/// accounts table in the database.
-/// The methods in this struct are used by the worker to create and read
-/// accounts.
-///
 
 pub struct AccountDB {
     pub connection: Arc<Mutex<SqliteConnection>>,
 }
 
 impl WriteAccountDB for AccountDB {
-    fn create_account(&mut self, name: &str, description: &str) -> Result<Account, Box<dyn Error>> {
+    fn create_account(
+        &mut self,
+        name: &str,
+        description: &str,
+        environment: Environment,
+    ) -> Result<Account, Box<dyn Error>> {
         let uuid = Uuid::new_v4().to_string();
         let now = Utc::now().naive_utc();
 
@@ -31,6 +31,7 @@ impl WriteAccountDB for AccountDB {
             deleted_at: None,
             name: name.to_lowercase(),
             description: description.to_lowercase(),
+            environment: environment.to_string(),
         };
 
         let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap();
@@ -106,6 +107,7 @@ pub struct AccountSQLite {
     pub deleted_at: Option<NaiveDateTime>,
     pub name: String,
     pub description: String,
+    pub environment: String,
 }
 
 impl AccountSQLite {
@@ -117,6 +119,7 @@ impl AccountSQLite {
             deleted_at: self.deleted_at,
             name: self.name,
             description: self.description,
+            environment: Environment::from_str(&self.environment).unwrap(),
         }
     }
 }
@@ -131,6 +134,7 @@ struct NewAccount {
     deleted_at: Option<NaiveDateTime>,
     name: String,
     description: String,
+    environment: String,
 }
 
 #[cfg(test)]
@@ -160,10 +164,11 @@ mod tests {
         };
         // Create a new account record
         let account = db
-            .create_account("Test Account", "This is a test account")
+            .create_account("Test Account", "This is a test account", Environment::Paper)
             .expect("Error creating account");
         assert_eq!(account.name, "test account"); // it should be lowercase
         assert_eq!(account.description, "this is a test account"); // it should be lowercase
+        assert_eq!(account.environment, Environment::Paper);
         assert_eq!(account.deleted_at, None);
     }
     #[test]
@@ -174,7 +179,7 @@ mod tests {
         };
         // Create a new account record
         let created_account = db
-            .create_account("Test Account", "This is a test account")
+            .create_account("Test Account", "This is a test account", Environment::Paper)
             .expect("Error creating account");
         // Read the account record by name
         let read_account = db
@@ -190,7 +195,7 @@ mod tests {
         };
         // Create a new account record
         let created_account = db
-            .create_account("Test Account", "This is a test account")
+            .create_account("Test Account", "This is a test account", Environment::Paper)
             .expect("Error creating account");
         // Read the account record by name
         let read_account = db
@@ -206,10 +211,10 @@ mod tests {
         };
         let name = "Test Account";
         // Create a new account record
-        db.create_account(name, "This is a test account")
+        db.create_account(name, "This is a test account", Environment::Paper)
             .expect("Error creating account");
         // Create a new account record with the same name
-        db.create_account(name, "This is a test account")
+        db.create_account(name, "This is a test account", Environment::Paper)
             .expect_err("Error creating account with same name");
     }
     #[test]
@@ -226,13 +231,25 @@ mod tests {
         let db = create_factory(establish_connection());
         let created_accounts = vec![
             db.write_account_db()
-                .create_account("Test Account 1", "This is a test account")
+                .create_account(
+                    "Test Account 1",
+                    "This is a test account",
+                    Environment::Paper,
+                )
                 .expect("Error creating account"),
             db.write_account_db()
-                .create_account("Test Account 2", "This is a test account")
+                .create_account(
+                    "Test Account 2",
+                    "This is a test account",
+                    Environment::Paper,
+                )
                 .expect("Error creating account"),
             db.write_account_db()
-                .create_account("Test Account 3", "This is a test account")
+                .create_account(
+                    "Test Account 3",
+                    "This is a test account",
+                    Environment::Paper,
+                )
                 .expect("Error creating account"),
         ];
 

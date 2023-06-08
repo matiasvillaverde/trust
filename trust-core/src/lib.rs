@@ -1,9 +1,9 @@
 use rust_decimal::Decimal;
 use trade_calculators::QuantityCalculator;
 use trust_model::{
-    Account, AccountOverview, Broker, BrokerLog, Currency, DatabaseFactory, DraftTrade, Order,
-    Rule, RuleLevel, RuleName, Trade, TradeOverview, TradingVehicle, TradingVehicleCategory,
-    Transaction, TransactionCategory,
+    Account, AccountOverview, Broker, BrokerLog, Currency, DatabaseFactory, DraftTrade,
+    Environment, Order, Rule, RuleLevel, RuleName, Status, Trade, TradeOverview, TradingVehicle,
+    TradingVehicleCategory, Transaction, TransactionCategory,
 };
 use uuid::Uuid;
 use validators::RuleValidator;
@@ -28,10 +28,11 @@ impl TrustFacade {
         &mut self,
         name: &str,
         description: &str,
+        environment: Environment,
     ) -> Result<Account, Box<dyn std::error::Error>> {
         self.factory
             .write_account_db()
-            .create_account(name, description)
+            .create_account(name, description, environment)
     }
 
     pub fn search_account(&mut self, name: &str) -> Result<Account, Box<dyn std::error::Error>> {
@@ -182,25 +183,14 @@ impl TrustFacade {
             .create_trade(draft, &stop, &entry, &target)
     }
 
-    pub fn search_new_trades(
+    pub fn search_trades(
         &mut self,
         account_id: Uuid,
+        status: Status,
     ) -> Result<Vec<Trade>, Box<dyn std::error::Error>> {
-        self.factory.read_trade_db().read_all_new_trades(account_id)
-    }
-
-    pub fn search_funded_trades(
-        &mut self,
-        account_id: Uuid,
-    ) -> Result<Vec<Trade>, Box<dyn std::error::Error>> {
-        self.factory.read_trade_db().all_funded_trades(account_id)
-    }
-
-    pub fn search_filled_trades(
-        &mut self,
-        account_id: Uuid,
-    ) -> Result<Vec<Trade>, Box<dyn std::error::Error>> {
-        self.factory.read_trade_db().all_filled_trades(account_id)
+        self.factory
+            .read_trade_db()
+            .read_trades_with_status(account_id, status)
     }
 
     // Trade Steps
@@ -228,12 +218,21 @@ impl TrustFacade {
         RuleValidator::validate_submit(trade)?;
 
         // 2. Submit trade to broker
-        let log = self.broker.submit_trade(trade)?; // TODO: Persist log in DB
+        let account = self
+            .factory
+            .read_account_db()
+            .read_account_id(trade.account_id)?;
+        let log = self.broker.submit_trade(trade, &account)?;
 
-        // 3. Mark Trade as submitted
+        // 3. Save log in the DB
+        self.factory
+            .write_broker_log_db()
+            .create_log(log.log.as_str(), trade)?;
+
+        // 4. Mark Trade as submitted
         let trade = self.factory.write_trade_db().submit_trade(trade)?;
 
-        // 4. Update Entry order to submitted
+        // 5. Update Entry order to submitted
         let order = self.factory.write_order_db().record_submit(&trade.entry)?;
 
         Ok((trade, order, log))
@@ -243,7 +242,7 @@ impl TrustFacade {
         trade: &Trade,
         fee: Decimal,
     ) -> Result<Trade, Box<dyn std::error::Error>> {
-        TradeWorker::open_trade(trade, fee, self.factory.as_mut())
+        TradeWorker::fill_trade(trade, fee, self.factory.as_mut())
     }
 
     pub fn stop_trade(

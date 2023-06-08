@@ -3,7 +3,7 @@ use crate::{dialogs::AccountSearchDialog, views::TransactionView};
 use dialoguer::{theme::ColorfulTheme, FuzzySelect};
 use std::error::Error;
 use trust_core::TrustFacade;
-use trust_model::{Account, AccountOverview, Trade, TradeOverview, Transaction};
+use trust_model::{Account, AccountOverview, Status, Trade, TradeOverview, Transaction};
 
 type TradeDialogApproverBuilderResult =
     Option<Result<(Trade, Transaction, AccountOverview, TradeOverview), Box<dyn Error>>>;
@@ -63,7 +63,7 @@ impl FundingDialogBuilder {
     }
 
     pub fn search(mut self, trust: &mut TrustFacade) -> Self {
-        let trades = trust.search_new_trades(self.account.clone().unwrap().id);
+        let trades = trust.search_trades(self.account.clone().unwrap().id, Status::New);
         match trades {
             Ok(trades) => {
                 if trades.is_empty() {

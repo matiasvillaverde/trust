@@ -1,11 +1,14 @@
 use crate::dialogs::{
-    AccountDialogBuilder, AccountSearchDialog, EntryDialogBuilder, ExitDialogBuilder,
-    FundingDialogBuilder, SubmitDialogBuilder, TradeDialogBuilder, TradingVehicleDialogBuilder,
+    AccountDialogBuilder, AccountSearchDialog, ExitDialogBuilder, FillTradeDialogBuilder,
+    FundingDialogBuilder, KeysDeleteDialogBuilder, KeysReadDialogBuilder, KeysWriteDialogBuilder,
+    SubmitDialogBuilder, TradeDialogBuilder, TradingVehicleDialogBuilder,
     TradingVehicleSearchDialogBuilder, TransactionDialogBuilder,
 };
 use crate::dialogs::{RuleDialogBuilder, RuleRemoveDialogBuilder};
 use clap::ArgMatches;
+use shellexpand::tilde;
 use std::ffi::OsString;
+use std::fs;
 use trust_broker::AlpacaBroker;
 use trust_core::TrustFacade;
 use trust_db_sqlite::SqliteDatabase;
@@ -17,7 +20,9 @@ pub struct ArgDispatcher {
 
 impl ArgDispatcher {
     pub fn new_sqlite() -> Self {
-        let database = SqliteDatabase::new("sqlite://production.db");
+        create_dir_if_necessary();
+        let db_url = tilde("~/.trust/production.db").to_string();
+        let database = SqliteDatabase::new(&db_url);
 
         ArgDispatcher {
             trust: TrustFacade::new(Box::new(database), Box::<AlpacaBroker>::default()),
@@ -26,6 +31,12 @@ impl ArgDispatcher {
 
     pub fn dispatch(mut self, matches: ArgMatches) {
         match matches.subcommand() {
+            Some(("keys", sub_matches)) => match sub_matches.subcommand() {
+                Some(("create", _)) => self.create_keys(),
+                Some(("show", _)) => self.show_keys(),
+                Some(("delete", _)) => self.delete_keys(),
+                _ => unreachable!("No subcommand provided"),
+            },
             Some(("account", sub_matches)) => match sub_matches.subcommand() {
                 Some(("create", _)) => self.create_account(),
                 Some(("search", _)) => self.search_account(),
@@ -74,6 +85,7 @@ impl ArgDispatcher {
         AccountDialogBuilder::new()
             .name()
             .description()
+            .environment()
             .build(&mut self.trust)
             .display();
     }
@@ -180,7 +192,7 @@ impl ArgDispatcher {
     }
 
     fn create_fill(&mut self) {
-        EntryDialogBuilder::new()
+        FillTradeDialogBuilder::new()
             .account(&mut self.trust)
             .search(&mut self.trust)
             .fee()
@@ -204,5 +216,51 @@ impl ArgDispatcher {
             .fee()
             .build_target(&mut self.trust)
             .display();
+    }
+}
+
+impl ArgDispatcher {
+    fn create_keys(&mut self) {
+        KeysWriteDialogBuilder::new()
+            .account(&mut self.trust)
+            .environment()
+            .url()
+            .key_id()
+            .key_secret()
+            .build()
+            .display();
+    }
+
+    fn show_keys(&mut self) {
+        KeysReadDialogBuilder::new()
+            .account(&mut self.trust)
+            .environment()
+            .build()
+            .display();
+    }
+
+    fn delete_keys(&mut self) {
+        KeysDeleteDialogBuilder::new()
+            .account(&mut self.trust)
+            .environment()
+            .build()
+            .display();
+    }
+}
+
+// Utils
+
+fn create_dir_if_necessary() {
+    let directory_path = tilde("~/.trust").to_string();
+
+    // Check if directory already exists or not
+    if fs::metadata(&directory_path).is_ok() {
+        return;
+    }
+
+    // We need to create a directory
+    match fs::create_dir(directory_path.clone()) {
+        Ok(_) => println!("Directory {} created successfully!", directory_path),
+        Err(err) => eprintln!("Failed to create directory: {}", err),
     }
 }

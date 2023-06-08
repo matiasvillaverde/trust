@@ -373,7 +373,7 @@ mod tests {
     use crate::SqliteDatabase;
     use diesel_migrations::*;
     use std::sync::{Arc, Mutex};
-    use trust_model::DatabaseFactory;
+    use trust_model::{DatabaseFactory, Environment};
 
     pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
 
@@ -399,7 +399,11 @@ mod tests {
         // Create a new account record
         let account = db
             .write_account_db()
-            .create_account("Test Account 3", "This is a test account")
+            .create_account(
+                "Test Account 3",
+                "This is a test account",
+                Environment::Paper,
+            )
             .expect("Error creating account");
         let tx = db
             .write_transaction_db()
@@ -427,7 +431,11 @@ mod tests {
         // Create a new account record
         let account = db
             .write_account_db()
-            .create_account("Test Account 3", "This is a test account")
+            .create_account(
+                "Test Account 3",
+                "This is a test account",
+                Environment::Paper,
+            )
             .expect("Error creating account");
         let tx = db
             .write_transaction_db()

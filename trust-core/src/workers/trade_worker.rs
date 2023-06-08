@@ -6,7 +6,7 @@ use trust_model::{DatabaseFactory, Trade, Transaction};
 pub struct TradeWorker;
 
 impl TradeWorker {
-    pub fn open_trade(
+    pub fn fill_trade(
         trade: &Trade,
         fee: Decimal,
         database: &mut dyn DatabaseFactory,
@@ -19,7 +19,7 @@ impl TradeWorker {
         }
 
         // Create Transaction to transfer funds to the market
-        TransactionWorker::transfer_to_open_trade(trade, database)?;
+        TransactionWorker::transfer_to_fill_trade(trade, database)?;
 
         // Record timestamp when the order was opened
         OrderWorker::record_timestamp_entry(

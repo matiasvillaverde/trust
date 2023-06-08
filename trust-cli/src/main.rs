@@ -1,5 +1,5 @@
 use crate::commands::{
-    AccountCommandBuilder, TradeCommandBuilder, TradingVehicleCommandBuilder,
+    AccountCommandBuilder, KeysCommandBuilder, TradeCommandBuilder, TradingVehicleCommandBuilder,
     TransactionCommandBuilder,
 };
 use crate::dispatcher::ArgDispatcher;
@@ -15,6 +15,13 @@ fn main() {
         .about("A tool for managing tradings")
         .subcommand_required(true)
         .arg_required_else_help(true)
+        .subcommand(
+            KeysCommandBuilder::new()
+                .create_keys()
+                .read_environment()
+                .delete_environment()
+                .build(),
+        )
         .subcommand(
             AccountCommandBuilder::new()
                 .create_account()

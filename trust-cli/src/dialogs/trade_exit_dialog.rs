@@ -4,7 +4,7 @@ use dialoguer::{theme::ColorfulTheme, FuzzySelect, Input};
 use rust_decimal::Decimal;
 use std::error::Error;
 use trust_core::TrustFacade;
-use trust_model::{Account, AccountOverview, Trade, TradeOverview, Transaction};
+use trust_model::{Account, AccountOverview, Status, Trade, TradeOverview, Transaction};
 
 type ExitDialogBuilderResult =
     Option<Result<(Transaction, Transaction, TradeOverview, AccountOverview), Box<dyn Error>>>;
@@ -87,7 +87,7 @@ impl ExitDialogBuilder {
     }
 
     pub fn search(mut self, trust: &mut TrustFacade) -> Self {
-        let trades = trust.search_filled_trades(self.account.clone().unwrap().id);
+        let trades = trust.search_trades(self.account.clone().unwrap().id, Status::Filled);
         match trades {
             Ok(trades) => {
                 if trades.is_empty() {

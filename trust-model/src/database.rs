@@ -1,7 +1,7 @@
 use crate::{
-    Account, AccountOverview, Currency, Order, OrderAction, Price, Rule, RuleLevel, RuleName,
-    Trade, TradeCategory, TradeOverview, TradingVehicle, TradingVehicleCategory, Transaction,
-    TransactionCategory,
+    Account, AccountOverview, BrokerLog, Currency, Environment, Order, OrderAction, Price, Rule,
+    RuleLevel, RuleName, Status, Trade, TradeCategory, TradeOverview, TradingVehicle,
+    TradingVehicleCategory, Transaction, TransactionCategory,
 };
 use rust_decimal::Decimal;
 use uuid::Uuid;
@@ -38,6 +38,8 @@ pub trait DatabaseFactory {
     fn write_rule_db(&self) -> Box<dyn WriteRuleDB>;
     fn read_trading_vehicle_db(&self) -> Box<dyn ReadTradingVehicleDB>;
     fn write_trading_vehicle_db(&self) -> Box<dyn WriteTradingVehicleDB>;
+    fn read_broker_log_db(&self) -> Box<dyn ReadBrokerLogsDB>;
+    fn write_broker_log_db(&self) -> Box<dyn WriteBrokerLogsDB>;
 }
 
 pub trait ReadAccountDB {
@@ -47,7 +49,12 @@ pub trait ReadAccountDB {
 }
 
 pub trait WriteAccountDB {
-    fn create_account(&mut self, name: &str, description: &str) -> Result<Account, Box<dyn Error>>;
+    fn create_account(
+        &mut self,
+        name: &str,
+        description: &str,
+        environment: Environment,
+    ) -> Result<Account, Box<dyn Error>>;
 }
 
 pub trait ReadAccountOverviewDB {
@@ -177,13 +184,13 @@ pub trait ReadTradeDB {
         currency: &Currency,
     ) -> Result<Vec<Trade>, Box<dyn Error>>;
 
-    fn all_funded_trades(&mut self, account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>>;
-
-    fn all_filled_trades(&mut self, account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>>;
+    fn read_trades_with_status(
+        &mut self,
+        account_id: Uuid,
+        status: Status,
+    ) -> Result<Vec<Trade>, Box<dyn Error>>;
 
     fn read_trade(&mut self, id: Uuid) -> Result<Trade, Box<dyn Error>>;
-
-    fn read_all_new_trades(&mut self, account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>>;
 }
 
 pub struct DraftTrade {
@@ -259,4 +266,13 @@ pub trait WriteTradingVehicleDB {
         category: &TradingVehicleCategory,
         broker: &str,
     ) -> Result<TradingVehicle, Box<dyn Error>>;
+}
+
+pub trait WriteBrokerLogsDB {
+    fn create_log(&mut self, log: &str, trade: &Trade) -> Result<BrokerLog, Box<dyn Error>>;
+}
+
+pub trait ReadBrokerLogsDB {
+    fn read_all_logs_for_trade(&mut self, trade_id: Uuid)
+        -> Result<Vec<BrokerLog>, Box<dyn Error>>;
 }
