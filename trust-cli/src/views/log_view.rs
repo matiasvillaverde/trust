@@ -18,10 +18,7 @@ impl LogView {
     }
 
     pub fn display_logs(logs: Vec<&BrokerLog>) {
-        let views: Vec<LogView> = logs
-            .into_iter()
-            .map(|r: &BrokerLog| LogView::new(r))
-            .collect();
+        let views: Vec<LogView> = logs.into_iter().map(LogView::new).collect();
         let mut table = Table::new(views);
         table.with(Style::modern());
         println!("{}", table);

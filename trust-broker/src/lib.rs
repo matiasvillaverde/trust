@@ -178,7 +178,7 @@ mod tests {
         );
         assert_eq!(
             order_req.stop_loss.unwrap(),
-            StopLoss::Stop(Num::from(Num::from_str("10.27").unwrap()))
+            StopLoss::Stop(Num::from_str("10.27").unwrap())
         );
         assert_eq!(
             order_req.symbol.to_string(),

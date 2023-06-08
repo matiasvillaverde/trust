@@ -35,10 +35,7 @@ impl OrderView {
     }
 
     pub fn display_orders(orders: Vec<&Order>) {
-        let views: Vec<OrderView> = orders
-            .into_iter()
-            .map(|r: &Order| OrderView::new(r))
-            .collect();
+        let views: Vec<OrderView> = orders.into_iter().map(OrderView::new).collect();
         let mut table = Table::new(views);
         table.with(Style::modern());
         println!("{}", table);
