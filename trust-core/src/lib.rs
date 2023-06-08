@@ -2,7 +2,7 @@ use rust_decimal::Decimal;
 use trade_calculators::QuantityCalculator;
 use trust_model::{
     Account, AccountOverview, Broker, BrokerLog, Currency, DatabaseFactory, DraftTrade,
-    Environment, Order, Rule, RuleLevel, RuleName, Trade, TradeOverview, TradingVehicle,
+    Environment, Order, Rule, RuleLevel, RuleName, Status, Trade, TradeOverview, TradingVehicle,
     TradingVehicleCategory, Transaction, TransactionCategory,
 };
 use uuid::Uuid;
@@ -183,25 +183,14 @@ impl TrustFacade {
             .create_trade(draft, &stop, &entry, &target)
     }
 
-    pub fn search_new_trades(
+    pub fn search_trades(
         &mut self,
         account_id: Uuid,
+        status: Status,
     ) -> Result<Vec<Trade>, Box<dyn std::error::Error>> {
-        self.factory.read_trade_db().read_all_new_trades(account_id)
-    }
-
-    pub fn search_funded_trades(
-        &mut self,
-        account_id: Uuid,
-    ) -> Result<Vec<Trade>, Box<dyn std::error::Error>> {
-        self.factory.read_trade_db().all_funded_trades(account_id)
-    }
-
-    pub fn search_filled_trades(
-        &mut self,
-        account_id: Uuid,
-    ) -> Result<Vec<Trade>, Box<dyn std::error::Error>> {
-        self.factory.read_trade_db().all_filled_trades(account_id)
+        self.factory
+            .read_trade_db()
+            .read_trades_with_status(account_id, status)
     }
 
     // Trade Steps
@@ -253,7 +242,7 @@ impl TrustFacade {
         trade: &Trade,
         fee: Decimal,
     ) -> Result<Trade, Box<dyn std::error::Error>> {
-        TradeWorker::open_trade(trade, fee, self.factory.as_mut())
+        TradeWorker::fill_trade(trade, fee, self.factory.as_mut())
     }
 
     pub fn stop_trade(

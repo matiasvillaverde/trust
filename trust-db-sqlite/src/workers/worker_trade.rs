@@ -78,50 +78,6 @@ impl WorkerTrade {
         Ok(trade)
     }
 
-    pub fn read_all_new_trades(
-        connection: &mut SqliteConnection,
-        account_id: Uuid,
-    ) -> Result<Vec<Trade>, Box<dyn Error>> {
-        let trades: Vec<Trade> = trades::table
-            .filter(trades::deleted_at.is_null())
-            .filter(trades::account_id.eq(account_id.to_string()))
-            .filter(trades::status.eq(Status::New.to_string()))
-            .load::<TradeSQLite>(connection)
-            .map(|trades: Vec<TradeSQLite>| {
-                trades
-                    .into_iter()
-                    .map(|trade| trade.domain_model(connection))
-                    .collect()
-            })
-            .map_err(|error| {
-                error!("Error reading trades: {:?}", error);
-                error
-            })?;
-        Ok(trades)
-    }
-
-    pub fn read_all_funded_trades(
-        connection: &mut SqliteConnection,
-        account_id: Uuid,
-    ) -> Result<Vec<Trade>, Box<dyn Error>> {
-        let trades: Vec<Trade> = trades::table
-            .filter(trades::deleted_at.is_null())
-            .filter(trades::account_id.eq(account_id.to_string()))
-            .filter(trades::status.eq(Status::Funded.to_string()))
-            .load::<TradeSQLite>(connection)
-            .map(|trades: Vec<TradeSQLite>| {
-                trades
-                    .into_iter()
-                    .map(|trade| trade.domain_model(connection))
-                    .collect()
-            })
-            .map_err(|error| {
-                error!("Error reading trades: {:?}", error);
-                error
-            })?;
-        Ok(trades)
-    }
-
     pub fn read_all_funded_trades_for_currency(
         connection: &mut SqliteConnection,
         account_id: Uuid,
@@ -146,14 +102,15 @@ impl WorkerTrade {
         Ok(trades)
     }
 
-    pub fn read_all_filled_trades(
+    pub fn read_all_trades_with_status(
         connection: &mut SqliteConnection,
         account_id: Uuid,
+        status: Status,
     ) -> Result<Vec<Trade>, Box<dyn Error>> {
         let trades: Vec<Trade> = trades::table
             .filter(trades::deleted_at.is_null())
             .filter(trades::account_id.eq(account_id.to_string()))
-            .filter(trades::status.eq(Status::Filled.to_string()))
+            .filter(trades::status.eq(status.to_string()))
             .load::<TradeSQLite>(connection)
             .map(|trades: Vec<TradeSQLite>| {
                 trades

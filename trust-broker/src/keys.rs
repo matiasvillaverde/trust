@@ -43,6 +43,7 @@ fn delete_keys(environment: &Environment) -> Result<()> {
 }
 
 fn store_keys(keys: Keys, environment: &Environment) -> Result<Keys> {
+    // TODO: store in only one entry.
     store(EntryType::KeyId, environment, keys.key_id.as_str())?;
     store(EntryType::Secret, environment, keys.secret.as_str())?;
     store(EntryType::Url, environment, keys.url.as_str())?;

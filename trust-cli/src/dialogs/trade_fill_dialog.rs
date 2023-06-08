@@ -4,20 +4,20 @@ use dialoguer::{theme::ColorfulTheme, FuzzySelect, Input};
 use rust_decimal::Decimal;
 use std::error::Error;
 use trust_core::TrustFacade;
-use trust_model::{Account, Trade};
+use trust_model::{Account, Status, Trade};
 
 type EntryDialogBuilderResult = Option<Result<Trade, Box<dyn Error>>>;
 
-pub struct EntryDialogBuilder {
+pub struct FillTradeDialogBuilder {
     account: Option<Account>,
     trade: Option<Trade>,
     fee: Option<Decimal>,
     result: EntryDialogBuilderResult,
 }
 
-impl EntryDialogBuilder {
+impl FillTradeDialogBuilder {
     pub fn new() -> Self {
-        EntryDialogBuilder {
+        FillTradeDialogBuilder {
             account: None,
             trade: None,
             fee: None,
@@ -25,7 +25,7 @@ impl EntryDialogBuilder {
         }
     }
 
-    pub fn build(mut self, trust: &mut TrustFacade) -> EntryDialogBuilder {
+    pub fn build(mut self, trust: &mut TrustFacade) -> FillTradeDialogBuilder {
         let trade: Trade = self
             .trade
             .clone()
@@ -68,7 +68,7 @@ impl EntryDialogBuilder {
     }
 
     pub fn search(mut self, trust: &mut TrustFacade) -> Self {
-        let trades = trust.search_funded_trades(self.account.clone().unwrap().id);
+        let trades = trust.search_trades(self.account.clone().unwrap().id, Status::Submitted);
         match trades {
             Ok(trades) => {
                 if trades.is_empty() {

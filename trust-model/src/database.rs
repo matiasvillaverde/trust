@@ -1,6 +1,6 @@
 use crate::{
     Account, AccountOverview, BrokerLog, Currency, Environment, Order, OrderAction, Price, Rule,
-    RuleLevel, RuleName, Trade, TradeCategory, TradeOverview, TradingVehicle,
+    RuleLevel, RuleName, Status, Trade, TradeCategory, TradeOverview, TradingVehicle,
     TradingVehicleCategory, Transaction, TransactionCategory,
 };
 use rust_decimal::Decimal;
@@ -184,13 +184,13 @@ pub trait ReadTradeDB {
         currency: &Currency,
     ) -> Result<Vec<Trade>, Box<dyn Error>>;
 
-    fn all_funded_trades(&mut self, account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>>;
-
-    fn all_filled_trades(&mut self, account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>>;
+    fn read_trades_with_status(
+        &mut self,
+        account_id: Uuid,
+        status: Status,
+    ) -> Result<Vec<Trade>, Box<dyn Error>>;
 
     fn read_trade(&mut self, id: Uuid) -> Result<Trade, Box<dyn Error>>;
-
-    fn read_all_new_trades(&mut self, account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>>;
 }
 
 pub struct DraftTrade {

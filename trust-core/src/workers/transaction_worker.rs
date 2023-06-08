@@ -158,7 +158,7 @@ impl TransactionWorker {
         Ok((transaction, account_overview, trade_overview))
     }
 
-    pub fn transfer_to_open_trade(
+    pub fn transfer_to_fill_trade(
         trade: &Trade,
         database: &mut dyn DatabaseFactory,
     ) -> Result<(Transaction, TradeOverview), Box<dyn Error>> {

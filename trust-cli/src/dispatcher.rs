@@ -1,5 +1,5 @@
 use crate::dialogs::{
-    AccountDialogBuilder, AccountSearchDialog, EntryDialogBuilder, ExitDialogBuilder,
+    AccountDialogBuilder, AccountSearchDialog, ExitDialogBuilder, FillTradeDialogBuilder,
     FundingDialogBuilder, KeysDeleteDialogBuilder, KeysReadDialogBuilder, KeysWriteDialogBuilder,
     SubmitDialogBuilder, TradeDialogBuilder, TradingVehicleDialogBuilder,
     TradingVehicleSearchDialogBuilder, TransactionDialogBuilder,
@@ -192,7 +192,7 @@ impl ArgDispatcher {
     }
 
     fn create_fill(&mut self) {
-        EntryDialogBuilder::new()
+        FillTradeDialogBuilder::new()
             .account(&mut self.trust)
             .search(&mut self.trust)
             .fee()

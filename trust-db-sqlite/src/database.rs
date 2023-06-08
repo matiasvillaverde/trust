@@ -506,10 +506,6 @@ impl ReadTradeDB for SqliteDatabase {
         WorkerTrade::read_trade(&mut self.connection.lock().unwrap(), id)
     }
 
-    fn read_all_new_trades(&mut self, account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>> {
-        WorkerTrade::read_all_new_trades(&mut self.connection.lock().unwrap(), account_id)
-    }
-
     fn all_open_trades_for_currency(
         &mut self,
         account_id: Uuid,
@@ -522,12 +518,16 @@ impl ReadTradeDB for SqliteDatabase {
         )
     }
 
-    fn all_funded_trades(&mut self, account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>> {
-        WorkerTrade::read_all_funded_trades(&mut self.connection.lock().unwrap(), account_id)
-    }
-
-    fn all_filled_trades(&mut self, account_id: Uuid) -> Result<Vec<Trade>, Box<dyn Error>> {
-        WorkerTrade::read_all_filled_trades(&mut self.connection.lock().unwrap(), account_id)
+    fn read_trades_with_status(
+        &mut self,
+        account_id: Uuid,
+        status: Status,
+    ) -> Result<Vec<Trade>, Box<dyn Error>> {
+        WorkerTrade::read_all_trades_with_status(
+            &mut self.connection.lock().unwrap(),
+            account_id,
+            status,
+        )
     }
 }
 
