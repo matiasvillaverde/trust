@@ -69,6 +69,7 @@ CREATE TABLE "trading_vehicles" (
 
 CREATE TABLE "orders" (
 	id 			TEXT NOT NULL PRIMARY KEY,
+	broker_order_id			TEXT,
 	created_at				DATETIME NOT NULL,
 	updated_at				DATETIME NOT NULL,
 	deleted_at				DATETIME,

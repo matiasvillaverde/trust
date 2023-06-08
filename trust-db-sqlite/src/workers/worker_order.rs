@@ -1,4 +1,4 @@
-use crate::schema::orders;
+use crate::schema::orders::{self};
 use chrono::{NaiveDateTime, Utc};
 use diesel::prelude::*;
 use rust_decimal::Decimal;
@@ -28,6 +28,7 @@ impl WorkerOrder {
 
         let new_order = NewOrder {
             id,
+            broker_order_id: None,
             created_at: now,
             updated_at: now,
             deleted_at: None,
@@ -75,11 +76,16 @@ impl WorkerOrder {
     pub fn update_submitted_at(
         connection: &mut SqliteConnection,
         order: &Order,
+        broker_order_id: Uuid,
     ) -> Result<Order, Box<dyn Error>> {
         let now = Utc::now().naive_utc();
         diesel::update(orders::table)
             .filter(orders::id.eq(&order.id.to_string()))
-            .set(orders::submitted_at.eq(now))
+            .set((
+                orders::submitted_at.eq(now),
+                orders::broker_order_id.eq(broker_order_id.to_string()),
+                orders::updated_at.eq(now),
+            ))
             .execute(connection)?;
 
         return WorkerOrder::read(connection, order.id);
@@ -92,7 +98,7 @@ impl WorkerOrder {
         let now = Utc::now().naive_utc();
         diesel::update(orders::table)
             .filter(orders::id.eq(&order.id.to_string()))
-            .set(orders::filled_at.eq(now))
+            .set((orders::filled_at.eq(now), orders::updated_at.eq(now)))
             .execute(connection)?;
 
         return WorkerOrder::read(connection, order.id);
@@ -105,7 +111,7 @@ impl WorkerOrder {
         let now = Utc::now().naive_utc();
         diesel::update(orders::table)
             .filter(orders::id.eq(&order.id.to_string()))
-            .set(orders::closed_at.eq(now))
+            .set((orders::closed_at.eq(now), orders::updated_at.eq(now)))
             .execute(connection)?;
 
         return WorkerOrder::read(connection, order.id);
@@ -116,6 +122,7 @@ impl WorkerOrder {
 #[diesel(table_name = orders)]
 struct OrderSQLite {
     id: String,
+    broker_order_id: Option<String>,
     created_at: NaiveDateTime,
     updated_at: NaiveDateTime,
     deleted_at: Option<NaiveDateTime>,
@@ -141,6 +148,7 @@ impl OrderSQLite {
     fn domain_model(self, connection: &mut SqliteConnection) -> Order {
         Order {
             id: Uuid::parse_str(&self.id).unwrap(),
+            broker_order_id: self.broker_order_id.map(|id| Uuid::parse_str(&id).unwrap()),
             created_at: self.created_at,
             updated_at: self.updated_at,
             deleted_at: self.deleted_at,
@@ -174,6 +182,7 @@ impl OrderSQLite {
 #[diesel(treat_none_as_null = true)]
 struct NewOrder {
     id: String,
+    broker_order_id: Option<String>,
     created_at: NaiveDateTime,
     updated_at: NaiveDateTime,
     deleted_at: Option<NaiveDateTime>,

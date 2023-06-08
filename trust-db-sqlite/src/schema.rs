@@ -82,6 +82,7 @@ diesel::table! {
 diesel::table! {
     orders (id) {
         id -> Text,
+        broker_order_id -> Nullable<Text>,
         created_at -> Timestamp,
         updated_at -> Timestamp,
         deleted_at -> Nullable<Timestamp>,

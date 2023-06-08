@@ -22,7 +22,7 @@ impl TradeWorker {
         TransactionWorker::transfer_to_fill_trade(trade, database)?;
 
         // Record timestamp when the order was opened
-        OrderWorker::record_timestamp_entry(
+        OrderWorker::record_timestamp_filled(
             trade,
             database.write_order_db().as_mut(),
             database.read_trade_db().as_mut(),

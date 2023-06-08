@@ -66,12 +66,12 @@ impl OrderWorker {
             .create_order(&tv, quantity, price, currency, &action)
     }
 
-    pub fn record_timestamp_entry(
+    pub fn record_timestamp_filled(
         trade: &Trade,
         write_database: &mut dyn WriteOrderDB,
         read_database: &mut dyn ReadTradeDB,
     ) -> Result<Trade, Box<dyn std::error::Error>> {
-        write_database.record_submit(&trade.entry)?;
+        write_database.record_filled(&trade.entry)?;
         read_database.read_trade(trade.id)
     }
 

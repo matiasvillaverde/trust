@@ -10,16 +10,21 @@ use tokio::runtime::Runtime;
 use uuid::Uuid;
 
 use std::error::Error;
-use trust_model::{Account, Broker, BrokerLog, Environment, Order, Trade, TradeCategory};
+use trust_model::{Account, Broker, BrokerLog, Environment, Order, OrderIds, Trade, TradeCategory};
 
 mod keys;
+mod sync;
 pub use keys::Keys;
 
 #[derive(Default)]
 pub struct AlpacaBroker;
 
 impl Broker for AlpacaBroker {
-    fn submit_trade(&self, trade: &Trade, account: &Account) -> Result<BrokerLog, Box<dyn Error>> {
+    fn submit_trade(
+        &self,
+        trade: &Trade,
+        account: &Account,
+    ) -> Result<(BrokerLog, OrderIds), Box<dyn Error>> {
         assert!(trade.account_id == account.id); // Verify that the trade is for the account
 
         let api_info = read_api_key(&account.environment, account)?;
@@ -28,7 +33,26 @@ impl Broker for AlpacaBroker {
         let request = new_request(trade);
         let order = Runtime::new().unwrap().block_on(submit(client, request))?;
 
-        Ok(new_log(trade, format!("{:?}", order)))
+        let log = new_log(trade, format!("{:?}", order));
+
+        let mut stop_id = Uuid::new_v4();
+        let mut target_id = Uuid::new_v4();
+        for leg in order.legs {
+            if order.type_ == Type::Market {
+                stop_id = Uuid::from_str(leg.id.to_string().as_str())?;
+            } else if order.type_ == Type::Limit {
+                target_id = Uuid::from_str(leg.id.to_string().as_str())?;
+            }
+        }
+        let id: Uuid = Uuid::from_str(order.id.to_string().as_str())?;
+
+        let ids = OrderIds {
+            stop: stop_id,
+            entry: id,
+            target: target_id,
+        };
+
+        Ok((log, ids))
     }
 }
 

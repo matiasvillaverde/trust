@@ -11,6 +11,9 @@ use uuid::Uuid;
 pub struct Order {
     pub id: Uuid,
 
+    /// The id of the order in the broker
+    pub broker_order_id: Option<Uuid>,
+
     // Entity timestamps
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
@@ -187,6 +190,7 @@ impl Default for Order {
         let now = Utc::now().naive_utc();
         Order {
             id: Uuid::new_v4(),
+            broker_order_id: None,
             created_at: now,
             updated_at: now,
             deleted_at: None,
