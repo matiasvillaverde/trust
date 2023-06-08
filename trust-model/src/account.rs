@@ -2,6 +2,7 @@ use crate::currency::Currency;
 use crate::price::Price;
 use chrono::NaiveDateTime;
 use chrono::Utc;
+use std::fmt::{self, Display, Formatter};
 use uuid::Uuid;
 
 /// Account entity
@@ -21,6 +22,7 @@ pub struct Account {
     // Entity fields
     pub name: String,
     pub description: String,
+    pub environment: Environment,
 }
 
 /// AccountOverview entity (read-only)
@@ -64,7 +66,11 @@ pub struct AccountOverview {
 
 impl std::fmt::Display for Account {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{} ({})", self.name, self.description)
+        write!(
+            f,
+            "{} ({}) {}",
+            self.name, self.description, self.environment
+        )
     }
 }
 
@@ -78,6 +84,7 @@ impl Account {
             deleted_at: None,
             name: name.to_string(),
             description: description.to_string(),
+            environment: Environment::Paper,
         }
     }
 }
@@ -96,6 +103,40 @@ impl AccountOverview {
             total_available: Price::default(),
             taxed: Price::default(),
             currency: *currency,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Environment {
+    Paper,
+    Live,
+}
+
+impl Environment {
+    pub fn all() -> Vec<Environment> {
+        vec![Environment::Paper, Environment::Live]
+    }
+}
+
+impl Display for Environment {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match *self {
+            Environment::Paper => write!(f, "paper"),
+            Environment::Live => write!(f, "live"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct EnvironmentParseError;
+impl std::str::FromStr for Environment {
+    type Err = EnvironmentParseError;
+    fn from_str(environment: &str) -> Result<Self, Self::Err> {
+        match environment {
+            "paper" => Ok(Environment::Paper),
+            "live" => Ok(Environment::Live),
+            _ => Err(EnvironmentParseError),
         }
     }
 }

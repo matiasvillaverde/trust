@@ -1,7 +1,7 @@
 use crate::{
-    Account, AccountOverview, BrokerLog, Currency, Order, OrderAction, Price, Rule, RuleLevel,
-    RuleName, Trade, TradeCategory, TradeOverview, TradingVehicle, TradingVehicleCategory,
-    Transaction, TransactionCategory,
+    Account, AccountOverview, BrokerLog, Currency, Environment, Order, OrderAction, Price, Rule,
+    RuleLevel, RuleName, Trade, TradeCategory, TradeOverview, TradingVehicle,
+    TradingVehicleCategory, Transaction, TransactionCategory,
 };
 use rust_decimal::Decimal;
 use uuid::Uuid;
@@ -49,7 +49,12 @@ pub trait ReadAccountDB {
 }
 
 pub trait WriteAccountDB {
-    fn create_account(&mut self, name: &str, description: &str) -> Result<Account, Box<dyn Error>>;
+    fn create_account(
+        &mut self,
+        name: &str,
+        description: &str,
+        environment: Environment,
+    ) -> Result<Account, Box<dyn Error>>;
 }
 
 pub trait ReadAccountOverviewDB {

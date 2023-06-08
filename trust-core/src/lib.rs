@@ -1,9 +1,9 @@
 use rust_decimal::Decimal;
 use trade_calculators::QuantityCalculator;
 use trust_model::{
-    Account, AccountOverview, Broker, BrokerLog, Currency, DatabaseFactory, DraftTrade, Order,
-    Rule, RuleLevel, RuleName, Trade, TradeOverview, TradingVehicle, TradingVehicleCategory,
-    Transaction, TransactionCategory,
+    Account, AccountOverview, Broker, BrokerLog, Currency, DatabaseFactory, DraftTrade,
+    Environment, Order, Rule, RuleLevel, RuleName, Trade, TradeOverview, TradingVehicle,
+    TradingVehicleCategory, Transaction, TransactionCategory,
 };
 use uuid::Uuid;
 use validators::RuleValidator;
@@ -28,10 +28,11 @@ impl TrustFacade {
         &mut self,
         name: &str,
         description: &str,
+        environment: Environment,
     ) -> Result<Account, Box<dyn std::error::Error>> {
         self.factory
             .write_account_db()
-            .create_account(name, description)
+            .create_account(name, description, environment)
     }
 
     pub fn search_account(&mut self, name: &str) -> Result<Account, Box<dyn std::error::Error>> {
@@ -228,7 +229,11 @@ impl TrustFacade {
         RuleValidator::validate_submit(trade)?;
 
         // 2. Submit trade to broker
-        let log = self.broker.submit_trade(trade)?;
+        let account = self
+            .factory
+            .read_account_db()
+            .read_account_id(trade.account_id)?;
+        let log = self.broker.submit_trade(trade, &account)?;
 
         // 3. Save log in the DB
         self.factory

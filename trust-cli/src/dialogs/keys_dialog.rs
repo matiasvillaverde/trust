@@ -1,7 +1,8 @@
 use std::error::Error;
 
 use dialoguer::{theme::ColorfulTheme, FuzzySelect, Input};
-use trust_broker::{AlpacaBroker, Environment, Keys};
+use trust_broker::{AlpacaBroker, Keys};
+use trust_model::Environment;
 
 pub struct KeysWriteDialogBuilder {
     url: String,

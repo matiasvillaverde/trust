@@ -4,23 +4,25 @@ use apca::api::v2::order::{
 use apca::ApiInfo;
 use apca::Client;
 
+use std::str::FromStr;
 use num_decimal::Num;
-use rust_decimal::prelude::ToPrimitive;
 use tokio::runtime::Runtime;
 use uuid::Uuid;
 
 use std::error::Error;
-use trust_model::{Broker, BrokerLog, Order, Trade, TradeCategory};
+use trust_model::{Account, Broker, BrokerLog, Environment, Order, Trade, TradeCategory};
 
 mod keys;
-pub use keys::{Environment, Keys};
+pub use keys::Keys;
 
 #[derive(Default)]
 pub struct AlpacaBroker;
 
 impl Broker for AlpacaBroker {
-    fn submit_trade(&self, trade: &Trade) -> Result<BrokerLog, Box<dyn Error>> {
-        let api_info = read_api_key()?;
+    fn submit_trade(&self, trade: &Trade, account: &Account) -> Result<BrokerLog, Box<dyn Error>> {
+        assert!(trade.account_id == account.id); // Verify that the trade is for the account
+
+        let api_info = read_api_key(&account.environment)?;
         let client = Client::new(api_info);
 
         let request = new_request(trade);
@@ -53,8 +55,8 @@ impl AlpacaBroker {
     }
 }
 
-fn read_api_key() -> Result<ApiInfo, Box<dyn Error>> {
-    let keys = Keys::read(&Environment::Live)?;
+fn read_api_key(env: &Environment) -> Result<ApiInfo, Box<dyn Error>> {
+    let keys = Keys::read(env)?;
     let info = ApiInfo::from_parts(keys.url, keys.key_id, keys.secret)?;
     Ok(info)
 }
@@ -84,9 +86,9 @@ fn new_log(trade: &Trade, log: String) -> BrokerLog {
 }
 
 fn new_request(trade: &Trade) -> OrderReq {
-    let entry = Num::from(trade.entry.unit_price.amount.to_u128().unwrap());
-    let stop = Num::from(trade.safety_stop.unit_price.amount.to_u128().unwrap());
-    let target = Num::from(trade.target.unit_price.amount.to_u128().unwrap());
+    let entry = Num::from_str(trade.entry.unit_price.amount.to_string().as_str()).unwrap();
+    let stop = Num::from_str(trade.safety_stop.unit_price.amount.to_string().as_str()).unwrap();
+    let target = Num::from_str(trade.target.unit_price.amount.to_string().as_str()).unwrap();
 
     OrderReqInit {
         class: Class::Bracket,
@@ -164,16 +166,16 @@ mod tests {
         assert_eq!(order_req.type_, Type::Limit);
         assert_eq!(
             order_req.limit_price.unwrap(),
-            Num::from(trade.entry.unit_price.amount.to_u128().unwrap())
+            Num::from_str("13.22").unwrap()
         );
         assert_eq!(
             order_req.take_profit.unwrap(),
-            TakeProfit::Limit(Num::from(trade.target.unit_price.amount.to_u128().unwrap()))
+            TakeProfit::Limit(Num::from_str("15.03").unwrap())
         );
         assert_eq!(
             order_req.stop_loss.unwrap(),
             StopLoss::Stop(Num::from(
-                trade.safety_stop.unit_price.amount.to_u128().unwrap()
+                Num::from_str("10.27").unwrap()
             ))
         );
         assert_eq!(

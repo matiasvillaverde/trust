@@ -6,6 +6,7 @@ diesel::table! {
         deleted_at -> Nullable<Timestamp>,
         name -> Text,
         description -> Text,
+        environment -> Text,
     }
 }
 

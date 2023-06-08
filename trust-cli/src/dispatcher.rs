@@ -85,6 +85,7 @@ impl ArgDispatcher {
         AccountDialogBuilder::new()
             .name()
             .description()
+            .environment()
             .build(&mut self.trust)
             .display();
     }

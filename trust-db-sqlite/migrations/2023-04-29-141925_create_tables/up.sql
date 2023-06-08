@@ -4,7 +4,8 @@ CREATE TABLE accounts (
 	updated_at		DATETIME NOT NULL,
 	deleted_at		DATETIME,
 	name			TEXT NOT NULL UNIQUE,
-	description		TEXT NOT NULL
+	description		TEXT NOT NULL,
+	environment		TEXT NOT NULL
 );
 
 CREATE TABLE accounts_overviews (

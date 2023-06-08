@@ -46,7 +46,7 @@ impl SubmitDialogBuilder {
                 // println!("Broker log:");
                 // BrokerLogView::display(&log);
             }
-            Err(error) => println!("Error funding trade: {:?}", error),
+            Err(error) => println!("Error submitting trade: {:?}", error),
         }
     }
 

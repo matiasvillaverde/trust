@@ -1,4 +1,4 @@
-use crate::Trade;
+use crate::{Account, Trade};
 use chrono::NaiveDateTime;
 use std::error::Error;
 use uuid::Uuid;
@@ -31,5 +31,5 @@ impl Default for BrokerLog {
 }
 
 pub trait Broker {
-    fn submit_trade(&self, trade: &Trade) -> Result<BrokerLog, Box<dyn Error>>;
+    fn submit_trade(&self, trade: &Trade, account: &Account) -> Result<BrokerLog, Box<dyn Error>>;
 }

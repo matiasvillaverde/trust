@@ -1,5 +1,6 @@
 use keyring::{Entry, Result};
 use std::fmt::{self, Display, Formatter};
+use trust_model::Environment;
 
 pub struct Keys {
     pub key_id: String,
@@ -77,18 +78,6 @@ fn delete(entry: EntryType, environment: &Environment) -> Result<()> {
     Ok(result)
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum Environment {
-    Paper,
-    Live,
-}
-
-impl Environment {
-    pub fn all() -> Vec<Environment> {
-        vec![Environment::Paper, Environment::Live]
-    }
-}
-
 pub enum EntryType {
     KeyId,
     Secret,
@@ -101,15 +90,6 @@ impl Display for EntryType {
             EntryType::KeyId => write!(f, "KeyId"),
             EntryType::Secret => write!(f, "Secret"),
             EntryType::Url => write!(f, "Url"),
-        }
-    }
-}
-
-impl Display for Environment {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        match *self {
-            Environment::Paper => write!(f, "paper"),
-            Environment::Live => write!(f, "live"),
         }
     }
 }
