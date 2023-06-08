@@ -1,5 +1,5 @@
 use crate::dialogs::AccountSearchDialog;
-use crate::views::{LogView, TradeOverviewView, TradeView};
+use crate::views::{LogView, OrderView, TradeOverviewView, TradeView};
 use dialoguer::{theme::ColorfulTheme, FuzzySelect};
 use std::error::Error;
 use trust_core::TrustFacade;
@@ -33,15 +33,15 @@ impl SubmitDialogBuilder {
             .result
             .expect("No result found, did you forget to call search?")
         {
-            Ok((trade, _order, log)) => {
+            Ok((trade, order, log)) => {
                 println!("Trade submitted:");
                 TradeView::display_trade(&trade, &self.account.unwrap().name);
 
                 println!("Trade overview:");
                 TradeOverviewView::display(&trade.overview);
 
-                // println!("Order:");
-                // OrderView::display(&order); // TODO: Display Order and logs
+                println!("Order:");
+                OrderView::display(&order);
 
                 println!("Broker log:");
                 LogView::display(&log);
