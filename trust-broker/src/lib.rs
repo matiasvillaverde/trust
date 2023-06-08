@@ -4,8 +4,8 @@ use apca::api::v2::order::{
 use apca::ApiInfo;
 use apca::Client;
 
-use std::str::FromStr;
 use num_decimal::Num;
+use std::str::FromStr;
 use tokio::runtime::Runtime;
 use uuid::Uuid;
 
@@ -69,7 +69,10 @@ async fn submit(
 
     match result {
         Ok(order) => Ok(order),
-        Err(e) => Err(Box::new(e)),
+        Err(e) => {
+            eprintln!("Error submitting trade: {:?}. Are the US market open?", e);
+            Err(Box::new(e))
+        }
     }
 }
 
@@ -174,9 +177,7 @@ mod tests {
         );
         assert_eq!(
             order_req.stop_loss.unwrap(),
-            StopLoss::Stop(Num::from(
-                Num::from_str("10.27").unwrap()
-            ))
+            StopLoss::Stop(Num::from(Num::from_str("10.27").unwrap()))
         );
         assert_eq!(
             order_req.symbol.to_string(),
