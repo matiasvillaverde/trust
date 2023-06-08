@@ -12,12 +12,15 @@ use uuid::Uuid;
 use std::error::Error;
 use trust_model::{Broker, BrokerLog, Order, Trade, TradeCategory};
 
+mod keys;
+pub use keys::{Environment, Keys};
+
 #[derive(Default)]
 pub struct AlpacaBroker;
 
 impl Broker for AlpacaBroker {
     fn submit_trade(&self, trade: &Trade) -> Result<BrokerLog, Box<dyn Error>> {
-        let api_info = read_api_key();
+        let api_info = read_api_key()?;
         let client = Client::new(api_info);
 
         let request = new_request(trade);
@@ -27,12 +30,23 @@ impl Broker for AlpacaBroker {
     }
 }
 
-fn read_api_key() -> ApiInfo {
-    // TODO: allow to input api key
-    let url = dotenv::var("ALPACA_API_URL").expect("ALPACA_API_URL must be set");
-    let key_id = dotenv::var("ALPACA_API_KEY_ID").expect("ALPACA_API_KEY_ID must be set");
-    let secret = dotenv::var("ALPACA_API_SECRET").expect("ALPACA_API_SECRET must be set");
-    ApiInfo::from_parts(url, key_id, secret).unwrap()
+impl AlpacaBroker {
+    pub fn setup_keys(
+        key_id: &str,
+        secret: &str,
+        url: &str,
+        environment: &Environment,
+    ) -> Result<(), Box<dyn Error>> {
+        let keys = Keys::new(key_id, secret, url);
+        keys.store(environment)?;
+        Ok(())
+    }
+}
+
+fn read_api_key() -> Result<ApiInfo, Box<dyn Error>> {
+    let keys = Keys::get(&Environment::Live)?;
+    let info = ApiInfo::from_parts(keys.url, keys.key_id, keys.secret)?;
+    Ok(info)
 }
 
 async fn submit(
