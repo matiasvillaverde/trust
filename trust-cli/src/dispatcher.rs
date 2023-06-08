@@ -17,21 +17,6 @@ pub struct ArgDispatcher {
     trust: TrustFacade,
 }
 
-fn create_dir_if_necessary() {
-    let directory_path = tilde("~/.trust").to_string();
-
-    // Check if directory already exists or not
-    if fs::metadata(&directory_path).is_ok() {
-        return;
-    }
-
-    // We need to create a directory
-    match fs::create_dir(directory_path.clone()) {
-        Ok(_) => println!("Directory {} created successfully!", directory_path),
-        Err(err) => eprintln!("Failed to create directory: {}", err),
-    }
-}
-
 impl ArgDispatcher {
     pub fn new_sqlite() -> Self {
         create_dir_if_necessary();
@@ -45,6 +30,12 @@ impl ArgDispatcher {
 
     pub fn dispatch(mut self, matches: ArgMatches) {
         match matches.subcommand() {
+            Some(("keys", sub_matches)) => match sub_matches.subcommand() {
+                Some(("create", _)) => self.create_keys(),
+                Some(("show", _)) => self.show_keys(),
+                Some(("delete", _)) => self.delete_keys(),
+                _ => unreachable!("No subcommand provided"),
+            },
             Some(("account", sub_matches)) => match sub_matches.subcommand() {
                 Some(("create", _)) => self.create_account(),
                 Some(("search", _)) => self.search_account(),
@@ -223,5 +214,36 @@ impl ArgDispatcher {
             .fee()
             .build_target(&mut self.trust)
             .display();
+    }
+}
+
+impl ArgDispatcher {
+    fn create_keys(&mut self) {
+        unimplemented!("create-keys")
+    }
+
+    fn show_keys(&mut self) {
+        unimplemented!()
+    }
+
+    fn delete_keys(&mut self) {
+        unimplemented!()
+    }
+}
+
+// Utils
+
+fn create_dir_if_necessary() {
+    let directory_path = tilde("~/.trust").to_string();
+
+    // Check if directory already exists or not
+    if fs::metadata(&directory_path).is_ok() {
+        return;
+    }
+
+    // We need to create a directory
+    match fs::create_dir(directory_path.clone()) {
+        Ok(_) => println!("Directory {} created successfully!", directory_path),
+        Err(err) => eprintln!("Failed to create directory: {}", err),
     }
 }
