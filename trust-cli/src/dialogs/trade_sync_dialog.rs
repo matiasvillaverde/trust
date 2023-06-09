@@ -57,26 +57,29 @@ impl SyncTradeDialogBuilder {
     }
 
     pub fn search(mut self, trust: &mut TrustFacade) -> Self {
-        let trades = trust.search_trades(self.account.clone().unwrap().id, Status::Submitted);
-        match trades {
-            Ok(trades) => {
-                if trades.is_empty() {
-                    panic!("No trade found, did you forget to create one?")
-                }
-                let trade = FuzzySelect::with_theme(&ColorfulTheme::default())
-                    .with_prompt("Trade:")
-                    .items(&trades[..])
-                    .default(0)
-                    .interact_opt()
-                    .unwrap()
-                    .map(|index| trades.get(index).unwrap())
-                    .unwrap();
+        let mut trades = trust
+            .search_trades(self.account.clone().unwrap().id, Status::Submitted)
+            .unwrap();
+        trades.append(
+            &mut trust
+                .search_trades(self.account.clone().unwrap().id, Status::Filled)
+                .unwrap(),
+        );
 
-                self.trade = Some(trade.to_owned());
-            }
-            Err(error) => self.result = Some(Err(error)),
+        if trades.is_empty() {
+            panic!("No trade found, did you forget to create one?")
         }
 
+        let trade = FuzzySelect::with_theme(&ColorfulTheme::default())
+            .with_prompt("Trade:")
+            .items(&trades[..])
+            .default(0)
+            .interact_opt()
+            .unwrap()
+            .map(|index| trades.get(index).unwrap())
+            .unwrap();
+
+        self.trade = Some(trade.to_owned());
         self
     }
 }
