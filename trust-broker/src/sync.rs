@@ -41,14 +41,14 @@ pub async fn sync_trade(
     // Target and stop orders
     for order in entry_order.legs.clone() {
         if order.id.to_string() == trade.target.broker_order_id.unwrap().to_string() {
-            let order = map(&order, trade.target.clone());
+            let order = map_order(&order, trade.target.clone());
             if order.status == OrderStatus::Filled {
                 // If the target is filled, then the trade status is ClosedTarget.
                 trade_status = Status::ClosedTarget;
             }
             updated_orders.push(order);
         } else if order.id.to_string() == trade.safety_stop.broker_order_id.unwrap().to_string() {
-            let order = map(&order, trade.safety_stop.clone());
+            let order = map_order(&order, trade.safety_stop.clone());
             if order.status == OrderStatus::Filled {
                 // If the stop is filled, then the trade status is ClosedStopLoss.
                 trade_status = Status::ClosedStopLoss;
@@ -58,7 +58,7 @@ pub async fn sync_trade(
     }
 
     // Updated entry
-    let entry_order = map(&entry_order, trade.entry.clone());
+    let entry_order = map_order(&entry_order, trade.entry.clone());
     if trade_status == Status::Submitted && entry_order.status == OrderStatus::Filled {
         // If the entry is filled and the target and stop are not, then the trade status is filled.
         trade_status = Status::Filled;
@@ -68,7 +68,7 @@ pub async fn sync_trade(
     Ok((trade_status, updated_orders))
 }
 
-fn map(alpaca_order: &AlpacaOrder, order: Order) -> Order {
+fn map_order(alpaca_order: &AlpacaOrder, order: Order) -> Order {
     assert_eq!(
         alpaca_order.id.to_string(),
         order.broker_order_id.unwrap().to_string(),
@@ -115,5 +115,204 @@ fn map_status(status: AlpacaStatus) -> OrderStatus {
         AlpacaStatus::Held => OrderStatus::Held,
         AlpacaStatus::AcceptedForBidding => OrderStatus::AcceptedForBidding,
         AlpacaStatus::Unknown => OrderStatus::Unknown,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use apca::api::v2::order::{Amount, Class, Side, TimeInForce, Type};
+    use apca::api::v2::{asset, order::Id};
+    use chrono::NaiveDateTime;
+    use num_decimal::Num;
+    use rust_decimal_macros::dec;
+    use uuid::Uuid;
+
+    fn default() -> AlpacaOrder {
+        AlpacaOrder {
+            id: Id(Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap()),
+            client_order_id: "".to_owned(),
+            status: AlpacaStatus::New,
+            created_at: Utc::now(),
+            updated_at: None,
+            submitted_at: None,
+            filled_at: None,
+            expired_at: None,
+            canceled_at: None,
+            asset_class: asset::Class::default(),
+            asset_id: asset::Id(
+                Uuid::parse_str("00000000-0000-0000-0000-000000000000")
+                    .unwrap()
+                    .to_owned(),
+            ),
+            symbol: "".to_owned(),
+            amount: Amount::quantity(10),
+            filled_quantity: Num::default(),
+            type_: Type::default(),
+            class: Class::default(),
+            side: Side::Buy,
+            time_in_force: TimeInForce::default(),
+            limit_price: None,
+            stop_price: None,
+            trail_price: None,
+            trail_percent: None,
+            average_fill_price: None,
+            legs: vec![],
+            extended_hours: false,
+        }
+    }
+
+    #[test]
+    fn test_map_order_ids_match() {
+        let alpaca_order = default();
+        let order = Order {
+            broker_order_id: Some(Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap()),
+            ..Default::default()
+        };
+        let mapped_order = map_order(&alpaca_order, order);
+
+        assert_eq!(
+            mapped_order.broker_order_id.unwrap(),
+            Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap()
+        );
+    }
+
+    #[test]
+    fn test_map_filled_quantity() {
+        let mut alpaca_order = default();
+        alpaca_order.filled_quantity = Num::from(10);
+
+        let order = Order {
+            broker_order_id: Some(Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap()),
+            ..Default::default()
+        };
+
+        let mapped_order = map_order(&alpaca_order, order);
+
+        assert_eq!(mapped_order.filled_quantity, 10);
+    }
+
+    #[test]
+    fn test_map_average_filled_price() {
+        let mut alpaca_order = default();
+        alpaca_order.average_fill_price = Some(Num::from(2112));
+
+        let order = Order {
+            broker_order_id: Some(Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap()),
+            ..Default::default()
+        };
+
+        let mapped_order = map_order(&alpaca_order, order);
+
+        assert_eq!(mapped_order.average_filled_price.unwrap(), dec!(2112));
+    }
+
+    #[test]
+    fn test_map_order_status() {
+        let mut alpaca_order = default();
+        alpaca_order.status = AlpacaStatus::Filled;
+
+        let order = Order {
+            broker_order_id: Some(Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap()),
+            ..Default::default()
+        };
+
+        let mapped_order = map_order(&alpaca_order, order);
+
+        assert_eq!(mapped_order.status, OrderStatus::Filled);
+    }
+
+    #[test]
+    fn test_map_filled_at() {
+        let now = Utc::now();
+        let mut alpaca_order = default();
+        alpaca_order.filled_at = Some(now);
+
+        let order = Order {
+            broker_order_id: Some(Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap()),
+            ..Default::default()
+        };
+        let mapped_order = map_order(&alpaca_order, order);
+        assert_eq!(mapped_order.filled_at, map_date(Some(now)));
+    }
+
+    #[test]
+    fn test_map_expired_at() {
+        let now = Utc::now();
+        let mut alpaca_order = default();
+        alpaca_order.expired_at = Some(now);
+
+        let order = Order {
+            broker_order_id: Some(Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap()),
+            ..Default::default()
+        };
+
+        let mapped_order = map_order(&alpaca_order, order);
+
+        assert_eq!(mapped_order.expired_at, map_date(Some(now)));
+    }
+
+    #[test]
+    fn test_map_cancelled_at() {
+        let now = Utc::now();
+        let mut alpaca_order = default();
+        alpaca_order.canceled_at = Some(now);
+
+        let order = Order {
+            broker_order_id: Some(Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap()),
+            ..Default::default()
+        };
+
+        let mapped_order = map_order(&alpaca_order, order);
+
+        assert_eq!(mapped_order.cancelled_at, map_date(Some(now)));
+    }
+    #[test]
+    fn test_map_date_with_none() {
+        let expected: Option<NaiveDateTime> = None;
+        assert_eq!(map_date(None), expected);
+    }
+
+    #[test]
+    fn test_map_status() {
+        assert_eq!(map_status(AlpacaStatus::New), OrderStatus::New);
+        assert_eq!(
+            map_status(AlpacaStatus::PartiallyFilled),
+            OrderStatus::PartiallyFilled
+        );
+        assert_eq!(map_status(AlpacaStatus::Filled), OrderStatus::Filled);
+        assert_eq!(
+            map_status(AlpacaStatus::DoneForDay),
+            OrderStatus::DoneForDay
+        );
+        assert_eq!(map_status(AlpacaStatus::Canceled), OrderStatus::Canceled);
+        assert_eq!(map_status(AlpacaStatus::Expired), OrderStatus::Expired);
+        assert_eq!(map_status(AlpacaStatus::Replaced), OrderStatus::Replaced);
+        assert_eq!(
+            map_status(AlpacaStatus::PendingCancel),
+            OrderStatus::PendingCancel
+        );
+        assert_eq!(
+            map_status(AlpacaStatus::PendingReplace),
+            OrderStatus::PendingReplace
+        );
+        assert_eq!(
+            map_status(AlpacaStatus::PendingNew),
+            OrderStatus::PendingNew
+        );
+        assert_eq!(map_status(AlpacaStatus::Accepted), OrderStatus::Accepted);
+        assert_eq!(map_status(AlpacaStatus::Stopped), OrderStatus::Stopped);
+        assert_eq!(map_status(AlpacaStatus::Rejected), OrderStatus::Rejected);
+        assert_eq!(map_status(AlpacaStatus::Suspended), OrderStatus::Suspended);
+        assert_eq!(
+            map_status(AlpacaStatus::Calculated),
+            OrderStatus::Calculated
+        );
+        assert_eq!(map_status(AlpacaStatus::Held), OrderStatus::Held);
+        assert_eq!(
+            map_status(AlpacaStatus::AcceptedForBidding),
+            OrderStatus::AcceptedForBidding
+        );
+        assert_eq!(map_status(AlpacaStatus::Unknown), OrderStatus::Unknown);
     }
 }
