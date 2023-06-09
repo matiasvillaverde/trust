@@ -16,6 +16,7 @@ use trust_model::{
 };
 
 mod keys;
+mod order_mapper;
 mod sync;
 pub use keys::Keys;
 
@@ -36,7 +37,11 @@ impl Broker for AlpacaBroker {
         let request = new_request(trade);
         let order = Runtime::new().unwrap().block_on(submit(client, request))?;
 
-        let log = BrokerLog { trade_id: trade.id, log: format!("{:?}", order), ..Default::default()};
+        let log = BrokerLog {
+            trade_id: trade.id,
+            log: format!("{:?}", order),
+            ..Default::default()
+        };
         let ids = extract_ids(order);
         Ok((log, ids))
     }
