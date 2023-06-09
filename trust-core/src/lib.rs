@@ -254,14 +254,25 @@ impl TrustFacade {
         trade: &Trade,
         account: &Account,
     ) -> Result<(Status, Vec<Order>), Box<dyn std::error::Error>> {
-        self.broker.sync_trade(trade, account)
+        // 1. Sync Trade with Broker
+        let (status, orders) = self.broker.sync_trade(trade, account)?;
+
+        // 2. Update Trade Status
+        TradeWorker::update_status(trade, status, &mut *self.factory)?;
+
+        // 3. Update Orders
+        for order in orders.clone() {
+            OrderWorker::update_order(&order, &mut *self.factory)?;
+        }
+
+        Ok((status, orders))
     }
 
     pub fn fill_trade(
         &mut self,
         trade: &Trade,
         fee: Decimal,
-    ) -> Result<Trade, Box<dyn std::error::Error>> {
+    ) -> Result<(Trade, Transaction), Box<dyn std::error::Error>> {
         TradeWorker::fill_trade(trade, fee, self.factory.as_mut())
     }
 

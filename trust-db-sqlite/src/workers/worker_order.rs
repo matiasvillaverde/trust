@@ -76,6 +76,30 @@ impl WorkerOrder {
         Ok(order)
     }
 
+    pub fn update(
+        connection: &mut SqliteConnection,
+        order: &Order,
+    ) -> Result<Order, Box<dyn Error>> {
+        let now = Utc::now().naive_utc();
+        diesel::update(orders::table)
+            .filter(orders::id.eq(&order.id.to_string()))
+            .set((
+                orders::updated_at.eq(now),
+                orders::status.eq(order.status.to_string()),
+                orders::filled_quantity.eq(order.filled_quantity as i64),
+                orders::average_filled_price
+                    .eq(order.average_filled_price.map(|price| price.to_string())),
+                orders::submitted_at.eq(order.submitted_at),
+                orders::filled_at.eq(order.filled_at),
+                orders::expired_at.eq(order.expired_at),
+                orders::cancelled_at.eq(order.cancelled_at),
+                orders::closed_at.eq(order.closed_at),
+            ))
+            .execute(connection)?;
+
+        return WorkerOrder::read(connection, order.id);
+    }
+
     pub fn update_submitted_at(
         connection: &mut SqliteConnection,
         order: &Order,

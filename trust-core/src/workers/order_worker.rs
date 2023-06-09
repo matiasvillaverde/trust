@@ -47,6 +47,13 @@ impl OrderWorker {
         )
     }
 
+    pub fn update_order(
+        order: &Order,
+        database: &mut dyn DatabaseFactory,
+    ) -> Result<Order, Box<dyn std::error::Error>> {
+        database.write_order_db().update_order(order)
+    }
+
     pub fn create_target(
         trading_vehicle_id: Uuid,
         quantity: i64,

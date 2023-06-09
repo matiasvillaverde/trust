@@ -108,6 +108,7 @@ pub trait WriteOrderDB {
     ) -> Result<Order, Box<dyn Error>>;
     fn record_filled(&mut self, order: &Order) -> Result<Order, Box<dyn Error>>;
     fn record_order_closing(&mut self, order: &Order) -> Result<Order, Box<dyn Error>>;
+    fn update_order(&mut self, order: &Order) -> Result<Order, Box<dyn Error>>;
 }
 
 pub trait WritePriceDB {

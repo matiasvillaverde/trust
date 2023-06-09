@@ -158,6 +158,10 @@ impl WriteOrderDB for SqliteDatabase {
         )
     }
 
+    fn update_order(&mut self, order: &Order) -> Result<Order, Box<dyn Error>> {
+        WorkerOrder::update(&mut self.connection.lock().unwrap(), order)
+    }
+
     fn record_submit(
         &mut self,
         order: &Order,
