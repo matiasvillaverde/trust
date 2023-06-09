@@ -64,4 +64,10 @@ impl TradeCommandBuilder {
             .push(Command::new("target").about("Execute manually the target of a trade"));
         self
     }
+
+    pub fn search_trade(mut self) -> Self {
+        self.subcommands
+            .push(Command::new("search").about("Search Trades for an account"));
+        self
+    }
 }

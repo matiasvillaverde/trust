@@ -16,7 +16,7 @@ pub struct TradeView {
 }
 
 impl TradeView {
-    fn new(trade: &Trade, account_name: &str) -> TradeView {
+    fn new(trade: Trade, account_name: &str) -> TradeView {
         TradeView {
             trading_vehicle: trade.trading_vehicle.clone().symbol,
             category: trade.category.to_string(),
@@ -30,11 +30,11 @@ impl TradeView {
     }
 
     pub fn display_trade(a: &Trade, account_name: &str) {
-        TradeView::display_trades(vec![a], account_name);
+        TradeView::display_trades(vec![a.clone()], account_name);
         println!();
     }
 
-    pub fn display_trades(trades: Vec<&Trade>, account_name: &str) {
+    pub fn display_trades(trades: Vec<Trade>, account_name: &str) {
         let views: Vec<TradeView> = trades
             .into_iter()
             .map(|x| TradeView::new(x, account_name))

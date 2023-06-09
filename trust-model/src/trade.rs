@@ -95,6 +95,23 @@ pub enum Status {
     Rejected,
 }
 
+impl Status {
+    pub fn all() -> Vec<Status> {
+        vec![
+            Status::New,
+            Status::Funded,
+            Status::Submitted,
+            Status::PartiallyFilled,
+            Status::Filled,
+            Status::ClosedStopLoss,
+            Status::ClosedTarget,
+            Status::Canceled,
+            Status::Expired,
+            Status::Rejected,
+        ]
+    }
+}
+
 impl std::fmt::Display for Status {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let status = match self {

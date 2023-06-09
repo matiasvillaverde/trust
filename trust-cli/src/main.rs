@@ -49,6 +49,7 @@ fn main() {
         .subcommand(
             TradeCommandBuilder::new()
                 .create_trade()
+                .search_trade()
                 .fund_trade()
                 .submit_trade()
                 .sync_trade()
