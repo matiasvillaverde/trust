@@ -36,7 +36,7 @@ impl Broker for AlpacaBroker {
         let request = new_request(trade);
         let order = Runtime::new().unwrap().block_on(submit(client, request))?;
 
-        let log = new_log(trade, format!("{:?}", order));
+        let log = BrokerLog { trade_id: trade.id, log: format!("{:?}", order), ..Default::default()};
         let ids = extract_ids(order);
         Ok((log, ids))
     }
@@ -102,21 +102,8 @@ async fn submit(
     }
 }
 
-fn new_log(trade: &Trade, log: String) -> BrokerLog {
-    let now = chrono::Utc::now().naive_utc();
-    BrokerLog {
-        id: Uuid::new_v4(),
-        created_at: now,
-        updated_at: now,
-        deleted_at: None,
-        trade_id: trade.id,
-        log,
-    }
-}
-
-// TODO: Test this
 fn extract_ids(order: AlpacaOrder) -> OrderIds {
-    let mut stop_id = Uuid::new_v4();
+    let mut stop_id: Uuid = Uuid::new_v4();
     let mut target_id = Uuid::new_v4();
     for leg in order.legs {
         if order.type_ == Type::Stop {
@@ -172,13 +159,51 @@ fn side(trade: &Trade) -> Side {
         TradeCategory::Short => Side::Sell,
     }
 }
+
 #[cfg(test)]
 mod tests {
-
+    use super::*;
+    use apca::api::v2::order::{Amount, Class, Side, Status as AlpacaStatus, TimeInForce, Type};
+    use apca::api::v2::{asset, order::Id};
+    use chrono::Utc;
+    use num_decimal::Num;
     use rust_decimal_macros::dec;
     use trust_model::Price;
+    use uuid::Uuid;
 
-    use super::*;
+    fn default() -> AlpacaOrder {
+        AlpacaOrder {
+            id: Id(Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap()),
+            client_order_id: "".to_owned(),
+            status: AlpacaStatus::New,
+            created_at: Utc::now(),
+            updated_at: None,
+            submitted_at: None,
+            filled_at: None,
+            expired_at: None,
+            canceled_at: None,
+            asset_class: asset::Class::default(),
+            asset_id: asset::Id(
+                Uuid::parse_str("00000000-0000-0000-0000-000000000000")
+                    .unwrap()
+                    .to_owned(),
+            ),
+            symbol: "".to_owned(),
+            amount: Amount::quantity(10),
+            filled_quantity: Num::default(),
+            type_: Type::default(),
+            class: Class::default(),
+            side: Side::Buy,
+            time_in_force: TimeInForce::default(),
+            limit_price: None,
+            stop_price: None,
+            trail_price: None,
+            trail_percent: None,
+            average_fill_price: None,
+            legs: vec![],
+            extended_hours: false,
+        }
+    }
 
     #[test]
     fn test_new_request() {
@@ -234,5 +259,77 @@ mod tests {
         assert_eq!(order_req.amount, Amount::quantity(trade.entry.quantity));
         assert_eq!(order_req.time_in_force, time_in_force(&trade.entry));
         assert_eq!(order_req.extended_hours, trade.entry.extended_hours);
+    }
+
+    #[test]
+    fn test_extract_ids_stop_order() {
+        // Create a sample AlpacaOrder with a Stop type
+        let mut entry = default();
+        let entry_id = Uuid::new_v4();
+        entry.id = Id(entry_id);
+        let mut stop = default();
+        stop.type_ = Type::Stop;
+        let stop_id = Uuid::new_v4();
+        stop.id = Id(stop_id);
+
+        entry.legs.push(stop);
+
+        // Call the extract_ids function
+        let result = extract_ids(entry);
+
+        // Check that the stop ID is correct and the target ID is a new UUID
+        assert_ne!(result.stop, stop_id);
+        assert_eq!(result.entry, entry_id);
+    }
+
+    #[test]
+    fn test_extract_ids_target_order() {
+        // Create a sample AlpacaOrder with a Stop type
+        let mut entry = default();
+        let entry_id = Uuid::new_v4();
+        entry.id = Id(entry_id);
+        let mut target = default();
+        target.type_ = Type::Limit;
+        let target_id = Uuid::new_v4();
+        target.id = Id(target_id);
+
+        entry.legs.push(target);
+
+        // Call the extract_ids function
+        let result = extract_ids(entry);
+
+        // Check that the stop ID is correct and the target ID is a new UUID
+        assert_ne!(result.stop, target_id);
+        assert_eq!(result.entry, entry_id);
+    }
+
+    #[test]
+    fn test_side_long_trade() {
+        // Create a sample Trade with Long category
+        let trade = Trade {
+            category: TradeCategory::Long,
+            ..Default::default()
+        };
+
+        // Call the side function
+        let result = side(&trade);
+
+        // Check that the result is Side::Buy
+        assert_eq!(result, Side::Buy);
+    }
+
+    #[test]
+    fn test_side_short_trade() {
+        // Create a sample Trade with Short category
+        let trade = Trade {
+            category: TradeCategory::Short,
+            ..Default::default()
+        };
+
+        // Call the side function
+        let result = side(&trade);
+
+        // Check that the result is Side::Sell
+        assert_eq!(result, Side::Sell);
     }
 }
