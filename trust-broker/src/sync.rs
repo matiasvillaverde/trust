@@ -33,7 +33,14 @@ pub async fn sync_trade(
         Some(order) => order,
         None => return Err("Entry order not found".into()),
     };
+    map_orders(entry_order, trade)
+}
 
+// TODO: Test this
+fn map_orders(
+    entry_order: AlpacaOrder,
+    trade: &Trade,
+) -> Result<(Status, Vec<Order>), Box<dyn Error>> {
     // Updated orders and trade status
     let mut updated_orders = vec![];
     let mut trade_status = Status::Submitted;
@@ -46,14 +53,20 @@ pub async fn sync_trade(
                 // If the target is filled, then the trade status is ClosedTarget.
                 trade_status = Status::ClosedTarget;
             }
-            updated_orders.push(order);
+            if order != trade.target {
+                // If the target is updated, then we add it to the updated orders.
+                updated_orders.push(order);
+            }
         } else if order.id.to_string() == trade.safety_stop.broker_order_id.unwrap().to_string() {
             let order = map_order(&order, trade.safety_stop.clone());
             if order.status == OrderStatus::Filled {
                 // If the stop is filled, then the trade status is ClosedStopLoss.
                 trade_status = Status::ClosedStopLoss;
             }
-            updated_orders.push(order);
+            if order != trade.safety_stop {
+                // If the stop is updated, then we add it to the updated orders.
+                updated_orders.push(order);
+            }
         }
     }
 
@@ -63,7 +76,10 @@ pub async fn sync_trade(
         // If the entry is filled and the target and stop are not, then the trade status is filled.
         trade_status = Status::Filled;
     }
-    updated_orders.push(entry_order);
+    if entry_order != trade.entry {
+        // If the entry is updated, then we add it to the updated orders.
+        updated_orders.push(entry_order);
+    }
 
     Ok((trade_status, updated_orders))
 }
@@ -160,6 +176,35 @@ mod tests {
             legs: vec![],
             extended_hours: false,
         }
+    }
+
+    #[test]
+    fn test_map_orders_entry_not_filled() {
+        // Create a sample AlpacaOrder and Trade
+        let alpaca_order = default();
+
+        let trade = Trade {
+            target: Order {
+                ..Default::default()
+            },
+            safety_stop: Order {
+                ..Default::default()
+            },
+            entry: Order {
+                broker_order_id: Some(
+                    Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap(),
+                ),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        // Call the map_orders function
+        let result = map_orders(alpaca_order, &trade).unwrap();
+
+        // Check that the trade status is Filled and there is only one updated order
+        assert_eq!(result.0, Status::Submitted);
+        assert_eq!(result.1.len(), 0);
     }
 
     #[test]
