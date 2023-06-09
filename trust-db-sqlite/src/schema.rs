@@ -91,6 +91,7 @@ diesel::table! {
         category -> Text,
         trading_vehicle_id -> Text,
         action -> Text,
+        status -> Text,
         time_in_force  -> Text,
         trailing_percentage -> Nullable<Text>,
         trailing_price -> Nullable<Text>,

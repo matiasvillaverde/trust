@@ -1,5 +1,6 @@
 use apca::api::v2::order::{
-    Amount, Class, OrderReq, OrderReqInit, Post, Side, StopLoss, TakeProfit, TimeInForce, Type,
+    Amount, Class, Order as AlpacaOrder, OrderReq, OrderReqInit, Post, Side, StopLoss, TakeProfit,
+    TimeInForce, Type,
 };
 use apca::ApiInfo;
 use apca::Client;
@@ -10,7 +11,9 @@ use tokio::runtime::Runtime;
 use uuid::Uuid;
 
 use std::error::Error;
-use trust_model::{Account, Broker, BrokerLog, Environment, Order, OrderIds, Trade, TradeCategory};
+use trust_model::{
+    Account, Broker, BrokerLog, Environment, Order, OrderIds, Status, Trade, TradeCategory,
+};
 
 mod keys;
 mod sync;
@@ -34,25 +37,23 @@ impl Broker for AlpacaBroker {
         let order = Runtime::new().unwrap().block_on(submit(client, request))?;
 
         let log = new_log(trade, format!("{:?}", order));
-
-        let mut stop_id = Uuid::new_v4();
-        let mut target_id = Uuid::new_v4();
-        for leg in order.legs {
-            if order.type_ == Type::Market {
-                stop_id = Uuid::from_str(leg.id.to_string().as_str())?;
-            } else if order.type_ == Type::Limit {
-                target_id = Uuid::from_str(leg.id.to_string().as_str())?;
-            }
-        }
-        let id: Uuid = Uuid::from_str(order.id.to_string().as_str())?;
-
-        let ids = OrderIds {
-            stop: stop_id,
-            entry: id,
-            target: target_id,
-        };
-
+        let ids = extract_ids(order);
         Ok((log, ids))
+    }
+
+    fn sync_trade(
+        &self,
+        trade: &Trade,
+        account: &Account,
+    ) -> Result<(Status, Vec<Order>), Box<dyn Error>> {
+        assert!(trade.account_id == account.id); // Verify that the trade is for the account
+
+        let api_info = read_api_key(&account.environment, account)?;
+        let client = Client::new(api_info);
+
+        Runtime::new()
+            .unwrap()
+            .block_on(sync::sync_trade(&client, &trade))
     }
 }
 
@@ -113,6 +114,25 @@ fn new_log(trade: &Trade, log: String) -> BrokerLog {
     }
 }
 
+fn extract_ids(order: AlpacaOrder) -> OrderIds {
+    let mut stop_id = Uuid::new_v4();
+    let mut target_id = Uuid::new_v4();
+    for leg in order.legs {
+        if order.type_ == Type::Market {
+            stop_id = Uuid::from_str(leg.id.to_string().as_str()).unwrap();
+        } else if order.type_ == Type::Limit {
+            target_id = Uuid::from_str(leg.id.to_string().as_str()).unwrap();
+        }
+    }
+    let id: Uuid = Uuid::from_str(order.id.to_string().as_str()).unwrap();
+
+    OrderIds {
+        stop: stop_id,
+        entry: id,
+        target: target_id,
+    }
+}
+
 fn new_request(trade: &Trade) -> OrderReq {
     let entry = Num::from_str(trade.entry.unit_price.amount.to_string().as_str()).unwrap();
     let stop = Num::from_str(trade.safety_stop.unit_price.amount.to_string().as_str()).unwrap();
@@ -126,6 +146,7 @@ fn new_request(trade: &Trade) -> OrderReq {
         stop_loss: Some(StopLoss::Stop(stop)),
         time_in_force: time_in_force(&trade.entry),
         extended_hours: trade.entry.extended_hours,
+        client_order_id: Some(trade.id.to_string()),
         ..Default::default()
     }
     .init(

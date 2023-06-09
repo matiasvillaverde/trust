@@ -15,7 +15,7 @@ pub struct OrderView {
 }
 
 impl OrderView {
-    fn new(order: &Order) -> OrderView {
+    fn new(order: Order) -> OrderView {
         OrderView {
             unit_price: order.unit_price.to_string(),
             quantity: order.quantity.to_string(),
@@ -30,11 +30,11 @@ impl OrderView {
         }
     }
 
-    pub fn display(o: &Order) {
+    pub fn display(o: Order) {
         OrderView::display_orders(vec![o]);
     }
 
-    pub fn display_orders(orders: Vec<&Order>) {
+    pub fn display_orders(orders: Vec<Order>) {
         let views: Vec<OrderView> = orders.into_iter().map(OrderView::new).collect();
         let mut table = Table::new(views);
         table.with(Style::modern());

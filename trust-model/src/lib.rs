@@ -21,7 +21,7 @@ pub use database::{
     WriteAccountDB, WriteAccountOverviewDB, WriteBrokerLogsDB, WriteOrderDB, WritePriceDB,
     WriteRuleDB, WriteTradeDB, WriteTradingVehicleDB, WriteTransactionDB,
 };
-pub use order::{Order, OrderAction, OrderCategory, TimeInForce};
+pub use order::{Order, OrderAction, OrderCategory, OrderStatus, TimeInForce};
 pub use price::Price;
 pub use rule::{Rule, RuleLevel, RuleName};
 pub use strategy::Strategy;

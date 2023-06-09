@@ -78,6 +78,7 @@ CREATE TABLE "orders" (
 	category 				TEXT CHECK(category IN ('market', 'limit', 'stop')) NOT NULL,
 	trading_vehicle_id		TEXT NOT NULL REFERENCES trading_vehicles (id),
 	action 					TEXT CHECK(action IN ('sell', 'buy', 'short')) NOT NULL,
+	status 					TEXT CHECK(status IN ('new', 'replaced', 'partially_filled', 'filled', 'done_for_day', 'canceled', 'expired', 'accepted', 'pending_new', 'accepted_for_bidding', 'pending_cancel', 'pending_replace', 'stopped', 'rejected', 'suspended', 'calculated', 'held', 'unknown')) NOT NULL,
 	time_in_force 			TEXT CHECK(time_in_force IN ('until_canceled', 'day', 'until_market_open', 'until_market_close')) NOT NULL,
 	trailing_percentage		TEXT,
 	trailing_price			TEXT,

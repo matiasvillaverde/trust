@@ -6,6 +6,7 @@ mod trade_exit_dialog;
 mod trade_fill_dialog;
 mod trade_funding_dialog;
 mod trade_submit_dialog;
+mod trade_sync_dialog;
 mod trading_vehicle_dialog;
 mod transaction_dialog;
 
@@ -21,5 +22,6 @@ pub use trade_exit_dialog::ExitDialogBuilder;
 pub use trade_fill_dialog::FillTradeDialogBuilder;
 pub use trade_funding_dialog::FundingDialogBuilder;
 pub use trade_submit_dialog::SubmitDialogBuilder;
+pub use trade_sync_dialog::SyncTradeDialogBuilder;
 pub use trading_vehicle_dialog::{TradingVehicleDialogBuilder, TradingVehicleSearchDialogBuilder};
 pub use transaction_dialog::TransactionDialogBuilder;

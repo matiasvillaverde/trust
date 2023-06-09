@@ -1,4 +1,4 @@
-use crate::{Account, Trade};
+use crate::{Account, Order, Status, Trade};
 use chrono::NaiveDateTime;
 use std::error::Error;
 use uuid::Uuid;
@@ -42,4 +42,9 @@ pub trait Broker {
         trade: &Trade,
         account: &Account,
     ) -> Result<(BrokerLog, OrderIds), Box<dyn Error>>;
+    fn sync_trade(
+        &self,
+        trade: &Trade,
+        account: &Account,
+    ) -> Result<(Status, Vec<Order>), Box<dyn Error>>;
 }

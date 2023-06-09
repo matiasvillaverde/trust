@@ -39,6 +39,13 @@ impl TradeCommandBuilder {
         self
     }
 
+    pub fn sync_trade(mut self) -> Self {
+        self.subcommands.push(Command::new("sync").about(
+            "Sync a trade with the broker. This will update the trade with the broker's system",
+        ));
+        self
+    }
+
     pub fn fill_trade(mut self) -> Self {
         self.subcommands.push(
             Command::new("fill").about("Execute manually the filling of a trade. Meaning that the entry order was filled and we own the trading vehicle."),

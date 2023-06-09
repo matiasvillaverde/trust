@@ -5,7 +5,9 @@ use rust_decimal::Decimal;
 use std::error::Error;
 use std::str::FromStr;
 use tracing::error;
-use trust_model::{Currency, Order, OrderAction, OrderCategory, TimeInForce, TradingVehicle};
+use trust_model::{
+    Currency, Order, OrderAction, OrderCategory, OrderStatus, TimeInForce, TradingVehicle,
+};
 use uuid::Uuid;
 
 use super::WorkerPrice;
@@ -35,6 +37,7 @@ impl WorkerOrder {
             price_id: price.id.to_string(),
             quantity,
             category: category.to_string(),
+            status: OrderStatus::New.to_string(),
             trading_vehicle_id: trading_vehicle.id.to_string(),
             action: action.to_string(),
             time_in_force: TimeInForce::default().to_string(),
@@ -131,6 +134,7 @@ struct OrderSQLite {
     category: String,
     trading_vehicle_id: String,
     action: String,
+    status: String,
     time_in_force: String,
     trailing_percentage: Option<String>,
     trailing_price: Option<String>,
@@ -157,6 +161,7 @@ impl OrderSQLite {
             quantity: self.quantity as u64,
             action: OrderAction::from_str(&self.action).unwrap(),
             category: OrderCategory::from_str(&self.category).unwrap(),
+            status: OrderStatus::from_str(&self.status).unwrap(),
             trading_vehicle_id: Uuid::parse_str(&self.trading_vehicle_id).unwrap(),
             time_in_force: TimeInForce::from_str(&self.time_in_force).unwrap(),
             trailing_percent: self
@@ -191,6 +196,7 @@ struct NewOrder {
     category: String,
     trading_vehicle_id: String,
     action: String,
+    status: String,
     time_in_force: String,
     trailing_percentage: Option<String>,
     trailing_price: Option<String>,

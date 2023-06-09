@@ -1,7 +1,7 @@
 use crate::dialogs::{
     AccountDialogBuilder, AccountSearchDialog, ExitDialogBuilder, FillTradeDialogBuilder,
     FundingDialogBuilder, KeysDeleteDialogBuilder, KeysReadDialogBuilder, KeysWriteDialogBuilder,
-    SubmitDialogBuilder, TradeDialogBuilder, TradingVehicleDialogBuilder,
+    SubmitDialogBuilder, SyncTradeDialogBuilder, TradeDialogBuilder, TradingVehicleDialogBuilder,
     TradingVehicleSearchDialogBuilder, TransactionDialogBuilder,
 };
 use crate::dialogs::{RuleDialogBuilder, RuleRemoveDialogBuilder};
@@ -64,6 +64,7 @@ impl ArgDispatcher {
                 Some(("fill", _)) => self.create_fill(),
                 Some(("stop", _)) => self.create_stop(),
                 Some(("target", _)) => self.create_target(),
+                Some(("sync", _)) => self.create_sync(),
                 _ => unreachable!("No subcommand provided"),
             },
             Some((ext, sub_matches)) => {
@@ -215,6 +216,14 @@ impl ArgDispatcher {
             .search(&mut self.trust)
             .fee()
             .build_target(&mut self.trust)
+            .display();
+    }
+
+    fn create_sync(&mut self) {
+        SyncTradeDialogBuilder::new()
+            .account(&mut self.trust)
+            .search(&mut self.trust)
+            .build(&mut self.trust)
             .display();
     }
 }

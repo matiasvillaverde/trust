@@ -1,31 +1,33 @@
 use crate::dialogs::AccountSearchDialog;
-use crate::views::{LogView, OrderView, TradeOverviewView, TradeView};
+use crate::views::OrderView;
 use dialoguer::{theme::ColorfulTheme, FuzzySelect};
 use std::error::Error;
 use trust_core::TrustFacade;
-use trust_model::{Account, BrokerLog, Order, Status, Trade};
+use trust_model::{Account, Order, Status, Trade};
 
-type TradeDialogApproverBuilderResult =
-    Option<Result<(Trade, (Order, Order, Order), BrokerLog), Box<dyn Error>>>;
+type EntryDialogBuilderResult = Option<Result<(Status, Vec<Order>), Box<dyn Error>>>;
 
-pub struct SubmitDialogBuilder {
+pub struct SyncTradeDialogBuilder {
     account: Option<Account>,
     trade: Option<Trade>,
-    result: TradeDialogApproverBuilderResult,
+    result: EntryDialogBuilderResult,
 }
 
-impl SubmitDialogBuilder {
+impl SyncTradeDialogBuilder {
     pub fn new() -> Self {
-        SubmitDialogBuilder {
+        SyncTradeDialogBuilder {
             account: None,
             trade: None,
             result: None,
         }
     }
 
-    pub fn build(mut self, trust: &mut TrustFacade) -> SubmitDialogBuilder {
-        let trade: Trade = self.trade.clone().unwrap();
-        self.result = Some(trust.submit_trade(&trade));
+    pub fn build(mut self, trust: &mut TrustFacade) -> SyncTradeDialogBuilder {
+        let trade: Trade = self
+            .trade
+            .clone()
+            .expect("No trade found, did you forget to select one?");
+        self.result = Some(trust.sync_trade(&trade, &self.account.clone().unwrap()));
         self
     }
 
@@ -34,26 +36,14 @@ impl SubmitDialogBuilder {
             .result
             .expect("No result found, did you forget to call search?")
         {
-            Ok((trade, (stop, entry, target), log)) => {
-                println!("Trade submitted:");
-                TradeView::display_trade(&trade, &self.account.unwrap().name);
+            Ok((status, orders)) => {
+                println!("Trade synced:");
+                println!("Status: {:?}", status);
 
-                println!("Trade overview:");
-                TradeOverviewView::display(&trade.overview);
-
-                println!("stop:");
-                OrderView::display(stop);
-
-                println!("entry:");
-                OrderView::display(entry);
-
-                println!("target:");
-                OrderView::display(target);
-
-                println!("Broker log:");
-                LogView::display(&log);
+                println!("Orders:");
+                OrderView::display_orders(orders);
             }
-            Err(error) => println!("Error submitting trade: {:?}", error),
+            Err(error) => println!("Error approving trade: {:?}", error),
         }
     }
 
@@ -67,7 +57,7 @@ impl SubmitDialogBuilder {
     }
 
     pub fn search(mut self, trust: &mut TrustFacade) -> Self {
-        let trades = trust.search_trades(self.account.clone().unwrap().id, Status::Funded);
+        let trades = trust.search_trades(self.account.clone().unwrap().id, Status::Submitted);
         match trades {
             Ok(trades) => {
                 if trades.is_empty() {

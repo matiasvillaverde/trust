@@ -248,6 +248,15 @@ impl TrustFacade {
 
         Ok((trade, (stop, entry, target), log))
     }
+
+    pub fn sync_trade(
+        &mut self,
+        trade: &Trade,
+        account: &Account,
+    ) -> Result<(Status, Vec<Order>), Box<dyn std::error::Error>> {
+        self.broker.sync_trade(trade, account)
+    }
+
     pub fn fill_trade(
         &mut self,
         trade: &Trade,
