@@ -1,11 +1,13 @@
-use crate::schema::orders;
+use crate::schema::orders::{self};
 use chrono::{NaiveDateTime, Utc};
 use diesel::prelude::*;
 use rust_decimal::Decimal;
 use std::error::Error;
 use std::str::FromStr;
 use tracing::error;
-use trust_model::{Currency, Order, OrderAction, OrderCategory, TimeInForce, TradingVehicle};
+use trust_model::{
+    Currency, Order, OrderAction, OrderCategory, OrderStatus, TimeInForce, TradingVehicle,
+};
 use uuid::Uuid;
 
 use super::WorkerPrice;
@@ -28,12 +30,14 @@ impl WorkerOrder {
 
         let new_order = NewOrder {
             id,
+            broker_order_id: None,
             created_at: now,
             updated_at: now,
             deleted_at: None,
             price_id: price.id.to_string(),
             quantity,
             category: category.to_string(),
+            status: OrderStatus::New.to_string(),
             trading_vehicle_id: trading_vehicle.id.to_string(),
             action: action.to_string(),
             time_in_force: TimeInForce::default().to_string(),
@@ -72,14 +76,43 @@ impl WorkerOrder {
         Ok(order)
     }
 
-    pub fn update_submitted_at(
+    pub fn update(
         connection: &mut SqliteConnection,
         order: &Order,
     ) -> Result<Order, Box<dyn Error>> {
         let now = Utc::now().naive_utc();
         diesel::update(orders::table)
             .filter(orders::id.eq(&order.id.to_string()))
-            .set(orders::submitted_at.eq(now))
+            .set((
+                orders::updated_at.eq(now),
+                orders::status.eq(order.status.to_string()),
+                orders::filled_quantity.eq(order.filled_quantity as i64),
+                orders::average_filled_price
+                    .eq(order.average_filled_price.map(|price| price.to_string())),
+                orders::submitted_at.eq(order.submitted_at),
+                orders::filled_at.eq(order.filled_at),
+                orders::expired_at.eq(order.expired_at),
+                orders::cancelled_at.eq(order.cancelled_at),
+                orders::closed_at.eq(order.closed_at),
+            ))
+            .execute(connection)?;
+
+        return WorkerOrder::read(connection, order.id);
+    }
+
+    pub fn update_submitted_at(
+        connection: &mut SqliteConnection,
+        order: &Order,
+        broker_order_id: Uuid,
+    ) -> Result<Order, Box<dyn Error>> {
+        let now = Utc::now().naive_utc();
+        diesel::update(orders::table)
+            .filter(orders::id.eq(&order.id.to_string()))
+            .set((
+                orders::submitted_at.eq(now),
+                orders::broker_order_id.eq(broker_order_id.to_string()),
+                orders::updated_at.eq(now),
+            ))
             .execute(connection)?;
 
         return WorkerOrder::read(connection, order.id);
@@ -92,7 +125,7 @@ impl WorkerOrder {
         let now = Utc::now().naive_utc();
         diesel::update(orders::table)
             .filter(orders::id.eq(&order.id.to_string()))
-            .set(orders::filled_at.eq(now))
+            .set((orders::filled_at.eq(now), orders::updated_at.eq(now)))
             .execute(connection)?;
 
         return WorkerOrder::read(connection, order.id);
@@ -105,7 +138,7 @@ impl WorkerOrder {
         let now = Utc::now().naive_utc();
         diesel::update(orders::table)
             .filter(orders::id.eq(&order.id.to_string()))
-            .set(orders::closed_at.eq(now))
+            .set((orders::closed_at.eq(now), orders::updated_at.eq(now)))
             .execute(connection)?;
 
         return WorkerOrder::read(connection, order.id);
@@ -116,6 +149,7 @@ impl WorkerOrder {
 #[diesel(table_name = orders)]
 struct OrderSQLite {
     id: String,
+    broker_order_id: Option<String>,
     created_at: NaiveDateTime,
     updated_at: NaiveDateTime,
     deleted_at: Option<NaiveDateTime>,
@@ -124,6 +158,7 @@ struct OrderSQLite {
     category: String,
     trading_vehicle_id: String,
     action: String,
+    status: String,
     time_in_force: String,
     trailing_percentage: Option<String>,
     trailing_price: Option<String>,
@@ -141,6 +176,7 @@ impl OrderSQLite {
     fn domain_model(self, connection: &mut SqliteConnection) -> Order {
         Order {
             id: Uuid::parse_str(&self.id).unwrap(),
+            broker_order_id: self.broker_order_id.map(|id| Uuid::parse_str(&id).unwrap()),
             created_at: self.created_at,
             updated_at: self.updated_at,
             deleted_at: self.deleted_at,
@@ -149,6 +185,7 @@ impl OrderSQLite {
             quantity: self.quantity as u64,
             action: OrderAction::from_str(&self.action).unwrap(),
             category: OrderCategory::from_str(&self.category).unwrap(),
+            status: OrderStatus::from_str(&self.status).unwrap(),
             trading_vehicle_id: Uuid::parse_str(&self.trading_vehicle_id).unwrap(),
             time_in_force: TimeInForce::from_str(&self.time_in_force).unwrap(),
             trailing_percent: self
@@ -174,6 +211,7 @@ impl OrderSQLite {
 #[diesel(treat_none_as_null = true)]
 struct NewOrder {
     id: String,
+    broker_order_id: Option<String>,
     created_at: NaiveDateTime,
     updated_at: NaiveDateTime,
     deleted_at: Option<NaiveDateTime>,
@@ -182,6 +220,7 @@ struct NewOrder {
     category: String,
     trading_vehicle_id: String,
     action: String,
+    status: String,
     time_in_force: String,
     trailing_percentage: Option<String>,
     trailing_price: Option<String>,

@@ -83,16 +83,33 @@ pub enum Status {
     PartiallyFilled,
     /// The trade has been completely filled.
     Filled,
+    /// The trade has been closed by the broker in the stop.
+    ClosedStopLoss,
+    /// The trade has been closed by the broker in the target.
+    ClosedTarget,
     /// The trade has been canceled by the user or the broker.
     Canceled,
     /// The trade has been expired.
     Expired,
     /// The trade has been rejected by the broker or internal rules.
     Rejected,
-    /// The trade has been closed by the broker in the stop.
-    ClosedStopLoss,
-    /// The trade has been closed by the broker in the target.
-    ClosedTarget,
+}
+
+impl Status {
+    pub fn all() -> Vec<Status> {
+        vec![
+            Status::New,
+            Status::Funded,
+            Status::Submitted,
+            Status::PartiallyFilled,
+            Status::Filled,
+            Status::ClosedStopLoss,
+            Status::ClosedTarget,
+            Status::Canceled,
+            Status::Expired,
+            Status::Rejected,
+        ]
+    }
 }
 
 impl std::fmt::Display for Status {

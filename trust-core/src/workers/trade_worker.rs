@@ -1,16 +1,47 @@
 use crate::{OrderWorker, TransactionWorker};
 use rust_decimal::Decimal;
+use rust_decimal_macros::dec;
 use std::error::Error;
-use trust_model::{DatabaseFactory, Trade, Transaction};
+use trust_model::{DatabaseFactory, Status, Trade, Transaction};
 
 pub struct TradeWorker;
 
 impl TradeWorker {
+    pub fn update_status(
+        trade: &Trade,
+        status: Status,
+        database: &mut dyn DatabaseFactory,
+    ) -> Result<(Trade, Transaction), Box<dyn Error>> {
+        match status {
+            Status::Filled => {
+                if trade.status == Status::Submitted {
+                    return TradeWorker::fill_trade(trade, dec!(0), database);
+                }
+            }
+            Status::ClosedStopLoss => {
+                if trade.status == Status::Submitted {
+                    // We also update the trade entry
+                    TradeWorker::fill_trade(trade, dec!(0), database)?;
+                }
+                return TradeWorker::update_trade_stop_executed(trade, dec!(0), database);
+            }
+            Status::ClosedTarget => {
+                if trade.status == Status::Submitted {
+                    // We also update the trade entry
+                    TradeWorker::fill_trade(trade, dec!(0), database)?;
+                }
+                return TradeWorker::update_trade_target_executed(trade, dec!(0), database);
+            }
+            _ => {}
+        }
+        Err("Nothing to update in trade".into())
+    }
+
     pub fn fill_trade(
         trade: &Trade,
         fee: Decimal,
         database: &mut dyn DatabaseFactory,
-    ) -> Result<Trade, Box<dyn Error>> {
+    ) -> Result<(Trade, Transaction), Box<dyn Error>> {
         // Create Transaction to pay for fees
         if fee.is_sign_positive() {
             TransactionWorker::transfer_opening_fee(fee, trade, database)?;
@@ -19,17 +50,19 @@ impl TradeWorker {
         }
 
         // Create Transaction to transfer funds to the market
-        TransactionWorker::transfer_to_fill_trade(trade, database)?;
+        let (tx, _) = TransactionWorker::transfer_to_fill_trade(trade, database)?;
 
         // Record timestamp when the order was opened
-        OrderWorker::record_timestamp_entry(
+        OrderWorker::record_timestamp_filled(
             trade,
             database.write_order_db().as_mut(),
             database.read_trade_db().as_mut(),
         )?;
 
         // Record timestamp when the trade was opened
-        database.write_trade_db().fill_trade(trade)
+        let trade = database.write_trade_db().fill_trade(trade)?;
+
+        Ok((trade, tx))
     }
 
     pub fn update_trade_target_executed(

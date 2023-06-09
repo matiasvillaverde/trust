@@ -101,9 +101,14 @@ pub trait WriteOrderDB {
         currency: &Currency,
         action: &OrderAction,
     ) -> Result<Order, Box<dyn Error>>;
-    fn record_submit(&mut self, order: &Order) -> Result<Order, Box<dyn Error>>;
+    fn record_submit(
+        &mut self,
+        order: &Order,
+        broker_order_id: Uuid,
+    ) -> Result<Order, Box<dyn Error>>;
     fn record_filled(&mut self, order: &Order) -> Result<Order, Box<dyn Error>>;
     fn record_order_closing(&mut self, order: &Order) -> Result<Order, Box<dyn Error>>;
+    fn update_order(&mut self, order: &Order) -> Result<Order, Box<dyn Error>>;
 }
 
 pub trait WritePriceDB {

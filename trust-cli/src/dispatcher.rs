@@ -1,8 +1,8 @@
 use crate::dialogs::{
     AccountDialogBuilder, AccountSearchDialog, ExitDialogBuilder, FillTradeDialogBuilder,
     FundingDialogBuilder, KeysDeleteDialogBuilder, KeysReadDialogBuilder, KeysWriteDialogBuilder,
-    SubmitDialogBuilder, TradeDialogBuilder, TradingVehicleDialogBuilder,
-    TradingVehicleSearchDialogBuilder, TransactionDialogBuilder,
+    SubmitDialogBuilder, SyncTradeDialogBuilder, TradeDialogBuilder, TradeSearchDialogBuilder,
+    TradingVehicleDialogBuilder, TradingVehicleSearchDialogBuilder, TransactionDialogBuilder,
 };
 use crate::dialogs::{RuleDialogBuilder, RuleRemoveDialogBuilder};
 use clap::ArgMatches;
@@ -64,6 +64,8 @@ impl ArgDispatcher {
                 Some(("fill", _)) => self.create_fill(),
                 Some(("stop", _)) => self.create_stop(),
                 Some(("target", _)) => self.create_target(),
+                Some(("sync", _)) => self.create_sync(),
+                Some(("search", _)) => self.search_trade(),
                 _ => unreachable!("No subcommand provided"),
             },
             Some((ext, sub_matches)) => {
@@ -215,6 +217,22 @@ impl ArgDispatcher {
             .search(&mut self.trust)
             .fee()
             .build_target(&mut self.trust)
+            .display();
+    }
+
+    fn create_sync(&mut self) {
+        SyncTradeDialogBuilder::new()
+            .account(&mut self.trust)
+            .search(&mut self.trust)
+            .build(&mut self.trust)
+            .display();
+    }
+
+    fn search_trade(&mut self) {
+        TradeSearchDialogBuilder::new()
+            .account(&mut self.trust)
+            .status()
+            .search(&mut self.trust)
             .display();
     }
 }
