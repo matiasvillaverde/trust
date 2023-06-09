@@ -22,7 +22,6 @@ pub async fn sync_trade(
     };
 
     let orders = client.issue::<Get>(&request).await.unwrap();
-    print!("Orders: {:?}", orders);
 
     // Main entry order
     let entry_order = orders
@@ -47,7 +46,7 @@ fn map_orders(
 
     // Target and stop orders
     for order in entry_order.legs.clone() {
-        if order.id.to_string() == trade.target.broker_order_id.unwrap().to_string() {
+        if order.id.to_string() == trade.target.broker_order_id.unwrap().to_string() { // TODO: It seems that Ids from Target and StopLoss are mixed
             let order = map_order(&order, trade.target.clone());
             if order.status == OrderStatus::Filled {
                 // If the target is filled, then the trade status is ClosedTarget.

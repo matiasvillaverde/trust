@@ -114,11 +114,12 @@ fn new_log(trade: &Trade, log: String) -> BrokerLog {
     }
 }
 
+// TODO: Test this
 fn extract_ids(order: AlpacaOrder) -> OrderIds {
     let mut stop_id = Uuid::new_v4();
     let mut target_id = Uuid::new_v4();
     for leg in order.legs {
-        if order.type_ == Type::Market {
+        if order.type_ == Type::Stop {
             stop_id = Uuid::from_str(leg.id.to_string().as_str()).unwrap();
         } else if order.type_ == Type::Limit {
             target_id = Uuid::from_str(leg.id.to_string().as_str()).unwrap();
