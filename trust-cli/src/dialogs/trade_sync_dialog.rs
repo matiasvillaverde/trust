@@ -57,7 +57,6 @@ impl SyncTradeDialogBuilder {
     }
 
     pub fn search(mut self, trust: &mut TrustFacade) -> Self {
-
         // We need to search for trades with status Submitted and Filled to find the trade we want to sync
         let mut trades = trust
             .search_trades(self.account.clone().unwrap().id, Status::Submitted)

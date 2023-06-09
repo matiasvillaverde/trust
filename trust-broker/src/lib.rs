@@ -53,7 +53,7 @@ impl Broker for AlpacaBroker {
 
         Runtime::new()
             .unwrap()
-            .block_on(sync::sync_trade(&client, &trade))
+            .block_on(sync::sync_trade(&client, trade))
     }
 }
 

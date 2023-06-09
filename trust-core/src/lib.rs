@@ -213,7 +213,7 @@ impl TrustFacade {
     pub fn submit_trade(
         &mut self,
         trade: &Trade,
-    ) -> Result<(Trade, (Order, Order, Order), BrokerLog), Box<dyn std::error::Error>> {
+    ) -> Result<(Trade, BrokerLog), Box<dyn std::error::Error>> {
         // 1. Validate Trade
         RuleValidator::validate_submit(trade)?;
 
@@ -233,20 +233,20 @@ impl TrustFacade {
         let trade = self.factory.write_trade_db().submit_trade(trade)?;
 
         // 5. Update Orders order to submitted
-        let stop = self
-            .factory
+        self.factory
             .write_order_db()
             .record_submit(&trade.safety_stop, order_id.stop)?;
-        let entry = self
-            .factory
+        self.factory
             .write_order_db()
             .record_submit(&trade.entry, order_id.entry)?;
-        let target = self
-            .factory
+        self.factory
             .write_order_db()
             .record_submit(&trade.target, order_id.target)?;
 
-        Ok((trade, (stop, entry, target), log))
+        // 6. Read Trade with updated values
+        let trade = self.factory.read_trade_db().read_trade(trade.id)?;
+
+        Ok((trade, log))
     }
 
     pub fn sync_trade(

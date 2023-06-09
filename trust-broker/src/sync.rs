@@ -26,7 +26,7 @@ pub async fn sync_trade(
     // Main entry order
     let entry_order = orders
         .into_iter()
-        .find(|x| x.client_order_id.to_string() == trade.id.to_string());
+        .find(|x| x.client_order_id == trade.id.to_string());
 
     let entry_order = match entry_order {
         Some(order) => order,
@@ -46,7 +46,8 @@ fn map_orders(
 
     // Target and stop orders
     for order in entry_order.legs.clone() {
-        if order.id.to_string() == trade.target.broker_order_id.unwrap().to_string() { // TODO: It seems that Ids from Target and StopLoss are mixed
+        if order.id.to_string() == trade.target.broker_order_id.unwrap().to_string() {
+            // TODO: It seems that Ids from Target and StopLoss are mixed
             let order = map_order(&order, trade.target.clone());
             if order.status == OrderStatus::Filled {
                 // If the target is filled, then the trade status is ClosedTarget.
@@ -92,10 +93,10 @@ fn map_order(alpaca_order: &AlpacaOrder, order: Order) -> Order {
 
     let mut order = order;
     order.filled_quantity = alpaca_order.filled_quantity.to_u64().unwrap();
-    order.average_filled_price = match alpaca_order.average_fill_price.clone() {
-        Some(price) => Some(Decimal::from(price.to_u64().unwrap())),
-        None => None,
-    };
+    order.average_filled_price = alpaca_order
+        .average_fill_price
+        .clone()
+        .map(|price| Decimal::from(price.to_u64().unwrap()));
     order.status = map_status(alpaca_order.status);
     order.filled_at = map_date(alpaca_order.filled_at);
     order.expired_at = map_date(alpaca_order.expired_at);
@@ -104,10 +105,7 @@ fn map_order(alpaca_order: &AlpacaOrder, order: Order) -> Order {
 }
 
 fn map_date(date: Option<DateTime<Utc>>) -> Option<NaiveDateTime> {
-    match date {
-        Some(date) => Some(date.naive_utc()),
-        None => None,
-    }
+    date.map(|date| date.naive_utc())
 }
 
 fn map_status(status: AlpacaStatus) -> OrderStatus {

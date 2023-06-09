@@ -3,10 +3,9 @@ use crate::views::{LogView, OrderView, TradeOverviewView, TradeView};
 use dialoguer::{theme::ColorfulTheme, FuzzySelect};
 use std::error::Error;
 use trust_core::TrustFacade;
-use trust_model::{Account, BrokerLog, Order, Status, Trade};
+use trust_model::{Account, BrokerLog, Status, Trade};
 
-type TradeDialogApproverBuilderResult =
-    Option<Result<(Trade, (Order, Order, Order), BrokerLog), Box<dyn Error>>>;
+type TradeDialogApproverBuilderResult = Option<Result<(Trade, BrokerLog), Box<dyn Error>>>;
 
 pub struct SubmitDialogBuilder {
     account: Option<Account>,
@@ -34,7 +33,7 @@ impl SubmitDialogBuilder {
             .result
             .expect("No result found, did you forget to call search?")
         {
-            Ok((trade, (stop, entry, target), log)) => {
+            Ok((trade, log)) => {
                 println!("Trade submitted:");
                 TradeView::display_trade(&trade, &self.account.unwrap().name);
 
@@ -42,13 +41,13 @@ impl SubmitDialogBuilder {
                 TradeOverviewView::display(&trade.overview);
 
                 println!("stop:");
-                OrderView::display(stop);
+                OrderView::display(trade.safety_stop);
 
                 println!("entry:");
-                OrderView::display(entry);
+                OrderView::display(trade.entry);
 
                 println!("target:");
-                OrderView::display(target);
+                OrderView::display(trade.target);
 
                 println!("Broker log:");
                 LogView::display(&log);
