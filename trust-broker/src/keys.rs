@@ -1,9 +1,17 @@
+use apca::ApiInfo;
 use keyring::Entry;
+use std::error::Error;
 use std::{
     fmt::{self, Display, Formatter},
     str::FromStr,
 };
-use trust_model::Environment;
+use trust_model::{Account, Environment};
+
+pub fn read_api_key(env: &Environment, account: &Account) -> Result<ApiInfo, Box<dyn Error>> {
+    let keys = Keys::read(env, &account.name)?;
+    let info = ApiInfo::from_parts(keys.url, keys.key_id, keys.secret)?;
+    Ok(info)
+}
 
 pub struct Keys {
     pub key_id: String,
