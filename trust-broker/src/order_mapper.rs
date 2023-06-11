@@ -44,23 +44,28 @@ fn map_orders(entry_order: AlpacaOrder, trade: &Trade) -> Result<Vec<Order>, Box
 }
 
 fn map_trade_status(trade: &Trade, updated_orders: Vec<Order>) -> Status {
-    for order in updated_orders.clone() {
-        if order.status == OrderStatus::Filled {
-            if order.id == trade.target.id {
-                return Status::ClosedTarget;
-            } else if order.id == trade.safety_stop.id {
-                return Status::ClosedStopLoss;
-            }
-        }
+    if updated_orders
+        .iter()
+        .any(|order| order.status == OrderStatus::Filled && order.id == trade.target.id)
+    {
+        return Status::ClosedTarget;
     }
 
-    for order in updated_orders {
-        if order.status == OrderStatus::Filled && order.id == trade.entry.id {
-            return Status::Filled;
-        }
+    if updated_orders
+        .iter()
+        .any(|order| order.status == OrderStatus::Filled && order.id == trade.safety_stop.id)
+    {
+        return Status::ClosedStopLoss;
     }
 
-    return trade.status.clone();
+    if updated_orders
+        .iter()
+        .any(|order| order.status == OrderStatus::Filled && order.id == trade.entry.id)
+    {
+        return Status::Filled;
+    }
+
+    trade.status.clone()
 }
 
 pub fn map(alpaca_order: &AlpacaOrder, order: Order) -> Order {
