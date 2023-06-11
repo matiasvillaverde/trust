@@ -6,6 +6,7 @@ use std::error::Error;
 use trust_model::{Order, Status, Trade};
 use uuid::Uuid;
 
+/// Sync Trade with Alpaca and return updated orders and status
 pub async fn sync_trade(
     client: &Client,
     trade: &Trade,
@@ -42,6 +43,7 @@ async fn get_closed_orders(
     Ok(orders)
 }
 
+/// Find entry order from closed orders
 fn find_entry(orders: Vec<AlpacaOrder>, trade_id: Uuid) -> Result<AlpacaOrder, Box<dyn Error>> {
     orders
         .into_iter()
