@@ -56,8 +56,8 @@ fn extract_ids(order: &AlpacaOrder, trade: &Trade) -> OrderIds {
 
     for leg in &order.legs {
         let leg_price = match (leg.limit_price.clone(), leg.stop_price.clone()) {
-            (Some(limit_price), _) => limit_price,
-            (_, Some(stop_price)) => stop_price,
+            (Some(limit_price), None) => limit_price,
+            (None, Some(stop_price)) => stop_price,
             _ => panic!("No price found for leg: {:?}", leg.id),
         };
 
