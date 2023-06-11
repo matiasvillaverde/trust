@@ -1,13 +1,24 @@
+use crate::keys;
 use crate::order_mapper;
 use apca::api::v2::order::Order as AlpacaOrder;
 use apca::api::v2::orders::{Get, OrdersReq, Status as AlpacaRequestStatus};
 use apca::Client;
 use std::error::Error;
-use trust_model::{Order, Status, Trade};
+use tokio::runtime::Runtime;
+use trust_model::{Account, Order, Status, Trade};
 use uuid::Uuid;
 
+pub fn sync(trade: &Trade, account: &Account) -> Result<(Status, Vec<Order>), Box<dyn Error>> {
+    assert!(trade.account_id == account.id); // Verify that the trade is for the account
+
+    let api_info = keys::read_api_key(&account.environment, account)?;
+    let client = Client::new(api_info);
+
+    Runtime::new().unwrap().block_on(sync_trade(&client, trade))
+}
+
 /// Sync Trade with Alpaca and return updated orders and status
-pub async fn sync_trade(
+async fn sync_trade(
     client: &Client,
     trade: &Trade,
 ) -> Result<(Status, Vec<Order>), Box<dyn Error>> {

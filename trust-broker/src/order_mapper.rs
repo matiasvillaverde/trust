@@ -8,10 +8,10 @@ use trust_model::{Order, OrderStatus, Status, Trade};
 
 /// Maps an Alpaca order to our domain model.
 pub fn map_orders(entry_order: AlpacaOrder, trade: &Trade) -> Result<Vec<Order>, Box<dyn Error>> {
-    // Updated orders and trade status
+    // 1. Updated orders and trade status
     let mut updated_orders = vec![];
 
-    // Target and stop orders
+    // 2. Target and stop orders
     updated_orders.extend(entry_order.legs.iter().filter_map(|order| {
         match order.id.to_string().as_str() {
             id if id == trade.target.broker_order_id.unwrap().to_string() => {
@@ -40,10 +40,10 @@ pub fn map_orders(entry_order: AlpacaOrder, trade: &Trade) -> Result<Vec<Order>,
         }
     }));
 
-    // 1. Map entry order to our domain model.
+    // 3. Map entry order to our domain model.
     let entry_order = map(&entry_order, trade.entry.clone());
 
-    // 2. If the entry is updated, then we add it to the updated orders.
+    // 4. If the entry is updated, then we add it to the updated orders.
     if entry_order != trade.entry {
         updated_orders.push(entry_order);
     }
@@ -51,7 +51,7 @@ pub fn map_orders(entry_order: AlpacaOrder, trade: &Trade) -> Result<Vec<Order>,
     Ok(updated_orders)
 }
 
-pub fn map_trade_status(trade: &Trade, updated_orders: &Vec<Order>) -> Status {
+pub fn map_trade_status(trade: &Trade, updated_orders: &[Order]) -> Status {
     if updated_orders
         .iter()
         .any(|order| order.status == OrderStatus::Filled && order.id == trade.target.id)

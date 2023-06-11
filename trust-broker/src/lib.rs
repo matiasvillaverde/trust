@@ -1,14 +1,10 @@
-use apca::Client;
 use std::error::Error;
-use tokio::runtime::Runtime;
-use trust_model::{
-    Account, Broker, BrokerLog, Environment, Order, OrderIds, Status, Trade, TradeCategory,
-};
+use trust_model::{Account, Broker, BrokerLog, Environment, Order, OrderIds, Status, Trade};
 
 mod keys;
 mod order_mapper;
 mod submit_trade;
-mod sync;
+mod sync_trade;
 pub use keys::Keys;
 
 #[derive(Default)]
@@ -29,14 +25,7 @@ impl Broker for AlpacaBroker {
         trade: &Trade,
         account: &Account,
     ) -> Result<(Status, Vec<Order>), Box<dyn Error>> {
-        assert!(trade.account_id == account.id); // Verify that the trade is for the account
-
-        let api_info = keys::read_api_key(&account.environment, account)?;
-        let client = Client::new(api_info);
-
-        Runtime::new()
-            .unwrap()
-            .block_on(sync::sync_trade(&client, trade))
+        sync_trade::sync(trade, account)
     }
 }
 
