@@ -109,7 +109,7 @@ mod tests {
 
         let trade = Trade {
             entry: Order {
-                id: id,
+                id,
                 ..Default::default()
             },
             ..Default::default()

@@ -4,7 +4,7 @@ use apca::api::v2::order::{
 };
 use apca::Client;
 use num_decimal::Num;
-use serde_json;
+
 use std::str::FromStr;
 use tokio::runtime::Runtime;
 use uuid::Uuid;
@@ -31,7 +31,7 @@ pub fn submit_sync(
         log: serde_json::to_string(&order)?,
         ..Default::default()
     };
-    let ids = extract_ids(order);
+    let ids = extract_ids(&order, trade);
     Ok((log, ids))
 }
 
@@ -50,22 +50,33 @@ async fn submit(
     }
 }
 
-fn extract_ids(order: AlpacaOrder) -> OrderIds {
-    let mut stop_id: Uuid = Uuid::new_v4();
-    let mut target_id = Uuid::new_v4();
-    for leg in order.legs {
-        if order.type_ == Type::Stop {
-            stop_id = Uuid::from_str(leg.id.to_string().as_str()).unwrap();
-        } else if order.type_ == Type::Limit {
-            target_id = Uuid::from_str(leg.id.to_string().as_str()).unwrap();
+fn extract_ids(order: &AlpacaOrder, trade: &Trade) -> OrderIds {
+    let mut stop_id = None;
+    let mut target_id = None;
+
+    for leg in &order.legs {
+        let leg_price = match (leg.limit_price.clone(), leg.stop_price.clone()) {
+            (Some(limit_price), _) => limit_price,
+            (_, Some(stop_price)) => stop_price,
+            _ => panic!("No price found for leg: {:?}", leg.id),
+        };
+
+        if leg_price.to_string() == trade.target.unit_price.amount.to_string() {
+            target_id = Some(leg.id);
+        }
+
+        if leg_price.to_string() == trade.safety_stop.unit_price.amount.to_string() {
+            stop_id = Some(leg.id);
         }
     }
-    let id: Uuid = Uuid::from_str(order.id.to_string().as_str()).unwrap();
+
+    let stop_id = stop_id.expect("Stop ID not found");
+    let target_id = target_id.expect("Target ID not found");
 
     OrderIds {
-        stop: stop_id,
-        entry: id,
-        target: target_id,
+        stop: Uuid::from_str(&stop_id.to_string()).unwrap(),
+        entry: Uuid::from_str(&order.id.to_string()).unwrap(),
+        target: Uuid::from_str(&target_id.to_string()).unwrap(),
     }
 }
 
@@ -111,46 +122,98 @@ fn side(trade: &Trade) -> Side {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use apca::api::v2::order::{Amount, Class, Side, Status as AlpacaStatus, TimeInForce, Type};
-    use apca::api::v2::{asset, order::Id};
-    use chrono::Utc;
+    use apca::api::v2::order::{Amount, Class, Side, Type};
     use num_decimal::Num;
     use rust_decimal_macros::dec;
     use trust_model::Price;
     use uuid::Uuid;
 
     fn default() -> AlpacaOrder {
-        AlpacaOrder {
-            id: Id(Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap()),
-            client_order_id: "".to_owned(),
-            status: AlpacaStatus::New,
-            created_at: Utc::now(),
-            updated_at: None,
-            submitted_at: None,
-            filled_at: None,
-            expired_at: None,
-            canceled_at: None,
-            asset_class: asset::Class::default(),
-            asset_id: asset::Id(
-                Uuid::parse_str("00000000-0000-0000-0000-000000000000")
-                    .unwrap()
-                    .to_owned(),
-            ),
-            symbol: "".to_owned(),
-            amount: Amount::quantity(10),
-            filled_quantity: Num::default(),
-            type_: Type::default(),
-            class: Class::default(),
-            side: Side::Buy,
-            time_in_force: TimeInForce::default(),
-            limit_price: None,
-            stop_price: None,
-            trail_price: None,
-            trail_percent: None,
-            average_fill_price: None,
-            legs: vec![],
-            extended_hours: false,
-        }
+        let data = r#"
+        {
+            "id": "b6b12dc0-8e21-4d2e-8315-907d3116a6b8",
+            "client_order_id": "9fbce7ef-b98b-4930-80c1-ab929d52cfa3",
+            "status": "accepted",
+            "created_at": "2023-06-11T16:10:42.601331701Z",
+            "updated_at": "2023-06-11T16:10:42.601331701Z",
+            "submitted_at": "2023-06-11T16:10:42.600806651Z",
+            "filled_at": null,
+            "expired_at": null,
+            "canceled_at": null,
+            "asset_class": "us_equity",
+            "asset_id": "386e0540-acda-4320-9290-2f453331eaf4",
+            "symbol": "YPF",
+            "qty": "3000",
+            "filled_qty": "0",
+            "type": "limit",
+            "order_class": "bracket",
+            "side": "buy",
+            "time_in_force": "gtc",
+            "limit_price": "12.55",
+            "stop_price": null,
+            "trail_price": null,
+            "trail_percent": null,
+            "filled_avg_price": null,
+            "extended_hours": false,
+            "legs": [
+                {
+                    "id": "90e41b1e-9089-444d-9f68-c204a4d32914",
+                    "client_order_id": "589175f4-28e2-400a-9c5d-b001f0be8f76",
+                    "status": "held",
+                    "created_at": "2023-06-11T16:10:42.601392501Z",
+                    "updated_at": "2023-06-11T16:10:42.601392501Z",
+                    "submitted_at": "2023-06-11T16:10:42.600806651Z",
+                    "filled_at": null,
+                    "expired_at": null,
+                    "canceled_at": null,
+                    "asset_class": "us_equity",
+                    "asset_id": "386e0540-acda-4320-9290-2f453331eaf4",
+                    "symbol": "YPF",
+                    "qty": "3000",
+                    "filled_qty": "0",
+                    "type": "limit",
+                    "order_class": "bracket",
+                    "side": "sell",
+                    "time_in_force": "gtc",
+                    "limit_price": "12.58",
+                    "stop_price": null,
+                    "trail_price": null,
+                    "trail_percent": null,
+                    "filled_avg_price": null,
+                    "extended_hours": false,
+                    "legs": []
+                },
+                {
+                    "id": "8654f70e-3b42-4014-a9ac-5a7101989aad",
+                    "client_order_id": "fffa65ea-3d2b-4cd1-a55a-faca9473060f",
+                    "status": "held",
+                    "created_at": "2023-06-11T16:10:42.601415221Z",
+                    "updated_at": "2023-06-11T16:10:42.601415221Z",
+                    "submitted_at": "2023-06-11T16:10:42.600806651Z",
+                    "filled_at": null,
+                    "expired_at": null,
+                    "canceled_at": null,
+                    "asset_class": "us_equity",
+                    "asset_id": "386e0540-acda-4320-9290-2f453331eaf4",
+                    "symbol": "YPF",
+                    "qty": "3000",
+                    "filled_qty": "0",
+                    "type": "stop",
+                    "order_class": "bracket",
+                    "side": "sell",
+                    "time_in_force": "gtc",
+                    "limit_price": null,
+                    "stop_price": "12.52",
+                    "trail_price": null,
+                    "trail_percent": null,
+                    "filled_avg_price": null,
+                    "extended_hours": false,
+                    "legs": []
+                }
+            ]
+        }"#;
+
+        serde_json::from_str(data).unwrap()
     }
 
     #[test]
@@ -213,43 +276,47 @@ mod tests {
     #[test]
     fn test_extract_ids_stop_order() {
         // Create a sample AlpacaOrder with a Stop type
-        let mut entry = default();
-        let entry_id = Uuid::new_v4();
-        entry.id = Id(entry_id);
-        let mut stop = default();
-        stop.type_ = Type::Stop;
-        let stop_id = Uuid::new_v4();
-        stop.id = Id(stop_id);
-
-        entry.legs.push(stop);
-
-        // Call the extract_ids function
-        let result = extract_ids(entry);
-
-        // Check that the stop ID is correct and the target ID is a new UUID
-        assert_ne!(result.stop, stop_id);
-        assert_eq!(result.entry, entry_id);
-    }
-
-    #[test]
-    fn test_extract_ids_target_order() {
-        // Create a sample AlpacaOrder with a Stop type
-        let mut entry = default();
-        let entry_id = Uuid::new_v4();
-        entry.id = Id(entry_id);
-        let mut target = default();
-        target.type_ = Type::Limit;
-        let target_id = Uuid::new_v4();
-        target.id = Id(target_id);
-
-        entry.legs.push(target);
+        let entry = default();
+        let trade = Trade {
+            safety_stop: Order {
+                id: Uuid::parse_str("8654f70e-3b42-4014-a9ac-5a7101989aad").unwrap(),
+                unit_price: Price {
+                    amount: dec!(12.52),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            entry: Order {
+                id: Uuid::parse_str("b6b12dc0-8e21-4d2e-8315-907d3116a6b8").unwrap(),
+                ..Default::default()
+            },
+            target: Order {
+                id: Uuid::parse_str("90e41b1e-9089-444d-9f68-c204a4d32914").unwrap(),
+                unit_price: Price {
+                    amount: dec!(12.58),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            ..Default::default()
+        };
 
         // Call the extract_ids function
-        let result = extract_ids(entry);
+        let result = extract_ids(&entry, &trade);
 
         // Check that the stop ID is correct and the target ID is a new UUID
-        assert_ne!(result.stop, target_id);
-        assert_eq!(result.entry, entry_id);
+        assert_eq!(
+            result.stop,
+            Uuid::parse_str("8654f70e-3b42-4014-a9ac-5a7101989aad").unwrap()
+        );
+        assert_eq!(
+            result.entry,
+            Uuid::parse_str("b6b12dc0-8e21-4d2e-8315-907d3116a6b8").unwrap()
+        );
+        assert_eq!(
+            result.target,
+            Uuid::parse_str("90e41b1e-9089-444d-9f68-c204a4d32914").unwrap()
+        );
     }
 
     #[test]
