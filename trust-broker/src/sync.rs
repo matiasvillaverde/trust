@@ -43,14 +43,10 @@ async fn get_closed_orders(
 }
 
 fn find_entry(orders: Vec<AlpacaOrder>, trade_id: Uuid) -> Result<AlpacaOrder, Box<dyn Error>> {
-    let entry_order = orders
+    orders
         .into_iter()
-        .find(|x| x.client_order_id == trade_id.to_string());
-
-    match entry_order {
-        Some(order) => Ok(order),
-        None => return Err("Entry order not found".into()),
-    }
+        .find(|x| x.client_order_id == trade_id.to_string())
+        .ok_or_else(|| "Entry order not found".into())
 }
 
 #[cfg(test)]
@@ -61,7 +57,6 @@ mod tests {
     use apca::api::v2::{asset, order::Id};
     use chrono::Utc;
     use num_decimal::Num;
-    use rust_decimal_macros::dec;
     use uuid::Uuid;
 
     fn default() -> AlpacaOrder {
