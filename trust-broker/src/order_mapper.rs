@@ -6,7 +6,8 @@ use rust_decimal::Decimal;
 use std::error::Error;
 use trust_model::{Order, OrderStatus, Status, Trade};
 
-fn map_orders(entry_order: AlpacaOrder, trade: &Trade) -> Result<Vec<Order>, Box<dyn Error>> {
+/// Maps an Alpaca order to our domain model.
+pub fn map_orders(entry_order: AlpacaOrder, trade: &Trade) -> Result<Vec<Order>, Box<dyn Error>> {
     // Updated orders and trade status
     let mut updated_orders = vec![];
 
@@ -50,7 +51,7 @@ fn map_orders(entry_order: AlpacaOrder, trade: &Trade) -> Result<Vec<Order>, Box
     Ok(updated_orders)
 }
 
-fn map_trade_status(trade: &Trade, updated_orders: Vec<Order>) -> Status {
+pub fn map_trade_status(trade: &Trade, updated_orders: &Vec<Order>) -> Status {
     if updated_orders
         .iter()
         .any(|order| order.status == OrderStatus::Filled && order.id == trade.target.id)
@@ -75,7 +76,7 @@ fn map_trade_status(trade: &Trade, updated_orders: Vec<Order>) -> Status {
     trade.status
 }
 
-pub fn map(alpaca_order: &AlpacaOrder, order: Order) -> Order {
+fn map(alpaca_order: &AlpacaOrder, order: Order) -> Order {
     assert_eq!(
         alpaca_order.id.to_string(),
         order
@@ -378,7 +379,7 @@ mod tests {
             },
         ];
 
-        assert_eq!(map_trade_status(&trade, updated_orders), Status::Submitted);
+        assert_eq!(map_trade_status(&trade, &updated_orders), Status::Submitted);
     }
 
     #[test]
@@ -412,7 +413,7 @@ mod tests {
             ..Default::default()
         }];
 
-        assert_eq!(map_trade_status(&trade, updated_orders), Status::Filled);
+        assert_eq!(map_trade_status(&trade, &updated_orders), Status::Filled);
     }
 
     #[test]
@@ -454,7 +455,7 @@ mod tests {
         ];
 
         assert_eq!(
-            map_trade_status(&trade, updated_orders),
+            map_trade_status(&trade, &updated_orders),
             Status::ClosedTarget
         );
     }
@@ -498,7 +499,7 @@ mod tests {
         ];
 
         assert_eq!(
-            map_trade_status(&trade, updated_orders),
+            map_trade_status(&trade, &updated_orders),
             Status::ClosedStopLoss
         );
     }
