@@ -33,3 +33,4 @@ tokio = {version = "1.28.2", default-features = false, features = ["net", "rt-mu
 dotenv = "0.15.0"
 shellexpand = "2.0"
 keyring = "2"
+serde_json = "1.0"
