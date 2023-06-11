@@ -11,25 +11,33 @@ fn map_orders(entry_order: AlpacaOrder, trade: &Trade) -> Result<Vec<Order>, Box
     let mut updated_orders = vec![];
 
     // Target and stop orders
-    for order in entry_order.legs.clone() {
-        if order.id.to_string() == trade.target.broker_order_id.unwrap().to_string() {
-            // 1. Map target order to our domain model.
-            let order = map(&order, trade.target.clone());
+    updated_orders.extend(entry_order.legs.iter().filter_map(|order| {
+        match order.id.to_string().as_str() {
+            id if id == trade.target.broker_order_id.unwrap().to_string() => {
+                // 1. Map target order to our domain model.
+                let order = map(order, trade.target.clone());
 
-            // 2. If the target is updated, then we add it to the updated orders.
-            if order != trade.target {
-                updated_orders.push(order);
+                // 2. If the target is updated, then we add it to the updated orders.
+                if order != trade.target {
+                    Some(order)
+                } else {
+                    None
+                }
             }
-        } else if order.id.to_string() == trade.safety_stop.broker_order_id.unwrap().to_string() {
-            // 1. Map stop order to our domain model.
-            let order = map(&order, trade.safety_stop.clone());
+            id if id == trade.safety_stop.broker_order_id.unwrap().to_string() => {
+                // 1. Map stop order to our domain model.
+                let order = map(order, trade.safety_stop.clone());
 
-            // 2. If the stop is updated, then we add it to the updated orders.
-            if order != trade.safety_stop {
-                updated_orders.push(order);
+                // 2. If the stop is updated, then we add it to the updated orders.
+                if order != trade.safety_stop {
+                    Some(order)
+                } else {
+                    None
+                }
             }
+            _ => None,
         }
-    }
+    }));
 
     // 1. Map entry order to our domain model.
     let entry_order = map(&entry_order, trade.entry.clone());
