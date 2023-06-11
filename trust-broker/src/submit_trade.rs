@@ -3,8 +3,8 @@ use apca::api::v2::order::{
     TimeInForce, Type,
 };
 use apca::Client;
-
 use num_decimal::Num;
+use serde_json;
 use std::str::FromStr;
 use tokio::runtime::Runtime;
 use uuid::Uuid;
@@ -28,7 +28,7 @@ pub fn submit_sync(
 
     let log = BrokerLog {
         trade_id: trade.id,
-        log: format!("{:?}", order),
+        log: serde_json::to_string(&order)?,
         ..Default::default()
     };
     let ids = extract_ids(order);
@@ -82,7 +82,7 @@ fn new_request(trade: &Trade) -> OrderReq {
         stop_loss: Some(StopLoss::Stop(stop)),
         time_in_force: time_in_force(&trade.entry),
         extended_hours: trade.entry.extended_hours,
-        client_order_id: Some(trade.id.to_string()),
+        client_order_id: Some(trade.entry.id.to_string()),
         ..Default::default()
     }
     .init(
@@ -185,6 +185,7 @@ mod tests {
         let order_req = new_request(&trade);
 
         // Check if the returned OrderReq object has the correct values
+        assert_eq!(order_req.client_order_id, Some(trade.entry.id.to_string())); // The client_order_id should be the same as the entry order id.
         assert_eq!(order_req.class, Class::Bracket);
         assert_eq!(order_req.type_, Type::Limit);
         assert_eq!(

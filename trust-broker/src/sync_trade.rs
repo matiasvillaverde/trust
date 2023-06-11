@@ -6,7 +6,6 @@ use apca::Client;
 use std::error::Error;
 use tokio::runtime::Runtime;
 use trust_model::{Account, Order, Status, Trade};
-use uuid::Uuid;
 
 pub fn sync(trade: &Trade, account: &Account) -> Result<(Status, Vec<Order>), Box<dyn Error>> {
     assert!(trade.account_id == account.id); // Verify that the trade is for the account
@@ -26,7 +25,7 @@ async fn sync_trade(
     let orders = get_closed_orders(client, trade).await?;
 
     // 2. Find entry order
-    let entry_order = find_entry(orders, trade.id)?;
+    let entry_order = find_entry(orders, trade)?;
 
     // 3. Map entry order that has Stop and Target as legs.
     let updated_orders = order_mapper::map_orders(entry_order, trade)?;
@@ -55,11 +54,11 @@ async fn get_closed_orders(
 }
 
 /// Find entry order from closed orders
-fn find_entry(orders: Vec<AlpacaOrder>, trade_id: Uuid) -> Result<AlpacaOrder, Box<dyn Error>> {
+fn find_entry(orders: Vec<AlpacaOrder>, trade: &Trade) -> Result<AlpacaOrder, Box<dyn Error>> {
     orders
         .into_iter()
-        .find(|x| x.client_order_id == trade_id.to_string())
-        .ok_or_else(|| "Entry order not found".into())
+        .find(|x| x.client_order_id == trade.entry.id.to_string())
+        .ok_or_else(|| "Entry order not found, it can be that is not filled yet".into())
 }
 
 #[cfg(test)]
@@ -108,6 +107,14 @@ mod tests {
         let mut entry_order = default();
         entry_order.client_order_id = id.to_string();
 
+        let trade = Trade {
+            entry: Order {
+                id: id,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
         // Create some sample orders
         let orders = vec![
             default(),
@@ -123,7 +130,7 @@ mod tests {
             default(),
         ];
 
-        let result_1 = find_entry(orders, id);
+        let result_1 = find_entry(orders, &trade);
         assert_eq!(result_1.unwrap(), entry_order);
     }
 
@@ -143,7 +150,11 @@ mod tests {
             default(),
         ];
 
-        let result_1 = find_entry(orders, Uuid::new_v4()).expect_err("Should not find entry order");
-        assert_eq!(result_1.to_string(), "Entry order not found");
+        let result_1 =
+            find_entry(orders, &Trade::default()).expect_err("Should not find entry order");
+        assert_eq!(
+            result_1.to_string(),
+            "Entry order not found, it can be that is not filled yet"
+        );
     }
 }
