@@ -3,7 +3,65 @@ use chrono::DateTime;
 use chrono::NaiveDateTime;
 use chrono::Utc;
 use rust_decimal::Decimal;
-use trust_model::{Order, OrderStatus};
+use std::error::Error;
+use trust_model::{Order, OrderCategory, OrderStatus, Status, Trade};
+
+// TODO: Test this and refactor it
+fn map_orders(entry_order: AlpacaOrder, trade: &Trade) -> Result<Vec<Order>, Box<dyn Error>> {
+    // Updated orders and trade status
+    let mut updated_orders = vec![];
+
+    // Target and stop orders
+    for order in entry_order.legs.clone() {
+        if order.id.to_string() == trade.target.broker_order_id.unwrap().to_string() {
+            // 1. Map target order to our domain model.
+            let order = map(&order, trade.target.clone());
+
+            // 2. If the target is updated, then we add it to the updated orders.
+            if order != trade.target {
+                updated_orders.push(order);
+            }
+        } else if order.id.to_string() == trade.safety_stop.broker_order_id.unwrap().to_string() {
+            // 1. Map stop order to our domain model.
+            let order = map(&order, trade.safety_stop.clone());
+
+            // 2. If the stop is updated, then we add it to the updated orders.
+            if order != trade.safety_stop {
+                updated_orders.push(order);
+            }
+        }
+    }
+
+    // 1. Map entry order to our domain model.
+    let entry_order = map(&entry_order, trade.entry.clone());
+
+    // 2. If the entry is updated, then we add it to the updated orders.
+    if entry_order != trade.entry {
+        updated_orders.push(entry_order);
+    }
+
+    Ok((updated_orders))
+}
+
+fn map_trade_status(trade: &Trade, updated_orders: Vec<Order>) -> Status {
+    for order in updated_orders.clone() {
+        if order.status == OrderStatus::Filled {
+            if order.id == trade.target.id {
+                return Status::ClosedTarget;
+            } else if order.id == trade.safety_stop.id {
+                return Status::ClosedStopLoss;
+            }
+        }
+    }
+
+    for order in updated_orders {
+        if order.status == OrderStatus::Filled && order.id == trade.entry.id {
+            return Status::Filled;
+        }
+    }
+
+    return trade.status.clone();
+}
 
 pub fn map(alpaca_order: &AlpacaOrder, order: Order) -> Order {
     assert_eq!(
@@ -18,7 +76,7 @@ pub fn map(alpaca_order: &AlpacaOrder, order: Order) -> Order {
         .average_fill_price
         .clone()
         .map(|price| Decimal::from(price.to_u64().unwrap()));
-    order.status = map_status(alpaca_order.status);
+    order.status = map_from_alpaca(alpaca_order.status);
     order.filled_at = map_date(alpaca_order.filled_at);
     order.expired_at = map_date(alpaca_order.expired_at);
     order.cancelled_at = map_date(alpaca_order.canceled_at);
@@ -29,7 +87,7 @@ fn map_date(date: Option<DateTime<Utc>>) -> Option<NaiveDateTime> {
     date.map(|date| date.naive_utc())
 }
 
-fn map_status(status: AlpacaStatus) -> OrderStatus {
+fn map_from_alpaca(status: AlpacaStatus) -> OrderStatus {
     match status {
         AlpacaStatus::New => OrderStatus::New,
         AlpacaStatus::PartiallyFilled => OrderStatus::PartiallyFilled,
@@ -94,6 +152,169 @@ mod tests {
             legs: vec![],
             extended_hours: false,
         }
+    }
+
+    #[test]
+    fn test_map_status_submitted() {
+        let target_id = Uuid::new_v4();
+        let safety_stop_id = Uuid::new_v4();
+        let entry_id = Uuid::new_v4();
+
+        let trade = Trade {
+            target: Order {
+                id: target_id,
+                status: OrderStatus::Filled,
+                ..Default::default()
+            },
+            safety_stop: Order {
+                id: safety_stop_id,
+                status: OrderStatus::New,
+                ..Default::default()
+            },
+            entry: Order {
+                id: entry_id,
+                status: OrderStatus::Filled,
+                ..Default::default()
+            },
+            status: Status::Submitted,
+            ..Default::default()
+        };
+        let updated_orders = vec![
+            Order {
+                id: entry_id,
+                status: OrderStatus::New,
+                ..Default::default()
+            },
+            Order {
+                id: safety_stop_id,
+                status: OrderStatus::New,
+                ..Default::default()
+            },
+        ];
+
+        assert_eq!(map_trade_status(&trade, updated_orders), Status::Submitted);
+    }
+
+    #[test]
+    fn test_map_status_filled_entry() {
+        let target_id = Uuid::new_v4();
+        let safety_stop_id = Uuid::new_v4();
+        let entry_id = Uuid::new_v4();
+
+        let trade = Trade {
+            target: Order {
+                id: target_id,
+                status: OrderStatus::New,
+                ..Default::default()
+            },
+            safety_stop: Order {
+                id: safety_stop_id,
+                status: OrderStatus::New,
+                ..Default::default()
+            },
+            entry: Order {
+                id: entry_id,
+                status: OrderStatus::Filled,
+                ..Default::default()
+            },
+            status: Status::Submitted,
+            ..Default::default()
+        };
+        let updated_orders = vec![Order {
+            id: entry_id,
+            status: OrderStatus::Filled,
+            ..Default::default()
+        }];
+
+        assert_eq!(map_trade_status(&trade, updated_orders), Status::Filled);
+    }
+
+    #[test]
+    fn test_map_status_filled_target() {
+        let target_id = Uuid::new_v4();
+        let safety_stop_id = Uuid::new_v4();
+        let entry_id = Uuid::new_v4();
+
+        let trade = Trade {
+            target: Order {
+                id: target_id,
+                status: OrderStatus::Filled,
+                ..Default::default()
+            },
+            safety_stop: Order {
+                id: safety_stop_id,
+                status: OrderStatus::New,
+                ..Default::default()
+            },
+            entry: Order {
+                id: entry_id,
+                status: OrderStatus::Filled,
+                ..Default::default()
+            },
+            status: Status::Submitted,
+            ..Default::default()
+        };
+        let updated_orders = vec![
+            Order {
+                id: entry_id,
+                status: OrderStatus::Filled,
+                ..Default::default()
+            },
+            Order {
+                id: target_id,
+                status: OrderStatus::Filled,
+                ..Default::default()
+            },
+        ];
+
+        assert_eq!(
+            map_trade_status(&trade, updated_orders),
+            Status::ClosedTarget
+        );
+    }
+
+    #[test]
+    fn test_map_status_filled_stop() {
+        let target_id = Uuid::new_v4();
+        let safety_stop_id = Uuid::new_v4();
+        let entry_id = Uuid::new_v4();
+
+        let trade = Trade {
+            target: Order {
+                id: target_id,
+                status: OrderStatus::Filled,
+                ..Default::default()
+            },
+            safety_stop: Order {
+                id: safety_stop_id,
+                status: OrderStatus::New,
+                ..Default::default()
+            },
+            entry: Order {
+                id: entry_id,
+                status: OrderStatus::Filled,
+                ..Default::default()
+            },
+            status: Status::Submitted,
+            ..Default::default()
+        };
+        let updated_orders = vec![
+            Order {
+                id: entry_id,
+                status: OrderStatus::Filled,
+                ..Default::default()
+            },
+            Order {
+                id: safety_stop_id,
+                status: OrderStatus::Filled,
+                ..Default::default()
+            },
+        ];
+
+        assert_eq!(
+            map_trade_status(&trade, updated_orders),
+            Status::ClosedStopLoss
+        );
     }
 
     #[test]
@@ -208,45 +429,60 @@ mod tests {
     }
 
     #[test]
-    fn test_map_status() {
-        assert_eq!(map_status(AlpacaStatus::New), OrderStatus::New);
+    fn test_map_from_alpaca() {
+        assert_eq!(map_from_alpaca(AlpacaStatus::New), OrderStatus::New);
         assert_eq!(
-            map_status(AlpacaStatus::PartiallyFilled),
+            map_from_alpaca(AlpacaStatus::PartiallyFilled),
             OrderStatus::PartiallyFilled
         );
-        assert_eq!(map_status(AlpacaStatus::Filled), OrderStatus::Filled);
+        assert_eq!(map_from_alpaca(AlpacaStatus::Filled), OrderStatus::Filled);
         assert_eq!(
-            map_status(AlpacaStatus::DoneForDay),
+            map_from_alpaca(AlpacaStatus::DoneForDay),
             OrderStatus::DoneForDay
         );
-        assert_eq!(map_status(AlpacaStatus::Canceled), OrderStatus::Canceled);
-        assert_eq!(map_status(AlpacaStatus::Expired), OrderStatus::Expired);
-        assert_eq!(map_status(AlpacaStatus::Replaced), OrderStatus::Replaced);
         assert_eq!(
-            map_status(AlpacaStatus::PendingCancel),
+            map_from_alpaca(AlpacaStatus::Canceled),
+            OrderStatus::Canceled
+        );
+        assert_eq!(map_from_alpaca(AlpacaStatus::Expired), OrderStatus::Expired);
+        assert_eq!(
+            map_from_alpaca(AlpacaStatus::Replaced),
+            OrderStatus::Replaced
+        );
+        assert_eq!(
+            map_from_alpaca(AlpacaStatus::PendingCancel),
             OrderStatus::PendingCancel
         );
         assert_eq!(
-            map_status(AlpacaStatus::PendingReplace),
+            map_from_alpaca(AlpacaStatus::PendingReplace),
             OrderStatus::PendingReplace
         );
         assert_eq!(
-            map_status(AlpacaStatus::PendingNew),
+            map_from_alpaca(AlpacaStatus::PendingNew),
             OrderStatus::PendingNew
         );
-        assert_eq!(map_status(AlpacaStatus::Accepted), OrderStatus::Accepted);
-        assert_eq!(map_status(AlpacaStatus::Stopped), OrderStatus::Stopped);
-        assert_eq!(map_status(AlpacaStatus::Rejected), OrderStatus::Rejected);
-        assert_eq!(map_status(AlpacaStatus::Suspended), OrderStatus::Suspended);
         assert_eq!(
-            map_status(AlpacaStatus::Calculated),
+            map_from_alpaca(AlpacaStatus::Accepted),
+            OrderStatus::Accepted
+        );
+        assert_eq!(map_from_alpaca(AlpacaStatus::Stopped), OrderStatus::Stopped);
+        assert_eq!(
+            map_from_alpaca(AlpacaStatus::Rejected),
+            OrderStatus::Rejected
+        );
+        assert_eq!(
+            map_from_alpaca(AlpacaStatus::Suspended),
+            OrderStatus::Suspended
+        );
+        assert_eq!(
+            map_from_alpaca(AlpacaStatus::Calculated),
             OrderStatus::Calculated
         );
-        assert_eq!(map_status(AlpacaStatus::Held), OrderStatus::Held);
+        assert_eq!(map_from_alpaca(AlpacaStatus::Held), OrderStatus::Held);
         assert_eq!(
-            map_status(AlpacaStatus::AcceptedForBidding),
+            map_from_alpaca(AlpacaStatus::AcceptedForBidding),
             OrderStatus::AcceptedForBidding
         );
-        assert_eq!(map_status(AlpacaStatus::Unknown), OrderStatus::Unknown);
+        assert_eq!(map_from_alpaca(AlpacaStatus::Unknown), OrderStatus::Unknown);
     }
 }
