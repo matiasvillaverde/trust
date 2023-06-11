@@ -4,9 +4,8 @@ use chrono::NaiveDateTime;
 use chrono::Utc;
 use rust_decimal::Decimal;
 use std::error::Error;
-use trust_model::{Order, OrderCategory, OrderStatus, Status, Trade};
+use trust_model::{Order, OrderStatus, Status, Trade};
 
-// TODO: Test this and refactor it
 fn map_orders(entry_order: AlpacaOrder, trade: &Trade) -> Result<Vec<Order>, Box<dyn Error>> {
     // Updated orders and trade status
     let mut updated_orders = vec![];
@@ -40,7 +39,7 @@ fn map_orders(entry_order: AlpacaOrder, trade: &Trade) -> Result<Vec<Order>, Box
         updated_orders.push(entry_order);
     }
 
-    Ok((updated_orders))
+    Ok(updated_orders)
 }
 
 fn map_trade_status(trade: &Trade, updated_orders: Vec<Order>) -> Status {
@@ -65,7 +64,7 @@ fn map_trade_status(trade: &Trade, updated_orders: Vec<Order>) -> Status {
         return Status::Filled;
     }
 
-    trade.status.clone()
+    trade.status
 }
 
 pub fn map(alpaca_order: &AlpacaOrder, order: Order) -> Order {
@@ -120,7 +119,6 @@ fn map_from_alpaca(status: AlpacaStatus) -> OrderStatus {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Error;
 
     use super::*;
     use apca::api::v2::order::{Amount, Class, Side, TimeInForce, Type};
@@ -193,8 +191,11 @@ mod tests {
 
     #[test]
     fn test_map_orders_returns_entry() {
+        let entry_id = Uuid::new_v4();
+
         // Create a sample AlpacaOrder and Trade
         let alpaca_order = AlpacaOrder {
+            id: Id(entry_id),
             filled_at: Some(Utc::now()),
             filled_quantity: Num::from(100),
             status: AlpacaStatus::Filled,
@@ -203,16 +204,8 @@ mod tests {
         };
 
         let trade = Trade {
-            target: Order {
-                ..Default::default()
-            },
-            safety_stop: Order {
-                ..Default::default()
-            },
             entry: Order {
-                broker_order_id: Some(
-                    Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap(),
-                ),
+                broker_order_id: Some(entry_id),
                 ..Default::default()
             },
             ..Default::default()
@@ -225,6 +218,118 @@ mod tests {
         assert!(result[0].filled_at.is_some());
         assert_eq!(result[0].filled_quantity, 100);
         assert_eq!(result[0].average_filled_price, Some(dec!(10)));
+    }
+
+    #[test]
+    fn test_map_orders_returns_entry_and_target() {
+        let entry_id = Uuid::new_v4();
+        let target_id = Uuid::new_v4();
+
+        // Create a sample AlpacaOrder and Trade
+        let alpaca_order = AlpacaOrder {
+            id: Id(entry_id),
+            filled_at: Some(Utc::now()),
+            filled_quantity: Num::from(100),
+            status: AlpacaStatus::Filled,
+            average_fill_price: Some(Num::from(10)),
+            legs: vec![AlpacaOrder {
+                id: Id(target_id),
+                filled_at: Some(Utc::now()),
+                filled_quantity: Num::from(100),
+                status: AlpacaStatus::Filled,
+                average_fill_price: Some(Num::from(11)),
+                ..default()
+            }],
+            ..default()
+        };
+
+        let trade = Trade {
+            target: Order {
+                broker_order_id: Some(target_id),
+                ..Default::default()
+            },
+            safety_stop: Order {
+                broker_order_id: Some(Uuid::new_v4()),
+                ..Default::default()
+            },
+            entry: Order {
+                broker_order_id: Some(entry_id),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let result = map_orders(alpaca_order, &trade).unwrap();
+
+        assert_eq!(result.len(), 2);
+
+        // Entry
+        assert_eq!(result[0].status, OrderStatus::Filled);
+        assert!(result[0].filled_at.is_some());
+        assert_eq!(result[0].filled_quantity, 100);
+        assert_eq!(result[0].average_filled_price, Some(dec!(11)));
+
+        // Target
+        assert_eq!(result[1].status, OrderStatus::Filled);
+        assert!(result[1].filled_at.is_some());
+        assert_eq!(result[1].filled_quantity, 100);
+        assert_eq!(result[1].average_filled_price, Some(dec!(10)));
+    }
+
+    #[test]
+    fn test_map_orders_returns_entry_and_stop() {
+        let entry_id = Uuid::new_v4();
+        let stop_id = Uuid::new_v4();
+
+        // Create a sample AlpacaOrder and Trade
+        let alpaca_order = AlpacaOrder {
+            id: Id(entry_id),
+            filled_at: Some(Utc::now()),
+            filled_quantity: Num::from(100),
+            status: AlpacaStatus::Filled,
+            average_fill_price: Some(Num::from(10)),
+            legs: vec![AlpacaOrder {
+                id: Id(stop_id),
+                filled_at: Some(Utc::now()),
+                filled_quantity: Num::from(100),
+                status: AlpacaStatus::Filled,
+                average_fill_price: Some(Num::from(9)),
+                ..default()
+            }],
+            ..default()
+        };
+
+        let trade = Trade {
+            target: Order {
+                broker_order_id: Some(Uuid::new_v4()),
+                ..Default::default()
+            },
+            safety_stop: Order {
+                broker_order_id: Some(stop_id),
+                ..Default::default()
+            },
+            entry: Order {
+                broker_order_id: Some(entry_id),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let result = map_orders(alpaca_order, &trade).unwrap();
+
+        assert_eq!(result.len(), 2);
+
+        // Entry
+        assert_eq!(result[0].status, OrderStatus::Filled);
+        assert!(result[0].filled_at.is_some());
+        assert_eq!(result[0].filled_quantity, 100);
+        assert_eq!(result[0].average_filled_price, Some(dec!(9)));
+
+        // Stop
+        assert_eq!(result[1].status, OrderStatus::Filled);
+        assert!(result[1].filled_at.is_some());
+        assert_eq!(result[1].filled_quantity, 100);
+        assert_eq!(result[1].average_filled_price, Some(dec!(10)));
     }
 
     #[test]
