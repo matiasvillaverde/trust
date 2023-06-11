@@ -71,7 +71,10 @@ fn map_trade_status(trade: &Trade, updated_orders: Vec<Order>) -> Status {
 pub fn map(alpaca_order: &AlpacaOrder, order: Order) -> Order {
     assert_eq!(
         alpaca_order.id.to_string(),
-        order.broker_order_id.unwrap().to_string(),
+        order
+            .broker_order_id
+            .expect("order does not have a broker id. It can not be mapped into an alpaca order")
+            .to_string(),
         "Order IDs do not match"
     );
 
@@ -117,6 +120,8 @@ fn map_from_alpaca(status: AlpacaStatus) -> OrderStatus {
 
 #[cfg(test)]
 mod tests {
+    use std::io::Error;
+
     use super::*;
     use apca::api::v2::order::{Amount, Class, Side, TimeInForce, Type};
     use apca::api::v2::{asset, order::Id};
@@ -157,6 +162,69 @@ mod tests {
             legs: vec![],
             extended_hours: false,
         }
+    }
+
+    #[test]
+    fn test_map_orders_nothing_to_map() {
+        let alpaca_order = default();
+        let trade = Trade {
+            entry: Order {
+                broker_order_id: Some(
+                    Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap(),
+                ),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let err = map_orders(alpaca_order, &trade).unwrap();
+        assert_eq!(err.len(), 0);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "order does not have a broker id. It can not be mapped into an alpaca order"
+    )]
+    fn test_map_orders_entry_id_are_different() {
+        // Create a sample AlpacaOrder and Trade
+        let alpaca_order = default();
+        let trade = Trade::default();
+        _ = map_orders(alpaca_order, &trade);
+    }
+
+    #[test]
+    fn test_map_orders_returns_entry() {
+        // Create a sample AlpacaOrder and Trade
+        let alpaca_order = AlpacaOrder {
+            filled_at: Some(Utc::now()),
+            filled_quantity: Num::from(100),
+            status: AlpacaStatus::Filled,
+            average_fill_price: Some(Num::from(10)),
+            ..default()
+        };
+
+        let trade = Trade {
+            target: Order {
+                ..Default::default()
+            },
+            safety_stop: Order {
+                ..Default::default()
+            },
+            entry: Order {
+                broker_order_id: Some(
+                    Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap(),
+                ),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let result = map_orders(alpaca_order, &trade).unwrap();
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].status, OrderStatus::Filled);
+        assert!(result[0].filled_at.is_some());
+        assert_eq!(result[0].filled_quantity, 100);
+        assert_eq!(result[0].average_filled_price, Some(dec!(10)));
     }
 
     #[test]
