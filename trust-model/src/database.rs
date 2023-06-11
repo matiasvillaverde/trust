@@ -1,6 +1,6 @@
 use crate::{
-    Account, AccountOverview, BrokerLog, Currency, Environment, Order, OrderAction, Price, Rule,
-    RuleLevel, RuleName, Status, Trade, TradeCategory, TradeOverview, TradingVehicle,
+    Account, AccountOverview, BrokerLog, Currency, Environment, Order, OrderAction, OrderCategory,
+    Price, Rule, RuleLevel, RuleName, Status, Trade, TradeCategory, TradeOverview, TradingVehicle,
     TradingVehicleCategory, Transaction, TransactionCategory,
 };
 use rust_decimal::Decimal;
@@ -100,6 +100,7 @@ pub trait WriteOrderDB {
         price: Decimal,
         currency: &Currency,
         action: &OrderAction,
+        category: &OrderCategory,
     ) -> Result<Order, Box<dyn Error>>;
     fn record_submit(
         &mut self,

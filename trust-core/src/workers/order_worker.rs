@@ -1,6 +1,7 @@
 use rust_decimal::Decimal;
 use trust_model::{
-    Currency, DatabaseFactory, Order, OrderAction, ReadTradeDB, Trade, TradeCategory, WriteOrderDB,
+    Currency, DatabaseFactory, Order, OrderAction, OrderCategory, ReadTradeDB, Trade,
+    TradeCategory, WriteOrderDB,
 };
 use uuid::Uuid;
 
@@ -23,7 +24,8 @@ impl OrderWorker {
             quantity,
             price,
             currency,
-            &OrderWorker::action_for_stop(category),
+            &action_for_stop(category),
+            &OrderCategory::Market,
         )
     }
 
@@ -43,7 +45,8 @@ impl OrderWorker {
             quantity,
             price,
             currency,
-            &OrderWorker::action_for_entry(category),
+            &action_for_entry(category),
+            &OrderCategory::Limit,
         )
     }
 
@@ -66,11 +69,16 @@ impl OrderWorker {
             .read_trading_vehicle_db()
             .read_trading_vehicle(trading_vehicle_id)?;
 
-        let action = OrderWorker::action_for_target(category);
+        let action = action_for_target(category);
 
-        database
-            .write_order_db()
-            .create_order(&tv, quantity, price, currency, &action)
+        database.write_order_db().create_order(
+            &tv,
+            quantity,
+            price,
+            currency,
+            &action,
+            &OrderCategory::Limit,
+        )
     }
 
     pub fn record_timestamp_filled(
@@ -99,25 +107,66 @@ impl OrderWorker {
         write_database.record_order_closing(&trade.target)?;
         read_database.read_trade(trade.id)
     }
+}
 
-    fn action_for_stop(category: &TradeCategory) -> OrderAction {
-        match category {
-            TradeCategory::Long => OrderAction::Sell,
-            TradeCategory::Short => OrderAction::Buy,
-        }
+fn action_for_stop(category: &TradeCategory) -> OrderAction {
+    match category {
+        TradeCategory::Long => OrderAction::Sell,
+        TradeCategory::Short => OrderAction::Buy,
+    }
+}
+
+fn action_for_entry(category: &TradeCategory) -> OrderAction {
+    match category {
+        TradeCategory::Long => OrderAction::Buy,
+        TradeCategory::Short => OrderAction::Sell,
+    }
+}
+
+fn action_for_target(category: &TradeCategory) -> OrderAction {
+    match category {
+        TradeCategory::Long => OrderAction::Sell,
+        TradeCategory::Short => OrderAction::Buy,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_action_for_stop_long() {
+        let category = TradeCategory::Long;
+        assert_eq!(action_for_stop(&category), OrderAction::Sell);
     }
 
-    fn action_for_entry(category: &TradeCategory) -> OrderAction {
-        match category {
-            TradeCategory::Long => OrderAction::Buy,
-            TradeCategory::Short => OrderAction::Sell,
-        }
+    #[test]
+    fn test_action_for_stop_short() {
+        let category = TradeCategory::Short;
+        assert_eq!(action_for_stop(&category), OrderAction::Buy);
     }
 
-    fn action_for_target(category: &TradeCategory) -> OrderAction {
-        match category {
-            TradeCategory::Long => OrderAction::Sell,
-            TradeCategory::Short => OrderAction::Buy,
-        }
+    #[test]
+    fn test_action_for_entry_long() {
+        let category = TradeCategory::Long;
+        assert_eq!(action_for_entry(&category), OrderAction::Buy);
+    }
+
+    #[test]
+    fn test_action_for_entry_short() {
+        let category = TradeCategory::Short;
+        assert_eq!(action_for_entry(&category), OrderAction::Sell);
+    }
+
+    #[test]
+    fn test_action_for_target_long() {
+        let category = TradeCategory::Long;
+        assert_eq!(action_for_target(&category), OrderAction::Sell);
+    }
+
+    #[test]
+    fn test_action_for_target_short() {
+        let category = TradeCategory::Short;
+        assert_eq!(action_for_target(&category), OrderAction::Buy);
     }
 }

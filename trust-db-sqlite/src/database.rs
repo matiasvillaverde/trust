@@ -146,6 +146,7 @@ impl WriteOrderDB for SqliteDatabase {
         price: Decimal,
         currency: &Currency,
         action: &OrderAction,
+        category: &OrderCategory,
     ) -> Result<Order, Box<dyn Error>> {
         WorkerOrder::create(
             &mut self.connection.lock().unwrap(),
@@ -153,7 +154,7 @@ impl WriteOrderDB for SqliteDatabase {
             currency,
             quantity,
             action,
-            &OrderCategory::Market, // All stops should be market to go out as fast as possible
+            category,
             trading_vehicle,
         )
     }
