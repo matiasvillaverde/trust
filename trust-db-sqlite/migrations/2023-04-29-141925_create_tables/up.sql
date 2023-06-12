@@ -74,6 +74,7 @@ CREATE TABLE "orders" (
 	updated_at				DATETIME NOT NULL,
 	deleted_at				DATETIME,
 	price_id				TEXT NOT NULL REFERENCES prices (id),
+	currency	 			TEXT CHECK(currency IN ('USD', 'EUR', 'BTC')) NOT NULL,
 	quantity				INTEGER NOT NULL,
 	category 				TEXT CHECK(category IN ('market', 'limit', 'stop')) NOT NULL,
 	trading_vehicle_id		TEXT NOT NULL REFERENCES trading_vehicles (id),

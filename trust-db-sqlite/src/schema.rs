@@ -87,6 +87,7 @@ diesel::table! {
         updated_at -> Timestamp,
         deleted_at -> Nullable<Timestamp>,
         price_id -> Text,
+        currency -> Text,
         quantity -> BigInt,
         category -> Text,
         trading_vehicle_id -> Text,
