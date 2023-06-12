@@ -21,12 +21,21 @@ pub struct ArgDispatcher {
 impl ArgDispatcher {
     pub fn new_sqlite() -> Self {
         create_dir_if_necessary();
-        let db_url = tilde("~/.trust/production.db").to_string();
-        let database = SqliteDatabase::new(&db_url);
+        let database = SqliteDatabase::new(ArgDispatcher::database_url().as_str());
 
         ArgDispatcher {
             trust: TrustFacade::new(Box::new(database), Box::<AlpacaBroker>::default()),
         }
+    }
+
+    #[cfg(debug_assertions)]
+    fn database_url() -> String {
+        tilde("~/.trust/debug.db").to_string()
+    }
+
+    #[cfg(not(debug_assertions))]
+    fn database_url() -> String {
+        tilde("~/.trust/production.db").to_string()
     }
 
     pub fn dispatch(mut self, matches: ArgMatches) {
