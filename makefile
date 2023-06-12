@@ -10,8 +10,7 @@ MIGRATIONS_DIRECTORY = ./trust-db-sqlite/migrations
 DIESEL_CONFIG_FILE = ./trust-db-sqlite/diesel.toml
 
 # Set the path to your Diesel DB URL
-DIESEL_DATABASE_URL = ./trust-db-sqlite/production.db
-CLI_DATABASE_URL = ~/.trust
+CLI_DATABASE_URL = ~/.trust/debug.db
 
 # Set the path to your Diesel CLI executable
 DIESEL_CLI = diesel
@@ -27,7 +26,7 @@ CARGO = cargo
 
 .PHONY: setup
 setup:
-	$(DIESEL_CLI) setup --config-file $(DIESEL_CONFIG_FILE) --database-url $(DIESEL_DATABASE_URL)
+	$(DIESEL_CLI) setup --config-file $(DIESEL_CONFIG_FILE) --database-url $(CLI_DATABASE_URL)
 
 .PHONY: build
 build: setup
@@ -43,13 +42,12 @@ test: setup
 
 .PHONY: clean-db
 clean-db:
-	$(DIESEL_CLI) migration redo --config-file $(DIESEL_CONFIG_FILE) --database-url $(DIESEL_DATABASE_URL)
+	$(DIESEL_CLI) migration redo --config-file $(DIESEL_CONFIG_FILE) --database-url $(CLI_DATABASE_URL)
 
 .PHONY: delete-db
 delete-db:
-	rm -f $(DIESEL_DATABASE_URL)
 	rm -fr $(CLI_DATABASE_URL)
 
 .PHONY: migration
 migration:
-	$(DIESEL_CLI) migration run --config-file $(DIESEL_CONFIG_FILE) --database-url $(DIESEL_DATABASE_URL)
+	$(DIESEL_CLI) migration run --config-file $(DIESEL_CONFIG_FILE) --database-url $(CLI_DATABASE_URL)
