@@ -19,7 +19,7 @@ impl AccountCapitalInApprovedTrades {
         let total: Decimal = transactions
             .iter()
             .map(|transaction| match transaction.category {
-                TransactionCategory::FundTrade(_) => transaction.price,
+                TransactionCategory::FundTrade(_) => transaction.amount,
                 _ => dec!(0),
             })
             .sum();

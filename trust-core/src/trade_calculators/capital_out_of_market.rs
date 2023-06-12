@@ -16,27 +16,27 @@ impl TradeCapitalOutOfMarket {
             match tx.category {
                 TransactionCategory::FundTrade(_) => {
                     // This is money that we have put into the trade
-                    total += tx.price
+                    total += tx.amount
                 }
                 TransactionCategory::PaymentFromTrade(_) => {
                     // This is money that we have extracted from the trade
-                    total -= tx.price
+                    total -= tx.amount
                 }
                 TransactionCategory::OpenTrade(_) => {
                     // This is money that we have used to enter the market.
-                    total -= tx.price
+                    total -= tx.amount
                 }
                 TransactionCategory::CloseTarget(_) => {
                     // This is money that we have used to exit the market.
-                    total += tx.price
+                    total += tx.amount
                 }
                 TransactionCategory::CloseSafetyStop(_) => {
                     // This is money that we have used to exit the market at a loss.
-                    total += tx.price
+                    total += tx.amount
                 }
                 TransactionCategory::CloseSafetyStopSlippage(_) => {
                     // This is money that we have used to exit the market at a loss - slippage.
-                    total += tx.price
+                    total += tx.amount
                 },
                 TransactionCategory::FeeOpen(_) | TransactionCategory::FeeClose(_) | TransactionCategory::PaymentTax(_) | TransactionCategory::PaymentEarnings(_) => {
                     // We ignore the fees because they are charged from the account and not from the trade.

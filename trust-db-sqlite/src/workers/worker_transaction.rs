@@ -341,7 +341,7 @@ impl TransactionSQLite {
             deleted_at: self.deleted_at,
             category,
             currency: Currency::from_str(&self.currency).unwrap(),
-            price: Decimal::from_str(&self.amount).unwrap(),
+            amount: Decimal::from_str(&self.amount).unwrap(),
             account_id: Uuid::parse_str(&self.account_id).unwrap(),
         }
     }
@@ -412,7 +412,7 @@ mod tests {
             .expect("Error creating transaction");
 
         assert_eq!(tx.account_id, account.id);
-        assert_eq!(tx.price, dec!(10.99));
+        assert_eq!(tx.amount, dec!(10.99));
         assert_eq!(tx.currency, Currency::BTC);
         assert_eq!(tx.category, TransactionCategory::Deposit);
         assert_eq!(tx.deleted_at, None);
@@ -444,7 +444,7 @@ mod tests {
             .expect("Error creating transaction");
 
         assert_eq!(tx.account_id, account.id);
-        assert_eq!(tx.price, dec!(10.99));
+        assert_eq!(tx.amount, dec!(10.99));
         assert_eq!(tx.currency, Currency::BTC);
         assert_eq!(tx.category, TransactionCategory::FundTrade(trade_id));
         assert_eq!(tx.deleted_at, None);

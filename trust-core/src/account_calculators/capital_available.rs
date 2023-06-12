@@ -20,9 +20,9 @@ impl AccountCapitalAvailable {
                     TransactionCategory::FundTrade(_) |
                     TransactionCategory::Withdrawal |
                     TransactionCategory::FeeOpen(_) |
-                    TransactionCategory::FeeClose(_) => -transaction.price,
+                    TransactionCategory::FeeClose(_) => -transaction.amount,
                     TransactionCategory::PaymentFromTrade(_) |
-                    TransactionCategory::Deposit => transaction.price,
+                    TransactionCategory::Deposit => transaction.amount,
                     _ => panic!(
                         "capital_available: does not know how to calculate transaction with category: {}",
                         transaction.category

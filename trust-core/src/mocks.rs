@@ -34,7 +34,7 @@ pub mod read_transaction_db_mocks {
                 updated_at: now,
                 deleted_at: None,
                 account_id: self.account_id,
-                price: amount,
+                amount,
                 currency,
                 category,
             };

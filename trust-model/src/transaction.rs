@@ -22,7 +22,7 @@ pub struct Transaction {
     pub currency: Currency,
 
     /// The amount of the transaction
-    pub price: Decimal,
+    pub amount: Decimal,
 
     /// The account ID - the account that the transaction is related to
     pub account_id: Uuid,
@@ -167,7 +167,7 @@ impl Transaction {
             account_id,
             category,
             currency: *currency,
-            price,
+            amount: price,
         }
     }
 }

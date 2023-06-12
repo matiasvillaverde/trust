@@ -20,11 +20,11 @@ impl AccountCapitalBalance {
                 | TransactionCategory::WithdrawalEarnings
                 | TransactionCategory::FeeOpen(_)
                 | TransactionCategory::FeeClose(_)
-                | TransactionCategory::OpenTrade(_) => acc - tx.price,
+                | TransactionCategory::OpenTrade(_) => acc - tx.amount,
                 TransactionCategory::Deposit
                 | TransactionCategory::CloseSafetyStop(_)
                 | TransactionCategory::CloseTarget(_)
-                | TransactionCategory::CloseSafetyStopSlippage(_) => acc + tx.price,
+                | TransactionCategory::CloseSafetyStopSlippage(_) => acc + tx.amount,
                 _ => acc,
             });
 

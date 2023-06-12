@@ -16,7 +16,7 @@ impl TradeCapitalFunded {
             match tx.category {
                 TransactionCategory::FundTrade(_) => {
                     // This is money that we have used to enter the market.
-                    total += tx.price
+                    total += tx.amount
                 }
                 default => panic!(
                     "TradeCapitalFunded: does not know how to calculate transaction with category: {}",
