@@ -15,7 +15,7 @@ pub struct WorkerOrder;
 impl WorkerOrder {
     pub fn create(
         connection: &mut SqliteConnection,
-        price: Decimal,
+        unit_price: Decimal,
         currency: &Currency,
         quantity: i64,
         action: &OrderAction,
@@ -24,7 +24,7 @@ impl WorkerOrder {
     ) -> Result<Order, Box<dyn Error>> {
         let new_order = NewOrder {
             quantity,
-            price_id: price.to_string(),
+            unit_price: unit_price.to_string(),
             category: category.to_string(),
             currency: currency.to_string(),
             trading_vehicle_id: trading_vehicle.id.to_string(),
@@ -132,7 +132,7 @@ struct OrderSQLite {
     created_at: NaiveDateTime,
     updated_at: NaiveDateTime,
     deleted_at: Option<NaiveDateTime>,
-    price_id: String,
+    unit_price: String,
     currency: String,
     quantity: i64,
     category: String,
@@ -160,7 +160,7 @@ impl OrderSQLite {
             created_at: self.created_at,
             updated_at: self.updated_at,
             deleted_at: self.deleted_at,
-            unit_price: Decimal::from_str(self.price_id.as_str()).unwrap(),
+            unit_price: Decimal::from_str(self.unit_price.as_str()).unwrap(),
             currency: Currency::from_str(self.currency.as_str()).unwrap(),
             quantity: self.quantity as u64,
             action: OrderAction::from_str(&self.action).unwrap(),
@@ -195,7 +195,7 @@ struct NewOrder {
     created_at: NaiveDateTime,
     updated_at: NaiveDateTime,
     deleted_at: Option<NaiveDateTime>,
-    price_id: String,
+    unit_price: String,
     currency: String,
     quantity: i64,
     category: String,
@@ -224,7 +224,7 @@ impl Default for NewOrder {
             created_at: now,
             updated_at: now,
             deleted_at: None,
-            price_id: dec!(0).to_string(),
+            unit_price: dec!(0).to_string(),
             currency: Currency::default().to_string(),
             quantity: 0,
             category: OrderCategory::Limit.to_string(),

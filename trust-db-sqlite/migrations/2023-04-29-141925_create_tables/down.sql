@@ -1,6 +1,5 @@
 -- This file should undo anything in `up.sql`
 DROP TABLE "accounts";
-DROP TABLE "prices";
 DROP TABLE "transactions";
 DROP TABLE "accounts_overviews";
 DROP TABLE "rules";

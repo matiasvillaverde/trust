@@ -158,11 +158,11 @@ impl WorkerTrade {
             .filter(trades_overviews::id.eq(&trade.overview.id.to_string()))
             .set((
                 trades_overviews::updated_at.eq(Utc::now().naive_utc()),
-                trades_overviews::funding_id.eq(funding.to_string()),
-                trades_overviews::capital_in_market_id.eq(capital_in_market.to_string()),
-                trades_overviews::capital_out_market_id.eq(capital_out_market.to_string()),
-                trades_overviews::taxed_id.eq(taxed.to_string()),
-                trades_overviews::total_performance_id.eq(total_performance.to_string()),
+                trades_overviews::funding.eq(funding.to_string()),
+                trades_overviews::capital_in_market.eq(capital_in_market.to_string()),
+                trades_overviews::capital_out_market.eq(capital_out_market.to_string()),
+                trades_overviews::taxed.eq(taxed.to_string()),
+                trades_overviews::total_performance.eq(total_performance.to_string()),
             ))
             .get_result::<TradeOverviewSQLite>(connection)
             .map(|o| o.domain_model())
@@ -277,11 +277,11 @@ struct TradeOverviewSQLite {
     updated_at: NaiveDateTime,
     deleted_at: Option<NaiveDateTime>,
     currency: String,
-    funding_id: String,
-    capital_in_market_id: String,
-    capital_out_market_id: String,
-    taxed_id: String,
-    total_performance_id: String,
+    funding: String,
+    capital_in_market: String,
+    capital_out_market: String,
+    taxed: String,
+    total_performance: String,
 }
 
 impl TradeOverviewSQLite {
@@ -292,11 +292,11 @@ impl TradeOverviewSQLite {
             updated_at: self.updated_at,
             deleted_at: self.deleted_at,
             currency: Currency::from_str(&self.currency).unwrap(),
-            funding: Decimal::from_str(self.funding_id.as_str()).unwrap(),
-            capital_in_market: Decimal::from_str(self.capital_in_market_id.as_str()).unwrap(),
-            capital_out_market: Decimal::from_str(self.capital_out_market_id.as_str()).unwrap(),
-            taxed: Decimal::from_str(self.taxed_id.as_str()).unwrap(),
-            total_performance: Decimal::from_str(self.total_performance_id.as_str()).unwrap(),
+            funding: Decimal::from_str(self.funding.as_str()).unwrap(),
+            capital_in_market: Decimal::from_str(self.capital_in_market.as_str()).unwrap(),
+            capital_out_market: Decimal::from_str(self.capital_out_market.as_str()).unwrap(),
+            taxed: Decimal::from_str(self.taxed.as_str()).unwrap(),
+            total_performance: Decimal::from_str(self.total_performance.as_str()).unwrap(),
         }
     }
 }
@@ -309,11 +309,11 @@ struct NewTradeOverview {
     updated_at: NaiveDateTime,
     deleted_at: Option<NaiveDateTime>,
     currency: String,
-    funding_id: String,
-    capital_in_market_id: String,
-    capital_out_market_id: String,
-    taxed_id: String,
-    total_performance_id: String,
+    funding: String,
+    capital_in_market: String,
+    capital_out_market: String,
+    taxed: String,
+    total_performance: String,
 }
 
 impl Default for NewTradeOverview {
@@ -325,11 +325,11 @@ impl Default for NewTradeOverview {
             updated_at: now,
             deleted_at: None,
             currency: Currency::USD.to_string(),
-            funding_id: Decimal::new(0, 0).to_string(),
-            capital_in_market_id: Decimal::new(0, 0).to_string(),
-            capital_out_market_id: Decimal::new(0, 0).to_string(),
-            taxed_id: Decimal::new(0, 0).to_string(),
-            total_performance_id: Decimal::new(0, 0).to_string(),
+            funding: Decimal::new(0, 0).to_string(),
+            capital_in_market: Decimal::new(0, 0).to_string(),
+            capital_out_market: Decimal::new(0, 0).to_string(),
+            taxed: Decimal::new(0, 0).to_string(),
+            total_performance: Decimal::new(0, 0).to_string(),
         }
     }
 }

@@ -85,10 +85,10 @@ impl WorkerAccountOverview {
             .filter(accounts_overviews::id.eq(&overview.id.to_string()))
             .set((
                 accounts_overviews::updated_at.eq(Utc::now().naive_utc()),
-                accounts_overviews::total_balance_id.eq(total_balance.to_string()),
-                accounts_overviews::total_available_id.eq(total_available.to_string()),
-                accounts_overviews::total_in_trade_id.eq(total_in_trade.to_string()),
-                accounts_overviews::taxed_id.eq(total_taxed.to_string()),
+                accounts_overviews::total_balance.eq(total_balance.to_string()),
+                accounts_overviews::total_available.eq(total_available.to_string()),
+                accounts_overviews::total_in_trade.eq(total_in_trade.to_string()),
+                accounts_overviews::taxed.eq(total_taxed.to_string()),
             ))
             .get_result::<AccountOverviewSQLite>(connection)
             .map(|o| o.domain_model())
@@ -109,10 +109,10 @@ struct AccountOverviewSQLite {
     updated_at: NaiveDateTime,
     deleted_at: Option<NaiveDateTime>,
     account_id: String,
-    total_balance_id: String,
-    total_in_trade_id: String,
-    total_available_id: String,
-    taxed_id: String,
+    total_balance: String,
+    total_in_trade: String,
+    total_available: String,
+    taxed: String,
     currency: String,
 }
 
@@ -125,10 +125,10 @@ impl AccountOverviewSQLite {
             updated_at: self.updated_at,
             deleted_at: self.deleted_at,
             account_id: Uuid::parse_str(&self.account_id).unwrap(),
-            total_balance: Decimal::from_str(&self.total_balance_id).unwrap(),
-            total_in_trade: Decimal::from_str(&self.total_in_trade_id).unwrap(),
-            total_available: Decimal::from_str(&self.total_available_id).unwrap(),
-            taxed: Decimal::from_str(&self.taxed_id).unwrap(),
+            total_balance: Decimal::from_str(&self.total_balance).unwrap(),
+            total_in_trade: Decimal::from_str(&self.total_in_trade).unwrap(),
+            total_available: Decimal::from_str(&self.total_available).unwrap(),
+            taxed: Decimal::from_str(&self.taxed).unwrap(),
             currency: Currency::from_str(&self.currency).unwrap(),
         }
     }
@@ -142,10 +142,10 @@ pub struct NewAccountOverview {
     updated_at: NaiveDateTime,
     deleted_at: Option<NaiveDateTime>,
     account_id: String,
-    total_balance_id: String,
-    total_in_trade_id: String,
-    total_available_id: String,
-    taxed_id: String,
+    total_balance: String,
+    total_in_trade: String,
+    total_available: String,
+    taxed: String,
     currency: String,
 }
 
@@ -158,10 +158,10 @@ impl Default for NewAccountOverview {
             updated_at: now,
             deleted_at: None,
             account_id: "".to_string(),
-            total_balance_id: "".to_string(),
-            total_in_trade_id: "".to_string(),
-            total_available_id: "".to_string(),
-            taxed_id: "".to_string(),
+            total_balance: "".to_string(),
+            total_in_trade: "".to_string(),
+            total_available: "".to_string(),
+            taxed: "".to_string(),
             currency: Currency::USD.to_string(),
         }
     }

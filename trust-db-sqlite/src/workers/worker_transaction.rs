@@ -30,14 +30,14 @@ impl WorkerTransaction {
             currency: currency.to_string(),
             category: category.to_string(),
             account_id: account_id.to_string(),
-            price_id: amount.to_string(),
+            amount: amount.to_string(),
             trade_id: category.trade_id().map(|uuid| uuid.to_string()),
         };
 
         let transaction = diesel::insert_into(transactions::table)
             .values(&new_transaction)
             .get_result::<TransactionSQLite>(connection)
-            .map(|tx| tx.domain_model(connection))
+            .map(|tx| tx.domain_model())
             .map_err(|error| {
                 error!("Error creating transaction: {:?}", error);
                 error
@@ -58,7 +58,7 @@ impl WorkerTransaction {
             .map(|transactions: Vec<TransactionSQLite>| {
                 transactions
                     .into_iter()
-                    .map(|tx| tx.domain_model(connection))
+                    .map(|tx| tx.domain_model())
                     .collect()
             })
             .map_err(|error| {
@@ -184,7 +184,7 @@ impl WorkerTransaction {
             .map(|transactions: Vec<TransactionSQLite>| {
                 transactions
                     .into_iter()
-                    .map(|tx| tx.domain_model(connection))
+                    .map(|tx| tx.domain_model())
                     .collect()
             })
             .map_err(|error| {
@@ -207,7 +207,7 @@ impl WorkerTransaction {
             .map(|transactions: Vec<TransactionSQLite>| {
                 transactions
                     .into_iter()
-                    .map(|tx| tx.domain_model(connection))
+                    .map(|tx| tx.domain_model())
                     .collect()
             })
             .map_err(|error| {
@@ -228,7 +228,7 @@ impl WorkerTransaction {
             .map(|transactions: Vec<TransactionSQLite>| {
                 transactions
                     .into_iter()
-                    .map(|tx| tx.domain_model(connection))
+                    .map(|tx| tx.domain_model())
                     .collect()
             })
             .map_err(|error| {
@@ -299,7 +299,7 @@ impl WorkerTransaction {
             .map(|transactions: Vec<TransactionSQLite>| {
                 transactions
                     .into_iter()
-                    .map(|tx| tx.domain_model(connection))
+                    .map(|tx| tx.domain_model())
                     .collect()
             })
             .map_err(|error| {
@@ -319,13 +319,13 @@ pub struct TransactionSQLite {
     pub deleted_at: Option<NaiveDateTime>,
     pub currency: String,
     pub category: String,
-    pub price_id: String,
+    pub amount: String,
     pub account_id: String,
     pub trade_id: Option<String>,
 }
 
 impl TransactionSQLite {
-    fn domain_model(&self, _connection: &mut SqliteConnection) -> Transaction {
+    fn domain_model(&self) -> Transaction {
         let category = TransactionCategory::parse(
             &self.category,
             self.trade_id
@@ -341,7 +341,7 @@ impl TransactionSQLite {
             deleted_at: self.deleted_at,
             category,
             currency: Currency::from_str(&self.currency).unwrap(),
-            price: Decimal::from_str(&self.price_id).unwrap(),
+            price: Decimal::from_str(&self.amount).unwrap(),
             account_id: Uuid::parse_str(&self.account_id).unwrap(),
         }
     }
@@ -356,7 +356,7 @@ pub struct NewTransaction {
     pub deleted_at: Option<NaiveDateTime>,
     pub currency: String,
     pub category: String,
-    pub price_id: String,
+    pub amount: String,
     pub account_id: String,
     pub trade_id: Option<String>,
 }
