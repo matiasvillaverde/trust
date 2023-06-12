@@ -109,7 +109,7 @@ CREATE TABLE "trades_overviews" (
 	funding				TEXT NOT NULL,
 	capital_in_market	TEXT NOT NULL,
 	capital_out_market	TEXT NOT NULL,
-	taxed_				TEXT NOT NULL,
+	taxed				TEXT NOT NULL,
 	total_performance	TEXT NOT NULL
 );
 
