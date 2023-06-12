@@ -3,7 +3,7 @@ use chrono::{NaiveDateTime, Utc};
 use diesel::prelude::*;
 use diesel::SqliteConnection;
 use rust_decimal::Decimal;
-use rust_decimal_macros::dec;
+
 use std::error::Error;
 use tracing::error;
 use trust_model::{Account, AccountOverview, Currency};
@@ -64,21 +64,6 @@ impl WorkerAccountOverview {
             .filter(accounts_overviews::account_id.eq(account_id.to_string()))
             .filter(accounts_overviews::currency.eq(currency.to_string()))
             .filter(accounts_overviews::deleted_at.is_null())
-            .first::<AccountOverviewSQLite>(connection)
-            .map(|overview| overview.domain_model())
-            .map_err(|error| {
-                error!("Error creating overview: {:?}", error);
-                error
-            })?;
-        Ok(overviews)
-    }
-
-    fn read_id(
-        connection: &mut SqliteConnection,
-        id: Uuid,
-    ) -> Result<AccountOverview, Box<dyn Error>> {
-        let overviews = accounts_overviews::table
-            .filter(accounts_overviews::id.eq(id.to_string()))
             .first::<AccountOverviewSQLite>(connection)
             .map(|overview| overview.domain_model())
             .map_err(|error| {

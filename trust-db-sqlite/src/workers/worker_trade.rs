@@ -127,7 +127,7 @@ impl WorkerTrade {
     fn create_overview(
         connection: &mut SqliteConnection,
         currency: &Currency,
-        created_at: NaiveDateTime,
+        _created_at: NaiveDateTime,
     ) -> Result<TradeOverview, Box<dyn Error>> {
         let new_trade_overview = NewTradeOverview {
             currency: currency.to_string(),
@@ -293,10 +293,10 @@ impl TradeOverviewSQLite {
             deleted_at: self.deleted_at,
             currency: Currency::from_str(&self.currency).unwrap(),
             funding: Decimal::from_str(self.funding_id.as_str()).unwrap(),
-            capital_in_market: Decimal::from_str(&self.capital_in_market_id.as_str()).unwrap(),
-            capital_out_market: Decimal::from_str(&self.capital_out_market_id.as_str()).unwrap(),
-            taxed: Decimal::from_str(&self.taxed_id.as_str()).unwrap(),
-            total_performance: Decimal::from_str(&self.total_performance_id.as_str()).unwrap(),
+            capital_in_market: Decimal::from_str(self.capital_in_market_id.as_str()).unwrap(),
+            capital_out_market: Decimal::from_str(self.capital_out_market_id.as_str()).unwrap(),
+            taxed: Decimal::from_str(self.taxed_id.as_str()).unwrap(),
+            total_performance: Decimal::from_str(self.total_performance_id.as_str()).unwrap(),
         }
     }
 }

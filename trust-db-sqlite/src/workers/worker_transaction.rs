@@ -325,7 +325,7 @@ pub struct TransactionSQLite {
 }
 
 impl TransactionSQLite {
-    fn domain_model(&self, connection: &mut SqliteConnection) -> Transaction {
+    fn domain_model(&self, _connection: &mut SqliteConnection) -> Transaction {
         let category = TransactionCategory::parse(
             &self.category,
             self.trade_id

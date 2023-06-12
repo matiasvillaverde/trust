@@ -153,7 +153,7 @@ struct OrderSQLite {
 }
 
 impl OrderSQLite {
-    fn domain_model(self, connection: &mut SqliteConnection) -> Order {
+    fn domain_model(self, _connection: &mut SqliteConnection) -> Order {
         Order {
             id: Uuid::parse_str(&self.id).unwrap(),
             broker_order_id: self.broker_order_id.map(|id| Uuid::parse_str(&id).unwrap()),
