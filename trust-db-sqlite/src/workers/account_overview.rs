@@ -12,11 +12,11 @@ use trust_model::{
 };
 use uuid::Uuid;
 
-pub struct WorkerAccountOverview {
+pub struct AccountOverviewDB {
     pub connection: Arc<Mutex<SqliteConnection>>,
 }
 
-impl WriteAccountOverviewDB for WorkerAccountOverview {
+impl WriteAccountOverviewDB for AccountOverviewDB {
     fn create_account_overview(
         &mut self,
         account: &Account,
@@ -69,7 +69,7 @@ impl WriteAccountOverviewDB for WorkerAccountOverview {
     }
 }
 
-impl ReadAccountOverviewDB for WorkerAccountOverview {
+impl ReadAccountOverviewDB for AccountOverviewDB {
     fn read_account_overview(
         &mut self,
         account_id: Uuid,
@@ -169,11 +169,11 @@ impl Default for NewAccountOverview {
             created_at: now,
             updated_at: now,
             deleted_at: None,
-            account_id: "".to_string(),
-            total_balance: "".to_string(),
-            total_in_trade: "".to_string(),
-            total_available: "".to_string(),
-            taxed: "".to_string(),
+            account_id: "0".to_string(),
+            total_balance: "0".to_string(),
+            total_in_trade: "0".to_string(),
+            total_available: "0".to_string(),
+            taxed: "0".to_string(),
             currency: Currency::USD.to_string(),
         }
     }
@@ -181,94 +181,111 @@ impl Default for NewAccountOverview {
 
 #[cfg(test)]
 mod tests {
-    // use std::sync::{Arc, Mutex};
+    use std::sync::{Arc, Mutex};
 
-    // use crate::SqliteDatabase;
+    use crate::SqliteDatabase;
 
-    // use super::*;
-    // use trust_model::DatabaseFactory;
-    // use diesel_migrations::*;
+    use super::*;
+    use diesel_migrations::*;
+    use rust_decimal_macros::dec;
+    use trust_model::DatabaseFactory;
 
-    // pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
+    pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
 
-    // fn establish_connection() -> SqliteConnection {
-    //     let mut connection = SqliteConnection::establish(":memory:").unwrap();
-    //     // This will run the necessary migrations.
-    //     connection.run_pending_migrations(MIGRATIONS).unwrap();
-    //     connection.begin_test_transaction().unwrap();
-    //     connection
-    // }
+    fn establish_connection() -> SqliteConnection {
+        let mut connection = SqliteConnection::establish(":memory:").unwrap();
+        // This will run the necessary migrations.
+        connection.run_pending_migrations(MIGRATIONS).unwrap();
+        connection.begin_test_transaction().unwrap();
+        connection
+    }
 
-    // fn create_factory(connection: SqliteConnection) -> Box<dyn DatabaseFactory> {
-    //     Box::new(SqliteDatabase::new_from(Arc::new(Mutex::new(connection))))
-    // }
+    fn create_factory() -> Box<dyn DatabaseFactory> {
+        Box::new(SqliteDatabase::new_from(Arc::new(Mutex::new(
+            establish_connection(),
+        ))))
+    }
 
-    // #[test]
-    // fn test_create_overview() {
-    //     let mut conn = establish_connection();
+    #[test]
+    fn test_create_overview() {
+        let db = create_factory();
 
-    //     let db = create_factory( conn);
+        let account = db
+            .write_account_db()
+            .create_account(
+                "Test Account",
+                "Some description",
+                trust_model::Environment::Paper,
+            )
+            .expect("Failed to create account");
+        let mut db = db.write_account_overview_db();
+        let overview = db
+            .create_account_overview(&account, &Currency::BTC)
+            .expect("Failed to create overview");
 
-    //     let account = db.write_account_db().create_account("Test Account", "Some description")
-    //         .expect("Failed to create account");
-    //     let overview = WorkerAccountOverview::create(&mut conn, &account, &Currency::BTC)
-    //         .expect("Failed to create overview");
+        assert_eq!(overview.account_id, account.id);
+        assert_eq!(overview.currency, Currency::BTC);
+        assert_eq!(overview.total_balance, dec!(0));
+        assert_eq!(overview.total_in_trade, dec!(0));
+        assert_eq!(overview.total_available, dec!(0));
+        assert_eq!(overview.taxed, dec!(0));
+    }
 
-    //     assert_eq!(overview.account_id, account.id);
-    //     assert_eq!(overview.currency, Currency::BTC);
-    //     assert_eq!(overview.total_balance, dec!(0));
-    //     assert_eq!(overview.total_in_trade, dec!(0));
-    //     assert_eq!(overview.total_available, dec!(0));
-    //     assert_eq!(overview.taxed, dec!(0));
-    //     assert_eq!(overview.total_balance.currency, Currency::BTC);
-    //     assert_eq!(overview.total_in_trade.currency, Currency::BTC);
-    //     assert_eq!(overview.total_available.currency, Currency::BTC);
-    //     assert_eq!(overview.taxed.currency, Currency::BTC);
-    // }
+    #[test]
+    fn test_read_overviews() {
+        let db = create_factory();
 
-    // #[test]
-    // fn test_read_overviews() {
-    //     let mut conn = establish_connection();
-    //     let db = create_factory( conn);
+        let account = db
+            .write_account_db()
+            .create_account(
+                "Test Account",
+                "Some description",
+                trust_model::Environment::Paper,
+            )
+            .expect("Failed to create account");
+        let mut write_db = db.write_account_overview_db();
 
-    //     let account = db.write_account_db().create_account("Test Account", "Some description")
-    //         .expect("Failed to create account");
-    //     let overview_btc: AccountOverview =
-    //         WorkerAccountOverview::create(&mut conn, &account, &Currency::BTC)
-    //             .expect("Failed to create overview");
-    //     let overview_usd: AccountOverview =
-    //         WorkerAccountOverview::create(&mut conn, &account, &Currency::USD)
-    //             .expect("Failed to create overview");
+        let overview_btc = write_db
+            .create_account_overview(&account, &Currency::BTC)
+            .expect("Failed to create overview");
+        let overview_usd = write_db
+            .create_account_overview(&account, &Currency::USD)
+            .expect("Failed to create overview");
 
-    //     let overviews =
-    //         WorkerAccountOverview::read(&mut conn, account.id).expect("Failed to read overviews");
+        let mut db = db.read_account_overview_db();
+        let overviews = db
+            .read_account_overview(account.id)
+            .expect("Failed to read overviews");
 
-    //     assert_eq!(overviews.len(), 2);
-    //     assert_eq!(overviews[0], overview_btc);
-    //     assert_eq!(overviews[1], overview_usd);
-    // }
+        assert_eq!(overviews.len(), 2);
+        assert_eq!(overviews[0], overview_btc);
+        assert_eq!(overviews[1], overview_usd);
+    }
 
-    // #[test]
-    // fn test_update() {
-    //     let mut conn = establish_connection();
-    //     let db = create_factory(conn);
+    #[test]
+    fn test_update() {
+        let db = create_factory();
 
-    //     let account = db.write_account_db().create_account("Test Account", "Some description")
-    //         .expect("Failed to create account");
-    //     let overview_btc: AccountOverview =
-    //         WorkerAccountOverview::create(&mut conn, &account, &Currency::BTC)
-    //             .expect("Failed to create overview");
+        let account = db
+            .write_account_db()
+            .create_account(
+                "Test Account",
+                "Some description",
+                trust_model::Environment::Paper,
+            )
+            .expect("Failed to create account");
+        let mut db = db.write_account_overview_db();
+        let overview = db
+            .create_account_overview(&account, &Currency::BTC)
+            .expect("Failed to create overview");
 
-    //     let updated_overview =
-    //         WorkerAccountOverview::update_total_balance(&mut conn, overview_btc, dec!(10))
-    //             .expect("Should fail to update total balance");
+        let updated_overview = db
+            .update_account_overview(&overview, dec!(200), dec!(1), dec!(203), dec!(44.2))
+            .expect("Failed to update overview");
 
-    //     assert_eq!(updated_overview.total_balance, dec!(10));
-
-    //     let updated_overview =
-    //         WorkerAccountOverview::update_total_available(&mut conn, updated_overview, dec!(9))
-    //             .expect("Should fail to update total available");
-
-    //     assert_eq!(updated_overview.total_available, dec!(9));
-    // }
+        assert_eq!(updated_overview.total_balance, dec!(200));
+        assert_eq!(updated_overview.total_available, dec!(203));
+        assert_eq!(updated_overview.total_in_trade, dec!(1));
+        assert_eq!(updated_overview.taxed, dec!(44.2));
+    }
 }

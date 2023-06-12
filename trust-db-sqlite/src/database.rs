@@ -1,5 +1,5 @@
 use crate::workers::{
-    AccountDB, BrokerLogDB, WorkerAccountOverview, WorkerOrder, WorkerRule, WorkerTrade,
+    AccountDB, AccountOverviewDB, BrokerLogDB, WorkerOrder, WorkerRule, WorkerTrade,
     WorkerTradingVehicle, WorkerTransaction,
 };
 use diesel::prelude::*;
@@ -49,13 +49,13 @@ impl DatabaseFactory for SqliteDatabase {
     }
 
     fn read_account_overview_db(&self) -> Box<dyn ReadAccountOverviewDB> {
-        Box::new(WorkerAccountOverview {
+        Box::new(AccountOverviewDB {
             connection: self.connection.clone(),
         })
     }
 
     fn write_account_overview_db(&self) -> Box<dyn WriteAccountOverviewDB> {
-        Box::new(WorkerAccountOverview {
+        Box::new(AccountOverviewDB {
             connection: self.connection.clone(),
         })
     }
