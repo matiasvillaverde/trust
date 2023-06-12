@@ -1,6 +1,7 @@
-use crate::{price::Price, Currency};
+use crate::Currency;
 use chrono::NaiveDateTime;
 use chrono::Utc;
+use rust_decimal::Decimal;
 use uuid::Uuid;
 
 /// Transaction entity - represents a single transaction
@@ -21,7 +22,7 @@ pub struct Transaction {
     pub currency: Currency,
 
     /// The amount of the transaction
-    pub price: Price,
+    pub price: Decimal,
 
     /// The account ID - the account that the transaction is related to
     pub account_id: Uuid,
@@ -155,7 +156,7 @@ impl Transaction {
         account_id: Uuid,
         category: TransactionCategory,
         currency: &Currency,
-        price: Price,
+        price: Decimal,
     ) -> Transaction {
         let now = Utc::now().naive_utc();
         Transaction {

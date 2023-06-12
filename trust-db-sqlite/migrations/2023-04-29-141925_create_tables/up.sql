@@ -113,10 +113,11 @@ CREATE TABLE "trades_overviews" (
 	created_at				DATETIME NOT NULL,
 	updated_at				DATETIME NOT NULL,
 	deleted_at				DATETIME,
-	funding_id			TEXT NOT NULL REFERENCES prices (id),
-	capital_in_market_id		TEXT NOT NULL REFERENCES prices (id),
-	capital_out_market_id		TEXT NOT NULL REFERENCES prices (id),
-	taxed_id		TEXT NOT NULL REFERENCES prices (id),
+	currency 				TEXT CHECK(currency IN ('USD', 'EUR', 'BTC')) NOT NULL,
+	funding_id				TEXT NOT NULL REFERENCES prices (id),
+	capital_in_market_id	TEXT NOT NULL REFERENCES prices (id),
+	capital_out_market_id	TEXT NOT NULL REFERENCES prices (id),
+	taxed_id				TEXT NOT NULL REFERENCES prices (id),
 	total_performance_id	TEXT NOT NULL REFERENCES prices (id)
 );
 

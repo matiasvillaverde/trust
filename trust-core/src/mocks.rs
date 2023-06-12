@@ -5,8 +5,8 @@ pub mod read_transaction_db_mocks {
     use rust_decimal::Decimal;
     use std::error::Error;
     use trust_model::{
-        Currency, Order, OrderAction, OrderCategory, Price, ReadTradeDB, ReadTransactionDB, Status,
-        Trade, TradeCategory, TradeOverview, TradingVehicle, Transaction, TransactionCategory,
+        Currency, Order, OrderAction, OrderCategory, ReadTradeDB, ReadTransactionDB, Status, Trade,
+        TradeCategory, TradeOverview, TradingVehicle, Transaction, TransactionCategory,
     };
     use uuid::Uuid;
 
@@ -34,14 +34,7 @@ pub mod read_transaction_db_mocks {
                 updated_at: now,
                 deleted_at: None,
                 account_id: self.account_id,
-                price: Price {
-                    id: Uuid::new_v4(),
-                    created_at: now,
-                    updated_at: now,
-                    deleted_at: None,
-                    currency,
-                    amount,
-                },
+                price: amount,
                 currency,
                 category,
             };
@@ -86,12 +79,8 @@ pub mod read_transaction_db_mocks {
             action: OrderAction,
             quantity: u64,
         ) -> Order {
-            let price = Price {
-                amount,
-                ..Default::default()
-            };
             Order {
-                unit_price: price,
+                unit_price: amount,
                 quantity,
                 category,
                 action,

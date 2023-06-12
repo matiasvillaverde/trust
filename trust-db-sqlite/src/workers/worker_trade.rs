@@ -2,7 +2,6 @@ use crate::schema::{trades, trades_overviews};
 use chrono::{NaiveDateTime, Utc};
 use diesel::prelude::*;
 use rust_decimal::Decimal;
-use rust_decimal_macros::dec;
 use std::error::Error;
 use std::str::FromStr;
 use tracing::error;
@@ -10,7 +9,7 @@ use trust_model::{Currency, DraftTrade, Status};
 use trust_model::{Order, Trade, TradeCategory, TradeOverview};
 use uuid::Uuid;
 
-use super::{WorkerOrder, WorkerPrice, WorkerTradingVehicle};
+use super::{WorkerOrder, WorkerTradingVehicle};
 pub struct WorkerTrade;
 
 impl WorkerTrade {
@@ -60,7 +59,7 @@ impl WorkerTrade {
         trades_overviews::table
             .filter(trades_overviews::id.eq(&id.to_string()))
             .first(connection)
-            .map(|overview: TradeOverviewSQLite| overview.domain_model(connection))
+            .map(|overview: TradeOverviewSQLite| overview.domain_model())
     }
 
     pub fn read_trade(
@@ -130,38 +129,15 @@ impl WorkerTrade {
         currency: &Currency,
         created_at: NaiveDateTime,
     ) -> Result<TradeOverview, Box<dyn Error>> {
-        let funding_id = WorkerPrice::create(connection, currency, dec!(0))?
-            .id
-            .to_string();
-        let capital_in_market_id = WorkerPrice::create(connection, currency, dec!(0))?
-            .id
-            .to_string();
-        let capital_out_market_id = WorkerPrice::create(connection, currency, dec!(0))?
-            .id
-            .to_string();
-        let taxed_id = WorkerPrice::create(connection, currency, dec!(0))?
-            .id
-            .to_string();
-        let total_performance_id = WorkerPrice::create(connection, currency, dec!(0))?
-            .id
-            .to_string();
-
         let new_trade_overview = NewTradeOverview {
-            id: Uuid::new_v4().to_string(),
-            created_at,
-            updated_at: created_at,
-            deleted_at: None,
-            funding_id,
-            capital_in_market_id,
-            capital_out_market_id,
-            taxed_id,
-            total_performance_id,
+            currency: currency.to_string(),
+            ..Default::default()
         };
 
         let overview = diesel::insert_into(trades_overviews::table)
             .values(&new_trade_overview)
             .get_result::<TradeOverviewSQLite>(connection)
-            .map(|overview| overview.domain_model(connection))
+            .map(|overview| overview.domain_model())
             .map_err(|error| {
                 error!("Error creating trade overview: {:?}", error);
                 error
@@ -178,24 +154,22 @@ impl WorkerTrade {
         taxed: Decimal,
         total_performance: Decimal,
     ) -> Result<TradeOverview, Box<dyn Error>> {
-        WorkerPrice::update(connection, trade.overview.funding, funding)?;
-        WorkerPrice::update(
-            connection,
-            trade.overview.capital_in_market,
-            capital_in_market,
-        )?;
-        WorkerPrice::update(
-            connection,
-            trade.overview.capital_out_market,
-            capital_out_market,
-        )?;
-        WorkerPrice::update(connection, trade.overview.taxed, taxed)?;
-        WorkerPrice::update(
-            connection,
-            trade.overview.total_performance,
-            total_performance,
-        )?;
-        let overview = WorkerTrade::read_overview(connection, trade.overview.id)?;
+        let overview = diesel::update(trades_overviews::table)
+            .filter(trades_overviews::id.eq(&trade.overview.id.to_string()))
+            .set((
+                trades_overviews::updated_at.eq(Utc::now().naive_utc()),
+                trades_overviews::funding_id.eq(funding.to_string()),
+                trades_overviews::capital_in_market_id.eq(capital_in_market.to_string()),
+                trades_overviews::capital_out_market_id.eq(capital_out_market.to_string()),
+                trades_overviews::taxed_id.eq(taxed.to_string()),
+                trades_overviews::total_performance_id.eq(total_performance.to_string()),
+            ))
+            .get_result::<TradeOverviewSQLite>(connection)
+            .map(|o| o.domain_model())
+            .map_err(|error| {
+                error!("Error updating overview: {:?}", error);
+                error
+            })?;
         Ok(overview)
     }
 
@@ -302,6 +276,7 @@ struct TradeOverviewSQLite {
     created_at: NaiveDateTime,
     updated_at: NaiveDateTime,
     deleted_at: Option<NaiveDateTime>,
+    currency: String,
     funding_id: String,
     capital_in_market_id: String,
     capital_out_market_id: String,
@@ -310,37 +285,18 @@ struct TradeOverviewSQLite {
 }
 
 impl TradeOverviewSQLite {
-    fn domain_model(self, connection: &mut SqliteConnection) -> TradeOverview {
-        let funding =
-            WorkerPrice::read(connection, Uuid::parse_str(&self.funding_id).unwrap()).unwrap();
-        let capital_in_market = WorkerPrice::read(
-            connection,
-            Uuid::parse_str(&self.capital_in_market_id).unwrap(),
-        )
-        .unwrap();
-        let capital_out_market = WorkerPrice::read(
-            connection,
-            Uuid::parse_str(&self.capital_out_market_id).unwrap(),
-        )
-        .unwrap();
-        let taxed =
-            WorkerPrice::read(connection, Uuid::parse_str(&self.taxed_id).unwrap()).unwrap();
-        let total_performance = WorkerPrice::read(
-            connection,
-            Uuid::parse_str(&self.total_performance_id).unwrap(),
-        )
-        .unwrap();
-
+    fn domain_model(self) -> TradeOverview {
         TradeOverview {
             id: Uuid::parse_str(&self.id).unwrap(),
             created_at: self.created_at,
             updated_at: self.updated_at,
             deleted_at: self.deleted_at,
-            funding,
-            capital_in_market,
-            capital_out_market,
-            taxed,
-            total_performance,
+            currency: Currency::from_str(&self.currency).unwrap(),
+            funding: Decimal::from_str(self.funding_id.as_str()).unwrap(),
+            capital_in_market: Decimal::from_str(&self.capital_in_market_id.as_str()).unwrap(),
+            capital_out_market: Decimal::from_str(&self.capital_out_market_id.as_str()).unwrap(),
+            taxed: Decimal::from_str(&self.taxed_id.as_str()).unwrap(),
+            total_performance: Decimal::from_str(&self.total_performance_id.as_str()).unwrap(),
         }
     }
 }
@@ -352,11 +308,30 @@ struct NewTradeOverview {
     created_at: NaiveDateTime,
     updated_at: NaiveDateTime,
     deleted_at: Option<NaiveDateTime>,
+    currency: String,
     funding_id: String,
     capital_in_market_id: String,
     capital_out_market_id: String,
     taxed_id: String,
     total_performance_id: String,
+}
+
+impl Default for NewTradeOverview {
+    fn default() -> Self {
+        let now = Utc::now().naive_utc();
+        NewTradeOverview {
+            id: Uuid::new_v4().to_string(),
+            created_at: now,
+            updated_at: now,
+            deleted_at: None,
+            currency: Currency::USD.to_string(),
+            funding_id: Decimal::new(0, 0).to_string(),
+            capital_in_market_id: Decimal::new(0, 0).to_string(),
+            capital_out_market_id: Decimal::new(0, 0).to_string(),
+            taxed_id: Decimal::new(0, 0).to_string(),
+            total_performance_id: Decimal::new(0, 0).to_string(),
+        }
+    }
 }
 
 #[cfg(test)]

@@ -21,13 +21,13 @@ impl AccountCapitalBeginningOfMonth {
                 | TransactionCategory::Withdrawal
                 | TransactionCategory::FeeOpen(_)
                 | TransactionCategory::FeeClose(_) => {
-                    total -= transaction.price.amount
+                    total -= transaction.price
                 }
                 TransactionCategory::PaymentFromTrade(_) => {
-                    total += transaction.price.amount
+                    total += transaction.price
                 }
                 TransactionCategory::Deposit => {
-                    total += transaction.price.amount
+                    total += transaction.price
                 }
                 default => panic!(
                     "capital_at_beginning_of_month: does not know how to calculate transaction with category: {}. Transaction: {:?}",

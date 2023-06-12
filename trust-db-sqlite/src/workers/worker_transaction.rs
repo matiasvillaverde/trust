@@ -8,7 +8,7 @@ use tracing::error;
 use trust_model::{Currency, Transaction, TransactionCategory};
 use uuid::Uuid;
 
-use super::{worker_price::WorkerPrice, WorkerTrade};
+use super::WorkerTrade;
 
 pub struct WorkerTransaction;
 
@@ -21,7 +21,6 @@ impl WorkerTransaction {
         category: TransactionCategory,
     ) -> Result<Transaction, Box<dyn Error>> {
         let now = Utc::now().naive_utc();
-        let price = WorkerPrice::create(connection, currency, amount).unwrap();
 
         let new_transaction = NewTransaction {
             id: Uuid::new_v4().to_string(),
@@ -31,7 +30,7 @@ impl WorkerTransaction {
             currency: currency.to_string(),
             category: category.to_string(),
             account_id: account_id.to_string(),
-            price_id: price.id.to_string(),
+            price_id: amount.to_string(),
             trade_id: category.trade_id().map(|uuid| uuid.to_string()),
         };
 
@@ -327,9 +326,6 @@ pub struct TransactionSQLite {
 
 impl TransactionSQLite {
     fn domain_model(&self, connection: &mut SqliteConnection) -> Transaction {
-        let price = WorkerPrice::read(connection, Uuid::parse_str(&self.price_id).unwrap())
-            .expect("Transaction without price");
-
         let category = TransactionCategory::parse(
             &self.category,
             self.trade_id
@@ -345,7 +341,7 @@ impl TransactionSQLite {
             deleted_at: self.deleted_at,
             category,
             currency: Currency::from_str(&self.currency).unwrap(),
-            price,
+            price: Decimal::from_str(&self.price_id).unwrap(),
             account_id: Uuid::parse_str(&self.account_id).unwrap(),
         }
     }
@@ -416,8 +412,8 @@ mod tests {
             .expect("Error creating transaction");
 
         assert_eq!(tx.account_id, account.id);
-        assert_eq!(tx.price.amount, dec!(10.99));
-        assert_eq!(tx.price.currency, Currency::BTC);
+        assert_eq!(tx.price, dec!(10.99));
+        assert_eq!(tx.currency, Currency::BTC);
         assert_eq!(tx.category, TransactionCategory::Deposit);
         assert_eq!(tx.deleted_at, None);
     }
@@ -448,8 +444,8 @@ mod tests {
             .expect("Error creating transaction");
 
         assert_eq!(tx.account_id, account.id);
-        assert_eq!(tx.price.amount, dec!(10.99));
-        assert_eq!(tx.price.currency, Currency::BTC);
+        assert_eq!(tx.price, dec!(10.99));
+        assert_eq!(tx.currency, Currency::BTC);
         assert_eq!(tx.category, TransactionCategory::FundTrade(trade_id));
         assert_eq!(tx.deleted_at, None);
     }

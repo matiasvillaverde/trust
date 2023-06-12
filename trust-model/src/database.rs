@@ -1,6 +1,6 @@
 use crate::{
     Account, AccountOverview, BrokerLog, Currency, Environment, Order, OrderAction, OrderCategory,
-    Price, Rule, RuleLevel, RuleName, Status, Trade, TradeCategory, TradeOverview, TradingVehicle,
+    Rule, RuleLevel, RuleName, Status, Trade, TradeCategory, TradeOverview, TradingVehicle,
     TradingVehicleCategory, Transaction, TransactionCategory,
 };
 use rust_decimal::Decimal;
@@ -27,8 +27,6 @@ pub trait DatabaseFactory {
     fn write_account_overview_db(&self) -> Box<dyn WriteAccountOverviewDB>;
     fn read_order_db(&self) -> Box<dyn ReadOrderDB>;
     fn write_order_db(&self) -> Box<dyn WriteOrderDB>;
-    fn read_price_db(&self) -> Box<dyn ReadPriceDB>;
-    fn write_price_db(&self) -> Box<dyn WritePriceDB>;
     fn read_transaction_db(&self) -> Box<dyn ReadTransactionDB>;
     fn write_transaction_db(&self) -> Box<dyn WriteTransactionDB>;
     fn read_trade_db(&self) -> Box<dyn ReadTradeDB>;
@@ -110,18 +108,6 @@ pub trait WriteOrderDB {
     fn record_filled(&mut self, order: &Order) -> Result<Order, Box<dyn Error>>;
     fn record_order_closing(&mut self, order: &Order) -> Result<Order, Box<dyn Error>>;
     fn update_order(&mut self, order: &Order) -> Result<Order, Box<dyn Error>>;
-}
-
-pub trait WritePriceDB {
-    fn create_price(
-        &mut self,
-        currency: &Currency,
-        amount: Decimal,
-    ) -> Result<Price, Box<dyn Error>>;
-}
-
-pub trait ReadPriceDB {
-    fn read_price(&mut self, id: Uuid) -> Result<Price, Box<dyn Error>>;
 }
 
 pub trait ReadTransactionDB {

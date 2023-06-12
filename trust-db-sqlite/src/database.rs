@@ -1,6 +1,6 @@
 use crate::workers::{
-    AccountDB, BrokerLogDB, WorkerAccountOverview, WorkerOrder, WorkerPrice, WorkerRule,
-    WorkerTrade, WorkerTradingVehicle, WorkerTransaction,
+    AccountDB, BrokerLogDB, WorkerAccountOverview, WorkerOrder, WorkerRule, WorkerTrade,
+    WorkerTradingVehicle, WorkerTransaction,
 };
 use diesel::prelude::*;
 use rust_decimal::Decimal;
@@ -11,11 +11,11 @@ use trust_model::DraftTrade;
 use trust_model::Status;
 use trust_model::{
     database::{WriteAccountDB, WriteTradeOverviewDB},
-    Account, AccountOverview, Currency, DatabaseFactory, Order, OrderAction, OrderCategory, Price,
-    ReadAccountDB, ReadAccountOverviewDB, ReadOrderDB, ReadPriceDB, ReadRuleDB, ReadTradeDB,
+    Account, AccountOverview, Currency, DatabaseFactory, Order, OrderAction, OrderCategory,
+    ReadAccountDB, ReadAccountOverviewDB, ReadOrderDB, ReadRuleDB, ReadTradeDB,
     ReadTradingVehicleDB, ReadTransactionDB, Rule, RuleName, Trade, TradeOverview, TradingVehicle,
     TradingVehicleCategory, Transaction, TransactionCategory, WriteAccountOverviewDB, WriteOrderDB,
-    WritePriceDB, WriteRuleDB, WriteTradeDB, WriteTradingVehicleDB, WriteTransactionDB,
+    WriteRuleDB, WriteTradeDB, WriteTradingVehicleDB, WriteTransactionDB,
 };
 use uuid::Uuid;
 
@@ -61,12 +61,7 @@ impl DatabaseFactory for SqliteDatabase {
     fn write_order_db(&self) -> Box<dyn WriteOrderDB> {
         Box::new(SqliteDatabase::new_from(self.connection.clone()))
     }
-    fn read_price_db(&self) -> Box<dyn ReadPriceDB> {
-        Box::new(SqliteDatabase::new_from(self.connection.clone()))
-    }
-    fn write_price_db(&self) -> Box<dyn WritePriceDB> {
-        Box::new(SqliteDatabase::new_from(self.connection.clone()))
-    }
+
     fn read_transaction_db(&self) -> Box<dyn ReadTransactionDB> {
         Box::new(SqliteDatabase::new_from(self.connection.clone()))
     }
@@ -230,47 +225,16 @@ impl WriteAccountOverviewDB for SqliteDatabase {
             account.id,
             currency,
         )?;
-        let updated_overview = WorkerAccountOverview::update_total_available(
+        let updated_overview = WorkerAccountOverview::update(
             &mut self.connection.lock().unwrap(),
             overview,
-            total_available,
-        )?;
-
-        let updated_overview = WorkerAccountOverview::update_total_in_trade(
-            &mut self.connection.lock().unwrap(),
-            updated_overview,
-            total_in_trade,
-        )?;
-
-        let updated_overview = WorkerAccountOverview::update_total_balance(
-            &mut self.connection.lock().unwrap(),
-            updated_overview,
             total_balance,
-        )?;
-
-        let updated_overview = WorkerAccountOverview::update_taxed(
-            &mut self.connection.lock().unwrap(),
-            updated_overview,
+            total_in_trade,
+            total_available,
             taxed,
         )?;
 
         Ok(updated_overview)
-    }
-}
-
-impl WritePriceDB for SqliteDatabase {
-    fn create_price(
-        &mut self,
-        currency: &Currency,
-        amount: rust_decimal::Decimal,
-    ) -> Result<Price, Box<dyn Error>> {
-        WorkerPrice::create(&mut self.connection.lock().unwrap(), currency, amount)
-    }
-}
-
-impl ReadPriceDB for SqliteDatabase {
-    fn read_price(&mut self, id: uuid::Uuid) -> Result<Price, Box<dyn Error>> {
-        WorkerPrice::read(&mut self.connection.lock().unwrap(), id)
     }
 }
 

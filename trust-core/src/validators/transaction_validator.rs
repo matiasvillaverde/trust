@@ -74,7 +74,7 @@ fn validate_withdraw(
         let overview = database.read_account_overview_currency(account_id, currency);
         match overview {
             Ok(overview) => {
-                if overview.total_available.amount >= amount {
+                if overview.total_available >= amount {
                     Ok(())
                 } else {
                     Err(Box::new(TransactionValidationError {
@@ -108,7 +108,7 @@ fn validate_trade(
         let overview = database.read_account_overview_currency(account_id, currency);
         match overview {
             Ok(overview) => {
-                if overview.total_available.amount >= amount {
+                if overview.total_available >= amount {
 
                     let trade = database_trade.read_trade(trade_id);
 

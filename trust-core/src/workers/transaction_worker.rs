@@ -132,7 +132,7 @@ impl TransactionWorker {
             .read_account_db()
             .read_account_id(trade.account_id)?;
 
-        let trade_total = trade.entry.unit_price.amount * Decimal::from(trade.entry.quantity);
+        let trade_total = trade.entry.unit_price * Decimal::from(trade.entry.quantity);
 
         TransactionValidator::validate(
             TransactionCategory::FundTrade(trade.id),
@@ -167,7 +167,7 @@ impl TransactionWorker {
             .read_account_db()
             .read_account_id(trade.account_id)?;
 
-        let total = trade.entry.unit_price.amount * Decimal::from(trade.entry.quantity);
+        let total = trade.entry.unit_price * Decimal::from(trade.entry.quantity);
 
         let transaction = database.write_transaction_db().create_transaction(
             &account,
@@ -240,7 +240,7 @@ impl TransactionWorker {
             .read_account_db()
             .read_account_id(trade.account_id)?;
 
-        let total = trade.target.unit_price.amount * Decimal::from(trade.entry.quantity);
+        let total = trade.target.unit_price * Decimal::from(trade.entry.quantity);
 
         let transaction = database.write_transaction_db().create_transaction(
             &account,
@@ -265,7 +265,7 @@ impl TransactionWorker {
             .read_account_db()
             .read_account_id(trade.account_id)?;
 
-        let total = trade.safety_stop.unit_price.amount * Decimal::from(trade.entry.quantity);
+        let total = trade.safety_stop.unit_price * Decimal::from(trade.entry.quantity);
 
         let transaction = database.write_transaction_db().create_transaction(
             &account,

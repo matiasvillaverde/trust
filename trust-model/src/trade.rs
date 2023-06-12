@@ -1,9 +1,9 @@
 use crate::currency::Currency;
 use crate::order::Order;
-use crate::price::Price;
 use crate::trading_vehicle::TradingVehicle;
 use chrono::NaiveDateTime;
 use chrono::Utc;
+use rust_decimal::Decimal;
 use uuid::Uuid;
 
 /// Trade entity - represents a single trade.
@@ -61,9 +61,9 @@ impl std::fmt::Display for Trade {
             self.safety_stop.quantity,
             self.category,
             self.currency,
-            self.safety_stop.unit_price.amount,
-            self.entry.unit_price.amount,
-            self.target.unit_price.amount,
+            self.safety_stop.unit_price,
+            self.entry.unit_price,
+            self.target.unit_price,
         )
     }
 }
@@ -197,20 +197,23 @@ pub struct TradeOverview {
     pub updated_at: NaiveDateTime,
     pub deleted_at: Option<NaiveDateTime>,
 
+    /// The currency of the trade
+    pub currency: Currency,
+
     /// Total amount of money that was used to open the trade
-    pub funding: Price,
+    pub funding: Decimal,
 
     /// Total amount of money currently in the market (the amount of money that is currently invested)
-    pub capital_in_market: Price,
+    pub capital_in_market: Decimal,
 
     /// Total amount of money available
-    pub capital_out_market: Price,
+    pub capital_out_market: Decimal,
 
     /// Total amount of money that it must be paid out to the tax authorities
-    pub taxed: Price,
+    pub taxed: Decimal,
 
     /// Total amount of money that we have earned or lost from the trade
-    pub total_performance: Price,
+    pub total_performance: Decimal,
 }
 
 impl Default for Trade {
@@ -242,11 +245,12 @@ impl Default for TradeOverview {
             created_at: now,
             updated_at: now,
             deleted_at: None,
-            funding: Price::default(),
-            capital_in_market: Price::default(),
-            capital_out_market: Price::default(),
-            taxed: Price::default(),
-            total_performance: Price::default(),
+            currency: Currency::default(),
+            funding: Decimal::default(),
+            capital_in_market: Decimal::default(),
+            capital_out_market: Decimal::default(),
+            taxed: Decimal::default(),
+            total_performance: Decimal::default(),
         }
     }
 }

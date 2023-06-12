@@ -130,6 +130,7 @@ diesel::table! {
         created_at -> Timestamp,
         updated_at -> Timestamp,
         deleted_at -> Nullable<Timestamp>,
+        currency -> Text,
         funding_id -> Text,
         capital_in_market_id -> Text,
         capital_out_market_id -> Text,

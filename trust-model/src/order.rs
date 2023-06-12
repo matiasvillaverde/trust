@@ -1,9 +1,8 @@
-use std::str::FromStr;
-
-use crate::price::Price;
 use chrono::NaiveDateTime;
 use chrono::Utc;
 use rust_decimal::Decimal;
+use rust_decimal_macros::dec;
+use std::str::FromStr;
 use uuid::Uuid;
 /// Order entity - represents a single order. Orders can be part of a trade.
 ///
@@ -22,7 +21,7 @@ pub struct Order {
     pub deleted_at: Option<NaiveDateTime>,
 
     /// The unit price of the order
-    pub unit_price: Price,
+    pub unit_price: Decimal,
 
     /// The quantity of the order
     pub quantity: u64,
@@ -318,7 +317,7 @@ impl Default for Order {
             created_at: now,
             updated_at: now,
             deleted_at: None,
-            unit_price: Price::default(),
+            unit_price: dec!(10.0),
             trading_vehicle_id: Uuid::new_v4(),
             action: OrderAction::Buy,
             category: OrderCategory::Market,

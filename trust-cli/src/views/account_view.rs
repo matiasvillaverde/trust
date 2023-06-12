@@ -45,10 +45,10 @@ impl AccountOverviewView {
     fn new(overview: AccountOverview, account_name: &str) -> AccountOverviewView {
         AccountOverviewView {
             account_name: crate::views::uppercase_first(account_name),
-            total_balance: overview.total_balance.amount.to_string(),
-            total_available: overview.total_available.amount.to_string(),
-            total_in_trade: overview.total_in_trade.amount.to_string(),
-            taxed: overview.taxed.amount.to_string(),
+            total_balance: overview.total_balance.to_string(),
+            total_available: overview.total_available.to_string(),
+            total_in_trade: overview.total_in_trade.to_string(),
+            taxed: overview.taxed.to_string(),
             currency: overview.currency.to_string(),
         }
     }

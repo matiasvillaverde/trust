@@ -2,6 +2,7 @@ use crate::schema::orders::{self};
 use chrono::{NaiveDateTime, Utc};
 use diesel::prelude::*;
 use rust_decimal::Decimal;
+use rust_decimal_macros::dec;
 use std::error::Error;
 use std::str::FromStr;
 use tracing::error;
@@ -9,8 +10,6 @@ use trust_model::{
     Currency, Order, OrderAction, OrderCategory, OrderStatus, TimeInForce, TradingVehicle,
 };
 use uuid::Uuid;
-
-use super::WorkerPrice;
 
 pub struct WorkerOrder;
 impl WorkerOrder {
@@ -23,34 +22,13 @@ impl WorkerOrder {
         category: &OrderCategory,
         trading_vehicle: &TradingVehicle,
     ) -> Result<Order, Box<dyn Error>> {
-        let id = Uuid::new_v4().to_string();
-        let now = Utc::now().naive_utc();
-
-        let price = WorkerPrice::create(connection, currency, price)?;
-
         let new_order = NewOrder {
-            id,
-            broker_order_id: None,
-            created_at: now,
-            updated_at: now,
-            deleted_at: None,
-            price_id: price.id.to_string(),
             quantity,
+            price_id: price.to_string(),
             category: category.to_string(),
-            status: OrderStatus::New.to_string(),
             trading_vehicle_id: trading_vehicle.id.to_string(),
             action: action.to_string(),
-            time_in_force: TimeInForce::default().to_string(),
-            trailing_percentage: None,
-            trailing_price: None,
-            filled_quantity: 0,
-            average_filled_price: None,
-            extended_hours: false,
-            submitted_at: None,
-            filled_at: None,
-            expired_at: None,
-            cancelled_at: None,
-            closed_at: None,
+            ..Default::default()
         };
 
         let order = diesel::insert_into(orders::table)
@@ -80,7 +58,7 @@ impl WorkerOrder {
         connection: &mut SqliteConnection,
         order: &Order,
     ) -> Result<Order, Box<dyn Error>> {
-        let now = Utc::now().naive_utc();
+        let now: NaiveDateTime = Utc::now().naive_utc();
         diesel::update(orders::table)
             .filter(orders::id.eq(&order.id.to_string()))
             .set((
@@ -180,8 +158,7 @@ impl OrderSQLite {
             created_at: self.created_at,
             updated_at: self.updated_at,
             deleted_at: self.deleted_at,
-            unit_price: WorkerPrice::read(connection, Uuid::parse_str(&self.price_id).unwrap())
-                .unwrap(),
+            unit_price: Decimal::from_str(self.price_id.as_str()).unwrap(),
             quantity: self.quantity as u64,
             action: OrderAction::from_str(&self.action).unwrap(),
             category: OrderCategory::from_str(&self.category).unwrap(),
@@ -234,6 +211,36 @@ struct NewOrder {
     closed_at: Option<NaiveDateTime>,
 }
 
+impl Default for NewOrder {
+    fn default() -> Self {
+        let now = Utc::now().naive_utc();
+        NewOrder {
+            id: Uuid::new_v4().to_string(),
+            broker_order_id: None,
+            created_at: now,
+            updated_at: now,
+            deleted_at: None,
+            price_id: dec!(0).to_string(),
+            quantity: 0,
+            category: OrderCategory::Limit.to_string(),
+            trading_vehicle_id: Uuid::new_v4().to_string(),
+            action: OrderAction::Buy.to_string(),
+            status: OrderStatus::New.to_string(),
+            time_in_force: TimeInForce::UntilCanceled.to_string(),
+            trailing_percentage: None,
+            trailing_price: None,
+            filled_quantity: 0,
+            average_filled_price: None,
+            extended_hours: false,
+            submitted_at: None,
+            filled_at: None,
+            expired_at: None,
+            cancelled_at: None,
+            closed_at: None,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::workers::WorkerTradingVehicle;
@@ -270,7 +277,7 @@ mod tests {
         // Create a new order record
         let order = WorkerOrder::create(
             &mut conn,
-            dec!(100.00),
+            dec!(150.00),
             &Currency::USD,
             100,
             &OrderAction::Buy,
@@ -279,8 +286,7 @@ mod tests {
         )
         .expect("Error creating order");
 
-        assert_eq!(order.unit_price.amount, dec!(100.00));
-        assert_eq!(order.unit_price.currency, Currency::USD);
+        assert_eq!(order.unit_price, dec!(150.00));
         assert_eq!(order.quantity, 100);
         assert_eq!(order.action, OrderAction::Buy);
         assert_eq!(order.category, OrderCategory::Limit);

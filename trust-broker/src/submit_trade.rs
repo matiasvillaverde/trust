@@ -61,11 +61,11 @@ fn extract_ids(order: &AlpacaOrder, trade: &Trade) -> OrderIds {
             _ => panic!("No price found for leg: {:?}", leg.id),
         };
 
-        if leg_price.to_string() == trade.target.unit_price.amount.to_string() {
+        if leg_price.to_string() == trade.target.unit_price.to_string() {
             target_id = Some(leg.id);
         }
 
-        if leg_price.to_string() == trade.safety_stop.unit_price.amount.to_string() {
+        if leg_price.to_string() == trade.safety_stop.unit_price.to_string() {
             stop_id = Some(leg.id);
         }
     }
@@ -81,9 +81,9 @@ fn extract_ids(order: &AlpacaOrder, trade: &Trade) -> OrderIds {
 }
 
 fn new_request(trade: &Trade) -> OrderReq {
-    let entry = Num::from_str(trade.entry.unit_price.amount.to_string().as_str()).unwrap();
-    let stop = Num::from_str(trade.safety_stop.unit_price.amount.to_string().as_str()).unwrap();
-    let target = Num::from_str(trade.target.unit_price.amount.to_string().as_str()).unwrap();
+    let entry = Num::from_str(trade.entry.unit_price.to_string().as_str()).unwrap();
+    let stop = Num::from_str(trade.safety_stop.unit_price.to_string().as_str()).unwrap();
+    let target = Num::from_str(trade.target.unit_price.to_string().as_str()).unwrap();
 
     OrderReqInit {
         class: Class::Bracket,
@@ -125,7 +125,6 @@ mod tests {
     use apca::api::v2::order::{Amount, Class, Side, Type};
     use num_decimal::Num;
     use rust_decimal_macros::dec;
-    use trust_model::Price;
     use uuid::Uuid;
 
     fn default() -> AlpacaOrder {
@@ -221,24 +220,15 @@ mod tests {
         // Create a sample trade object
         let trade = Trade {
             safety_stop: Order {
-                unit_price: Price {
-                    amount: dec!(10.27),
-                    ..Default::default()
-                },
+                unit_price: dec!(10.27),
                 ..Default::default()
             },
             entry: Order {
-                unit_price: Price {
-                    amount: dec!(13.22),
-                    ..Default::default()
-                },
+                unit_price: dec!(13.22),
                 ..Default::default()
             },
             target: Order {
-                unit_price: Price {
-                    amount: dec!(15.03),
-                    ..Default::default()
-                },
+                unit_price: dec!(15.03),
                 ..Default::default()
             },
             ..Default::default()
@@ -280,10 +270,7 @@ mod tests {
         let trade = Trade {
             safety_stop: Order {
                 id: Uuid::parse_str("8654f70e-3b42-4014-a9ac-5a7101989aad").unwrap(),
-                unit_price: Price {
-                    amount: dec!(12.52),
-                    ..Default::default()
-                },
+                unit_price: dec!(12.52),
                 ..Default::default()
             },
             entry: Order {
@@ -292,10 +279,7 @@ mod tests {
             },
             target: Order {
                 id: Uuid::parse_str("90e41b1e-9089-444d-9f68-c204a4d32914").unwrap(),
-                unit_price: Price {
-                    amount: dec!(12.58),
-                    ..Default::default()
-                },
+                unit_price: dec!(12.58),
                 ..Default::default()
             },
             ..Default::default()

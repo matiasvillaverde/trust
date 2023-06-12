@@ -17,11 +17,11 @@ impl TradePerformance {
                 TransactionCategory::OpenTrade(_)
                 | TransactionCategory::FeeClose(_)
                 | TransactionCategory::FeeOpen(_)
-                | TransactionCategory::PaymentTax(_) => total -= tx.price.amount,
+                | TransactionCategory::PaymentTax(_) => total -= tx.price,
 
                 TransactionCategory::CloseTarget(_)
                 | TransactionCategory::CloseSafetyStop(_)
-                | TransactionCategory::CloseSafetyStopSlippage(_) => total += tx.price.amount,
+                | TransactionCategory::CloseSafetyStopSlippage(_) => total += tx.price,
                 _ => {} // We don't want to count the transactions paid out of the trade or fund the trade.
             }
         }

@@ -17,8 +17,8 @@ impl AccountCapitalTaxable {
         let total: Decimal = transactions
             .iter()
             .map(|transaction| match transaction.category {
-                TransactionCategory::PaymentTax(_) => transaction.price.amount,
-                TransactionCategory::WithdrawalTax => -transaction.price.amount,
+                TransactionCategory::PaymentTax(_) => transaction.price,
+                TransactionCategory::WithdrawalTax => -transaction.price,
                 default => panic!(
                     "capital_taxable: does not know how to calculate transaction with category: {}",
                     default

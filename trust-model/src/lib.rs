@@ -2,7 +2,6 @@ mod account;
 mod broker;
 mod currency;
 mod order;
-mod price;
 mod rule;
 mod strategy;
 mod trade;
@@ -17,12 +16,11 @@ pub use broker::{Broker, BrokerLog, OrderIds};
 pub use currency::Currency;
 pub use database::{
     DatabaseFactory, DraftTrade, ReadAccountDB, ReadAccountOverviewDB, ReadBrokerLogsDB,
-    ReadOrderDB, ReadPriceDB, ReadRuleDB, ReadTradeDB, ReadTradingVehicleDB, ReadTransactionDB,
-    WriteAccountDB, WriteAccountOverviewDB, WriteBrokerLogsDB, WriteOrderDB, WritePriceDB,
-    WriteRuleDB, WriteTradeDB, WriteTradingVehicleDB, WriteTransactionDB,
+    ReadOrderDB, ReadRuleDB, ReadTradeDB, ReadTradingVehicleDB, ReadTransactionDB, WriteAccountDB,
+    WriteAccountOverviewDB, WriteBrokerLogsDB, WriteOrderDB, WriteRuleDB, WriteTradeDB,
+    WriteTradingVehicleDB, WriteTransactionDB,
 };
 pub use order::{Order, OrderAction, OrderCategory, OrderStatus, TimeInForce};
-pub use price::Price;
 pub use rule::{Rule, RuleLevel, RuleName};
 pub use strategy::Strategy;
 pub use trade::{Status, Trade, TradeCategory, TradeOverview};

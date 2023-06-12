@@ -9,8 +9,6 @@ use tracing::error;
 use trust_model::{Account, AccountOverview, Currency};
 use uuid::Uuid;
 
-use super::worker_price::WorkerPrice;
-
 pub struct WorkerAccountOverview;
 
 impl WorkerAccountOverview {
@@ -19,31 +17,16 @@ impl WorkerAccountOverview {
         account: &Account,
         currency: &Currency,
     ) -> Result<AccountOverview, Box<dyn Error>> {
-        let id = Uuid::new_v4().to_string();
-        let now = Utc::now().naive_utc();
-
-        let total_balance = WorkerPrice::create(connection, currency, dec!(0))?;
-        let total_in_trade = WorkerPrice::create(connection, currency, dec!(0))?;
-        let total_available = WorkerPrice::create(connection, currency, dec!(0))?;
-        let taxed = WorkerPrice::create(connection, currency, dec!(0))?;
-
         let new_account_overview = NewAccountOverview {
-            id,
-            created_at: now,
-            updated_at: now,
-            deleted_at: None,
             account_id: account.id.to_string(),
-            total_balance_id: total_balance.id.to_string(),
-            total_in_trade_id: total_in_trade.id.to_string(),
-            total_available_id: total_available.id.to_string(),
-            taxed_id: taxed.id.to_string(),
             currency: currency.to_string(),
+            ..Default::default()
         };
 
         let overview = diesel::insert_into(accounts_overviews::table)
             .values(&new_account_overview)
             .get_result::<AccountOverviewSQLite>(connection)
-            .map(|overview| overview.domain_model(connection))
+            .map(|overview| overview.domain_model())
             .map_err(|error| {
                 error!("Error creating overview: {:?}", error);
                 error
@@ -62,7 +45,7 @@ impl WorkerAccountOverview {
             .map(|overviews| {
                 overviews
                     .into_iter()
-                    .map(|overview| overview.domain_model(connection))
+                    .map(|overview| overview.domain_model())
                     .collect()
             })
             .map_err(|error| {
@@ -82,7 +65,7 @@ impl WorkerAccountOverview {
             .filter(accounts_overviews::currency.eq(currency.to_string()))
             .filter(accounts_overviews::deleted_at.is_null())
             .first::<AccountOverviewSQLite>(connection)
-            .map(|overview| overview.domain_model(connection))
+            .map(|overview| overview.domain_model())
             .map_err(|error| {
                 error!("Error creating overview: {:?}", error);
                 error
@@ -97,7 +80,7 @@ impl WorkerAccountOverview {
         let overviews = accounts_overviews::table
             .filter(accounts_overviews::id.eq(id.to_string()))
             .first::<AccountOverviewSQLite>(connection)
-            .map(|overview| overview.domain_model(connection))
+            .map(|overview| overview.domain_model())
             .map_err(|error| {
                 error!("Error creating overview: {:?}", error);
                 error
@@ -105,41 +88,30 @@ impl WorkerAccountOverview {
         Ok(overviews)
     }
 
-    pub fn update_total_balance(
+    pub fn update(
         connection: &mut SqliteConnection,
         overview: AccountOverview,
-        new_amount: Decimal,
+        total_balance: Decimal,
+        total_available: Decimal,
+        total_in_trade: Decimal,
+        total_taxed: Decimal,
     ) -> Result<AccountOverview, Box<dyn Error>> {
-        // We update the price entity of the total balance
-        WorkerPrice::update(connection, overview.total_balance, new_amount)?;
-        WorkerAccountOverview::read_id(connection, overview.id)
-    }
-
-    pub fn update_total_available(
-        connection: &mut SqliteConnection,
-        overview: AccountOverview,
-        new_amount: Decimal,
-    ) -> Result<AccountOverview, Box<dyn Error>> {
-        WorkerPrice::update(connection, overview.total_available, new_amount)?;
-        WorkerAccountOverview::read_id(connection, overview.id)
-    }
-
-    pub fn update_total_in_trade(
-        connection: &mut SqliteConnection,
-        overview: AccountOverview,
-        new_amount: Decimal,
-    ) -> Result<AccountOverview, Box<dyn Error>> {
-        WorkerPrice::update(connection, overview.total_in_trade, new_amount)?;
-        WorkerAccountOverview::read_id(connection, overview.id)
-    }
-
-    pub fn update_taxed(
-        connection: &mut SqliteConnection,
-        overview: AccountOverview,
-        new_amount: Decimal,
-    ) -> Result<AccountOverview, Box<dyn Error>> {
-        WorkerPrice::update(connection, overview.taxed, new_amount)?;
-        WorkerAccountOverview::read_id(connection, overview.id)
+        let overview = diesel::update(accounts_overviews::table)
+            .filter(accounts_overviews::id.eq(&overview.id.to_string()))
+            .set((
+                accounts_overviews::updated_at.eq(Utc::now().naive_utc()),
+                accounts_overviews::total_balance_id.eq(total_balance.to_string()),
+                accounts_overviews::total_available_id.eq(total_available.to_string()),
+                accounts_overviews::total_in_trade_id.eq(total_in_trade.to_string()),
+                accounts_overviews::taxed_id.eq(total_taxed.to_string()),
+            ))
+            .get_result::<AccountOverviewSQLite>(connection)
+            .map(|o| o.domain_model())
+            .map_err(|error| {
+                error!("Error updating overview: {:?}", error);
+                error
+            })?;
+        Ok(overview)
     }
 }
 
@@ -160,7 +132,7 @@ struct AccountOverviewSQLite {
 }
 
 impl AccountOverviewSQLite {
-    fn domain_model(self, connection: &mut SqliteConnection) -> AccountOverview {
+    fn domain_model(self) -> AccountOverview {
         use std::str::FromStr;
         AccountOverview {
             id: Uuid::parse_str(&self.id).unwrap(),
@@ -168,22 +140,10 @@ impl AccountOverviewSQLite {
             updated_at: self.updated_at,
             deleted_at: self.deleted_at,
             account_id: Uuid::parse_str(&self.account_id).unwrap(),
-            total_balance: WorkerPrice::read(
-                connection,
-                Uuid::parse_str(&self.total_balance_id).unwrap(),
-            )
-            .unwrap(),
-            total_in_trade: WorkerPrice::read(
-                connection,
-                Uuid::parse_str(&self.total_in_trade_id).unwrap(),
-            )
-            .unwrap(),
-            total_available: WorkerPrice::read(
-                connection,
-                Uuid::parse_str(&self.total_available_id).unwrap(),
-            )
-            .unwrap(),
-            taxed: WorkerPrice::read(connection, Uuid::parse_str(&self.taxed_id).unwrap()).unwrap(),
+            total_balance: Decimal::from_str(&self.total_balance_id).unwrap(),
+            total_in_trade: Decimal::from_str(&self.total_in_trade_id).unwrap(),
+            total_available: Decimal::from_str(&self.total_available_id).unwrap(),
+            taxed: Decimal::from_str(&self.taxed_id).unwrap(),
             currency: Currency::from_str(&self.currency).unwrap(),
         }
     }
@@ -202,6 +162,24 @@ pub struct NewAccountOverview {
     total_available_id: String,
     taxed_id: String,
     currency: String,
+}
+
+impl Default for NewAccountOverview {
+    fn default() -> Self {
+        let now = Utc::now().naive_utc();
+        NewAccountOverview {
+            id: Uuid::new_v4().to_string(),
+            created_at: now,
+            updated_at: now,
+            deleted_at: None,
+            account_id: "".to_string(),
+            total_balance_id: "".to_string(),
+            total_in_trade_id: "".to_string(),
+            total_available_id: "".to_string(),
+            taxed_id: "".to_string(),
+            currency: Currency::USD.to_string(),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -241,10 +219,10 @@ mod tests {
 
     //     assert_eq!(overview.account_id, account.id);
     //     assert_eq!(overview.currency, Currency::BTC);
-    //     assert_eq!(overview.total_balance.amount, dec!(0));
-    //     assert_eq!(overview.total_in_trade.amount, dec!(0));
-    //     assert_eq!(overview.total_available.amount, dec!(0));
-    //     assert_eq!(overview.taxed.amount, dec!(0));
+    //     assert_eq!(overview.total_balance, dec!(0));
+    //     assert_eq!(overview.total_in_trade, dec!(0));
+    //     assert_eq!(overview.total_available, dec!(0));
+    //     assert_eq!(overview.taxed, dec!(0));
     //     assert_eq!(overview.total_balance.currency, Currency::BTC);
     //     assert_eq!(overview.total_in_trade.currency, Currency::BTC);
     //     assert_eq!(overview.total_available.currency, Currency::BTC);
@@ -288,12 +266,12 @@ mod tests {
     //         WorkerAccountOverview::update_total_balance(&mut conn, overview_btc, dec!(10))
     //             .expect("Should fail to update total balance");
 
-    //     assert_eq!(updated_overview.total_balance.amount, dec!(10));
+    //     assert_eq!(updated_overview.total_balance, dec!(10));
 
     //     let updated_overview =
     //         WorkerAccountOverview::update_total_available(&mut conn, updated_overview, dec!(9))
     //             .expect("Should fail to update total available");
 
-    //     assert_eq!(updated_overview.total_available.amount, dec!(9));
+    //     assert_eq!(updated_overview.total_available, dec!(9));
     // }
 }

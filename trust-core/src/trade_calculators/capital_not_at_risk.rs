@@ -26,12 +26,10 @@ impl TradeCapitalNotAtRisk {
         // Calculate the total capital not at risk by iterating over the open trades and accumulating the values.
         let total_capital_not_at_risk = open_trades.iter().fold(dec!(0.0), |acc, trade| {
             // Calculate the risk per share for the trade.
-            let risk_per_share =
-                trade.entry.unit_price.amount - trade.safety_stop.unit_price.amount;
+            let risk_per_share = trade.entry.unit_price - trade.safety_stop.unit_price;
 
             // Calculate the total capital not at risk for the trade and add it to the accumulator.
-            acc + (trade.entry.unit_price.amount - risk_per_share)
-                * Decimal::from(trade.entry.quantity)
+            acc + (trade.entry.unit_price - risk_per_share) * Decimal::from(trade.entry.quantity)
         });
 
         // Return the total capital not at risk as the result of the function.

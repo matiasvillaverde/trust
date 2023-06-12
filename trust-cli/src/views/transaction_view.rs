@@ -16,8 +16,8 @@ impl TransactionView {
         TransactionView {
             account_name: crate::views::uppercase_first(account_name),
             category: tx.category.to_string(),
-            amount: tx.price.amount.to_string(),
-            currency: tx.price.currency.to_string(),
+            amount: tx.price.to_string(),
+            currency: tx.currency.to_string(),
         }
     }
 
