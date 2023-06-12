@@ -38,11 +38,14 @@ impl OverviewWorker {
             database.read_transaction_db().as_mut(),
         )?;
 
+        let overview = database
+            .read_account_overview_db()
+            .read_account_overview_currency(account.id, currency)?;
+
         database
             .write_account_overview_db()
             .update_account_overview(
-                account,
-                currency,
+                &overview,
                 total_balance,
                 total_in_trade,
                 total_available,

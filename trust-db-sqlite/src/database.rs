@@ -11,9 +11,9 @@ use trust_model::DraftTrade;
 use trust_model::Status;
 use trust_model::{
     database::{WriteAccountDB, WriteTradeOverviewDB},
-    Account, AccountOverview, Currency, DatabaseFactory, Order, OrderAction, OrderCategory,
-    ReadAccountDB, ReadAccountOverviewDB, ReadOrderDB, ReadRuleDB, ReadTradeDB,
-    ReadTradingVehicleDB, ReadTransactionDB, Rule, RuleName, Trade, TradeOverview, TradingVehicle,
+    Account, Currency, DatabaseFactory, Order, OrderAction, OrderCategory, ReadAccountDB,
+    ReadAccountOverviewDB, ReadOrderDB, ReadRuleDB, ReadTradeDB, ReadTradingVehicleDB,
+    ReadTransactionDB, Rule, RuleName, Trade, TradeOverview, TradingVehicle,
     TradingVehicleCategory, Transaction, TransactionCategory, WriteAccountOverviewDB, WriteOrderDB,
     WriteRuleDB, WriteTradeDB, WriteTradingVehicleDB, WriteTransactionDB,
 };
@@ -49,12 +49,17 @@ impl DatabaseFactory for SqliteDatabase {
     }
 
     fn read_account_overview_db(&self) -> Box<dyn ReadAccountOverviewDB> {
-        Box::new(SqliteDatabase::new_from(self.connection.clone()))
+        Box::new(WorkerAccountOverview {
+            connection: self.connection.clone(),
+        })
     }
 
     fn write_account_overview_db(&self) -> Box<dyn WriteAccountOverviewDB> {
-        Box::new(SqliteDatabase::new_from(self.connection.clone()))
+        Box::new(WorkerAccountOverview {
+            connection: self.connection.clone(),
+        })
     }
+
     fn read_order_db(&self) -> Box<dyn ReadOrderDB> {
         Box::new(SqliteDatabase::new_from(self.connection.clone()))
     }
@@ -176,65 +181,6 @@ impl WriteOrderDB for SqliteDatabase {
 
     fn record_order_closing(&mut self, order: &Order) -> Result<Order, Box<dyn Error>> {
         WorkerOrder::update_closed_at(&mut self.connection.lock().unwrap(), order)
-    }
-}
-
-impl ReadAccountOverviewDB for SqliteDatabase {
-    fn read_account_overview(
-        &mut self,
-        account_id: Uuid,
-    ) -> Result<Vec<AccountOverview>, Box<dyn Error>> {
-        WorkerAccountOverview::read(&mut self.connection.lock().unwrap(), account_id)
-    }
-
-    fn read_account_overview_currency(
-        &mut self,
-        account_id: Uuid,
-        currency: &Currency,
-    ) -> Result<AccountOverview, Box<dyn Error>> {
-        WorkerAccountOverview::read_for_currency(
-            &mut self.connection.lock().unwrap(),
-            account_id,
-            currency,
-        )
-    }
-}
-
-impl WriteAccountOverviewDB for SqliteDatabase {
-    fn new_account_overview(
-        &mut self,
-        account: &Account,
-        currency: &Currency,
-    ) -> Result<AccountOverview, Box<dyn Error>> {
-        let overview =
-            WorkerAccountOverview::create(&mut self.connection.lock().unwrap(), account, currency)?;
-        Ok(overview)
-    }
-
-    fn update_account_overview(
-        &mut self,
-        account: &Account,
-        currency: &Currency,
-        total_balance: Decimal,
-        total_in_trade: Decimal,
-        total_available: Decimal,
-        taxed: Decimal,
-    ) -> Result<AccountOverview, Box<dyn Error>> {
-        let overview = WorkerAccountOverview::read_for_currency(
-            &mut self.connection.lock().unwrap(),
-            account.id,
-            currency,
-        )?;
-        let updated_overview = WorkerAccountOverview::update(
-            &mut self.connection.lock().unwrap(),
-            overview,
-            total_balance,
-            total_in_trade,
-            total_available,
-            taxed,
-        )?;
-
-        Ok(updated_overview)
     }
 }
 

@@ -80,7 +80,7 @@ impl TransactionWorker {
                     )?;
                     database
                         .write_account_overview_db()
-                        .new_account_overview(&account, currency)?;
+                        .create_account_overview(&account, currency)?;
                     let updated_overview =
                         OverviewWorker::update_account_overview(database, &account, currency)?;
                     Ok((transaction, updated_overview))

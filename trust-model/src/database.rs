@@ -69,7 +69,7 @@ pub trait ReadAccountOverviewDB {
 }
 
 pub trait WriteAccountOverviewDB {
-    fn new_account_overview(
+    fn create_account_overview(
         &mut self,
         account: &Account,
         currency: &Currency,
@@ -77,8 +77,7 @@ pub trait WriteAccountOverviewDB {
 
     fn update_account_overview(
         &mut self,
-        account: &Account,
-        currency: &Currency,
+        overview: &AccountOverview,
         total_balance: Decimal,
         total_in_trade: Decimal,
         total_available: Decimal,

@@ -3,17 +3,22 @@ use chrono::{NaiveDateTime, Utc};
 use diesel::prelude::*;
 use diesel::SqliteConnection;
 use rust_decimal::Decimal;
-
 use std::error::Error;
+use std::sync::Arc;
+use std::sync::Mutex;
 use tracing::error;
-use trust_model::{Account, AccountOverview, Currency};
+use trust_model::{
+    Account, AccountOverview, Currency, ReadAccountOverviewDB, WriteAccountOverviewDB,
+};
 use uuid::Uuid;
 
-pub struct WorkerAccountOverview;
+pub struct WorkerAccountOverview {
+    pub connection: Arc<Mutex<SqliteConnection>>,
+}
 
-impl WorkerAccountOverview {
-    pub fn create(
-        connection: &mut SqliteConnection,
+impl WriteAccountOverviewDB for WorkerAccountOverview {
+    fn create_account_overview(
+        &mut self,
         account: &Account,
         currency: &Currency,
     ) -> Result<AccountOverview, Box<dyn Error>> {
@@ -22,6 +27,8 @@ impl WorkerAccountOverview {
             currency: currency.to_string(),
             ..Default::default()
         };
+
+        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap();
 
         let overview = diesel::insert_into(accounts_overviews::table)
             .values(&new_account_overview)
@@ -34,10 +41,40 @@ impl WorkerAccountOverview {
         Ok(overview)
     }
 
-    pub fn read(
-        connection: &mut SqliteConnection,
+    fn update_account_overview(
+        &mut self,
+        overview: &AccountOverview,
+        total_balance: Decimal,
+        total_in_trade: Decimal,
+        total_available: Decimal,
+        total_taxed: Decimal,
+    ) -> Result<AccountOverview, Box<dyn Error>> {
+        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap();
+        let overview = diesel::update(accounts_overviews::table)
+            .filter(accounts_overviews::id.eq(&overview.id.to_string()))
+            .set((
+                accounts_overviews::updated_at.eq(Utc::now().naive_utc()),
+                accounts_overviews::total_balance.eq(total_balance.to_string()),
+                accounts_overviews::total_available.eq(total_available.to_string()),
+                accounts_overviews::total_in_trade.eq(total_in_trade.to_string()),
+                accounts_overviews::taxed.eq(total_taxed.to_string()),
+            ))
+            .get_result::<AccountOverviewSQLite>(connection)
+            .map(|o| o.domain_model())
+            .map_err(|error| {
+                error!("Error updating overview: {:?}", error);
+                error
+            })?;
+        Ok(overview)
+    }
+}
+
+impl ReadAccountOverviewDB for WorkerAccountOverview {
+    fn read_account_overview(
+        &mut self,
         account_id: Uuid,
     ) -> Result<Vec<AccountOverview>, Box<dyn Error>> {
+        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap();
         let overviews = accounts_overviews::table
             .filter(accounts_overviews::account_id.eq(account_id.to_string()))
             .filter(accounts_overviews::deleted_at.is_null())
@@ -55,11 +92,12 @@ impl WorkerAccountOverview {
         Ok(overviews)
     }
 
-    pub fn read_for_currency(
-        connection: &mut SqliteConnection,
+    fn read_account_overview_currency(
+        &mut self,
         account_id: Uuid,
         currency: &Currency,
     ) -> Result<AccountOverview, Box<dyn Error>> {
+        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap();
         let overviews = accounts_overviews::table
             .filter(accounts_overviews::account_id.eq(account_id.to_string()))
             .filter(accounts_overviews::currency.eq(currency.to_string()))
@@ -71,32 +109,6 @@ impl WorkerAccountOverview {
                 error
             })?;
         Ok(overviews)
-    }
-
-    pub fn update(
-        connection: &mut SqliteConnection,
-        overview: AccountOverview,
-        total_balance: Decimal,
-        total_available: Decimal,
-        total_in_trade: Decimal,
-        total_taxed: Decimal,
-    ) -> Result<AccountOverview, Box<dyn Error>> {
-        let overview = diesel::update(accounts_overviews::table)
-            .filter(accounts_overviews::id.eq(&overview.id.to_string()))
-            .set((
-                accounts_overviews::updated_at.eq(Utc::now().naive_utc()),
-                accounts_overviews::total_balance.eq(total_balance.to_string()),
-                accounts_overviews::total_available.eq(total_available.to_string()),
-                accounts_overviews::total_in_trade.eq(total_in_trade.to_string()),
-                accounts_overviews::taxed.eq(total_taxed.to_string()),
-            ))
-            .get_result::<AccountOverviewSQLite>(connection)
-            .map(|o| o.domain_model())
-            .map_err(|error| {
-                error!("Error updating overview: {:?}", error);
-                error
-            })?;
-        Ok(overview)
     }
 }
 
