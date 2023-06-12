@@ -461,6 +461,43 @@ mod tests {
     }
 
     #[test]
+    fn test_map_status_filled_only_target() {
+        let target_id = Uuid::new_v4();
+        let safety_stop_id = Uuid::new_v4();
+        let entry_id = Uuid::new_v4();
+
+        let trade = Trade {
+            target: Order {
+                id: target_id,
+                status: OrderStatus::Filled,
+                ..Default::default()
+            },
+            safety_stop: Order {
+                id: safety_stop_id,
+                status: OrderStatus::New,
+                ..Default::default()
+            },
+            entry: Order {
+                id: entry_id,
+                status: OrderStatus::Filled,
+                ..Default::default()
+            },
+            status: Status::Submitted,
+            ..Default::default()
+        };
+        let updated_orders = vec![Order {
+            id: target_id,
+            status: OrderStatus::Filled,
+            ..Default::default()
+        }];
+
+        assert_eq!(
+            map_trade_status(&trade, &updated_orders),
+            Status::ClosedTarget
+        );
+    }
+
+    #[test]
     fn test_map_status_filled_stop() {
         let target_id = Uuid::new_v4();
         let safety_stop_id = Uuid::new_v4();
