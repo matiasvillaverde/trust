@@ -23,9 +23,9 @@ impl TradeView {
             account: crate::views::uppercase_first(account_name),
             currency: trade.currency.to_string(),
             quantity: trade.entry.quantity.to_string(),
-            stop_price: trade.safety_stop.unit_price.amount.to_string(),
-            entry_price: trade.entry.unit_price.amount.to_string(),
-            target_price: trade.target.unit_price.amount.to_string(),
+            stop_price: trade.safety_stop.unit_price.to_string(),
+            entry_price: trade.entry.unit_price.to_string(),
+            target_price: trade.target.unit_price.to_string(),
         }
     }
 
@@ -58,12 +58,12 @@ pub struct TradeOverviewView {
 impl TradeOverviewView {
     fn new(overview: &TradeOverview) -> TradeOverviewView {
         TradeOverviewView {
-            funding: overview.funding.amount.to_string(),
-            capital_in_market: overview.capital_in_market.amount.to_string(),
-            capital_out_market: overview.capital_out_market.amount.to_string(),
-            taxed: overview.taxed.amount.to_string(),
-            total_performance: overview.total_performance.amount.to_string(),
-            currency: overview.funding.currency.to_string(),
+            funding: overview.funding.to_string(),
+            capital_in_market: overview.capital_in_market.to_string(),
+            capital_out_market: overview.capital_out_market.to_string(),
+            taxed: overview.taxed.to_string(),
+            total_performance: overview.total_performance.to_string(),
+            currency: overview.currency.to_string(),
         }
     }
 

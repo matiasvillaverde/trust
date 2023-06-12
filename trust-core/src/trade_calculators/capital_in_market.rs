@@ -19,7 +19,7 @@ impl TradeCapitalInMarket {
                 }
                 TransactionCategory::OpenTrade(_) => {
                     // This is money that we have used to enter the market.
-                    total += tx.price.amount
+                    total += tx.amount
                 }
                 TransactionCategory::CloseTarget(_)
                 | TransactionCategory::CloseSafetyStop(_)

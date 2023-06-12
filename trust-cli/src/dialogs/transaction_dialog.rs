@@ -81,7 +81,7 @@ impl TransactionDialogBuilder {
                 Ok(overview) => {
                     println!(
                         "Available for withdrawal: {} {}",
-                        overview.total_available.amount, overview.currency
+                        overview.total_available, overview.currency
                     );
                 }
                 Err(error) => println!("Error searching account: {:?}", error),
@@ -102,6 +102,7 @@ impl TransactionDialogBuilder {
             .unwrap()
             .parse::<Decimal>()
             .unwrap();
+
         self.amount = Some(amount);
         self
     }

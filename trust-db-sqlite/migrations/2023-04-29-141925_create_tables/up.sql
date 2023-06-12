@@ -14,10 +14,10 @@ CREATE TABLE accounts_overviews (
 	updated_at			DATETIME NOT NULL,
 	deleted_at			DATETIME,
 	account_id 			TEXT NOT NULL REFERENCES accounts(id),
-	total_balance_id	TEXT NOT NULL REFERENCES price (id),
-	total_in_trade_id	TEXT NOT NULL REFERENCES price (id),
-	total_available_id	TEXT NOT NULL REFERENCES price (id),
-	taxed_id	TEXT NOT NULL REFERENCES price (id),
+	total_balance	TEXT NOT NULL,
+	total_in_trade	TEXT NOT NULL,
+	total_available	TEXT NOT NULL,
+	taxed			TEXT NOT NULL,
 	currency	 		TEXT CHECK(currency IN ('EUR', 'USD', 'BTC')) NOT NULL
 );
 
@@ -35,15 +35,6 @@ CREATE TABLE rules (
 	active			BOOLEAN NOT NULL
 );
 
-CREATE TABLE prices (
-	id 			TEXT NOT NULL PRIMARY KEY,
-	created_at		DATETIME NOT NULL,
-	updated_at		DATETIME NOT NULL,
-	deleted_at		DATETIME,
-	currency 		TEXT CHECK(currency IN ('EUR', 'USD', 'BTC')) NOT NULL,
-	amount			TEXT NOT NULL
-);
-
 CREATE TABLE transactions (
 	id 			TEXT NOT NULL PRIMARY KEY,
 	created_at		DATETIME NOT NULL,
@@ -51,7 +42,7 @@ CREATE TABLE transactions (
 	deleted_at		DATETIME,
 	currency 		TEXT CHECK(currency IN ('EUR', 'USD', 'BTC')) NOT NULL,
 	category 		TEXT CHECK(category IN ('deposit', 'withdrawal', 'payment_from_trade', 'fund_trade', 'open_trade', 'close_target', "close_safety_stop", "close_safety_stop_slippage", "fee_open", "fee_close", "payment_earnings", "withdrawal_earnings", "payment_tax", "withdrawal_tax")) NOT NULL,
-	price_id		TEXT NOT NULL REFERENCES price (id),
+	amount			TEXT NOT NULL,
 	account_id 		TEXT NOT NULL REFERENCES accounts(id),
 	trade_id		TEXT REFERENCES trades (uuid)
 );
@@ -73,7 +64,8 @@ CREATE TABLE "orders" (
 	created_at				DATETIME NOT NULL,
 	updated_at				DATETIME NOT NULL,
 	deleted_at				DATETIME,
-	price_id				TEXT NOT NULL REFERENCES prices (id),
+	unit_price				TEXT NOT NULL,
+	currency	 			TEXT CHECK(currency IN ('USD', 'EUR', 'BTC')) NOT NULL,
 	quantity				INTEGER NOT NULL,
 	category 				TEXT CHECK(category IN ('market', 'limit', 'stop')) NOT NULL,
 	trading_vehicle_id		TEXT NOT NULL REFERENCES trading_vehicles (id),
@@ -113,11 +105,12 @@ CREATE TABLE "trades_overviews" (
 	created_at				DATETIME NOT NULL,
 	updated_at				DATETIME NOT NULL,
 	deleted_at				DATETIME,
-	funding_id			TEXT NOT NULL REFERENCES prices (id),
-	capital_in_market_id		TEXT NOT NULL REFERENCES prices (id),
-	capital_out_market_id		TEXT NOT NULL REFERENCES prices (id),
-	taxed_id		TEXT NOT NULL REFERENCES prices (id),
-	total_performance_id	TEXT NOT NULL REFERENCES prices (id)
+	currency 				TEXT CHECK(currency IN ('USD', 'EUR', 'BTC')) NOT NULL,
+	funding				TEXT NOT NULL,
+	capital_in_market	TEXT NOT NULL,
+	capital_out_market	TEXT NOT NULL,
+	taxed_				TEXT NOT NULL,
+	total_performance	TEXT NOT NULL
 );
 
 CREATE TABLE "logs" (

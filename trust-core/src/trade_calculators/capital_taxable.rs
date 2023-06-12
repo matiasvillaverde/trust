@@ -15,7 +15,7 @@ impl TradeCapitalTaxable {
         for tx in database.all_trade_taxes_transactions(trade_id)? {
             match tx.category {
                 TransactionCategory::PaymentTax(_) => {
-                    total += tx.price.amount
+                    total += tx.amount
                 }
                 default => panic!(
                     "TradeCapitalTaxable: does not know how to calculate transaction with category: {}",

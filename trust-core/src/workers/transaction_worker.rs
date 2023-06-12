@@ -80,7 +80,7 @@ impl TransactionWorker {
                     )?;
                     database
                         .write_account_overview_db()
-                        .new_account_overview(&account, currency)?;
+                        .create_account_overview(&account, currency)?;
                     let updated_overview =
                         OverviewWorker::update_account_overview(database, &account, currency)?;
                     Ok((transaction, updated_overview))
@@ -132,7 +132,7 @@ impl TransactionWorker {
             .read_account_db()
             .read_account_id(trade.account_id)?;
 
-        let trade_total = trade.entry.unit_price.amount * Decimal::from(trade.entry.quantity);
+        let trade_total = trade.entry.unit_price * Decimal::from(trade.entry.quantity);
 
         TransactionValidator::validate(
             TransactionCategory::FundTrade(trade.id),
@@ -167,7 +167,7 @@ impl TransactionWorker {
             .read_account_db()
             .read_account_id(trade.account_id)?;
 
-        let total = trade.entry.unit_price.amount * Decimal::from(trade.entry.quantity);
+        let total = trade.entry.unit_price * Decimal::from(trade.entry.quantity);
 
         let transaction = database.write_transaction_db().create_transaction(
             &account,
@@ -240,7 +240,7 @@ impl TransactionWorker {
             .read_account_db()
             .read_account_id(trade.account_id)?;
 
-        let total = trade.target.unit_price.amount * Decimal::from(trade.entry.quantity);
+        let total = trade.target.unit_price * Decimal::from(trade.entry.quantity);
 
         let transaction = database.write_transaction_db().create_transaction(
             &account,
@@ -265,7 +265,7 @@ impl TransactionWorker {
             .read_account_db()
             .read_account_id(trade.account_id)?;
 
-        let total = trade.safety_stop.unit_price.amount * Decimal::from(trade.entry.quantity);
+        let total = trade.safety_stop.unit_price * Decimal::from(trade.entry.quantity);
 
         let transaction = database.write_transaction_db().create_transaction(
             &account,

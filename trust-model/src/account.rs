@@ -1,7 +1,7 @@
 use crate::currency::Currency;
-use crate::price::Price;
 use chrono::NaiveDateTime;
 use chrono::Utc;
+use rust_decimal::Decimal;
 use std::fmt::{self, Display, Formatter};
 use uuid::Uuid;
 
@@ -47,16 +47,16 @@ pub struct AccountOverview {
     pub account_id: Uuid,
 
     /// Total balance of the account
-    pub total_balance: Price,
+    pub total_balance: Decimal,
 
     /// Total amount of money currently used in open trades
-    pub total_in_trade: Price,
+    pub total_in_trade: Decimal,
 
     /// Total amount of money available for trading
-    pub total_available: Price,
+    pub total_available: Decimal,
 
     /// Total amount of money that it must be paid out to the tax authorities
-    pub taxed: Price,
+    pub taxed: Decimal,
 
     /// The currency of the account
     pub currency: Currency,
@@ -98,10 +98,10 @@ impl AccountOverview {
             updated_at: now,
             deleted_at: None,
             account_id,
-            total_balance: Price::default(),
-            total_in_trade: Price::default(),
-            total_available: Price::default(),
-            taxed: Price::default(),
+            total_balance: Decimal::default(),
+            total_in_trade: Decimal::default(),
+            total_available: Decimal::default(),
+            taxed: Decimal::default(),
             currency: *currency,
         }
     }

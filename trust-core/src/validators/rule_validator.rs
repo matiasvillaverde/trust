@@ -59,14 +59,14 @@ impl RuleValidator {
                 }))
             }
         };
-        let available = overview.total_available.amount;
+        let available = overview.total_available;
 
-        if available < (trade.entry.unit_price.amount * Decimal::from(trade.entry.quantity)) {
+        if available < (trade.entry.unit_price * Decimal::from(trade.entry.quantity)) {
             return Err(Box::new(RuleValidationError {
                 code: RuleValidationErrorCode::NotEnoughFunds,
                 message: format!(
                     "Not enough funds in account {} for currency {}. Available: {} and you are trying to trade: {}",
-                    trade.account_id, trade.currency, available, trade.entry.unit_price.amount * Decimal::from(trade.entry.quantity)
+                    trade.account_id, trade.currency, available, trade.entry.unit_price * Decimal::from(trade.entry.quantity)
                 ),
             }));
         }
@@ -105,8 +105,7 @@ impl RuleValidator {
                             ),
                         }));
                     } else {
-                        let risk_per_trade =
-                            trade.entry.unit_price.amount - trade.safety_stop.unit_price.amount;
+                        let risk_per_trade = trade.entry.unit_price - trade.safety_stop.unit_price;
                         let total_risk = risk_per_trade * Decimal::from(trade.entry.quantity);
                         let maximum_risk =
                             available * (Decimal::from_f32_retain(risk).unwrap() / dec!(100.0));
