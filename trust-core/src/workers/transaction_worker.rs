@@ -167,10 +167,20 @@ impl TransactionWorker {
             .read_account_db()
             .read_account_id(trade.account_id)?;
 
-        let total = trade.entry.unit_price * Decimal::from(trade.entry.quantity);
+        let total = trade.entry.average_filled_price.unwrap() * Decimal::from(trade.entry.quantity);
 
-        // TODO: Here the is an improvement: if there is a difference between the unit_price and the average_filled_price
+        let total_difference = total - trade.entry.unit_price * Decimal::from(trade.entry.quantity);
+
+        // If there is a difference between the unit_price and the average_filled_price
         // then we should create a transaction to transfer the difference to the account.
+        if !total_difference.is_zero() {
+            database.write_transaction_db().create_transaction(
+                &account,
+                total_difference,
+                &trade.currency,
+                TransactionCategory::PaymentFromTrade(trade.id),
+            )?;
+        }
 
         let transaction = database.write_transaction_db().create_transaction(
             &account,

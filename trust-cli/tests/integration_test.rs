@@ -399,8 +399,8 @@ fn test_trade_target_filled() {
     let account = trust.search_account("alpaca").unwrap();
     let overview = trust.search_overview(account.id, &Currency::USD).unwrap();
     assert_eq!(overview.currency, Currency::USD);
-    assert_eq!(overview.total_available, dec!(56450)); // 50000 + 500 * (52.9 - 39.9)
-    assert_eq!(overview.total_balance, dec!(56450)); // 50000 + 500 * (52.9 - 39.9)
+    assert_eq!(overview.total_available, dec!(56500.0)); // Including the 50 USD from the difference of the target unit price and average filled price
+    assert_eq!(overview.total_balance, dec!(56500.0));
     assert_eq!(overview.total_in_trade, dec!(0));
     assert_eq!(overview.taxed, dec!(0));
 }
@@ -450,8 +450,8 @@ fn test_trade_stop_filled() {
     let account = trust.search_account("alpaca").unwrap();
     let overview = trust.search_overview(account.id, &Currency::USD).unwrap();
     assert_eq!(overview.currency, Currency::USD);
-    assert_eq!(overview.total_available, dec!(49050)); // 50000 + 500 * (38 - 39.9) TODO: Here the error is because the entry was filled at 39.9 and not 40
-    assert_eq!(overview.total_balance, dec!(49050)); // 50000 + 500 * (38 - 39.9)
+    assert_eq!(overview.total_available, dec!(49050)); // Including the 50 USD from the difference of the target unit price and average filled price
+    assert_eq!(overview.total_balance, dec!(49050));
     assert_eq!(overview.total_in_trade, dec!(0));
     assert_eq!(overview.taxed, dec!(0));
 }
