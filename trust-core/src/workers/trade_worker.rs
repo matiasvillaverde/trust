@@ -33,8 +33,13 @@ impl TradeWorker {
                     // We also update the trade entry
                     TradeWorker::fill_trade(trade, dec!(0), database)?; // TODO: Here we should fill the trade with the entry average filled price, not the unit price of the entry
                 }
-                let (trade, tx) =
+
+                let (trade, _) =
                     TradeWorker::update_trade_target_executed(trade, dec!(0), database)?;
+
+                let (tx, _, _) =
+                    TransactionWorker::transfer_payment_from(&trade, database)?;
+
                 return Ok((trade, Some(tx)));
             }
             Status::Submitted => {

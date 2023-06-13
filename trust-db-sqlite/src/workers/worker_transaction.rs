@@ -73,6 +73,7 @@ impl WorkerTransaction {
         account_id: Uuid,
         currency: &Currency,
     ) -> Result<Vec<Transaction>, Box<dyn Error>> {
+        // REFACTOR: Query all transactions for an account and filer taxes out in memory.
         let tx_deposit = WorkerTransaction::read_all_account_transactions_for_category(
             connection,
             account_id,
@@ -100,12 +101,34 @@ impl WorkerTransaction {
             TransactionCategory::FeeClose(Uuid::new_v4()),
         )?;
 
+        let tx_close_stop = WorkerTransaction::read_all_account_transactions_for_category(
+            connection,
+            account_id,
+            currency,
+            TransactionCategory::CloseSafetyStop(Uuid::new_v4()),
+        )?;
+
+        let tx_close_stop_slippage = WorkerTransaction::read_all_account_transactions_for_category(
+            connection,
+            account_id,
+            currency,
+            TransactionCategory::CloseSafetyStop(Uuid::new_v4()),
+        )?;
+
+        let tx_close_target = WorkerTransaction::read_all_account_transactions_for_category(
+            connection,
+            account_id,
+            currency,
+            TransactionCategory::CloseSafetyStop(Uuid::new_v4()),
+        )?;
+
         let tx_output = WorkerTransaction::read_all_account_transactions_for_category(
             connection,
             account_id,
             currency,
             TransactionCategory::FundTrade(Uuid::new_v4()),
         )?;
+
         let tx_input = WorkerTransaction::read_all_account_transactions_for_category(
             connection,
             account_id,
@@ -119,6 +142,9 @@ impl WorkerTransaction {
             .chain(tx_fee_close.into_iter())
             .chain(tx_output.into_iter())
             .chain(tx_input.into_iter())
+            .chain(tx_close_stop.into_iter())
+            .chain(tx_close_stop_slippage.into_iter())
+            .chain(tx_close_target.into_iter())
             .collect())
     }
 
