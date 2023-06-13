@@ -24,23 +24,34 @@ impl TradeWorker {
                     // We also update the trade entry
                     TradeWorker::fill_trade(trade, dec!(0), database)?; // TODO: Here we should fill the trade with the entry average filled price, not the unit price of the entry
                 }
-                let (trade, tx) =
-                    TradeWorker::update_trade_stop_executed(trade, dec!(0), database)?;
-                return Ok((trade, Some(tx)));
+
+                // We only update the trade target once
+                let trade = database.read_trade_db().read_trade(trade.id)?;
+                if trade.status == Status::Filled {
+                    // We also update the trade stop loss
+                    let (trade, _) =
+                        TradeWorker::update_trade_stop_executed(&trade, dec!(0), database)?;
+                    let (tx, _, _) = TransactionWorker::transfer_payment_from(&trade, database)?;
+
+                    return Ok((trade, Some(tx)));
+                }
             }
             Status::ClosedTarget => {
                 if trade.status == Status::Submitted {
                     // We also update the trade entry
-                    TradeWorker::fill_trade(trade, dec!(0), database)?; // TODO: Here we should fill the trade with the entry average filled price, not the unit price of the entry
+                    TradeWorker::fill_trade(trade, dec!(0), database)?;
                 }
 
-                let (trade, _) =
-                    TradeWorker::update_trade_target_executed(trade, dec!(0), database)?;
+                // We only update the trade target once
+                let trade = database.read_trade_db().read_trade(trade.id)?;
+                if trade.status == Status::Filled {
+                    // We also update the trade stop loss
+                    let (trade, _) =
+                        TradeWorker::update_trade_target_executed(&trade, dec!(0), database)?;
+                    let (tx, _, _) = TransactionWorker::transfer_payment_from(&trade, database)?;
 
-                let (tx, _, _) =
-                    TransactionWorker::transfer_payment_from(&trade, database)?;
-
-                return Ok((trade, Some(tx)));
+                    return Ok((trade, Some(tx)));
+                }
             }
             Status::Submitted => {
                 if trade.status == Status::Submitted {
