@@ -318,6 +318,7 @@ mod tests {
 
         let (status, updated_orders) = sync_trade(&trade, orders).unwrap();
 
+        // Assert that the orders has been updated
         assert_eq!(status, Status::ClosedTarget);
         assert_eq!(updated_orders.len(), 3);
     }
