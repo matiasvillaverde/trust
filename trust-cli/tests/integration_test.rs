@@ -287,7 +287,7 @@ fn test_trade_submit_entry_accepted() {
 
     // Assert Target
     assert_eq!(trade.target.quantity, 500);
-    assert_eq!(trade.target.unit_price, dec!(40));
+    assert_eq!(trade.target.unit_price, dec!(50));
     assert_eq!(trade.target.average_filled_price, None);
     assert_eq!(trade.target.filled_quantity, 0);
     assert_eq!(trade.target.status, OrderStatus::Held);
@@ -332,7 +332,7 @@ fn test_trade_entry_filled() {
     // Assert Entry
     assert_eq!(trade.entry.quantity, 500);
     assert_eq!(trade.entry.unit_price, dec!(40));
-    assert_eq!(trade.entry.average_filled_price, Some(dec!(39.009)));
+    assert_eq!(trade.entry.average_filled_price, Some(dec!(39.9)));
     assert_eq!(trade.entry.filled_quantity, 500);
     assert_eq!(trade.entry.status, OrderStatus::Filled);
 
@@ -341,7 +341,7 @@ fn test_trade_entry_filled() {
     assert_eq!(trade.target.unit_price, dec!(50));
     assert_eq!(trade.target.average_filled_price, None);
     assert_eq!(trade.target.filled_quantity, 0);
-    assert_eq!(trade.target.status, OrderStatus::Held);
+    assert_eq!(trade.target.status, OrderStatus::Accepted);
 
     // Assert Stop
     assert_eq!(trade.safety_stop.quantity, 500);
@@ -349,6 +349,9 @@ fn test_trade_entry_filled() {
     assert_eq!(trade.target.average_filled_price, None);
     assert_eq!(trade.safety_stop.filled_quantity, 0);
     assert_eq!(trade.safety_stop.status, OrderStatus::Held);
+
+    // TODO: The average filled price is less than the unit price, so the remaining money that was
+    // not used to buy the shares should be returned to the account.
 }
 
 #[test]
@@ -357,7 +360,11 @@ fn test_trade_target_filled() {
     let mut trust = trust;
 
     // 9. Sync trade with the Broker - Target is filled
-    trust.sync_trade(&trade, &account).unwrap();
+    let (status, orders) = trust.sync_trade(&trade, &account).unwrap();
+
+    println!("{:?}", status);
+    println!("{:?}", orders);
+
     let trade = trust
         .search_trades(account.id, Status::ClosedTarget)
         .unwrap()
@@ -370,7 +377,7 @@ fn test_trade_target_filled() {
     // Assert Entry
     assert_eq!(trade.entry.quantity, 500);
     assert_eq!(trade.entry.unit_price, dec!(40));
-    assert_eq!(trade.entry.average_filled_price, Some(dec!(39.009)));
+    assert_eq!(trade.entry.average_filled_price, Some(dec!(39.9)));
     assert_eq!(trade.entry.filled_quantity, 500);
     assert_eq!(trade.entry.status, OrderStatus::Filled);
 
@@ -384,7 +391,7 @@ fn test_trade_target_filled() {
     // Assert Stop
     assert_eq!(trade.safety_stop.quantity, 500);
     assert_eq!(trade.safety_stop.unit_price, dec!(38));
-    assert_eq!(trade.target.average_filled_price, None);
+    assert_eq!(trade.safety_stop.average_filled_price, None);
     assert_eq!(trade.safety_stop.filled_quantity, 0);
     assert_eq!(trade.safety_stop.status, OrderStatus::Canceled);
 
@@ -392,8 +399,8 @@ fn test_trade_target_filled() {
     let account = trust.search_account("alpaca").unwrap();
     let overview = trust.search_overview(account.id, &Currency::USD).unwrap();
     assert_eq!(overview.currency, Currency::USD);
-    assert_eq!(overview.total_available, dec!(550000)); // TODO Calculate the exact amount
-    assert_eq!(overview.total_balance, dec!(55000)); // TODO Calculate the exact amount
+    assert_eq!(overview.total_available, dec!(56450)); // TODO Calculate the exact amount
+    assert_eq!(overview.total_balance, dec!(56450)); // TODO Calculate the exact amount
     assert_eq!(overview.total_in_trade, dec!(0));
     assert_eq!(overview.taxed, dec!(0));
 }
@@ -480,7 +487,7 @@ impl BrokerResponse {
             ..Default::default()
         };
 
-        (Status::Submitted, vec![entry, target, stop])
+        (Status::Filled, vec![entry, target, stop])
     }
 
     fn orders_target_filled(trade: &Trade) -> (Status, Vec<Order>) {
@@ -520,7 +527,7 @@ impl BrokerResponse {
             ..Default::default()
         };
 
-        (Status::Submitted, vec![entry, target, stop])
+        (Status::ClosedTarget, vec![entry, target, stop])
     }
 }
 
