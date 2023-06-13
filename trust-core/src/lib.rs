@@ -262,6 +262,7 @@ impl TrustFacade {
 
         // 3. Update Orders
         for order in orders.clone() {
+            println!("Updating order: {:?}", order);
             OrderWorker::update_order(&order, &mut *self.factory)?;
         }
 

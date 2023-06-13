@@ -11,11 +11,12 @@ impl TradeWorker {
         trade: &Trade,
         status: Status,
         database: &mut dyn DatabaseFactory,
-    ) -> Result<(Trade, Transaction), Box<dyn Error>> {
+    ) -> Result<(Trade, Option<Transaction>), Box<dyn Error>> {
         match status {
             Status::Filled => {
                 if trade.status == Status::Submitted {
-                    return TradeWorker::fill_trade(trade, dec!(0), database);
+                    let (trade, tx) = TradeWorker::fill_trade(trade, dec!(0), database)?;
+                    return Ok((trade, Some(tx)));
                 }
             }
             Status::ClosedStopLoss => {
@@ -23,18 +24,28 @@ impl TradeWorker {
                     // We also update the trade entry
                     TradeWorker::fill_trade(trade, dec!(0), database)?;
                 }
-                return TradeWorker::update_trade_stop_executed(trade, dec!(0), database);
+
+                let (trade, tx) =
+                    TradeWorker::update_trade_stop_executed(trade, dec!(0), database)?;
+                return Ok((trade, Some(tx)));
             }
             Status::ClosedTarget => {
                 if trade.status == Status::Submitted {
                     // We also update the trade entry
                     TradeWorker::fill_trade(trade, dec!(0), database)?;
                 }
-                return TradeWorker::update_trade_target_executed(trade, dec!(0), database);
+                let (trade, tx) =
+                    TradeWorker::update_trade_target_executed(trade, dec!(0), database)?;
+                return Ok((trade, Some(tx)));
+            }
+            Status::Submitted => {
+                if trade.status == Status::Submitted {
+                    return Ok((trade.clone(), None));
+                }
             }
             _ => {}
         }
-        Err("Nothing to update in trade".into())
+        Err(format!("Status can not be updated in trade: {:?}", status).into())
     }
 
     pub fn fill_trade(
