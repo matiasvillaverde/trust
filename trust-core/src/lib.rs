@@ -257,13 +257,14 @@ impl TrustFacade {
         // 1. Sync Trade with Broker
         let (status, orders) = self.broker.sync_trade(trade, account)?;
 
-        // 2. Update Trade Status
-        TradeWorker::update_status(trade, status, &mut *self.factory)?;
-
-        // 3. Update Orders
+        // 2. Update Orders
         for order in orders.clone() {
             OrderWorker::update_order(&order, &mut *self.factory)?;
         }
+
+        // 3. Update Trade Status
+        let trade = self.factory.read_trade_db().read_trade(trade.id)?; // We need to read the trade again to get the updated orders
+        TradeWorker::update_status(&trade, status, &mut *self.factory)?;
 
         Ok((status, orders))
     }

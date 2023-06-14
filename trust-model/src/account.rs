@@ -140,3 +140,18 @@ impl std::str::FromStr for Environment {
         }
     }
 }
+
+impl Default for Account {
+    fn default() -> Self {
+        let now = Utc::now().naive_utc();
+        Self {
+            id: Uuid::new_v4(),
+            created_at: now,
+            updated_at: now,
+            deleted_at: None,
+            name: "alpaca".to_string(),
+            description: "default".to_string(),
+            environment: Environment::Paper,
+        }
+    }
+}

@@ -73,6 +73,7 @@ impl WorkerTransaction {
         account_id: Uuid,
         currency: &Currency,
     ) -> Result<Vec<Transaction>, Box<dyn Error>> {
+        // REFACTOR: Query all transactions for an account and filer taxes out in memory.
         let tx_deposit = WorkerTransaction::read_all_account_transactions_for_category(
             connection,
             account_id,
@@ -106,6 +107,7 @@ impl WorkerTransaction {
             currency,
             TransactionCategory::FundTrade(Uuid::new_v4()),
         )?;
+
         let tx_input = WorkerTransaction::read_all_account_transactions_for_category(
             connection,
             account_id,

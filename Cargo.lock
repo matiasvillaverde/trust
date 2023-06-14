@@ -2437,6 +2437,7 @@ dependencies = [
 name = "trust-cli"
 version = "0.2.0"
 dependencies = [
+ "chrono",
  "clap",
  "dialoguer",
  "rust_decimal",
@@ -2447,6 +2448,7 @@ dependencies = [
  "trust-core",
  "trust-db-sqlite",
  "trust-model",
+ "uuid",
 ]
 
 [[package]]
