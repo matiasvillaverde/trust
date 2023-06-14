@@ -14,6 +14,8 @@ impl AccountCapitalAvailable {
         let transactions =
             database.all_account_transactions_excluding_taxes(account_id, currency)?;
 
+        println!("transactions: {:?}", transactions);
+
         // Sum all transactions based on their category
         let total: Decimal = transactions.iter().map(|transaction| {
                 match transaction.category {
