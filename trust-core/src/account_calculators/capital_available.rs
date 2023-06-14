@@ -14,8 +14,6 @@ impl AccountCapitalAvailable {
         let transactions =
             database.all_account_transactions_excluding_taxes(account_id, currency)?;
 
-        println!("transactions: {:?}", transactions);
-
         // Sum all transactions based on their category
         let total: Decimal = transactions.iter().map(|transaction| {
                 match transaction.category {
@@ -83,6 +81,23 @@ mod tests {
         let result =
             AccountCapitalAvailable::calculate(Uuid::new_v4(), &Currency::USD, &mut database);
         assert_eq!(result.unwrap(), dec!(50));
+    }
+
+    #[test]
+    fn test_capital_available_with_remaining_from_trade_entry() {
+        let mut database = MockDatabase::new();
+
+        // Transactions
+        database.set_transaction(TransactionCategory::Deposit, dec!(100));
+        database.set_transaction(TransactionCategory::FundTrade(Uuid::new_v4()), dec!(50));
+        database.set_transaction(
+            TransactionCategory::PaymentFromTrade(Uuid::new_v4()),
+            dec!(1),
+        );
+
+        let result =
+            AccountCapitalAvailable::calculate(Uuid::new_v4(), &Currency::USD, &mut database);
+        assert_eq!(result.unwrap(), dec!(51));
     }
 
     #[test]

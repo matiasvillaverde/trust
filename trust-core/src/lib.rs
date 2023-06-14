@@ -7,7 +7,7 @@ use trust_model::{
 };
 use uuid::Uuid;
 use validators::RuleValidator;
-use workers::{OrderWorker, RuleWorker, TradeWorker, TransactionWorker};
+use workers::{OrderWorker, OverviewWorker, RuleWorker, TradeWorker, TransactionWorker};
 
 pub struct TrustFacade {
     factory: Box<dyn DatabaseFactory>,
@@ -265,6 +265,9 @@ impl TrustFacade {
         // 3. Update Trade Status
         let trade = self.factory.read_trade_db().read_trade(trade.id)?; // We need to read the trade again to get the updated orders
         TradeWorker::update_status(&trade, status, &mut *self.factory)?;
+
+        // 4. Update Account Overview
+        OverviewWorker::update_account_overview(&mut *self.factory, account, &trade.currency)?;
 
         Ok((status, orders))
     }

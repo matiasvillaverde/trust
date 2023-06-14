@@ -1,4 +1,5 @@
 use rust_decimal::Decimal;
+use rust_decimal_macros::dec;
 use std::error::Error;
 use trust_model::{
     AccountOverview, Currency, DatabaseFactory, Trade, TradeOverview, Transaction,
@@ -169,13 +170,20 @@ impl TransactionWorker {
 
         let total = trade.entry.average_filled_price.unwrap() * Decimal::from(trade.entry.quantity);
 
-        let mut total_difference =
-            total - trade.entry.unit_price * Decimal::from(trade.entry.quantity);
+        let transaction = database.write_transaction_db().create_transaction(
+            &account,
+            total,
+            &trade.currency,
+            TransactionCategory::OpenTrade(trade.id),
+        )?;
 
         // If there is a difference between the unit_price and the average_filled_price
         // then we should create a transaction to transfer the difference to the account.
-        if !total_difference.is_zero() {
-            total_difference.set_sign_positive(true);
+        let mut total_difference =
+            total - trade.entry.unit_price * Decimal::from(trade.entry.quantity);
+        total_difference.set_sign_positive(true);
+
+        if total_difference > dec!(0) {
             database.write_transaction_db().create_transaction(
                 &account,
                 total_difference,
@@ -184,16 +192,8 @@ impl TransactionWorker {
             )?;
         }
 
-        let transaction = database.write_transaction_db().create_transaction(
-            &account,
-            total,
-            &trade.currency,
-            TransactionCategory::OpenTrade(trade.id),
-        )?;
-
         // Update trade overview
         let trade_overview: TradeOverview = OverviewWorker::update_trade_overview(database, trade)?;
-
         Ok((transaction, trade_overview))
     }
 
@@ -203,6 +203,7 @@ impl TransactionWorker {
         database: &mut dyn DatabaseFactory,
     ) -> Result<(Transaction, AccountOverview), Box<dyn Error>> {
         // TODO: Validate that account has enough funds to pay a fee.
+
         let account = database
             .read_account_db()
             .read_account_id(trade.account_id)?;

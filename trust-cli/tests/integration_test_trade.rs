@@ -166,9 +166,9 @@ fn assert_entry_accepted(trade: &Trade, trust: &mut TrustFacade) {
     let overview = trust.search_overview(account.id, &Currency::USD).unwrap();
 
     assert_eq!(overview.currency, Currency::USD);
-    assert_eq!(overview.total_available, dec!(30000));
+    assert_eq!(overview.total_available, dec!(30000)); // 50000 - 20000
     assert_eq!(overview.total_balance, dec!(50000));
-    assert_eq!(overview.total_in_trade, dec!(20000));
+    assert_eq!(overview.total_in_trade, dec!(0)); // Entry is not executed yet
     assert_eq!(overview.taxed, dec!(0));
 }
 
@@ -246,8 +246,8 @@ fn assert_entry_filled(trade: &Trade, trust: &mut TrustFacade) {
 
     assert_eq!(overview.currency, Currency::USD);
     assert_eq!(overview.total_available, dec!(30050)); // 30000 + 50 (remaining money)
-    assert_eq!(overview.total_balance, dec!(50000));
-    assert_eq!(overview.total_in_trade, dec!(20000));
+    assert_eq!(overview.total_in_trade, dec!(19950)); // 20000 - 50 (remaining money)
+    assert_eq!(overview.total_balance, dec!(30050)); // The opened trade is not counted.
     assert_eq!(overview.taxed, dec!(0));
 }
 

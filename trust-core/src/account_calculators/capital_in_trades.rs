@@ -13,13 +13,15 @@ impl AccountCapitalInApprovedTrades {
     ) -> Result<Decimal, Box<dyn std::error::Error>> {
         // Get all transactions
         let transactions =
-            database.all_account_transactions_funding_in_approved_trades(account_id, currency)?;
+            database.all_account_transactions_funding_in_submitted_trades(account_id, currency)?;
 
         // Sum all transactions
         let total: Decimal = transactions
             .iter()
             .map(|transaction| match transaction.category {
-                TransactionCategory::FundTrade(_) => transaction.amount,
+                TransactionCategory::OpenTrade(_) | TransactionCategory::FundTrade(_) => {
+                    transaction.amount
+                }
                 _ => dec!(0),
             })
             .sum();

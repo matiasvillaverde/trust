@@ -5,7 +5,7 @@ use rust_decimal::Decimal;
 use std::error::Error;
 use std::str::FromStr;
 use tracing::error;
-use trust_model::{Currency, Transaction, TransactionCategory};
+use trust_model::{Currency, Status, Transaction, TransactionCategory};
 use uuid::Uuid;
 
 use super::WorkerTrade;
@@ -21,6 +21,8 @@ impl WorkerTransaction {
         category: TransactionCategory,
     ) -> Result<Transaction, Box<dyn Error>> {
         let now = Utc::now().naive_utc();
+
+        println!("Creating transaction: {:?}", category);
 
         let new_transaction = NewTransaction {
             id: Uuid::new_v4().to_string(),
@@ -124,15 +126,24 @@ impl WorkerTransaction {
             .collect())
     }
 
-    pub fn all_account_transactions_funding_in_approved_trades(
+    pub fn all_account_transactions_in_trade(
         connection: &mut SqliteConnection,
         account_id: Uuid,
         currency: &Currency,
     ) -> Result<Vec<Transaction>, Box<dyn Error>> {
-        let trades =
-            WorkerTrade::read_all_funded_trades_for_currency(connection, account_id, currency)?;
+        // Here we are getting all the transactions for a given account and currency
+        // and then filtering them in memory to only include transactions that are
+        // part of a trade that is either Funded, Submitted, or Filled.
+        // All this transactions are part of a trade that is using the money
+        // Either in the market or in the process of being filled or submitted.
+        let funded_trades = WorkerTrade::read_all_trades_with_status_currency(
+            connection,
+            account_id,
+            Status::Funded,
+            currency,
+        )?;
 
-        let transactions = trades
+        let funded_tx: Vec<Transaction> = funded_trades
             .into_iter()
             .flat_map(|trade| {
                 WorkerTransaction::read_all_trade_transactions_for_category(
@@ -144,7 +155,40 @@ impl WorkerTransaction {
             .flatten()
             .collect();
 
-        Ok(transactions)
+        let submitted_trades = WorkerTrade::read_all_trades_with_status_currency(
+            connection,
+            account_id,
+            Status::Submitted,
+            currency,
+        )?;
+
+        let filled_trades = WorkerTrade::read_all_trades_with_status_currency(
+            connection,
+            account_id,
+            Status::Filled,
+            currency,
+        )?;
+
+        let in_market_trades = submitted_trades
+            .into_iter()
+            .chain(filled_trades.into_iter());
+
+        let submitted_trades: Vec<Transaction> = in_market_trades
+            .into_iter()
+            .flat_map(|trade| {
+                WorkerTransaction::read_all_trade_transactions_for_category(
+                    connection,
+                    trade.id,
+                    TransactionCategory::OpenTrade(Uuid::new_v4()),
+                )
+            })
+            .flatten()
+            .collect();
+
+        Ok(funded_tx
+            .into_iter()
+            .chain(submitted_trades.into_iter())
+            .collect())
     }
 
     pub fn read_all_account_transactions_taxes(

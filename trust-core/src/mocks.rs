@@ -99,7 +99,7 @@ pub mod read_transaction_db_mocks {
             Ok(self.transactions.clone())
         }
 
-        fn all_account_transactions_funding_in_approved_trades(
+        fn all_account_transactions_funding_in_submitted_trades(
             &mut self,
             _account_id: Uuid,
             _currency: &Currency,
