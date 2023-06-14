@@ -13,16 +13,14 @@ impl TradeWorker {
         database: &mut dyn DatabaseFactory,
     ) -> Result<(Trade, Option<Transaction>), Box<dyn Error>> {
         match status {
-            Status::Filled => {
-                if trade.status == Status::Submitted {
-                    let (trade, tx) = TradeWorker::fill_trade(trade, dec!(0), database)?; // TODO: Here we should fill the trade with the entry average filled price, not the unit price of the entry
-                    return Ok((trade, Some(tx)));
-                }
+            Status::Filled if trade.status == Status::Submitted => {
+                let (trade, tx) = TradeWorker::fill_trade(trade, dec!(0), database)?;
+                return Ok((trade, Some(tx)));
             }
             Status::ClosedStopLoss => {
                 if trade.status == Status::Submitted {
                     // We also update the trade entry
-                    TradeWorker::fill_trade(trade, dec!(0), database)?; // TODO: Here we should fill the trade with the entry average filled price, not the unit price of the entry
+                    TradeWorker::fill_trade(trade, dec!(0), database)?;
                 }
 
                 // We only update the trade target once
@@ -53,10 +51,8 @@ impl TradeWorker {
                     return Ok((trade, Some(tx)));
                 }
             }
-            Status::Submitted => {
-                if trade.status == Status::Submitted {
-                    return Ok((trade.clone(), None));
-                }
+            Status::Submitted if trade.status == Status::Submitted => {
+                return Ok((trade.clone(), None));
             }
             _ => {}
         }
