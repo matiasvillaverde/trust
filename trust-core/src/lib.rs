@@ -259,23 +259,28 @@ impl TrustFacade {
         &mut self,
         trade: &Trade,
         account: &Account,
-    ) -> Result<(Status, Vec<Order>), Box<dyn std::error::Error>> {
+    ) -> Result<(Status, Vec<Order>, BrokerLog), Box<dyn std::error::Error>> {
         // 1. Sync Trade with Broker
-        let (status, orders) = self.broker.sync_trade(trade, account)?;
+        let (status, orders, log) = self.broker.sync_trade(trade, account)?;
 
-        // 2. Update Orders
+        // 2. Save log in the DB
+        self.factory
+            .write_broker_log_db()
+            .create_log(log.log.as_str(), trade)?;
+
+        // 3. Update Orders
         for order in orders.clone() {
             OrderWorker::update_order(&order, &mut *self.factory)?;
         }
 
-        // 3. Update Trade Status
+        // 4. Update Trade Status
         let trade = self.factory.read_trade_db().read_trade(trade.id)?; // We need to read the trade again to get the updated orders
         TradeWorker::update_status(&trade, status, &mut *self.factory)?;
 
-        // 4. Update Account Overview
+        // 5. Update Account Overview
         OverviewWorker::update_account_overview(&mut *self.factory, account, &trade.currency)?;
 
-        Ok((status, orders))
+        Ok((status, orders, log))
     }
 
     pub fn fill_trade(

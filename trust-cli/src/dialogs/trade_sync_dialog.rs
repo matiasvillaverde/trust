@@ -1,11 +1,11 @@
 use crate::dialogs::AccountSearchDialog;
-use crate::views::OrderView;
+use crate::views::{LogView, OrderView};
 use dialoguer::{theme::ColorfulTheme, FuzzySelect};
 use std::error::Error;
 use trust_core::TrustFacade;
-use trust_model::{Account, Order, Status, Trade};
+use trust_model::{Account, BrokerLog, Order, Status, Trade};
 
-type EntryDialogBuilderResult = Option<Result<(Status, Vec<Order>), Box<dyn Error>>>;
+type EntryDialogBuilderResult = Option<Result<(Status, Vec<Order>, BrokerLog), Box<dyn Error>>>;
 
 pub struct SyncTradeDialogBuilder {
     account: Option<Account>,
@@ -36,12 +36,15 @@ impl SyncTradeDialogBuilder {
             .result
             .expect("No result found, did you forget to call search?")
         {
-            Ok((status, orders)) => {
+            Ok((status, orders, log)) => {
                 println!("Trade synced:");
                 println!("Status: {:?}", status);
 
                 println!("Orders:");
                 OrderView::display_orders(orders);
+
+                println!("Logs:");
+                LogView::display(&log);
             }
             Err(error) => println!("Error approving trade: {:?}", error),
         }

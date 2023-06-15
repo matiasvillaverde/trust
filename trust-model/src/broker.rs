@@ -46,5 +46,5 @@ pub trait Broker {
         &self,
         trade: &Trade,
         account: &Account,
-    ) -> Result<(Status, Vec<Order>), Box<dyn Error>>;
+    ) -> Result<(Status, Vec<Order>, BrokerLog), Box<dyn Error>>;
 }
