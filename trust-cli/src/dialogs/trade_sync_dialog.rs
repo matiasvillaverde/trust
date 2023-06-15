@@ -37,7 +37,6 @@ impl SyncTradeDialogBuilder {
             .expect("No result found, did you forget to call search?")
         {
             Ok((status, orders, log)) => {
-              
                 if orders.is_empty() {
                     println!(
                         "All orders from trade {} are up to date",
