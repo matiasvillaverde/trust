@@ -59,7 +59,7 @@ impl ExitDialogBuilder {
                 let account_name = self.account.clone().unwrap().name;
 
                 println!("Trade exit executed:");
-                TradeView::display_trade(&self.trade.unwrap(), account_name.as_str());
+                TradeView::display(&self.trade.unwrap(), account_name.as_str());
 
                 println!("With transaction of exit:");
                 TransactionView::display(&tx_exit, account_name.as_str());

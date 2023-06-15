@@ -243,6 +243,7 @@ impl ArgDispatcher {
         TradeSearchDialogBuilder::new()
             .account(&mut self.trust)
             .status()
+            .show_overview()
             .search(&mut self.trust)
             .display();
     }

@@ -65,7 +65,7 @@ impl TradeDialogBuilder {
             .expect("No result found, did you forget to call build?")
         {
             Ok(trade) => {
-                TradeView::display_trade(&trade, &self.account.unwrap().name);
+                TradeView::display(&trade, &self.account.unwrap().name);
                 TradeOverviewView::display(&trade.overview);
             }
             Err(error) => println!("Error creating account: {:?}", error),

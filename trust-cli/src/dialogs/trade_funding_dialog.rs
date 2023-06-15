@@ -38,7 +38,7 @@ impl FundingDialogBuilder {
                 let account = self.account.clone().unwrap().name;
 
                 println!("Trade approved:");
-                TradeView::display_trade(&trade, &self.account.unwrap().name);
+                TradeView::display(&trade, &self.account.unwrap().name);
 
                 println!("Trade overview:");
                 TradeOverviewView::display(&trade_overview);

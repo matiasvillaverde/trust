@@ -45,7 +45,7 @@ impl FillTradeDialogBuilder {
             Ok((trade, tx)) => {
                 let name = self.account.unwrap().name;
                 println!("Trade entry executed:");
-                TradeView::display_trade(&trade, name.as_str());
+                TradeView::display(&trade, name.as_str());
                 println!("Trade overview:");
                 TradeOverviewView::display(&trade.overview);
                 println!("Transaction:");

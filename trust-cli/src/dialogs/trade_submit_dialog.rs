@@ -35,7 +35,7 @@ impl SubmitDialogBuilder {
         {
             Ok((trade, log)) => {
                 println!("Trade submitted:");
-                TradeView::display_trade(&trade, &self.account.unwrap().name);
+                TradeView::display(&trade, &self.account.unwrap().name);
 
                 println!("Trade overview:");
                 TradeOverviewView::display(&trade.overview);

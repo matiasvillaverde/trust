@@ -29,7 +29,7 @@ impl TradeView {
         }
     }
 
-    pub fn display_trade(a: &Trade, account_name: &str) {
+    pub fn display(a: &Trade, account_name: &str) {
         TradeView::display_trades(vec![a.clone()], account_name);
         println!();
     }

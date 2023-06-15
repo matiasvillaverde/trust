@@ -56,7 +56,7 @@ impl std::fmt::Display for Trade {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "{}: quantity: {}, category: {}, currency: {}, safety_stop: {}, entry: {}, target: {}",
+            "{}: quantity: {}, category: {}, currency: {}, safety_stop: {}, entry: {}, target: {}, status: {}",
             self.trading_vehicle.symbol,
             self.safety_stop.quantity,
             self.category,
@@ -64,6 +64,7 @@ impl std::fmt::Display for Trade {
             self.safety_stop.unit_price,
             self.entry.unit_price,
             self.target.unit_price,
+            self.status,
         )
     }
 }

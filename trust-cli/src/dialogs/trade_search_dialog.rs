@@ -1,14 +1,15 @@
 use trust_core::TrustFacade;
 use trust_model::{Account, Status, Trade};
 
-use crate::dialogs::AccountSearchDialog;
 use crate::views::TradeView;
-use dialoguer::{theme::ColorfulTheme, FuzzySelect};
+use crate::{dialogs::AccountSearchDialog, views::TradeOverviewView};
+use dialoguer::{theme::ColorfulTheme, Confirm, FuzzySelect};
 use std::error::Error;
 
 pub struct TradeSearchDialogBuilder {
     account: Option<Account>,
     status: Option<Status>,
+    overview: bool,
     result: Option<Result<Vec<Trade>, Box<dyn Error>>>,
 }
 
@@ -17,6 +18,7 @@ impl TradeSearchDialogBuilder {
         TradeSearchDialogBuilder {
             result: None,
             account: None,
+            overview: true,
             status: None,
         }
     }
@@ -31,8 +33,20 @@ impl TradeSearchDialogBuilder {
                     println!("No trades found");
                     return;
                 }
-                println!("Trades found:");
-                TradeView::display_trades(trades, self.account.unwrap().name.as_str());
+
+                if self.overview {
+                    println!("Trades found:");
+                    let name = self.account.clone().unwrap().name;
+                    for trade in trades {
+                        println!("Trade: {}", trade.id);
+                        TradeView::display(&trade, name.as_str());
+                        println!("Overview:");
+                        TradeOverviewView::display(&trade.overview);
+                    }
+                } else {
+                    println!("Trades found:");
+                    TradeView::display_trades(trades, self.account.unwrap().name.as_str());
+                }
             }
             Err(error) => println!("Error searching account: {:?}", error),
         }
@@ -64,6 +78,20 @@ impl TradeSearchDialogBuilder {
             .unwrap();
 
         self.status = Some(*status);
+        self
+    }
+
+    pub fn show_overview(mut self) -> Self {
+        if Confirm::with_theme(&ColorfulTheme::default())
+            .with_prompt("Do you want to see details form each trade?")
+            .default(true)
+            .interact()
+            .unwrap()
+        {
+            self.overview = true;
+        } else {
+            self.overview = false;
+        }
         self
     }
 }
