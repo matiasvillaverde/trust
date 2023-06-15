@@ -38,9 +38,7 @@ impl TradeSearchDialogBuilder {
                     println!("Trades found:");
                     let name = self.account.clone().unwrap().name;
                     for trade in trades {
-                        println!("Trade: {}", trade.id);
                         TradeView::display(&trade, name.as_str());
-                        println!("Overview:");
                         TradeOverviewView::display(&trade.overview);
                     }
                 } else {

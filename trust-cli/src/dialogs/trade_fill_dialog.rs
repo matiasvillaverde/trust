@@ -46,9 +46,7 @@ impl FillTradeDialogBuilder {
                 let name = self.account.unwrap().name;
                 println!("Trade entry executed:");
                 TradeView::display(&trade, name.as_str());
-                println!("Trade overview:");
                 TradeOverviewView::display(&trade.overview);
-                println!("Transaction:");
                 TransactionView::display(&tx, name.as_str());
             }
             Err(error) => println!("Error approving trade: {:?}", error),

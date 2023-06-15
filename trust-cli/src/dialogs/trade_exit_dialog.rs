@@ -67,10 +67,8 @@ impl ExitDialogBuilder {
                 println!("With transaction of payment back to the account:");
                 TransactionView::display(&tx_payment, account_name.as_str());
 
-                println!("Trade overview:");
                 TradeOverviewView::display(&trade_overview);
 
-                println!("Account overview:");
                 AccountOverviewView::display(account_overview, account_name.as_str());
             }
             Err(error) => println!("Error approving trade: {:?}", error),

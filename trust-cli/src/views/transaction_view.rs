@@ -22,6 +22,8 @@ impl TransactionView {
     }
 
     pub fn display(tx: &Transaction, account_name: &str) {
+        println!();
+        println!("Transaction: {}", tx.id);
         TransactionView::display_transactions(vec![tx], account_name);
         println!();
     }

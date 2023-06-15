@@ -37,19 +37,17 @@ impl SubmitDialogBuilder {
                 println!("Trade submitted:");
                 TradeView::display(&trade, &self.account.unwrap().name);
 
-                println!("Trade overview:");
                 TradeOverviewView::display(&trade.overview);
 
-                println!("stop:");
+                println!("Stop:");
                 OrderView::display(trade.safety_stop);
 
-                println!("entry:");
+                println!("Entry:");
                 OrderView::display(trade.entry);
 
-                println!("target:");
+                println!("Target:");
                 OrderView::display(trade.target);
 
-                println!("Broker log:");
                 LogView::display(&log);
             }
             Err(error) => println!("Error submitting trade: {:?}", error),

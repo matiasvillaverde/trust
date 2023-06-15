@@ -40,7 +40,6 @@ impl FundingDialogBuilder {
                 println!("Trade approved:");
                 TradeView::display(&trade, &self.account.unwrap().name);
 
-                println!("Trade overview:");
                 TradeOverviewView::display(&trade_overview);
 
                 println!("Transaction moving funds to trade:");
