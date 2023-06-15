@@ -29,10 +29,16 @@ impl TrustFacade {
         name: &str,
         description: &str,
         environment: Environment,
+        taxes_percentage: Decimal,
+        earnings_percentage: Decimal,
     ) -> Result<Account, Box<dyn std::error::Error>> {
-        self.factory
-            .write_account_db()
-            .create_account(name, description, environment)
+        self.factory.write_account_db().create_account(
+            name,
+            description,
+            environment,
+            taxes_percentage,
+            earnings_percentage,
+        )
     }
 
     pub fn search_account(&mut self, name: &str) -> Result<Account, Box<dyn std::error::Error>> {

@@ -52,6 +52,8 @@ pub trait WriteAccountDB {
         name: &str,
         description: &str,
         environment: Environment,
+        taxes_percentage: Decimal,
+        earnings_percentage: Decimal,
     ) -> Result<Account, Box<dyn Error>>;
 }
 

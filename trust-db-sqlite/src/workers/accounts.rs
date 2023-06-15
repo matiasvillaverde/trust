@@ -1,6 +1,7 @@
 use crate::schema::accounts;
 use chrono::{NaiveDateTime, Utc};
 use diesel::prelude::*;
+use rust_decimal::Decimal;
 use std::error::Error;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -20,6 +21,8 @@ impl WriteAccountDB for AccountDB {
         name: &str,
         description: &str,
         environment: Environment,
+        taxes_percentage: Decimal,
+        earnings_percentage: Decimal,
     ) -> Result<Account, Box<dyn Error>> {
         let uuid = Uuid::new_v4().to_string();
         let now = Utc::now().naive_utc();
@@ -32,6 +35,8 @@ impl WriteAccountDB for AccountDB {
             name: name.to_lowercase(),
             description: description.to_lowercase(),
             environment: environment.to_string(),
+            taxes_percentage: taxes_percentage.to_string(),
+            earnings_percentage: earnings_percentage.to_string(),
         };
 
         let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap();
@@ -108,6 +113,8 @@ pub struct AccountSQLite {
     pub name: String,
     pub description: String,
     pub environment: String,
+    pub taxes_percentage: String,
+    pub earnings_percentage: String,
 }
 
 impl AccountSQLite {
@@ -120,6 +127,8 @@ impl AccountSQLite {
             name: self.name,
             description: self.description,
             environment: Environment::from_str(&self.environment).unwrap(),
+            taxes_percentage: Decimal::from_str(&self.taxes_percentage).unwrap(),
+            earnings_percentage: Decimal::from_str(&self.earnings_percentage).unwrap(),
         }
     }
 }
@@ -135,6 +144,8 @@ struct NewAccount {
     name: String,
     description: String,
     environment: String,
+    taxes_percentage: String,
+    earnings_percentage: String,
 }
 
 #[cfg(test)]
@@ -142,6 +153,7 @@ mod tests {
     use super::*;
     use crate::SqliteDatabase;
     use diesel_migrations::*;
+    use rust_decimal_macros::dec;
     use trust_model::DatabaseFactory;
     pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
     // Declare a test database connection
@@ -164,7 +176,13 @@ mod tests {
         };
         // Create a new account record
         let account = db
-            .create_account("Test Account", "This is a test account", Environment::Paper)
+            .create_account(
+                "Test Account",
+                "This is a test account",
+                Environment::Paper,
+                dec!(20),
+                dec!(80),
+            )
             .expect("Error creating account");
         assert_eq!(account.name, "test account"); // it should be lowercase
         assert_eq!(account.description, "this is a test account"); // it should be lowercase
@@ -179,7 +197,13 @@ mod tests {
         };
         // Create a new account record
         let created_account = db
-            .create_account("Test Account", "This is a test account", Environment::Paper)
+            .create_account(
+                "Test Account",
+                "This is a test account",
+                Environment::Paper,
+                dec!(20),
+                dec!(80),
+            )
             .expect("Error creating account");
         // Read the account record by name
         let read_account = db
@@ -195,7 +219,13 @@ mod tests {
         };
         // Create a new account record
         let created_account = db
-            .create_account("Test Account", "This is a test account", Environment::Paper)
+            .create_account(
+                "Test Account",
+                "This is a test account",
+                Environment::Paper,
+                dec!(20),
+                dec!(80),
+            )
             .expect("Error creating account");
         // Read the account record by name
         let read_account = db
@@ -211,11 +241,23 @@ mod tests {
         };
         let name = "Test Account";
         // Create a new account record
-        db.create_account(name, "This is a test account", Environment::Paper)
-            .expect("Error creating account");
+        db.create_account(
+            name,
+            "This is a test account",
+            Environment::Paper,
+            dec!(20),
+            dec!(80),
+        )
+        .expect("Error creating account");
         // Create a new account record with the same name
-        db.create_account(name, "This is a test account", Environment::Paper)
-            .expect_err("Error creating account with same name");
+        db.create_account(
+            name,
+            "This is a test account",
+            Environment::Paper,
+            dec!(20),
+            dec!(80),
+        )
+        .expect_err("Error creating account with same name");
     }
     #[test]
     fn test_read_account_not_found() {
@@ -235,6 +277,8 @@ mod tests {
                     "Test Account 1",
                     "This is a test account",
                     Environment::Paper,
+                    dec!(20),
+                    dec!(80),
                 )
                 .expect("Error creating account"),
             db.write_account_db()
@@ -242,6 +286,8 @@ mod tests {
                     "Test Account 2",
                     "This is a test account",
                     Environment::Paper,
+                    dec!(20),
+                    dec!(80),
                 )
                 .expect("Error creating account"),
             db.write_account_db()
@@ -249,6 +295,8 @@ mod tests {
                     "Test Account 3",
                     "This is a test account",
                     Environment::Paper,
+                    dec!(20),
+                    dec!(80),
                 )
                 .expect("Error creating account"),
         ];

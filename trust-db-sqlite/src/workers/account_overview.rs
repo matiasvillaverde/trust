@@ -126,6 +126,7 @@ struct AccountOverviewSQLite {
     total_available: String,
     taxed: String,
     currency: String,
+    total_earnings: String,
 }
 
 impl AccountOverviewSQLite {
@@ -142,6 +143,7 @@ impl AccountOverviewSQLite {
             total_available: Decimal::from_str(&self.total_available).unwrap(),
             taxed: Decimal::from_str(&self.taxed).unwrap(),
             currency: Currency::from_str(&self.currency).unwrap(),
+            total_earnings: Decimal::from_str(&self.total_earnings).unwrap(),
         }
     }
 }
@@ -159,6 +161,7 @@ pub struct NewAccountOverview {
     total_available: String,
     taxed: String,
     currency: String,
+    total_earnings: String,
 }
 
 impl Default for NewAccountOverview {
@@ -175,6 +178,7 @@ impl Default for NewAccountOverview {
             total_available: "0".to_string(),
             taxed: "0".to_string(),
             currency: Currency::USD.to_string(),
+            total_earnings: "0".to_string(),
         }
     }
 }
@@ -216,6 +220,8 @@ mod tests {
                 "Test Account",
                 "Some description",
                 trust_model::Environment::Paper,
+                dec!(20),
+                dec!(10),
             )
             .expect("Failed to create account");
         let mut db = db.write_account_overview_db();
@@ -241,6 +247,8 @@ mod tests {
                 "Test Account",
                 "Some description",
                 trust_model::Environment::Paper,
+                dec!(20),
+                dec!(10),
             )
             .expect("Failed to create account");
         let mut write_db = db.write_account_overview_db();
@@ -272,6 +280,8 @@ mod tests {
                 "Test Account",
                 "Some description",
                 trust_model::Environment::Paper,
+                dec!(20),
+                dec!(10),
             )
             .expect("Failed to create account");
         let mut db = db.write_account_overview_db();

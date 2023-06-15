@@ -97,6 +97,8 @@ impl ArgDispatcher {
             .name()
             .description()
             .environment()
+            .tax_percentage()
+            .earnings_percentage()
             .build(&mut self.trust)
             .display();
     }

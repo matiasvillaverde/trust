@@ -23,6 +23,8 @@ pub struct Account {
     pub name: String,
     pub description: String,
     pub environment: Environment,
+    pub taxes_percentage: Decimal,
+    pub earnings_percentage: Decimal,
 }
 
 /// AccountOverview entity (read-only)
@@ -58,6 +60,9 @@ pub struct AccountOverview {
     /// Total amount of money that it must be paid out to the tax authorities
     pub taxed: Decimal,
 
+    /// Total amount of money that was earned and can be processed
+    pub total_earnings: Decimal,
+
     /// The currency of the account
     pub currency: Currency,
 }
@@ -74,35 +79,38 @@ impl std::fmt::Display for Account {
     }
 }
 
-impl Account {
-    pub fn new(name: &str, description: &str) -> Account {
+impl Default for Account {
+    fn default() -> Self {
         let now = Utc::now().naive_utc();
         Account {
             id: Uuid::new_v4(),
             created_at: now,
             updated_at: now,
             deleted_at: None,
-            name: name.to_string(),
-            description: description.to_string(),
+            name: "".to_string(),
+            description: "".to_string(),
             environment: Environment::Paper,
+            taxes_percentage: Decimal::default(),
+            earnings_percentage: Decimal::default(),
         }
     }
 }
 
-impl AccountOverview {
-    pub fn new(account_id: Uuid, currency: &Currency) -> AccountOverview {
+impl Default for AccountOverview {
+    fn default() -> Self {
         let now = Utc::now().naive_utc();
         AccountOverview {
             id: Uuid::new_v4(),
             created_at: now,
             updated_at: now,
             deleted_at: None,
-            account_id,
+            account_id: Uuid::new_v4(),
             total_balance: Decimal::default(),
             total_in_trade: Decimal::default(),
             total_available: Decimal::default(),
             taxed: Decimal::default(),
-            currency: *currency,
+            total_earnings: Decimal::default(),
+            currency: Currency::default(),
         }
     }
 }
@@ -137,21 +145,6 @@ impl std::str::FromStr for Environment {
             "paper" => Ok(Environment::Paper),
             "live" => Ok(Environment::Live),
             _ => Err(EnvironmentParseError),
-        }
-    }
-}
-
-impl Default for Account {
-    fn default() -> Self {
-        let now = Utc::now().naive_utc();
-        Self {
-            id: Uuid::new_v4(),
-            created_at: now,
-            updated_at: now,
-            deleted_at: None,
-            name: "alpaca".to_string(),
-            description: "default".to_string(),
-            environment: Environment::Paper,
         }
     }
 }

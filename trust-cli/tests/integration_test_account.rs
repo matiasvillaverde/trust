@@ -18,7 +18,13 @@ fn test_account_creation() {
     let mut trust = create_trust();
 
     trust
-        .create_account("alpaca", "default", trust_model::Environment::Paper)
+        .create_account(
+            "alpaca",
+            "default",
+            trust_model::Environment::Paper,
+            dec!(20),
+            dec!(10),
+        )
         .unwrap();
     let account = trust.search_account("alpaca").unwrap();
     let accounts: Vec<Account> = trust.search_all_accounts().unwrap();
@@ -34,7 +40,13 @@ fn test_transactions() {
     let mut trust = create_trust();
 
     let account = trust
-        .create_account("alpaca", "default", trust_model::Environment::Paper)
+        .create_account(
+            "alpaca",
+            "default",
+            trust_model::Environment::Paper,
+            dec!(20),
+            dec!(10),
+        )
         .unwrap();
 
     let (tx, overview) = trust
@@ -63,7 +75,13 @@ fn test_multiple_transactions() {
     let mut trust = create_trust();
 
     let account = trust
-        .create_account("alpaca", "default", trust_model::Environment::Paper)
+        .create_account(
+            "alpaca",
+            "default",
+            trust_model::Environment::Paper,
+            dec!(20),
+            dec!(10),
+        )
         .unwrap();
 
     trust
@@ -133,7 +151,13 @@ fn test_risk_rules() {
     let mut trust = create_trust();
 
     let account = trust
-        .create_account("alpaca", "default", trust_model::Environment::Paper)
+        .create_account(
+            "alpaca",
+            "default",
+            trust_model::Environment::Paper,
+            dec!(20),
+            dec!(10),
+        )
         .unwrap();
 
     trust

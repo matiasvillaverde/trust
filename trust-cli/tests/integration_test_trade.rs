@@ -18,7 +18,13 @@ fn create_trade(
 
     // 1. Create account and deposit money
     trust
-        .create_account("alpaca", "default", trust_model::Environment::Paper)
+        .create_account(
+            "alpaca",
+            "default",
+            trust_model::Environment::Paper,
+            dec!(20),
+            dec!(10),
+        )
         .expect("Failed to create account");
     let account = trust.search_account("alpaca").unwrap();
     trust

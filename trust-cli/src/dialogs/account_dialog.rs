@@ -2,6 +2,7 @@ use std::error::Error;
 
 use crate::views::{AccountOverviewView, AccountView, RuleView};
 use dialoguer::{theme::ColorfulTheme, FuzzySelect, Input};
+use rust_decimal::Decimal;
 use trust_core::TrustFacade;
 use trust_model::{Account, Environment};
 
@@ -9,6 +10,8 @@ pub struct AccountDialogBuilder {
     name: String,
     description: String,
     environment: Option<Environment>,
+    tax_percentage: Option<Decimal>,
+    earnings_percentage: Option<Decimal>,
     result: Option<Result<Account, Box<dyn Error>>>,
 }
 
@@ -18,13 +21,20 @@ impl AccountDialogBuilder {
             name: "".to_string(),
             description: "".to_string(),
             environment: None,
+            tax_percentage: None,
+            earnings_percentage: None,
             result: None,
         }
     }
 
     pub fn build(mut self, trust: &mut TrustFacade) -> AccountDialogBuilder {
-        self.result =
-            Some(trust.create_account(&self.name, &self.description, self.environment.unwrap()));
+        self.result = Some(trust.create_account(
+            &self.name,
+            &self.description,
+            self.environment.unwrap(),
+            self.tax_percentage.unwrap(),
+            self.earnings_percentage.unwrap(),
+        ));
         self
     }
 
@@ -65,6 +75,26 @@ impl AccountDialogBuilder {
             .unwrap();
 
         self.environment = Some(*env);
+        self
+    }
+
+    pub fn tax_percentage(mut self) -> Self {
+        let taxes = Input::new()
+            .with_prompt("Taxes percentage")
+            .interact()
+            .unwrap();
+
+        self.tax_percentage = Some(taxes);
+        self
+    }
+
+    pub fn earnings_percentage(mut self) -> Self {
+        let percentage = Input::new()
+            .with_prompt("Earning percentage")
+            .interact()
+            .unwrap();
+
+        self.earnings_percentage = Some(percentage);
         self
     }
 }

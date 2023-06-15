@@ -445,6 +445,8 @@ mod tests {
                 "Test Account 3",
                 "This is a test account",
                 Environment::Paper,
+                dec!(0.0),
+                dec!(0.0),
             )
             .expect("Error creating account");
         let tx = db
@@ -477,6 +479,8 @@ mod tests {
                 "Test Account 3",
                 "This is a test account",
                 Environment::Paper,
+                dec!(0.0),
+                dec!(0.0),
             )
             .expect("Error creating account");
         let tx = db
