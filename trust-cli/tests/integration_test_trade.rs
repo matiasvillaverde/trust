@@ -554,7 +554,9 @@ impl Broker for MockBroker {
         &self,
         trade: &Trade,
         _account: &Account,
-    ) -> Result<(Status, Vec<Order>), Box<dyn Error>> {
-        Ok((self.sync_trade)(trade))
+    ) -> Result<(Status, Vec<Order>, BrokerLog), Box<dyn Error>> {
+        let (status, orders) = (self.sync_trade)(trade);
+        let log = BrokerLog::default();
+        Ok((status, orders, log))
     }
 }

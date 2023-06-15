@@ -5,9 +5,12 @@ use apca::api::v2::orders::{Get, OrdersReq, Status as AlpacaRequestStatus};
 use apca::Client;
 use std::error::Error;
 use tokio::runtime::Runtime;
-use trust_model::{Account, Order, Status, Trade};
+use trust_model::{Account, BrokerLog, Order, Status, Trade};
 
-pub fn sync(trade: &Trade, account: &Account) -> Result<(Status, Vec<Order>), Box<dyn Error>> {
+pub fn sync(
+    trade: &Trade,
+    account: &Account,
+) -> Result<(Status, Vec<Order>, BrokerLog), Box<dyn Error>> {
     assert!(trade.account_id == account.id); // Verify that the trade is for the account
 
     let api_info = keys::read_api_key(&account.environment, account)?;
@@ -17,7 +20,14 @@ pub fn sync(trade: &Trade, account: &Account) -> Result<(Status, Vec<Order>), Bo
         .unwrap()
         .block_on(get_closed_orders(&client, trade))?;
 
-    sync_trade(trade, orders)
+    let log = BrokerLog {
+        trade_id: trade.id,
+        log: serde_json::to_string(&orders)?,
+        ..Default::default()
+    };
+
+    let (status, updated_orders) = sync_trade(trade, orders)?;
+    Ok((status, updated_orders, log))
 }
 
 /// Sync Trade with Alpaca and return updated orders and status
