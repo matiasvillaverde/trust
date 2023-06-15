@@ -7,6 +7,8 @@ diesel::table! {
         name -> Text,
         description -> Text,
         environment -> Text,
+        taxes_percentage -> Text,
+        earnings_percentage -> Text,
     }
 }
 
@@ -22,6 +24,7 @@ diesel::table! {
         total_available -> Text,
         taxed -> Text,
         currency -> Text,
+        total_earnings -> Text,
     }
 }
 

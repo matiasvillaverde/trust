@@ -215,12 +215,12 @@ impl ReadTransactionDB for SqliteDatabase {
         )
     }
 
-    fn all_account_transactions_funding_in_approved_trades(
+    fn all_account_transactions_funding_in_submitted_trades(
         &mut self,
         account_id: Uuid,
         currency: &Currency,
     ) -> Result<Vec<Transaction>, Box<dyn Error>> {
-        WorkerTransaction::all_account_transactions_funding_in_approved_trades(
+        WorkerTransaction::all_account_transactions_in_trade(
             &mut self.connection.lock().unwrap(),
             account_id,
             currency,

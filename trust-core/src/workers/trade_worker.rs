@@ -13,16 +13,17 @@ impl TradeWorker {
         database: &mut dyn DatabaseFactory,
     ) -> Result<(Trade, Option<Transaction>), Box<dyn Error>> {
         match status {
-            Status::Filled => {
-                if trade.status == Status::Submitted {
-                    let (trade, tx) = TradeWorker::fill_trade(trade, dec!(0), database)?; // TODO: Here we should fill the trade with the entry average filled price, not the unit price of the entry
-                    return Ok((trade, Some(tx)));
-                }
+            Status::Filled if trade.status == Status::Submitted => {
+                let (trade, tx) = TradeWorker::fill_trade(trade, dec!(0), database)?;
+                return Ok((trade, Some(tx)));
+            }
+            Status::Filled if trade.status == Status::Filled => {
+                return Ok((trade.clone(), None)); // Nothing to update.
             }
             Status::ClosedStopLoss => {
                 if trade.status == Status::Submitted {
                     // We also update the trade entry
-                    TradeWorker::fill_trade(trade, dec!(0), database)?; // TODO: Here we should fill the trade with the entry average filled price, not the unit price of the entry
+                    TradeWorker::fill_trade(trade, dec!(0), database)?;
                 }
 
                 // We only update the trade target once
@@ -53,14 +54,14 @@ impl TradeWorker {
                     return Ok((trade, Some(tx)));
                 }
             }
-            Status::Submitted => {
-                if trade.status == Status::Submitted {
-                    return Ok((trade.clone(), None));
-                }
+            Status::Submitted if trade.status == Status::Submitted => {
+                return Ok((trade.clone(), None));
             }
-            _ => {}
+            _ => {
+                return Err(format!("Status can not be updated in trade: {:?}", status).into());
+            }
         }
-        Err(format!("Status can not be updated in trade: {:?}", status).into())
+        unimplemented!()
     }
 
     pub fn fill_trade(
@@ -69,10 +70,8 @@ impl TradeWorker {
         database: &mut dyn DatabaseFactory,
     ) -> Result<(Trade, Transaction), Box<dyn Error>> {
         // Create Transaction to pay for fees
-        if fee.is_sign_positive() {
+        if fee > dec!(0) {
             TransactionWorker::transfer_opening_fee(fee, trade, database)?;
-        } else {
-            panic!("Fee cannot be negative");
         }
 
         // Create Transaction to transfer funds to the market

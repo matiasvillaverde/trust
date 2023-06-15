@@ -5,7 +5,9 @@ CREATE TABLE accounts (
 	deleted_at		DATETIME,
 	name			TEXT NOT NULL UNIQUE,
 	description		TEXT NOT NULL,
-	environment		TEXT NOT NULL
+	environment		TEXT NOT NULL,
+	taxes_percentage 			TEXT NOT NULL,
+	earnings_percentage 		TEXT NOT NULL
 );
 
 CREATE TABLE accounts_overviews (
@@ -18,7 +20,8 @@ CREATE TABLE accounts_overviews (
 	total_in_trade	TEXT NOT NULL,
 	total_available	TEXT NOT NULL,
 	taxed			TEXT NOT NULL,
-	currency	 		TEXT CHECK(currency IN ('EUR', 'USD', 'BTC')) NOT NULL
+	currency	 		TEXT CHECK(currency IN ('EUR', 'USD', 'BTC')) NOT NULL,
+	total_earnings	TEXT NOT NULL
 );
 
 CREATE TABLE rules (

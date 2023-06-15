@@ -52,6 +52,8 @@ pub trait WriteAccountDB {
         name: &str,
         description: &str,
         environment: Environment,
+        taxes_percentage: Decimal,
+        earnings_percentage: Decimal,
     ) -> Result<Account, Box<dyn Error>>;
 }
 
@@ -116,7 +118,7 @@ pub trait ReadTransactionDB {
         currency: &Currency,
     ) -> Result<Vec<Transaction>, Box<dyn Error>>;
 
-    fn all_account_transactions_funding_in_approved_trades(
+    fn all_account_transactions_funding_in_submitted_trades(
         &mut self,
         account_id: Uuid,
         currency: &Currency,
