@@ -207,7 +207,7 @@ impl Broker for MockBroker {
         &self,
         _trade: &Trade,
         _account: &Account,
-    ) -> Result<(Status, Vec<Order>), Box<dyn Error>> {
+    ) -> Result<(Status, Vec<Order>, BrokerLog), Box<dyn Error>> {
         unimplemented!()
     }
 }

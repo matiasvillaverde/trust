@@ -263,10 +263,7 @@ fn test_trade_target_filled() {
     let mut trust = trust;
 
     // 9. Sync trade with the Broker - Target is filled
-    let (status, orders) = trust.sync_trade(&trade, &account).unwrap();
-
-    println!("{:?}", status);
-    println!("{:?}", orders);
+    trust.sync_trade(&trade, &account).unwrap();
 
     let trade = trust
         .search_trades(account.id, Status::ClosedTarget)
@@ -314,10 +311,7 @@ fn test_trade_stop_filled() {
     let mut trust = trust;
 
     // 9. Sync trade with the Broker - Target is filled
-    let (status, orders) = trust.sync_trade(&trade, &account).unwrap();
-
-    println!("{:?}", status);
-    println!("{:?}", orders);
+    trust.sync_trade(&trade, &account).unwrap();
 
     let trade = trust
         .search_trades(account.id, Status::ClosedStopLoss)
@@ -554,7 +548,9 @@ impl Broker for MockBroker {
         &self,
         trade: &Trade,
         _account: &Account,
-    ) -> Result<(Status, Vec<Order>), Box<dyn Error>> {
-        Ok((self.sync_trade)(trade))
+    ) -> Result<(Status, Vec<Order>, BrokerLog), Box<dyn Error>> {
+        let (status, orders) = (self.sync_trade)(trade);
+        let log = BrokerLog::default();
+        Ok((status, orders, log))
     }
 }
