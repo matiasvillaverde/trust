@@ -59,7 +59,7 @@ impl ExitDialogBuilder {
                 let account_name = self.account.clone().unwrap().name;
 
                 println!("Trade exit executed:");
-                TradeView::display_trade(&self.trade.unwrap(), account_name.as_str());
+                TradeView::display(&self.trade.unwrap(), account_name.as_str());
 
                 println!("With transaction of exit:");
                 TransactionView::display(&tx_exit, account_name.as_str());
@@ -67,10 +67,8 @@ impl ExitDialogBuilder {
                 println!("With transaction of payment back to the account:");
                 TransactionView::display(&tx_payment, account_name.as_str());
 
-                println!("Trade overview:");
                 TradeOverviewView::display(&trade_overview);
 
-                println!("Account overview:");
                 AccountOverviewView::display(account_overview, account_name.as_str());
             }
             Err(error) => println!("Error approving trade: {:?}", error),

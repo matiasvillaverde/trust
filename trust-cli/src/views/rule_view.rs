@@ -28,7 +28,10 @@ impl RuleView {
     }
 
     pub fn display_rule(r: Rule, account_name: &str) {
+        println!();
+        println!("Rule: {}", r.id);
         RuleView::display_rules(vec![r], account_name);
+        println!();
     }
 
     pub fn display_rules(rules: Vec<Rule>, account_name: &str) {

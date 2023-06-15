@@ -22,7 +22,10 @@ impl TradingVehicleView {
     }
 
     pub fn display(tv: TradingVehicle) {
+        println!();
+        println!("Trading Vehicle: {}", tv.id);
         TradingVehicleView::display_table(vec![tv]);
+        println!();
     }
 
     pub fn display_table(tvs: Vec<TradingVehicle>) {

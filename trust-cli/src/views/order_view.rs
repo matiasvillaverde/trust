@@ -31,7 +31,10 @@ impl OrderView {
     }
 
     pub fn display(o: Order) {
+        println!();
+        println!("Order: {}", o.id);
         OrderView::display_orders(vec![o]);
+        println!();
     }
 
     pub fn display_orders(orders: Vec<Order>) {

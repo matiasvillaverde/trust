@@ -20,7 +20,10 @@ impl AccountView {
     }
 
     pub fn display_account(a: Account) {
+        println!();
+        println!("Account: {}", a.id);
         AccountView::display_accounts(vec![a]);
+        println!();
     }
 
     pub fn display_accounts(accounts: Vec<Account>) {
@@ -54,6 +57,8 @@ impl AccountOverviewView {
     }
 
     pub fn display(overview: AccountOverview, account_name: &str) {
+        println!();
+        println!("Account overview: {}", overview.id);
         AccountOverviewView::display_overviews(vec![overview], account_name);
         println!();
     }

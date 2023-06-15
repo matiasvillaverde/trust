@@ -37,10 +37,17 @@ impl SyncTradeDialogBuilder {
             .expect("No result found, did you forget to call search?")
         {
             Ok((status, orders, log)) => {
-                println!("Trade synced:");
-                println!("Status: {:?}", status);
+                if orders.is_empty() {
+                    println!(
+                        "All orders from trade {} are up to date",
+                        self.trade.unwrap().id
+                    );
+                    return;
+                }
 
-                println!("Orders:");
+                println!("Trade synced, the status is: {:?}", status);
+                println!();
+                println!("Updated orders:");
                 OrderView::display_orders(orders);
 
                 println!("Logs:");
