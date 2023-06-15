@@ -7,7 +7,7 @@ CREATE TABLE accounts (
 	description		TEXT NOT NULL,
 	environment		TEXT NOT NULL,
 	taxes_percentage 			TEXT NOT NULL,
-	earnings_percentage 		TEXT NOT NULL,
+	earnings_percentage 		TEXT NOT NULL
 );
 
 CREATE TABLE accounts_overviews (
