@@ -4,8 +4,8 @@ use std::error::Error;
 use trust_core::TrustFacade;
 use trust_db_sqlite::SqliteDatabase;
 use trust_model::{
-    Account, BrokerLog, Currency, Order, OrderIds, RuleLevel, RuleName, Status, Trade,
-    TradeCategory, TradingVehicleCategory, TransactionCategory,
+    Account, BrokerLog, Currency, Order, OrderCategory, OrderIds, RuleLevel, RuleName, Status,
+    Trade, TradeCategory, TradingVehicleCategory, TransactionCategory,
 };
 use trust_model::{Broker, DraftTrade, OrderStatus};
 use uuid::Uuid;
@@ -427,17 +427,17 @@ fn test_trade_close() {
         .clone();
 
     // 2. Close the trade at market price
-    let (trade_overview, account_overview, _log) = trust.close_trade(&trade).unwrap();
+    let (_, _log) = trust.close_trade(&trade).unwrap();
 
     let trade = trust
-        .search_trades(account.id, Status::ClosedTarget)
+        .search_trades(account.id, Status::Filled)
         .expect("Failed to find trade with status submitted 2")
         .first()
         .unwrap()
         .clone();
 
     // Assert Trade Overview
-    assert_eq!(trade.status, Status::ClosedTarget);
+    assert_eq!(trade.status, Status::Filled); // The trade is still filled, but the target was changed to a market order
 
     // Assert Entry
     assert_eq!(trade.entry.quantity, 500);
@@ -449,16 +449,10 @@ fn test_trade_close() {
     // Assert Target
     assert_eq!(trade.target.quantity, 500);
     assert_eq!(trade.target.unit_price, dec!(50));
-    assert_eq!(trade.target.average_filled_price, Some(dec!(51.8)));
-    assert_eq!(trade.target.filled_quantity, 500);
-    assert_eq!(trade.target.status, OrderStatus::Filled);
-
-    // Assert Account Overview
-    assert_eq!(account_overview.currency, Currency::USD);
-    assert_eq!(account_overview.total_available, dec!(55950.0)); // 25900 +  Including the 50 USD from the difference of the target unit price and average filled price
-    assert_eq!(account_overview.total_balance, dec!(55950.0));
-    assert_eq!(account_overview.total_in_trade, dec!(0));
-    assert_eq!(account_overview.taxed, dec!(0));
+    assert_eq!(trade.target.average_filled_price, None);
+    assert_eq!(trade.target.category, OrderCategory::Market);
+    assert_eq!(trade.target.filled_quantity, 0);
+    assert_eq!(trade.target.status, OrderStatus::PendingNew);
 }
 
 struct BrokerResponse;
@@ -628,10 +622,9 @@ impl BrokerResponse {
         Some(Order {
             id: trade.target.id,
             broker_order_id: Some(Uuid::parse_str("b6b12dc0-8e21-4d2e-8315-907d3116a6b8").unwrap()),
-            filled_quantity: 500,
-            average_filled_price: Some(dec!(51.8)),
-            status: OrderStatus::Filled,
-            filled_at: Some(Utc::now().naive_utc()),
+            status: OrderStatus::PendingNew,
+            category: OrderCategory::Market,
+            filled_at: None,
             expired_at: None,
             cancelled_at: None,
             ..Default::default()

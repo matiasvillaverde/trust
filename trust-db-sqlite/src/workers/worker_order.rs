@@ -71,6 +71,7 @@ impl WorkerOrder {
                 orders::submitted_at.eq(order.submitted_at),
                 orders::filled_at.eq(order.filled_at),
                 orders::expired_at.eq(order.expired_at),
+                orders::category.eq(order.category.to_string()),
                 orders::cancelled_at.eq(order.cancelled_at),
                 orders::closed_at.eq(order.closed_at),
             ))

@@ -4,7 +4,8 @@ use chrono::NaiveDateTime;
 use chrono::Utc;
 use rust_decimal::Decimal;
 use std::error::Error;
-use trust_model::{Order, OrderStatus, Status, Trade};
+use trust_model::{Order, OrderCategory, OrderStatus, Status, Trade};
+use uuid::Uuid;
 
 /// Maps an Alpaca order to our domain model.
 pub fn map_orders(entry_order: AlpacaOrder, trade: &Trade) -> Result<Vec<Order>, Box<dyn Error>> {
@@ -86,11 +87,7 @@ fn map(alpaca_order: &AlpacaOrder, order: Order) -> Order {
         "Order IDs do not match"
     );
 
-    map_order(alpaca_order, order)
-}
-
-pub fn map_order(alpaca_order: &AlpacaOrder, target: Order) -> Order {
-    let mut order = target;
+    let mut order = order;
     order.filled_quantity = alpaca_order.filled_quantity.to_u64().unwrap();
     order.average_filled_price = alpaca_order
         .average_fill_price
@@ -100,6 +97,15 @@ pub fn map_order(alpaca_order: &AlpacaOrder, target: Order) -> Order {
     order.filled_at = map_date(alpaca_order.filled_at);
     order.expired_at = map_date(alpaca_order.expired_at);
     order.cancelled_at = map_date(alpaca_order.canceled_at);
+    order
+}
+
+pub fn map_close_order(alpaca_order: &AlpacaOrder, target: Order) -> Order {
+    let mut order = target;
+    order.broker_order_id = Some(Uuid::parse_str(&alpaca_order.id.to_string()).unwrap());
+    order.status = map_from_alpaca(alpaca_order.status);
+    order.submitted_at = map_date(alpaca_order.submitted_at);
+    order.category = OrderCategory::Market;
     order
 }
 

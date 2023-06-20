@@ -1,12 +1,11 @@
 use crate::dialogs::AccountSearchDialog;
-use crate::views::{AccountOverviewView, LogView, TradeOverviewView, TradeView};
+use crate::views::{LogView, TradeOverviewView, TradeView};
 use dialoguer::{theme::ColorfulTheme, FuzzySelect};
 use std::error::Error;
 use trust_core::TrustFacade;
-use trust_model::{Account, AccountOverview, BrokerLog, Status, Trade, TradeOverview};
+use trust_model::{Account, BrokerLog, Status, Trade, TradeOverview};
 
-type CancelDialogBuilderResult =
-    Option<Result<(TradeOverview, AccountOverview, BrokerLog), Box<dyn Error>>>;
+type CancelDialogBuilderResult = Option<Result<(TradeOverview, BrokerLog), Box<dyn Error>>>;
 
 pub struct CancelDialogBuilder {
     account: Option<Account>,
@@ -38,13 +37,12 @@ impl CancelDialogBuilder {
             .result
             .expect("No result found, did you forget to call search?")
         {
-            Ok((trade_overview, account_overview, log)) => {
+            Ok((trade_overview, log)) => {
                 let account_name = self.account.clone().unwrap().name;
 
                 println!("Trade close executed:");
                 TradeView::display(&self.trade.unwrap(), account_name.as_str());
                 TradeOverviewView::display(&trade_overview);
-                AccountOverviewView::display(account_overview, account_name.as_str());
                 LogView::display(&log);
             }
             Err(error) => println!("Error approving trade: {:?}", error),

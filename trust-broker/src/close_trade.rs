@@ -1,11 +1,13 @@
-use crate::{keys, order_mapper::map_order};
+use crate::keys;
 use apca::api::v2::order::{
-    Amount, Class, Order as AlpacaOrder, OrderReq, OrderReqInit, Post, Side, TimeInForce, Type,
+    Amount, Class, Delete, Id, Order as AlpacaOrder, OrderReq, OrderReqInit, Post, Side,
+    TimeInForce, Type,
 };
 use apca::Client;
 use std::error::Error;
 use tokio::runtime::Runtime;
 use trust_model::{Account, BrokerLog, Order, Trade, TradeCategory};
+use uuid::Uuid;
 
 pub fn close(trade: &Trade, account: &Account) -> Result<(Order, BrokerLog), Box<dyn Error>> {
     assert!(trade.account_id == account.id); // Verify that the trade is for the account
@@ -13,20 +15,45 @@ pub fn close(trade: &Trade, account: &Account) -> Result<(Order, BrokerLog), Box
     let api_info = keys::read_api_key(&account.environment, account)?;
     let client = Client::new(api_info);
 
-    let request = new_request(trade);
-    let alpaca_order = Runtime::new().unwrap().block_on(submit(client, request))?;
+    // 1. Cancel the target order.
+    Runtime::new().unwrap().block_on(cancel_target(
+        &client,
+        trade.target.broker_order_id.unwrap(),
+    ))?;
 
+    // 2. Submit a market order to close the trade.
+    let request = new_request(trade);
+    let alpaca_order = Runtime::new()
+        .unwrap()
+        .block_on(submit_market_order(client, request))?;
+
+    // 3. Log the Alpaca order.
     let log = BrokerLog {
         trade_id: trade.id,
         log: serde_json::to_string(&alpaca_order)?,
         ..Default::default()
     };
 
-    let order: Order = map_order(&alpaca_order, trade.target.clone());
+    // 4. Map the Alpaca order to a Trust order.
+    let order: Order = crate::order_mapper::map_close_order(&alpaca_order, trade.target.clone());
     Ok((order, log))
 }
 
-async fn submit(client: Client, request: OrderReq) -> Result<AlpacaOrder, Box<dyn Error>> {
+async fn cancel_target(client: &Client, order_id: Uuid) -> Result<(), Box<dyn Error>> {
+    let result = client.issue::<Delete>(&Id(order_id)).await;
+    match result {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            eprintln!("Error cancel target: {:?}", e);
+            Err(Box::new(e))
+        }
+    }
+}
+
+async fn submit_market_order(
+    client: Client,
+    request: OrderReq,
+) -> Result<AlpacaOrder, Box<dyn Error>> {
     let result = client.issue::<Post>(&request).await;
 
     match result {

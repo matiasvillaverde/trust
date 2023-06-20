@@ -61,8 +61,6 @@ async fn get_closed_orders(
 
     let orders = client.issue::<Get>(&request).await.unwrap();
 
-    //println!("Orders: {:?}", serde_json::to_value(orders)?);
-
     Ok(orders)
 }
 
