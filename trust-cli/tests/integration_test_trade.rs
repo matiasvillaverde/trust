@@ -553,4 +553,12 @@ impl Broker for MockBroker {
         let log = BrokerLog::default();
         Ok((status, orders, log))
     }
+
+    fn close_trade(
+        &self,
+        _trade: &Trade,
+        _account: &Account,
+    ) -> Result<(Order, BrokerLog), Box<dyn Error>> {
+        unimplemented!()
+    }
 }

@@ -29,7 +29,7 @@ impl CancelDialogBuilder {
             .clone()
             .expect("No trade found, did you forget to select one?");
 
-        self.result = Some(trust.cancel_trade(&trade));
+        self.result = Some(trust.close_trade(&trade));
         self
     }
 

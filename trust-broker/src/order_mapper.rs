@@ -86,7 +86,11 @@ fn map(alpaca_order: &AlpacaOrder, order: Order) -> Order {
         "Order IDs do not match"
     );
 
-    let mut order = order;
+    map_order(alpaca_order, order)
+}
+
+pub fn map_order(alpaca_order: &AlpacaOrder, target: Order) -> Order {
+    let mut order = target;
     order.filled_quantity = alpaca_order.filled_quantity.to_u64().unwrap();
     order.average_filled_price = alpaca_order
         .average_fill_price

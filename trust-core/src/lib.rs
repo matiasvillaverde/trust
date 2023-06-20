@@ -306,14 +306,24 @@ impl TrustFacade {
         Ok((tx_stop, tx_payment, trade_overview, account_overview))
     }
 
-    pub fn cancel_trade(
+    pub fn close_trade(
         &mut self,
-        trade: &Trade,
+        _trade: &Trade,
     ) -> Result<
         (Transaction, Transaction, TradeOverview, AccountOverview),
         Box<dyn std::error::Error>,
     > {
         unimplemented!("Cancel Trade");
+
+        // Verify it can be closed
+
+        // Submit a market order to Alpaca
+
+        // Update Trade Status
+
+        // Update Orders Status
+
+        // Transfer payment to account
     }
 
     pub fn target_acquired(

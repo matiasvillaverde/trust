@@ -1,6 +1,7 @@
 use std::error::Error;
 use trust_model::{Account, Broker, BrokerLog, Environment, Order, OrderIds, Status, Trade};
 
+mod close_trade;
 mod keys;
 mod order_mapper;
 mod submit_trade;
@@ -26,6 +27,14 @@ impl Broker for AlpacaBroker {
         account: &Account,
     ) -> Result<(Status, Vec<Order>, BrokerLog), Box<dyn Error>> {
         sync_trade::sync(trade, account)
+    }
+
+    fn close_trade(
+        &self,
+        trade: &Trade,
+        account: &Account,
+    ) -> Result<(Order, BrokerLog), Box<dyn Error>> {
+        close_trade::close(trade, account)
     }
 }
 

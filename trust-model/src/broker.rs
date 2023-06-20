@@ -47,4 +47,10 @@ pub trait Broker {
         trade: &Trade,
         account: &Account,
     ) -> Result<(Status, Vec<Order>, BrokerLog), Box<dyn Error>>;
+
+    fn close_trade(
+        &self,
+        trade: &Trade,
+        account: &Account,
+    ) -> Result<(Order, BrokerLog), Box<dyn Error>>;
 }
