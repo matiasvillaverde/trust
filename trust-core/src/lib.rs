@@ -306,6 +306,16 @@ impl TrustFacade {
         Ok((tx_stop, tx_payment, trade_overview, account_overview))
     }
 
+    pub fn cancel_trade(
+        &mut self,
+        trade: &Trade,
+    ) -> Result<
+        (Transaction, Transaction, TradeOverview, AccountOverview),
+        Box<dyn std::error::Error>,
+    > {
+        unimplemented!("Cancel Trade");
+    }
+
     pub fn target_acquired(
         &mut self,
         trade: &Trade,

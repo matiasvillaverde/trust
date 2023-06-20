@@ -53,9 +53,10 @@ fn main() {
                 .fund_trade()
                 .submit_trade()
                 .sync_trade()
-                .fill_trade()
-                .stop_trade()
-                .target_trade()
+                .manually_fill()
+                .manually_stop()
+                .manually_target()
+                .manually_close()
                 .build(),
         )
         .get_matches();
