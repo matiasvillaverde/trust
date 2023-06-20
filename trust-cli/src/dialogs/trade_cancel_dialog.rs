@@ -5,8 +5,7 @@ use std::error::Error;
 use trust_core::TrustFacade;
 use trust_model::{Account, AccountOverview, Status, Trade, TradeOverview, Transaction};
 
-type CancelDialogBuilderResult =
-    Option<Result<(Transaction, Transaction, TradeOverview, AccountOverview), Box<dyn Error>>>;
+type CancelDialogBuilderResult = Option<Result<(TradeOverview, AccountOverview), Box<dyn Error>>>;
 
 pub struct CancelDialogBuilder {
     account: Option<Account>,
@@ -38,20 +37,12 @@ impl CancelDialogBuilder {
             .result
             .expect("No result found, did you forget to call search?")
         {
-            Ok((tx_exit, tx_payment, trade_overview, account_overview)) => {
+            Ok((trade_overview, account_overview)) => {
                 let account_name = self.account.clone().unwrap().name;
 
-                println!("Trade exit executed:");
+                println!("Trade close executed:");
                 TradeView::display(&self.trade.unwrap(), account_name.as_str());
-
-                println!("With transaction of exit:");
-                TransactionView::display(&tx_exit, account_name.as_str());
-
-                println!("With transaction of payment back to the account:");
-                TransactionView::display(&tx_payment, account_name.as_str());
-
                 TradeOverviewView::display(&trade_overview);
-
                 AccountOverviewView::display(account_overview, account_name.as_str());
             }
             Err(error) => println!("Error approving trade: {:?}", error),

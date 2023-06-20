@@ -308,22 +308,35 @@ impl TrustFacade {
 
     pub fn close_trade(
         &mut self,
-        _trade: &Trade,
-    ) -> Result<
-        (Transaction, Transaction, TradeOverview, AccountOverview),
-        Box<dyn std::error::Error>,
-    > {
-        unimplemented!("Cancel Trade");
+        trade: &Trade,
+    ) -> Result<(TradeOverview, AccountOverview), Box<dyn std::error::Error>> {
+        // 1. Verify it can be closed
+        RuleValidator::validate_close(trade)?;
 
-        // Verify it can be closed
+        // 2. Submit a market order to Alpaca
+        let account = self
+            .factory
+            .read_account_db()
+            .read_account_id(trade.account_id)?;
+        let (order, log) = self.broker.close_trade(trade, &account)?;
 
-        // Submit a market order to Alpaca
+        // 3. Save log
+        self.factory
+            .write_broker_log_db()
+            .create_log(log.log.as_str(), trade)?;
 
-        // Update Trade Status
+        // 4. Update Orders Status
+        OrderWorker::update_order(&order, &mut *self.factory)?;
 
-        // Update Orders Status
+        // 5. Update Trade Status
+        let trade = self.factory.read_trade_db().read_trade(trade.id)?; // We need to read the trade again to get the updated orders
+        TradeWorker::update_status(&trade, Status::Filled, &mut *self.factory)?;
 
-        // Transfer payment to account
+        // 6. Update Account Overview
+        let account_overview =
+            OverviewWorker::update_account_overview(&mut *self.factory, &account, &trade.currency)?;
+
+        Ok((trade.overview, account_overview))
     }
 
     pub fn target_acquired(
