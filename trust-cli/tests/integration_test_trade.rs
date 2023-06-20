@@ -259,6 +259,7 @@ fn assert_entry_filled(trade: &Trade, trust: &mut TrustFacade) {
 
 #[test]
 fn test_trade_target_filled() {
+    // TODO: Test multiple times
     let (trust, account, trade) = create_trade(BrokerResponse::orders_target_filled);
     let mut trust = trust;
 
@@ -272,6 +273,30 @@ fn test_trade_target_filled() {
         .unwrap()
         .clone();
 
+    assert_target_filled(&trade, &mut trust);
+}
+
+#[test]
+fn test_trade_target_filled_multiple_times() {
+    let (trust, account, trade) = create_trade(BrokerResponse::orders_target_filled);
+    let mut trust = trust;
+
+    // 9. Sync trade with the Broker - Target is filled
+    for _ in 0..10 {
+        trust.sync_trade(&trade, &account).unwrap();
+    }
+
+    let trade = trust
+        .search_trades(account.id, Status::ClosedTarget)
+        .unwrap()
+        .first()
+        .unwrap()
+        .clone();
+
+    assert_target_filled(&trade, &mut trust);
+}
+
+fn assert_target_filled(trade: &Trade, trust: &mut TrustFacade) {
     assert_eq!(trade.status, Status::ClosedTarget);
 
     // Assert Entry
@@ -320,6 +345,29 @@ fn test_trade_stop_filled() {
         .unwrap()
         .clone();
 
+    assert_stop_filled(&trade, &mut trust);
+}
+
+#[test]
+fn test_trade_stop_filled_multiple_times() {
+    let (trust, account, trade) = create_trade(BrokerResponse::orders_stop_filled);
+    let mut trust = trust;
+
+    // 9. Sync trade with the Broker - Target is filled
+    for _ in 0..10 {
+        trust.sync_trade(&trade, &account).unwrap();
+    }
+
+    let trade = trust
+        .search_trades(account.id, Status::ClosedStopLoss)
+        .unwrap()
+        .first()
+        .unwrap()
+        .clone();
+
+    assert_stop_filled(&trade, &mut trust);
+}
+fn assert_stop_filled(trade: &Trade, trust: &mut TrustFacade) {
     assert_eq!(trade.status, Status::ClosedStopLoss);
 
     // Assert Entry

@@ -20,6 +20,9 @@ impl TradeWorker {
             Status::Filled if trade.status == Status::Filled => {
                 return Ok((trade.clone(), None)); // Nothing to update.
             }
+            Status::ClosedStopLoss if trade.status == Status::ClosedStopLoss => {
+                return Ok((trade.clone(), None)); // Nothing to update.
+            }
             Status::ClosedStopLoss => {
                 if trade.status == Status::Submitted {
                     // We also update the trade entry
@@ -36,6 +39,9 @@ impl TradeWorker {
 
                     return Ok((trade, Some(tx)));
                 }
+            }
+            Status::ClosedTarget if trade.status == Status::ClosedTarget => {
+                return Ok((trade.clone(), None)); // Nothing to update.
             }
             Status::ClosedTarget => {
                 if trade.status == Status::Submitted {
