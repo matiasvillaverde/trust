@@ -4,15 +4,17 @@ use chrono::NaiveDateTime;
 use chrono::Utc;
 use rust_decimal::Decimal;
 use std::error::Error;
-use trust_model::{Order, OrderStatus, Status, Trade};
+use std::str::FromStr;
+use trust_model::{Order, OrderCategory, OrderStatus, Status, Trade};
+use uuid::Uuid;
 
 /// Maps an Alpaca order to our domain model.
-pub fn map_orders(entry_order: AlpacaOrder, trade: &Trade) -> Result<Vec<Order>, Box<dyn Error>> {
+pub fn map_entry(alpaca_order: AlpacaOrder, trade: &Trade) -> Result<Vec<Order>, Box<dyn Error>> {
     // 1. Updated orders and trade status
     let mut updated_orders = vec![];
 
     // 2. Target and stop orders
-    updated_orders.extend(entry_order.legs.iter().filter_map(|order| {
+    updated_orders.extend(alpaca_order.legs.iter().filter_map(|order| {
         match order.id.to_string().as_str() {
             id if id == trade.target.broker_order_id.unwrap().to_string() => {
                 // 1. Map target order to our domain model.
@@ -41,7 +43,7 @@ pub fn map_orders(entry_order: AlpacaOrder, trade: &Trade) -> Result<Vec<Order>,
     }));
 
     // 3. Map entry order to our domain model.
-    let entry_order = map(&entry_order, trade.entry.clone());
+    let entry_order = map(&alpaca_order, trade.entry.clone());
 
     // 4. If the entry is updated, then we add it to the updated orders.
     if entry_order != trade.entry {
@@ -49,6 +51,10 @@ pub fn map_orders(entry_order: AlpacaOrder, trade: &Trade) -> Result<Vec<Order>,
     }
 
     Ok(updated_orders)
+}
+
+pub fn map_target(alpaca_order: AlpacaOrder, trade: &Trade) -> Result<Vec<Order>, Box<dyn Error>> {
+    Ok(vec![map(&alpaca_order, trade.target.clone())])
 }
 
 pub fn map_trade_status(trade: &Trade, updated_orders: &[Order]) -> Status {
@@ -91,11 +97,20 @@ fn map(alpaca_order: &AlpacaOrder, order: Order) -> Order {
     order.average_filled_price = alpaca_order
         .average_fill_price
         .clone()
-        .map(|price| Decimal::from(price.to_u64().unwrap()));
+        .map(|price| Decimal::from_str(price.to_string().as_str()).unwrap());
     order.status = map_from_alpaca(alpaca_order.status);
     order.filled_at = map_date(alpaca_order.filled_at);
     order.expired_at = map_date(alpaca_order.expired_at);
     order.cancelled_at = map_date(alpaca_order.canceled_at);
+    order
+}
+
+pub fn map_close_order(alpaca_order: &AlpacaOrder, target: Order) -> Order {
+    let mut order = target;
+    order.broker_order_id = Some(Uuid::parse_str(&alpaca_order.id.to_string()).unwrap());
+    order.status = map_from_alpaca(alpaca_order.status);
+    order.submitted_at = map_date(alpaca_order.submitted_at);
+    order.category = OrderCategory::Market;
     order
 }
 
@@ -183,7 +198,7 @@ mod tests {
             },
             ..Default::default()
         };
-        let err = map_orders(alpaca_order, &trade).unwrap();
+        let err = map_entry(alpaca_order, &trade).unwrap();
         assert_eq!(err.len(), 0);
     }
 
@@ -195,7 +210,7 @@ mod tests {
         // Create a sample AlpacaOrder and Trade
         let alpaca_order = default();
         let trade = Trade::default();
-        _ = map_orders(alpaca_order, &trade);
+        _ = map_entry(alpaca_order, &trade);
     }
 
     #[test]
@@ -220,7 +235,7 @@ mod tests {
             ..Default::default()
         };
 
-        let result = map_orders(alpaca_order, &trade).unwrap();
+        let result = map_entry(alpaca_order, &trade).unwrap();
 
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].status, OrderStatus::Filled);
@@ -268,7 +283,7 @@ mod tests {
             ..Default::default()
         };
 
-        let result = map_orders(alpaca_order, &trade).unwrap();
+        let result = map_entry(alpaca_order, &trade).unwrap();
 
         assert_eq!(result.len(), 2);
 
@@ -324,7 +339,7 @@ mod tests {
             ..Default::default()
         };
 
-        let result = map_orders(alpaca_order, &trade).unwrap();
+        let result = map_entry(alpaca_order, &trade).unwrap();
 
         assert_eq!(result.len(), 2);
 
@@ -574,7 +589,7 @@ mod tests {
     #[test]
     fn test_map_average_filled_price() {
         let mut alpaca_order = default();
-        alpaca_order.average_fill_price = Some(Num::from(2112));
+        alpaca_order.average_fill_price = Some(Num::from_str("2112.1212").unwrap());
 
         let order = Order {
             broker_order_id: Some(Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap()),
@@ -583,7 +598,7 @@ mod tests {
 
         let mapped_order = map(&alpaca_order, order);
 
-        assert_eq!(mapped_order.average_filled_price.unwrap(), dec!(2112));
+        assert_eq!(mapped_order.average_filled_price.unwrap(), dec!(2112.1212));
     }
 
     #[test]

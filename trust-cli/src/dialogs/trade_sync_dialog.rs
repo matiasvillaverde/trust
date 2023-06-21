@@ -76,9 +76,14 @@ impl SyncTradeDialogBuilder {
                 .search_trades(self.account.clone().unwrap().id, Status::Filled)
                 .unwrap(),
         );
+        trades.append(
+            &mut trust
+                .search_trades(self.account.clone().unwrap().id, Status::Canceled)
+                .unwrap(),
+        );
 
         if trades.is_empty() {
-            panic!("No trade found, did you forget to create one?")
+            panic!("No trade found with status Submitted, Filled or Cancelled?")
         }
 
         let trade = FuzzySelect::with_theme(&ColorfulTheme::default())

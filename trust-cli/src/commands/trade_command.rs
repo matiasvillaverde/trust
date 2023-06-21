@@ -31,6 +31,13 @@ impl TradeCommandBuilder {
         self
     }
 
+    pub fn cancel_trade(mut self) -> Self {
+        self.subcommands.push(Command::new("cancel").about(
+            "The trade balance that is not in the market will be returned to your account balance",
+        ));
+        self
+    }
+
     pub fn submit_trade(mut self) -> Self {
         self.subcommands.push(
             Command::new("submit")
@@ -46,28 +53,35 @@ impl TradeCommandBuilder {
         self
     }
 
-    pub fn fill_trade(mut self) -> Self {
+    pub fn manually_fill(mut self) -> Self {
         self.subcommands.push(
-            Command::new("fill").about("Execute manually the filling of a trade. Meaning that the entry order was filled and we own the trading vehicle."),
+            Command::new("manually-fill").about("Execute manually the filling of a trade. Meaning that the entry order was filled and we own the trading vehicle."),
         );
         self
     }
 
-    pub fn stop_trade(mut self) -> Self {
-        self.subcommands
-            .push(Command::new("stop").about("Execute manually the safety stop of a trade"));
+    pub fn manually_stop(mut self) -> Self {
+        self.subcommands.push(
+            Command::new("manually-stop").about("Execute manually the safety stop of a trade."),
+        );
         self
     }
 
-    pub fn target_trade(mut self) -> Self {
+    pub fn manually_target(mut self) -> Self {
         self.subcommands
-            .push(Command::new("target").about("Execute manually the target of a trade"));
+            .push(Command::new("manually-target").about("Execute manually the target of a trade"));
         self
     }
 
     pub fn search_trade(mut self) -> Self {
         self.subcommands
             .push(Command::new("search").about("Search Trades for an account"));
+        self
+    }
+
+    pub fn manually_close(mut self) -> Self {
+        self.subcommands
+            .push(Command::new("manually-close").about("Manually close a trade"));
         self
     }
 }

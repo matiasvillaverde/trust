@@ -4,17 +4,21 @@ use std::error::Error;
 use trust_core::TrustFacade;
 use trust_db_sqlite::SqliteDatabase;
 use trust_model::{
-    Account, BrokerLog, Currency, Order, OrderIds, RuleLevel, RuleName, Status, Trade,
-    TradeCategory, TradingVehicleCategory, TransactionCategory,
+    Account, BrokerLog, Currency, Order, OrderCategory, OrderIds, RuleLevel, RuleName, Status,
+    Trade, TradeCategory, TradingVehicleCategory, TransactionCategory,
 };
 use trust_model::{Broker, DraftTrade, OrderStatus};
 use uuid::Uuid;
 
 fn create_trade(
     broker_response: fn(trade: &Trade) -> (Status, Vec<Order>),
+    closed_order: Option<fn(trade: &Trade) -> Option<Order>>,
 ) -> (TrustFacade, Account, Trade) {
     let db = SqliteDatabase::new_in_memory();
-    let mut trust = TrustFacade::new(Box::new(db), Box::new(MockBroker::new(broker_response)));
+    let mut trust = TrustFacade::new(
+        Box::new(db),
+        Box::new(MockBroker::new(broker_response, closed_order)),
+    );
 
     // 1. Create account and deposit money
     trust
@@ -104,7 +108,7 @@ fn create_trade(
 
 #[test]
 fn test_trade_submit_entry_accepted() {
-    let (trust, account, trade) = create_trade(BrokerResponse::orders_accepted);
+    let (trust, account, trade) = create_trade(BrokerResponse::orders_accepted, None);
     let mut trust = trust;
 
     // 6. Sync trade with the Broker - Entry is accepted
@@ -123,7 +127,7 @@ fn test_trade_submit_entry_accepted() {
 
 #[test]
 fn test_trade_submit_entry_accepted_multiple_times() {
-    let (trust, account, trade) = create_trade(BrokerResponse::orders_accepted);
+    let (trust, account, trade) = create_trade(BrokerResponse::orders_accepted, None);
     let mut trust = trust;
 
     // Sync trade with the Broker - Entry is accepted and it only creates one transaction.
@@ -180,7 +184,7 @@ fn assert_entry_accepted(trade: &Trade, trust: &mut TrustFacade) {
 
 #[test]
 fn test_trade_entry_filled() {
-    let (trust, account, trade) = create_trade(BrokerResponse::orders_entry_filled);
+    let (trust, account, trade) = create_trade(BrokerResponse::orders_entry_filled, None);
     let mut trust = trust;
 
     // 7. Sync trade with the Broker - Entry is filled
@@ -199,7 +203,7 @@ fn test_trade_entry_filled() {
 
 #[test]
 fn test_trade_entry_filled_multiple_times() {
-    let (trust, account, trade) = create_trade(BrokerResponse::orders_entry_filled);
+    let (trust, account, trade) = create_trade(BrokerResponse::orders_entry_filled, None);
     let mut trust = trust;
 
     // Sync trade with the Broker - Entry is filled
@@ -259,7 +263,7 @@ fn assert_entry_filled(trade: &Trade, trust: &mut TrustFacade) {
 
 #[test]
 fn test_trade_target_filled() {
-    let (trust, account, trade) = create_trade(BrokerResponse::orders_target_filled);
+    let (trust, account, trade) = create_trade(BrokerResponse::orders_target_filled, None);
     let mut trust = trust;
 
     // 9. Sync trade with the Broker - Target is filled
@@ -272,6 +276,30 @@ fn test_trade_target_filled() {
         .unwrap()
         .clone();
 
+    assert_target_filled(&trade, &mut trust);
+}
+
+#[test]
+fn test_trade_target_filled_multiple_times() {
+    let (trust, account, trade) = create_trade(BrokerResponse::orders_target_filled, None);
+    let mut trust = trust;
+
+    // 9. Sync trade with the Broker - Target is filled
+    for _ in 0..10 {
+        trust.sync_trade(&trade, &account).unwrap();
+    }
+
+    let trade = trust
+        .search_trades(account.id, Status::ClosedTarget)
+        .unwrap()
+        .first()
+        .unwrap()
+        .clone();
+
+    assert_target_filled(&trade, &mut trust);
+}
+
+fn assert_target_filled(trade: &Trade, trust: &mut TrustFacade) {
     assert_eq!(trade.status, Status::ClosedTarget);
 
     // Assert Entry
@@ -307,7 +335,7 @@ fn test_trade_target_filled() {
 
 #[test]
 fn test_trade_stop_filled() {
-    let (trust, account, trade) = create_trade(BrokerResponse::orders_stop_filled);
+    let (trust, account, trade) = create_trade(BrokerResponse::orders_stop_filled, None);
     let mut trust = trust;
 
     // 9. Sync trade with the Broker - Target is filled
@@ -320,6 +348,30 @@ fn test_trade_stop_filled() {
         .unwrap()
         .clone();
 
+    assert_stop_filled(&trade, &mut trust);
+}
+
+#[test]
+fn test_trade_stop_filled_multiple_times() {
+    let (trust, account, trade) = create_trade(BrokerResponse::orders_stop_filled, None);
+    let mut trust = trust;
+
+    // 9. Sync trade with the Broker - Target is filled
+    for _ in 0..10 {
+        trust.sync_trade(&trade, &account).unwrap();
+    }
+
+    let trade = trust
+        .search_trades(account.id, Status::ClosedStopLoss)
+        .unwrap()
+        .first()
+        .unwrap()
+        .clone();
+
+    assert_stop_filled(&trade, &mut trust);
+}
+
+fn assert_stop_filled(trade: &Trade, trust: &mut TrustFacade) {
     assert_eq!(trade.status, Status::ClosedStopLoss);
 
     // Assert Entry
@@ -351,6 +403,55 @@ fn test_trade_stop_filled() {
     assert_eq!(overview.total_balance, dec!(49050));
     assert_eq!(overview.total_in_trade, dec!(0));
     assert_eq!(overview.taxed, dec!(0));
+}
+
+#[test]
+fn test_trade_close() {
+    let (trust, account, trade) = create_trade(
+        BrokerResponse::orders_entry_filled,
+        Some(BrokerResponse::closed_order),
+    );
+    let mut trust = trust;
+
+    // 1. Sync trade with the Broker - Entry is filled
+    trust
+        .sync_trade(&trade, &account)
+        .expect("Failed to sync trade with broker when entry is filled");
+
+    let trade = trust
+        .search_trades(account.id, Status::Filled)
+        .expect("Failed to find trade with status submitted 2")
+        .first()
+        .unwrap()
+        .clone();
+
+    // 2. Close the trade at market price
+    let (_, _log) = trust.close_trade(&trade).unwrap();
+
+    let trade = trust
+        .search_trades(account.id, Status::Canceled)
+        .expect("Failed to find trade with status submitted 2")
+        .first()
+        .unwrap()
+        .clone();
+
+    // Assert Trade Overview
+    assert_eq!(trade.status, Status::Canceled); // The trade is still filled, but the target was changed to a market order
+
+    // Assert Entry
+    assert_eq!(trade.entry.quantity, 500);
+    assert_eq!(trade.entry.unit_price, dec!(40));
+    assert_eq!(trade.entry.average_filled_price, Some(dec!(39.9)));
+    assert_eq!(trade.entry.filled_quantity, 500);
+    assert_eq!(trade.entry.status, OrderStatus::Filled);
+
+    // Assert Target
+    assert_eq!(trade.target.quantity, 500);
+    assert_eq!(trade.target.unit_price, dec!(50));
+    assert_eq!(trade.target.average_filled_price, None);
+    assert_eq!(trade.target.category, OrderCategory::Market);
+    assert_eq!(trade.target.filled_quantity, 0);
+    assert_eq!(trade.target.status, OrderStatus::PendingNew);
 }
 
 struct BrokerResponse;
@@ -515,16 +616,34 @@ impl BrokerResponse {
 
         (Status::ClosedStopLoss, vec![entry, target, stop])
     }
+
+    fn closed_order(trade: &Trade) -> Option<Order> {
+        Some(Order {
+            id: trade.target.id,
+            broker_order_id: Some(Uuid::parse_str("b6b12dc0-8e21-4d2e-8315-907d3116a6b8").unwrap()),
+            status: OrderStatus::PendingNew,
+            category: OrderCategory::Market,
+            filled_at: None,
+            expired_at: None,
+            cancelled_at: None,
+            ..Default::default()
+        })
+    }
 }
 
 struct MockBroker {
     sync_trade: fn(trade: &Trade) -> (Status, Vec<Order>),
+    closed_order: Option<fn(trade: &Trade) -> Option<Order>>,
 }
 
 impl MockBroker {
-    fn new(provider: fn(trade: &Trade) -> (Status, Vec<Order>)) -> MockBroker {
+    fn new(
+        provider: fn(trade: &Trade) -> (Status, Vec<Order>),
+        closed_order: Option<fn(trade: &Trade) -> Option<Order>>,
+    ) -> MockBroker {
         MockBroker {
             sync_trade: provider,
+            closed_order,
         }
     }
 }
@@ -552,5 +671,15 @@ impl Broker for MockBroker {
         let (status, orders) = (self.sync_trade)(trade);
         let log = BrokerLog::default();
         Ok((status, orders, log))
+    }
+
+    fn close_trade(
+        &self,
+        _trade: &Trade,
+        _account: &Account,
+    ) -> Result<(Order, BrokerLog), Box<dyn Error>> {
+        let order = (self.closed_order.unwrap())(_trade).unwrap();
+        let log = BrokerLog::default();
+        Ok((order, log))
     }
 }

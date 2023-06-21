@@ -2,8 +2,8 @@ use rust_decimal::Decimal;
 use trade_calculators::QuantityCalculator;
 use trust_model::{
     Account, AccountOverview, Broker, BrokerLog, Currency, DatabaseFactory, DraftTrade,
-    Environment, Order, Rule, RuleLevel, RuleName, Status, Trade, TradeOverview, TradingVehicle,
-    TradingVehicleCategory, Transaction, TransactionCategory,
+    Environment, Order, OrderStatus, Rule, RuleLevel, RuleName, Status, Trade, TradeOverview,
+    TradingVehicle, TradingVehicleCategory, Transaction, TransactionCategory,
 };
 use uuid::Uuid;
 use validators::RuleValidator;
@@ -208,8 +208,12 @@ impl TrustFacade {
     {
         // 1. Validate Trade by running rules
         RuleValidator::validate_trade(trade, &mut *self.factory)?;
-        // 2. Approve in case rule succeed
-        self.factory.write_trade_db().fund_trade(trade)?;
+
+        // 2. Fund in case rule succeed
+        self.factory
+            .write_trade_db()
+            .update_trade_status(Status::Funded, trade)?;
+
         // 3. Create transaction to fund the trade
         let (transaction, account_overview, trade_overview) =
             TransactionWorker::transfer_to_fund_trade(trade, &mut *self.factory)?;
@@ -236,7 +240,10 @@ impl TrustFacade {
             .create_log(log.log.as_str(), trade)?;
 
         // 4. Mark Trade as submitted
-        let trade = self.factory.write_trade_db().submit_trade(trade)?;
+        let trade = self
+            .factory
+            .write_trade_db()
+            .update_trade_status(Status::Submitted, trade)?;
 
         // 5. Update Orders order to submitted
         self.factory
@@ -304,6 +311,60 @@ impl TrustFacade {
         let (tx_payment, account_overview, trade_overview) =
             TransactionWorker::transfer_payment_from(&trade, self.factory.as_mut())?;
         Ok((tx_stop, tx_payment, trade_overview, account_overview))
+    }
+
+    pub fn close_trade(
+        &mut self,
+        trade: &Trade,
+    ) -> Result<(TradeOverview, BrokerLog), Box<dyn std::error::Error>> {
+        // 1. Verify it can be closed
+        RuleValidator::validate_close(trade)?;
+
+        // 2. Submit a market order to Alpaca
+        let account = self
+            .factory
+            .read_account_db()
+            .read_account_id(trade.account_id)?;
+        let (order, log) = self.broker.close_trade(trade, &account)?;
+
+        // 3. Save log
+        self.factory
+            .write_broker_log_db()
+            .create_log(log.log.as_str(), trade)?;
+
+        // 4. Update Order Target with the market price and new ID
+        OrderWorker::update_order(&order, &mut *self.factory)?;
+
+        // 5. Update Trade Status
+        self.factory
+            .write_trade_db()
+            .update_trade_status(Status::Canceled, trade)?;
+
+        // 6. Cancel Stop Order
+        let mut stop_order = trade.safety_stop.clone();
+        stop_order.status = OrderStatus::Canceled;
+        self.factory.write_order_db().update_order(&stop_order)?;
+
+        Ok((trade.overview.clone(), log))
+    }
+
+    pub fn cancel_funded_trade(
+        &mut self,
+        trade: &Trade,
+    ) -> Result<(TradeOverview, AccountOverview, Transaction), Box<dyn std::error::Error>> {
+        // 1. Verify it can be canceled
+        RuleValidator::validate_cancel(trade)?;
+
+        // 2. Update Trade Status
+        self.factory
+            .write_trade_db()
+            .update_trade_status(Status::Canceled, trade)?;
+
+        // 3. Transfer funds back to account
+        let (tx, account_o, trade_o) =
+            TransactionWorker::transfer_payment_from(trade, self.factory.as_mut())?;
+
+        Ok((trade_o, account_o, tx))
     }
 
     pub fn target_acquired(

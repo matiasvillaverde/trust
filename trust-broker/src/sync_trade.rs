@@ -35,16 +35,15 @@ fn sync_trade(
     trade: &Trade,
     orders: Vec<AlpacaOrder>,
 ) -> Result<(Status, Vec<Order>), Box<dyn Error>> {
-    // 1. Find entry order
-    let entry_order = find_entry(orders, trade)?;
+    let updated_orders = match trade.status {
+        Status::Canceled => {
+            find_target(orders, trade).and_then(|order| order_mapper::map_target(order, trade))
+        }
+        _ => find_entry(orders, trade).and_then(|order| order_mapper::map_entry(order, trade)),
+    }?;
 
-    // 2. Map entry order that has Stop and Target as legs.
-    let updated_orders = order_mapper::map_orders(entry_order, trade)?;
-
-    // 3. Update Trade Status
     let status = order_mapper::map_trade_status(trade, &updated_orders);
 
-    // 5. Return updated orders and status
     Ok((status, updated_orders))
 }
 
@@ -60,18 +59,23 @@ async fn get_closed_orders(
     };
 
     let orders = client.issue::<Get>(&request).await.unwrap();
-
-    //println!("Orders: {:?}", serde_json::to_value(orders)?);
-
     Ok(orders)
 }
 
 /// Find entry order from closed orders
-fn find_entry(orders: Vec<AlpacaOrder>, trade: &Trade) -> Result<AlpacaOrder, Box<dyn Error>> {
+pub fn find_entry(orders: Vec<AlpacaOrder>, trade: &Trade) -> Result<AlpacaOrder, Box<dyn Error>> {
     orders
         .into_iter()
         .find(|x| x.client_order_id == trade.entry.id.to_string())
         .ok_or_else(|| "Entry order not found, it can be that is not filled yet".into())
+}
+
+/// Find the target order that is on the first level of the JSON
+pub fn find_target(orders: Vec<AlpacaOrder>, trade: &Trade) -> Result<AlpacaOrder, Box<dyn Error>> {
+    orders
+        .into_iter()
+        .find(|x| x.id.to_string() == trade.target.broker_order_id.unwrap().to_string())
+        .ok_or_else(|| "Target order not found, it can be that is not filled yet".into())
 }
 
 #[cfg(test)]
@@ -113,6 +117,122 @@ mod tests {
             legs: vec![],
             extended_hours: false,
         }
+    }
+
+    fn manually_closed_target() -> Vec<AlpacaOrder> {
+        let data = r#"
+        [
+    {
+        "id": "6a3a0ab0-8846-4369-b9f5-2351a316ae0f",
+        "client_order_id": "a4e2da32-ed89-43e8-827f-db373db07449",
+        "status": "filled",
+        "created_at": "2023-06-20T14:30:38.644640192Z",
+        "updated_at": "2023-06-20T14:30:39.201916476Z",
+        "submitted_at": "2023-06-20T14:30:38.651964022Z",
+        "filled_at": "2023-06-20T14:30:39.198984174Z",
+        "expired_at": null,
+        "canceled_at": null,
+        "asset_class": "us_equity",
+        "asset_id": "8ccae427-5dd0-45b3-b5fe-7ba5e422c766",
+        "symbol": "TSLA",
+        "qty": "100",
+        "filled_qty": "100",
+        "type": "market",
+        "order_class": "simple",
+        "side": "sell",
+        "time_in_force": "gtc",
+        "limit_price": null,
+        "stop_price": null,
+        "trail_price": null,
+        "trail_percent": null,
+        "filled_avg_price": "262.12",
+        "extended_hours": false,
+        "legs": []
+    },
+    {
+        "id": "54c8a893-0473-425f-84de-6f9c48197ed6",
+        "client_order_id": "3379dcc6-f979-42f3-a3d5-6465519f2c8e",
+        "status": "filled",
+        "created_at": "2023-06-20T14:22:16.555854427Z",
+        "updated_at": "2023-06-20T14:22:16.873225184Z",
+        "submitted_at": "2023-06-20T14:22:16.564270239Z",
+        "filled_at": "2023-06-20T14:22:16.869638508Z",
+        "expired_at": null,
+        "canceled_at": null,
+        "asset_class": "us_equity",
+        "asset_id": "8ccae427-5dd0-45b3-b5fe-7ba5e422c766",
+        "symbol": "TSLA",
+        "qty": "100",
+        "filled_qty": "100",
+        "type": "limit",
+        "order_class": "bracket",
+        "side": "buy",
+        "time_in_force": "gtc",
+        "limit_price": "264",
+        "stop_price": null,
+        "trail_price": null,
+        "trail_percent": null,
+        "filled_avg_price": "263.25",
+        "extended_hours": false,
+        "legs": [
+            {
+                "id": "823b5272-ee9b-4783-bc45-c769f5cb24d1",
+                "client_order_id": "7c2e396a-b111-4d6d-b283-2f13c44b94bc",
+                "status": "canceled",
+                "created_at": "2023-06-20T14:22:16.555889537Z",
+                "updated_at": "2023-06-20T14:30:37.762708578Z",
+                "submitted_at": "2023-06-20T14:22:16.890032267Z",
+                "filled_at": null,
+                "expired_at": null,
+                "canceled_at": "2023-06-20T14:30:37.759320757Z",
+                "asset_class": "us_equity",
+                "asset_id": "8ccae427-5dd0-45b3-b5fe-7ba5e422c766",
+                "symbol": "TSLA",
+                "qty": "100",
+                "filled_qty": "0",
+                "type": "limit",
+                "order_class": "bracket",
+                "side": "sell",
+                "time_in_force": "gtc",
+                "limit_price": "280",
+                "stop_price": null,
+                "trail_price": null,
+                "trail_percent": null,
+                "filled_avg_price": null,
+                "extended_hours": false,
+                "legs": []
+            },
+            {
+                "id": "dd4fdc18-f82b-40c4-9cee-9c1522e62e74",
+                "client_order_id": "6f0ce7ef-9b4b-425a-9278-e9516945b58c",
+                "status": "canceled",
+                "created_at": "2023-06-20T14:22:16.555915187Z",
+                "updated_at": "2023-06-20T14:30:37.753179958Z",
+                "submitted_at": "2023-06-20T14:22:16.555095977Z",
+                "filled_at": null,
+                "expired_at": null,
+                "canceled_at": "2023-06-20T14:30:37.753179268Z",
+                "asset_class": "us_equity",
+                "asset_id": "8ccae427-5dd0-45b3-b5fe-7ba5e422c766",
+                "symbol": "TSLA",
+                "qty": "100",
+                "filled_qty": "0",
+                "type": "stop",
+                "order_class": "bracket",
+                "side": "sell",
+                "time_in_force": "gtc",
+                "limit_price": null,
+                "stop_price": "260",
+                "trail_price": null,
+                "trail_percent": null,
+                "filled_avg_price": null,
+                "extended_hours": false,
+                "legs": []
+            }
+        ]}
+            ]
+        "#;
+        serde_json::from_str(data).unwrap()
     }
 
     fn default_from_json() -> Vec<AlpacaOrder> {
@@ -320,6 +440,7 @@ mod tests {
             entry: entry_order,
             target: target_order,
             safety_stop: stop_order,
+            status: Status::Filled,
             ..Default::default()
         };
 
@@ -331,6 +452,34 @@ mod tests {
         // Assert that the orders has been updated
         assert_eq!(status, Status::ClosedTarget);
         assert_eq!(updated_orders.len(), 3);
+    }
+
+    #[test]
+    fn test_sync_trade_manually_closed() {
+        let target_id = Uuid::parse_str("6a3a0ab0-8846-4369-b9f5-2351a316ae0f").unwrap();
+
+        // 1. Create a Target that is a child order of the Entry
+        let target_order = Order {
+            broker_order_id: Some(target_id),
+            unit_price: dec!(247),
+            ..Default::default()
+        };
+
+        let trade = Trade {
+            target: target_order,
+            status: Status::Canceled,
+            ..Default::default()
+        };
+
+        // Json data with manually closed target from Alpaca
+        let orders = manually_closed_target();
+
+        let (status, updated_orders) = sync_trade(&trade, orders).unwrap();
+
+        // Assert that the orders has been updated
+        assert_eq!(status, Status::ClosedTarget);
+        assert_eq!(updated_orders.len(), 1);
+        assert_eq!(updated_orders[0].broker_order_id, Some(target_id));
     }
 
     #[test]
@@ -347,46 +496,44 @@ mod tests {
             ..Default::default()
         };
 
-        // Create some sample orders
-        let orders = vec![
-            default(),
-            default(),
-            default(),
-            default(),
-            default(),
-            default(),
-            entry_order.clone(),
-            default(),
-            default(),
-            default(),
-            default(),
-        ];
+        let orders = vec![default(); 5];
+        let mut all_orders = vec![entry_order.clone()];
+        all_orders.extend(orders);
+        all_orders.resize(12, default());
 
-        let result_1 = find_entry(orders, &trade);
+        let result_1 = find_entry(all_orders, &trade);
         assert_eq!(result_1.unwrap(), entry_order);
     }
 
     #[test]
-    fn test_find_entry_does_not_exist() {
-        // Create some sample orders
-        let orders = vec![
-            default(),
-            default(),
-            default(),
-            default(),
-            default(),
-            default(),
-            default(),
-            default(),
-            default(),
-            default(),
-        ];
+    fn test_find_target() {
+        let id = Uuid::parse_str("6a3a0ab0-8846-4369-b9f5-2351a316ae0f").unwrap();
 
-        let result_1 =
-            find_entry(orders, &Trade::default()).expect_err("Should not find entry order");
-        assert_eq!(
-            result_1.to_string(),
-            "Entry order not found, it can be that is not filled yet"
+        let trade = Trade {
+            target: Order {
+                broker_order_id: Some(id),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        // Sample orders from JSON coming from Alpaca
+        let orders = manually_closed_target();
+
+        let result = find_target(orders, &trade);
+
+        // Assert that it find the order with the same target id
+        assert_eq!(result.unwrap().id.to_string(), id.to_string());
+    }
+
+    #[test]
+    fn test_find_entry_does_not_exist() {
+        // Create a sample order
+        let orders = vec![default(); 5];
+
+        assert!(
+            find_entry(orders, &Trade::default()).is_err(),
+            "Should not find entry order"
         );
     }
 }

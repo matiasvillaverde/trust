@@ -42,9 +42,20 @@ pub trait Broker {
         trade: &Trade,
         account: &Account,
     ) -> Result<(BrokerLog, OrderIds), Box<dyn Error>>;
+
     fn sync_trade(
         &self,
         trade: &Trade,
         account: &Account,
     ) -> Result<(Status, Vec<Order>, BrokerLog), Box<dyn Error>>;
+
+    /// Manually Close a trade
+    /// The target will be cancelled and a new target will be created
+    /// with the market price. The goal is to close the trade as soon as possible.
+    /// The return value is the new target order.
+    fn close_trade(
+        &self,
+        trade: &Trade,
+        account: &Account,
+    ) -> Result<(Order, BrokerLog), Box<dyn Error>>;
 }

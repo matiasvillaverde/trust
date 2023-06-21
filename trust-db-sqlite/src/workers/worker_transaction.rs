@@ -22,8 +22,6 @@ impl WorkerTransaction {
     ) -> Result<Transaction, Box<dyn Error>> {
         let now = Utc::now().naive_utc();
 
-        println!("Creating transaction: {:?}", category);
-
         let new_transaction = NewTransaction {
             id: Uuid::new_v4().to_string(),
             created_at: now,

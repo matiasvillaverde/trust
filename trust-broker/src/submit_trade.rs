@@ -112,7 +112,7 @@ fn time_in_force(entry: &Order) -> TimeInForce {
     }
 }
 
-fn side(trade: &Trade) -> Side {
+pub fn side(trade: &Trade) -> Side {
     match trade.category {
         TradeCategory::Long => Side::Buy,
         TradeCategory::Short => Side::Sell,

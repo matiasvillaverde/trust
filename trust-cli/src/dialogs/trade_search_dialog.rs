@@ -1,7 +1,7 @@
 use trust_core::TrustFacade;
 use trust_model::{Account, Status, Trade};
 
-use crate::views::TradeView;
+use crate::views::{OrderView, TradeView};
 use crate::{dialogs::AccountSearchDialog, views::TradeOverviewView};
 use dialoguer::{theme::ColorfulTheme, Confirm, FuzzySelect};
 use std::error::Error;
@@ -33,17 +33,23 @@ impl TradeSearchDialogBuilder {
                     println!("No trades found");
                     return;
                 }
+                let name = self.account.clone().unwrap().name;
 
                 if self.overview {
                     println!("Trades found:");
-                    let name = self.account.clone().unwrap().name;
                     for trade in trades {
                         TradeView::display(&trade, name.as_str());
                         TradeOverviewView::display(&trade.overview);
+                        println!("Entry:");
+                        OrderView::display(trade.entry);
+                        println!("Target:");
+                        OrderView::display(trade.target);
+                        println!("Stop:");
+                        OrderView::display(trade.safety_stop);
                     }
                 } else {
                     println!("Trades found:");
-                    TradeView::display_trades(trades, self.account.unwrap().name.as_str());
+                    TradeView::display_trades(trades, name.as_str());
                 }
             }
             Err(error) => println!("Error searching account: {:?}", error),

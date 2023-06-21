@@ -64,6 +64,7 @@ impl WorkerOrder {
             .filter(orders::id.eq(&order.id.to_string()))
             .set((
                 orders::updated_at.eq(now),
+                orders::broker_order_id.eq(order.broker_order_id.map(|id| id.to_string())),
                 orders::status.eq(order.status.to_string()),
                 orders::filled_quantity.eq(order.filled_quantity as i64),
                 orders::average_filled_price
@@ -71,6 +72,7 @@ impl WorkerOrder {
                 orders::submitted_at.eq(order.submitted_at),
                 orders::filled_at.eq(order.filled_at),
                 orders::expired_at.eq(order.expired_at),
+                orders::category.eq(order.category.to_string()),
                 orders::cancelled_at.eq(order.cancelled_at),
                 orders::closed_at.eq(order.closed_at),
             ))

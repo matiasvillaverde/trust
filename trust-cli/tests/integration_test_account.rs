@@ -210,4 +210,12 @@ impl Broker for MockBroker {
     ) -> Result<(Status, Vec<Order>, BrokerLog), Box<dyn Error>> {
         unimplemented!()
     }
+
+    fn close_trade(
+        &self,
+        _trade: &Trade,
+        _account: &Account,
+    ) -> Result<(Order, BrokerLog), Box<dyn Error>> {
+        unimplemented!()
+    }
 }

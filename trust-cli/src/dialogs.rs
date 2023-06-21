@@ -1,6 +1,8 @@
 mod account_dialog;
 mod keys_dialog;
 mod rule_dialog;
+mod trade_cancel_dialog;
+mod trade_close_dialog;
 mod trade_create_dialog;
 mod trade_exit_dialog;
 mod trade_fill_dialog;
@@ -18,6 +20,8 @@ pub use keys_dialog::KeysReadDialogBuilder;
 pub use keys_dialog::KeysWriteDialogBuilder;
 pub use rule_dialog::RuleDialogBuilder;
 pub use rule_dialog::RuleRemoveDialogBuilder;
+pub use trade_cancel_dialog::CancelDialogBuilder;
+pub use trade_close_dialog::CloseDialogBuilder;
 pub use trade_create_dialog::TradeDialogBuilder;
 pub use trade_exit_dialog::ExitDialogBuilder;
 pub use trade_fill_dialog::FillTradeDialogBuilder;

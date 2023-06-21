@@ -383,44 +383,12 @@ impl WriteTradeDB for SqliteDatabase {
         )
     }
 
-    fn fund_trade(&mut self, trade: &Trade) -> Result<Trade, Box<dyn Error>> {
-        WorkerTrade::update_trade_status(
-            &mut self.connection.lock().unwrap(),
-            Status::Funded,
-            trade,
-        )
-    }
-
-    fn submit_trade(&mut self, trade: &Trade) -> Result<Trade, Box<dyn Error>> {
-        WorkerTrade::update_trade_status(
-            &mut self.connection.lock().unwrap(),
-            Status::Submitted,
-            trade,
-        )
-    }
-
-    fn fill_trade(&mut self, trade: &Trade) -> Result<Trade, Box<dyn Error>> {
-        WorkerTrade::update_trade_status(
-            &mut self.connection.lock().unwrap(),
-            Status::Filled,
-            trade,
-        )
-    }
-
-    fn stop_trade(&mut self, trade: &Trade) -> Result<Trade, Box<dyn Error>> {
-        WorkerTrade::update_trade_status(
-            &mut self.connection.lock().unwrap(),
-            Status::ClosedStopLoss,
-            trade,
-        )
-    }
-
-    fn target_trade(&mut self, trade: &Trade) -> Result<Trade, Box<dyn Error>> {
-        WorkerTrade::update_trade_status(
-            &mut self.connection.lock().unwrap(),
-            Status::ClosedTarget,
-            trade,
-        )
+    fn update_trade_status(
+        &mut self,
+        status: Status,
+        trade: &Trade,
+    ) -> Result<Trade, Box<dyn Error>> {
+        WorkerTrade::update_trade_status(&mut self.connection.lock().unwrap(), status, trade)
     }
 }
 

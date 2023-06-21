@@ -1,8 +1,9 @@
 use crate::dialogs::{
-    AccountDialogBuilder, AccountSearchDialog, ExitDialogBuilder, FillTradeDialogBuilder,
-    FundingDialogBuilder, KeysDeleteDialogBuilder, KeysReadDialogBuilder, KeysWriteDialogBuilder,
-    SubmitDialogBuilder, SyncTradeDialogBuilder, TradeDialogBuilder, TradeSearchDialogBuilder,
-    TradingVehicleDialogBuilder, TradingVehicleSearchDialogBuilder, TransactionDialogBuilder,
+    AccountDialogBuilder, AccountSearchDialog, CancelDialogBuilder, CloseDialogBuilder,
+    ExitDialogBuilder, FillTradeDialogBuilder, FundingDialogBuilder, KeysDeleteDialogBuilder,
+    KeysReadDialogBuilder, KeysWriteDialogBuilder, SubmitDialogBuilder, SyncTradeDialogBuilder,
+    TradeDialogBuilder, TradeSearchDialogBuilder, TradingVehicleDialogBuilder,
+    TradingVehicleSearchDialogBuilder, TransactionDialogBuilder,
 };
 use crate::dialogs::{RuleDialogBuilder, RuleRemoveDialogBuilder};
 use clap::ArgMatches;
@@ -69,10 +70,12 @@ impl ArgDispatcher {
             Some(("trade", sub_matches)) => match sub_matches.subcommand() {
                 Some(("create", _)) => self.create_trade(),
                 Some(("fund", _)) => self.create_funding(),
+                Some(("cancel", _)) => self.create_cancel(),
                 Some(("submit", _)) => self.create_submit(),
-                Some(("fill", _)) => self.create_fill(),
-                Some(("stop", _)) => self.create_stop(),
-                Some(("target", _)) => self.create_target(),
+                Some(("manually-fill", _)) => self.create_fill(),
+                Some(("manually-stop", _)) => self.create_stop(),
+                Some(("manually-target", _)) => self.create_target(),
+                Some(("manually-close", _)) => self.close(),
                 Some(("sync", _)) => self.create_sync(),
                 Some(("search", _)) => self.search_trade(),
                 _ => unreachable!("No subcommand provided"),
@@ -188,6 +191,14 @@ impl ArgDispatcher {
             .display();
     }
 
+    fn create_cancel(&mut self) {
+        CancelDialogBuilder::new()
+            .account(&mut self.trust)
+            .search(&mut self.trust)
+            .build(&mut self.trust)
+            .display();
+    }
+
     fn create_funding(&mut self) {
         FundingDialogBuilder::new()
             .account(&mut self.trust)
@@ -245,6 +256,14 @@ impl ArgDispatcher {
             .status()
             .show_overview()
             .search(&mut self.trust)
+            .display();
+    }
+
+    fn close(&mut self) {
+        CloseDialogBuilder::new()
+            .account(&mut self.trust)
+            .search(&mut self.trust)
+            .build(&mut self.trust)
             .display();
     }
 }
