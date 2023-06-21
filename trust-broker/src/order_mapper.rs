@@ -4,6 +4,7 @@ use chrono::NaiveDateTime;
 use chrono::Utc;
 use rust_decimal::Decimal;
 use std::error::Error;
+use std::str::FromStr;
 use trust_model::{Order, OrderCategory, OrderStatus, Status, Trade};
 use uuid::Uuid;
 
@@ -96,7 +97,7 @@ fn map(alpaca_order: &AlpacaOrder, order: Order) -> Order {
     order.average_filled_price = alpaca_order
         .average_fill_price
         .clone()
-        .map(|price| Decimal::from(price.to_u64().unwrap()));
+        .map(|price| Decimal::from_str(price.to_string().as_str()).unwrap());
     order.status = map_from_alpaca(alpaca_order.status);
     order.filled_at = map_date(alpaca_order.filled_at);
     order.expired_at = map_date(alpaca_order.expired_at);
@@ -588,7 +589,7 @@ mod tests {
     #[test]
     fn test_map_average_filled_price() {
         let mut alpaca_order = default();
-        alpaca_order.average_fill_price = Some(Num::from(2112));
+        alpaca_order.average_fill_price = Some(Num::from_str("2112.1212").unwrap());
 
         let order = Order {
             broker_order_id: Some(Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap()),
@@ -597,7 +598,7 @@ mod tests {
 
         let mapped_order = map(&alpaca_order, order);
 
-        assert_eq!(mapped_order.average_filled_price.unwrap(), dec!(2112));
+        assert_eq!(mapped_order.average_filled_price.unwrap(), dec!(2112.1212));
     }
 
     #[test]
