@@ -122,6 +122,122 @@ mod tests {
         }
     }
 
+    fn manually_closed_target() -> Vec<AlpacaOrder> {
+        let data = r#"
+        [
+    {
+        "id": "6a3a0ab0-8846-4369-b9f5-2351a316ae0f",
+        "client_order_id": "a4e2da32-ed89-43e8-827f-db373db07449",
+        "status": "filled",
+        "created_at": "2023-06-20T14:30:38.644640192Z",
+        "updated_at": "2023-06-20T14:30:39.201916476Z",
+        "submitted_at": "2023-06-20T14:30:38.651964022Z",
+        "filled_at": "2023-06-20T14:30:39.198984174Z",
+        "expired_at": null,
+        "canceled_at": null,
+        "asset_class": "us_equity",
+        "asset_id": "8ccae427-5dd0-45b3-b5fe-7ba5e422c766",
+        "symbol": "TSLA",
+        "qty": "100",
+        "filled_qty": "100",
+        "type": "market",
+        "order_class": "simple",
+        "side": "sell",
+        "time_in_force": "gtc",
+        "limit_price": null,
+        "stop_price": null,
+        "trail_price": null,
+        "trail_percent": null,
+        "filled_avg_price": "262.12",
+        "extended_hours": false,
+        "legs": []
+    },
+    {
+        "id": "54c8a893-0473-425f-84de-6f9c48197ed6",
+        "client_order_id": "3379dcc6-f979-42f3-a3d5-6465519f2c8e",
+        "status": "filled",
+        "created_at": "2023-06-20T14:22:16.555854427Z",
+        "updated_at": "2023-06-20T14:22:16.873225184Z",
+        "submitted_at": "2023-06-20T14:22:16.564270239Z",
+        "filled_at": "2023-06-20T14:22:16.869638508Z",
+        "expired_at": null,
+        "canceled_at": null,
+        "asset_class": "us_equity",
+        "asset_id": "8ccae427-5dd0-45b3-b5fe-7ba5e422c766",
+        "symbol": "TSLA",
+        "qty": "100",
+        "filled_qty": "100",
+        "type": "limit",
+        "order_class": "bracket",
+        "side": "buy",
+        "time_in_force": "gtc",
+        "limit_price": "264",
+        "stop_price": null,
+        "trail_price": null,
+        "trail_percent": null,
+        "filled_avg_price": "263.25",
+        "extended_hours": false,
+        "legs": [
+            {
+                "id": "823b5272-ee9b-4783-bc45-c769f5cb24d1",
+                "client_order_id": "7c2e396a-b111-4d6d-b283-2f13c44b94bc",
+                "status": "canceled",
+                "created_at": "2023-06-20T14:22:16.555889537Z",
+                "updated_at": "2023-06-20T14:30:37.762708578Z",
+                "submitted_at": "2023-06-20T14:22:16.890032267Z",
+                "filled_at": null,
+                "expired_at": null,
+                "canceled_at": "2023-06-20T14:30:37.759320757Z",
+                "asset_class": "us_equity",
+                "asset_id": "8ccae427-5dd0-45b3-b5fe-7ba5e422c766",
+                "symbol": "TSLA",
+                "qty": "100",
+                "filled_qty": "0",
+                "type": "limit",
+                "order_class": "bracket",
+                "side": "sell",
+                "time_in_force": "gtc",
+                "limit_price": "280",
+                "stop_price": null,
+                "trail_price": null,
+                "trail_percent": null,
+                "filled_avg_price": null,
+                "extended_hours": false,
+                "legs": []
+            },
+            {
+                "id": "dd4fdc18-f82b-40c4-9cee-9c1522e62e74",
+                "client_order_id": "6f0ce7ef-9b4b-425a-9278-e9516945b58c",
+                "status": "canceled",
+                "created_at": "2023-06-20T14:22:16.555915187Z",
+                "updated_at": "2023-06-20T14:30:37.753179958Z",
+                "submitted_at": "2023-06-20T14:22:16.555095977Z",
+                "filled_at": null,
+                "expired_at": null,
+                "canceled_at": "2023-06-20T14:30:37.753179268Z",
+                "asset_class": "us_equity",
+                "asset_id": "8ccae427-5dd0-45b3-b5fe-7ba5e422c766",
+                "symbol": "TSLA",
+                "qty": "100",
+                "filled_qty": "0",
+                "type": "stop",
+                "order_class": "bracket",
+                "side": "sell",
+                "time_in_force": "gtc",
+                "limit_price": null,
+                "stop_price": "260",
+                "trail_price": null,
+                "trail_percent": null,
+                "filled_avg_price": null,
+                "extended_hours": false,
+                "legs": []
+            }
+        ]}
+            ]
+        "#;
+        serde_json::from_str(data).unwrap()
+    }
+
     fn default_from_json() -> Vec<AlpacaOrder> {
         let data = r#"
         [
@@ -373,6 +489,26 @@ mod tests {
         assert_eq!(result_1.unwrap(), entry_order);
     }
 
+    #[test]
+    fn test_find_target() {
+        let id = Uuid::parse_str("6a3a0ab0-8846-4369-b9f5-2351a316ae0f").unwrap();
+
+        let trade = Trade {
+            target: Order {
+                broker_order_id: Some(id),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        // Sample orders from JSON coming from Alpaca
+        let orders = manually_closed_target();
+
+        let result = find_target(orders, &trade);
+
+        // Assert that it find the order with the same target id
+        assert_eq!(result.unwrap().id.to_string(), id.to_string());
+    }
     #[test]
     fn test_find_entry_does_not_exist() {
         // Create some sample orders
