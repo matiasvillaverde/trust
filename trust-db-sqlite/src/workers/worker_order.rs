@@ -64,6 +64,7 @@ impl WorkerOrder {
             .filter(orders::id.eq(&order.id.to_string()))
             .set((
                 orders::updated_at.eq(now),
+                orders::broker_order_id.eq(order.broker_order_id.map(|id| id.to_string())),
                 orders::status.eq(order.status.to_string()),
                 orders::filled_quantity.eq(order.filled_quantity as i64),
                 orders::average_filled_price

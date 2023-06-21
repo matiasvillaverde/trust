@@ -36,6 +36,7 @@ pub fn close(trade: &Trade, account: &Account) -> Result<(Order, BrokerLog), Box
 
     // 4. Map the Alpaca order to a Trust order.
     let order: Order = crate::order_mapper::map_close_order(&alpaca_order, trade.target.clone());
+
     Ok((order, log))
 }
 

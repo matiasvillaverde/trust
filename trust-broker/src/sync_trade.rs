@@ -80,7 +80,7 @@ pub fn find_target(orders: Vec<AlpacaOrder>, trade: &Trade) -> Result<AlpacaOrde
     orders
         .into_iter()
         .find(|x| x.id.to_string() == trade.target.broker_order_id.unwrap().to_string())
-        .ok_or_else(|| "Entry order not found, it can be that is not filled yet".into())
+        .ok_or_else(|| "Target order not found, it can be that is not filled yet".into())
 }
 
 #[cfg(test)]

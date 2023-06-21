@@ -51,7 +51,8 @@ impl TradeWorker {
 
                 // We only update the trade target once
                 let trade = database.read_trade_db().read_trade(trade.id)?;
-                if trade.status == Status::Filled {
+                if trade.status == Status::Filled || trade.status == Status::Canceled {
+                    // It can be canceled if the target was updated.
                     // We also update the trade stop loss
                     let (trade, _) =
                         TradeWorker::update_trade_target_executed(&trade, dec!(0), database)?;

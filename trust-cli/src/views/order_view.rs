@@ -6,6 +6,7 @@ use trust_model::Order;
 #[derive(Tabled)]
 pub struct OrderView {
     pub unit_price: String,
+    pub average_filled_price: String,
     pub quantity: String,
     pub category: String,
     pub action: String,
@@ -18,6 +19,10 @@ impl OrderView {
     fn new(order: Order) -> OrderView {
         OrderView {
             unit_price: order.unit_price.to_string(),
+            average_filled_price: order
+                .average_filled_price
+                .map(|d| d.to_string())
+                .unwrap_or_default(),
             quantity: order.quantity.to_string(),
             category: order.category.to_string(),
             action: order.action.to_string(),

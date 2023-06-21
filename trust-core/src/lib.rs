@@ -282,6 +282,7 @@ impl TrustFacade {
 
         // 4. Update Trade Status
         let trade = self.factory.read_trade_db().read_trade(trade.id)?; // We need to read the trade again to get the updated orders
+        println!("Trade status: {:?}", status);
         TradeWorker::update_status(&trade, status, &mut *self.factory)?;
 
         // 5. Update Account Overview
