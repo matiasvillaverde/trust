@@ -51,6 +51,7 @@ fn main() {
                 .create_trade()
                 .search_trade()
                 .fund_trade()
+                .cancel_trade()
                 .submit_trade()
                 .sync_trade()
                 .manually_fill()

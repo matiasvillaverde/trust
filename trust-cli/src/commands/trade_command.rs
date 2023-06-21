@@ -31,6 +31,13 @@ impl TradeCommandBuilder {
         self
     }
 
+    pub fn cancel_trade(mut self) -> Self {
+        self.subcommands.push(Command::new("cancel").about(
+            "The trade balance that is not in the market will be returned to your account balance",
+        ));
+        self
+    }
+
     pub fn submit_trade(mut self) -> Self {
         self.subcommands.push(
             Command::new("submit")

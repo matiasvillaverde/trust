@@ -2,8 +2,8 @@ use rust_decimal::Decimal;
 use trade_calculators::QuantityCalculator;
 use trust_model::{
     Account, AccountOverview, Broker, BrokerLog, Currency, DatabaseFactory, DraftTrade,
-    Environment, Order, Rule, RuleLevel, RuleName, Status, Trade, TradeOverview, TradingVehicle,
-    TradingVehicleCategory, Transaction, TransactionCategory,
+    Environment, Order, OrderStatus, Rule, RuleLevel, RuleName, Status, Trade, TradeOverview,
+    TradingVehicle, TradingVehicleCategory, Transaction, TransactionCategory,
 };
 use uuid::Uuid;
 use validators::RuleValidator;
@@ -341,8 +341,30 @@ impl TrustFacade {
             .update_trade_status(Status::Canceled, trade)?;
 
         // 6. Cancel Stop Order
+        let mut stop_order = trade.safety_stop.clone();
+        stop_order.status = OrderStatus::Canceled;
+        self.factory.write_order_db().update_order(&stop_order)?;
 
         Ok((trade.overview.clone(), log))
+    }
+
+    pub fn cancel_funded_trade(
+        &mut self,
+        trade: &Trade,
+    ) -> Result<(TradeOverview, AccountOverview, Transaction), Box<dyn std::error::Error>> {
+        // 1. Verify it can be canceled
+        RuleValidator::validate_cancel(trade)?;
+
+        // 2. Transfer funds back to account
+        let (tx, account_o, trade_o) =
+            TransactionWorker::transfer_payment_from(&trade, self.factory.as_mut())?;
+
+        // 3. Update Trade Status
+        self.factory
+            .write_trade_db()
+            .update_trade_status(Status::Canceled, trade)?;
+
+        Ok((trade_o, account_o, tx))
     }
 
     pub fn target_acquired(

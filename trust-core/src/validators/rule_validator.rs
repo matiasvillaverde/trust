@@ -51,6 +51,20 @@ impl RuleValidator {
         }
     }
 
+    pub fn validate_cancel(trade: &Trade) -> RuleValidationResult {
+        if trade.status == Status::Funded {
+            Ok(())
+        } else {
+            Err(Box::new(RuleValidationError {
+                code: RuleValidationErrorCode::TradeNotFunded,
+                message: format!(
+                    "Trade with id {} is not funded, cannot be cancelled",
+                    trade.id
+                ),
+            }))
+        }
+    }
+
     pub fn validate_trade(
         trade: &Trade,
         database: &mut dyn DatabaseFactory,
@@ -208,5 +222,25 @@ mod tests {
             ..Default::default()
         };
         assert!(RuleValidator::validate_close(&trade).is_err());
+    }
+
+    #[test]
+    fn test_validate_cancel_funded() {
+        let trade = Trade {
+            status: Status::Funded,
+            ..Default::default()
+        };
+        let result = RuleValidator::validate_cancel(&trade);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_cancel_not_funded() {
+        let trade = Trade {
+            status: Status::Canceled,
+            ..Default::default()
+        };
+        let result = RuleValidator::validate_cancel(&trade);
+        assert!(result.is_err());
     }
 }
