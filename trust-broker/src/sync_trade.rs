@@ -11,6 +11,7 @@ pub fn sync(
     trade: &Trade,
     account: &Account,
     find_order: fn(Vec<AlpacaOrder>, &Trade) -> Result<AlpacaOrder, Box<dyn Error>>,
+    map_trade_orders: fn(AlpacaOrder, &Trade) -> Result<Vec<Order>, Box<dyn Error>>,
 ) -> Result<(Status, Vec<Order>, BrokerLog), Box<dyn Error>> {
     assert!(trade.account_id == account.id); // Verify that the trade is for the account
 
@@ -27,7 +28,7 @@ pub fn sync(
         ..Default::default()
     };
 
-    let (status, updated_orders) = sync_trade(trade, orders, find_order)?;
+    let (status, updated_orders) = sync_trade(trade, orders, find_order, map_trade_orders)?;
     Ok((status, updated_orders, log))
 }
 
@@ -36,12 +37,13 @@ fn sync_trade(
     trade: &Trade,
     orders: Vec<AlpacaOrder>,
     find_order: fn(Vec<AlpacaOrder>, &Trade) -> Result<AlpacaOrder, Box<dyn Error>>,
+    map_trade_orders: fn(AlpacaOrder, &Trade) -> Result<Vec<Order>, Box<dyn Error>>,
 ) -> Result<(Status, Vec<Order>), Box<dyn Error>> {
-    // 1. Find entry order
-    let entry_order = find_order(orders, trade)?;
+    // 1. Find order
+    let order = find_order(orders, trade)?;
 
     // 2. Map entry order that has Stop and Target as legs.
-    let updated_orders = order_mapper::map_orders(entry_order, trade)?;
+    let updated_orders = map_trade_orders(order, &trade)?;
 
     // 3. Update Trade Status
     let status = order_mapper::map_trade_status(trade, &updated_orders);
@@ -449,11 +451,40 @@ mod tests {
         // Create some sample orders
         let orders = default_from_json();
 
-        let (status, updated_orders) = sync_trade(&trade, orders, find_entry).unwrap();
+        let (status, updated_orders) =
+            sync_trade(&trade, orders, find_entry, order_mapper::map_entry).unwrap();
 
         // Assert that the orders has been updated
         assert_eq!(status, Status::ClosedTarget);
         assert_eq!(updated_orders.len(), 3);
+    }
+
+    #[test]
+    fn test_sync_trade_manually_closed() {
+        let target_id = Uuid::parse_str("6a3a0ab0-8846-4369-b9f5-2351a316ae0f").unwrap();
+
+        // 1. Create a Target that is a child order of the Entry
+        let target_order = Order {
+            broker_order_id: Some(target_id),
+            unit_price: dec!(247),
+            ..Default::default()
+        };
+
+        let trade = Trade {
+            target: target_order,
+            ..Default::default()
+        };
+
+        // Json data with manually closed target from Alpaca
+        let orders = manually_closed_target();
+
+        let (status, updated_orders) =
+            sync_trade(&trade, orders, find_target, order_mapper::map_target).unwrap();
+
+        // Assert that the orders has been updated
+        assert_eq!(status, Status::ClosedTarget);
+        assert_eq!(updated_orders.len(), 1);
+        assert_eq!(updated_orders[0].broker_order_id, Some(target_id));
     }
 
     #[test]
@@ -470,22 +501,13 @@ mod tests {
             ..Default::default()
         };
 
-        // Create some sample orders
-        let orders = vec![
-            default(),
-            default(),
-            default(),
-            default(),
-            default(),
-            default(),
-            entry_order.clone(),
-            default(),
-            default(),
-            default(),
-            default(),
-        ];
+        // Create a sample order
+        let orders = vec![default(); 5];
+        let mut all_orders = vec![entry_order.clone()];
+        all_orders.append(&mut orders.clone());
+        all_orders.append(&mut vec![default(); 6]);
 
-        let result_1 = find_entry(orders, &trade);
+        let result_1 = find_entry(all_orders, &trade);
         assert_eq!(result_1.unwrap(), entry_order);
     }
 
@@ -509,27 +531,15 @@ mod tests {
         // Assert that it find the order with the same target id
         assert_eq!(result.unwrap().id.to_string(), id.to_string());
     }
+
     #[test]
     fn test_find_entry_does_not_exist() {
-        // Create some sample orders
-        let orders = vec![
-            default(),
-            default(),
-            default(),
-            default(),
-            default(),
-            default(),
-            default(),
-            default(),
-            default(),
-            default(),
-        ];
+        // Create a sample order
+        let orders = vec![default(); 5];
 
-        let result_1 =
-            find_entry(orders, &Trade::default()).expect_err("Should not find entry order");
-        assert_eq!(
-            result_1.to_string(),
-            "Entry order not found, it can be that is not filled yet"
+        assert!(
+            find_entry(orders, &Trade::default()).is_err(),
+            "Should not find entry order"
         );
     }
 }

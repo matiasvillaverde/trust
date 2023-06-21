@@ -8,12 +8,12 @@ use trust_model::{Order, OrderCategory, OrderStatus, Status, Trade};
 use uuid::Uuid;
 
 /// Maps an Alpaca order to our domain model.
-pub fn map_orders(entry_order: AlpacaOrder, trade: &Trade) -> Result<Vec<Order>, Box<dyn Error>> {
+pub fn map_entry(alpaca_order: AlpacaOrder, trade: &Trade) -> Result<Vec<Order>, Box<dyn Error>> {
     // 1. Updated orders and trade status
     let mut updated_orders = vec![];
 
     // 2. Target and stop orders
-    updated_orders.extend(entry_order.legs.iter().filter_map(|order| {
+    updated_orders.extend(alpaca_order.legs.iter().filter_map(|order| {
         match order.id.to_string().as_str() {
             id if id == trade.target.broker_order_id.unwrap().to_string() => {
                 // 1. Map target order to our domain model.
@@ -42,7 +42,7 @@ pub fn map_orders(entry_order: AlpacaOrder, trade: &Trade) -> Result<Vec<Order>,
     }));
 
     // 3. Map entry order to our domain model.
-    let entry_order = map(&entry_order, trade.entry.clone());
+    let entry_order = map(&alpaca_order, trade.entry.clone());
 
     // 4. If the entry is updated, then we add it to the updated orders.
     if entry_order != trade.entry {
@@ -50,6 +50,10 @@ pub fn map_orders(entry_order: AlpacaOrder, trade: &Trade) -> Result<Vec<Order>,
     }
 
     Ok(updated_orders)
+}
+
+pub fn map_target(alpaca_order: AlpacaOrder, trade: &Trade) -> Result<Vec<Order>, Box<dyn Error>> {
+    Ok(vec![map(&alpaca_order, trade.target.clone())])
 }
 
 pub fn map_trade_status(trade: &Trade, updated_orders: &[Order]) -> Status {
@@ -193,7 +197,7 @@ mod tests {
             },
             ..Default::default()
         };
-        let err = map_orders(alpaca_order, &trade).unwrap();
+        let err = map_entry(alpaca_order, &trade).unwrap();
         assert_eq!(err.len(), 0);
     }
 
@@ -205,7 +209,7 @@ mod tests {
         // Create a sample AlpacaOrder and Trade
         let alpaca_order = default();
         let trade = Trade::default();
-        _ = map_orders(alpaca_order, &trade);
+        _ = map_entry(alpaca_order, &trade);
     }
 
     #[test]
@@ -230,7 +234,7 @@ mod tests {
             ..Default::default()
         };
 
-        let result = map_orders(alpaca_order, &trade).unwrap();
+        let result = map_entry(alpaca_order, &trade).unwrap();
 
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].status, OrderStatus::Filled);
@@ -278,7 +282,7 @@ mod tests {
             ..Default::default()
         };
 
-        let result = map_orders(alpaca_order, &trade).unwrap();
+        let result = map_entry(alpaca_order, &trade).unwrap();
 
         assert_eq!(result.len(), 2);
 
@@ -334,7 +338,7 @@ mod tests {
             ..Default::default()
         };
 
-        let result = map_orders(alpaca_order, &trade).unwrap();
+        let result = map_entry(alpaca_order, &trade).unwrap();
 
         assert_eq!(result.len(), 2);
 
