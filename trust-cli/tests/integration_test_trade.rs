@@ -263,7 +263,6 @@ fn assert_entry_filled(trade: &Trade, trust: &mut TrustFacade) {
 
 #[test]
 fn test_trade_target_filled() {
-    // TODO: Test multiple times
     let (trust, account, trade) = create_trade(BrokerResponse::orders_target_filled, None);
     let mut trust = trust;
 
