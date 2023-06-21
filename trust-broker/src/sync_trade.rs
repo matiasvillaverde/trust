@@ -10,8 +10,6 @@ use trust_model::{Account, BrokerLog, Order, Status, Trade};
 pub fn sync(
     trade: &Trade,
     account: &Account,
-    find_order: fn(Vec<AlpacaOrder>, &Trade) -> Result<AlpacaOrder, Box<dyn Error>>,
-    map_trade_orders: fn(AlpacaOrder, &Trade) -> Result<Vec<Order>, Box<dyn Error>>,
 ) -> Result<(Status, Vec<Order>, BrokerLog), Box<dyn Error>> {
     assert!(trade.account_id == account.id); // Verify that the trade is for the account
 
@@ -28,7 +26,7 @@ pub fn sync(
         ..Default::default()
     };
 
-    let (status, updated_orders) = sync_trade(trade, orders, find_order, map_trade_orders)?;
+    let (status, updated_orders) = sync_trade(trade, orders)?;
     Ok((status, updated_orders, log))
 }
 
@@ -36,14 +34,16 @@ pub fn sync(
 fn sync_trade(
     trade: &Trade,
     orders: Vec<AlpacaOrder>,
-    find_order: fn(Vec<AlpacaOrder>, &Trade) -> Result<AlpacaOrder, Box<dyn Error>>,
-    map_trade_orders: fn(AlpacaOrder, &Trade) -> Result<Vec<Order>, Box<dyn Error>>,
 ) -> Result<(Status, Vec<Order>), Box<dyn Error>> {
-    // 1. Find order
-    let order = find_order(orders, trade)?;
+    let updated_orders;
 
-    // 2. Map entry order that has Stop and Target as legs.
-    let updated_orders = map_trade_orders(order, &trade)?;
+    if trade.status == Status::Canceled {
+        let order = find_target(orders, trade)?;
+        updated_orders = order_mapper::map_target(order, &trade)?;
+    } else {
+        let order = find_entry(orders, trade)?;
+        updated_orders = order_mapper::map_entry(order, &trade)?;
+    }
 
     // 3. Update Trade Status
     let status = order_mapper::map_trade_status(trade, &updated_orders);
@@ -445,14 +445,14 @@ mod tests {
             entry: entry_order,
             target: target_order,
             safety_stop: stop_order,
+            status: Status::Filled,
             ..Default::default()
         };
 
         // Create some sample orders
         let orders = default_from_json();
 
-        let (status, updated_orders) =
-            sync_trade(&trade, orders, find_entry, order_mapper::map_entry).unwrap();
+        let (status, updated_orders) = sync_trade(&trade, orders).unwrap();
 
         // Assert that the orders has been updated
         assert_eq!(status, Status::ClosedTarget);
@@ -472,14 +472,14 @@ mod tests {
 
         let trade = Trade {
             target: target_order,
+            status: Status::Canceled,
             ..Default::default()
         };
 
         // Json data with manually closed target from Alpaca
         let orders = manually_closed_target();
 
-        let (status, updated_orders) =
-            sync_trade(&trade, orders, find_target, order_mapper::map_target).unwrap();
+        let (status, updated_orders) = sync_trade(&trade, orders).unwrap();
 
         // Assert that the orders has been updated
         assert_eq!(status, Status::ClosedTarget);

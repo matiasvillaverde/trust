@@ -218,11 +218,4 @@ impl Broker for MockBroker {
     ) -> Result<(Order, BrokerLog), Box<dyn Error>> {
         unimplemented!()
     }
-    fn sync_manually_closed_trade(
-        &self,
-        _trade: &Trade,
-        _account: &Account,
-    ) -> Result<(Status, Vec<Order>, BrokerLog), Box<dyn Error>> {
-        unimplemented!()
-    }
 }

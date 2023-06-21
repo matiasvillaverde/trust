@@ -49,12 +49,6 @@ pub trait Broker {
         account: &Account,
     ) -> Result<(Status, Vec<Order>, BrokerLog), Box<dyn Error>>;
 
-    fn sync_manually_closed_trade(
-        &self,
-        trade: &Trade,
-        account: &Account,
-    ) -> Result<(Status, Vec<Order>, BrokerLog), Box<dyn Error>>;
-
     /// Manually Close a trade
     /// The target will be cancelled and a new target will be created
     /// with the market price. The goal is to close the trade as soon as possible.
