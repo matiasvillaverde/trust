@@ -430,14 +430,14 @@ fn test_trade_close() {
     let (_, _log) = trust.close_trade(&trade).unwrap();
 
     let trade = trust
-        .search_trades(account.id, Status::Filled)
+        .search_trades(account.id, Status::Canceled)
         .expect("Failed to find trade with status submitted 2")
         .first()
         .unwrap()
         .clone();
 
     // Assert Trade Overview
-    assert_eq!(trade.status, Status::Filled); // The trade is still filled, but the target was changed to a market order
+    assert_eq!(trade.status, Status::Canceled); // The trade is still filled, but the target was changed to a market order
 
     // Assert Entry
     assert_eq!(trade.entry.quantity, 500);

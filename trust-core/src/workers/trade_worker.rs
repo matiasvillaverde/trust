@@ -91,7 +91,9 @@ impl TradeWorker {
         )?;
 
         // Record timestamp when the trade was opened
-        let trade = database.write_trade_db().fill_trade(trade)?;
+        let trade = database
+            .write_trade_db()
+            .update_trade_status(Status::Filled, trade)?;
 
         Ok((trade, tx))
     }
@@ -119,7 +121,9 @@ impl TradeWorker {
         )?;
 
         // Record timestamp when the trade was closed
-        let trade = database.write_trade_db().target_trade(trade)?;
+        let trade = database
+            .write_trade_db()
+            .update_trade_status(Status::ClosedTarget, trade)?;
 
         Ok((trade, tx))
     }
@@ -147,7 +151,9 @@ impl TradeWorker {
         )?;
 
         // Record timestamp when the trade was closed
-        let trade = database.write_trade_db().stop_trade(trade)?;
+        let trade = database
+            .write_trade_db()
+            .update_trade_status(Status::ClosedStopLoss, trade)?;
 
         Ok((trade, tx))
     }
