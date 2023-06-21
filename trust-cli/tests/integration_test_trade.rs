@@ -674,6 +674,16 @@ impl Broker for MockBroker {
         Ok((status, orders, log))
     }
 
+    fn sync_manually_closed_trade(
+        &self,
+        trade: &Trade,
+        _account: &Account,
+    ) -> Result<(Status, Vec<Order>, BrokerLog), Box<dyn Error>> {
+        let (status, orders) = (self.sync_trade)(trade);
+        let log = BrokerLog::default();
+        Ok((status, orders, log))
+    }
+
     fn close_trade(
         &self,
         _trade: &Trade,

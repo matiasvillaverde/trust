@@ -26,7 +26,7 @@ impl Broker for AlpacaBroker {
         trade: &Trade,
         account: &Account,
     ) -> Result<(Status, Vec<Order>, BrokerLog), Box<dyn Error>> {
-        sync_trade::sync(trade, account)
+        sync_trade::sync(trade, account, sync_trade::find_entry)
     }
 
     fn close_trade(
@@ -35,6 +35,14 @@ impl Broker for AlpacaBroker {
         account: &Account,
     ) -> Result<(Order, BrokerLog), Box<dyn Error>> {
         close_trade::close(trade, account)
+    }
+
+    fn sync_manually_closed_trade(
+        &self,
+        trade: &Trade,
+        account: &Account,
+    ) -> Result<(Status, Vec<Order>, BrokerLog), Box<dyn Error>> {
+        sync_trade::sync(trade, account, sync_trade::find_target)
     }
 }
 

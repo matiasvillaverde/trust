@@ -10,6 +10,7 @@ use trust_model::{Account, BrokerLog, Order, Status, Trade};
 pub fn sync(
     trade: &Trade,
     account: &Account,
+    find_order: fn(Vec<AlpacaOrder>, &Trade) -> Result<AlpacaOrder, Box<dyn Error>>,
 ) -> Result<(Status, Vec<Order>, BrokerLog), Box<dyn Error>> {
     assert!(trade.account_id == account.id); // Verify that the trade is for the account
 
@@ -26,7 +27,7 @@ pub fn sync(
         ..Default::default()
     };
 
-    let (status, updated_orders) = sync_trade(trade, orders)?;
+    let (status, updated_orders) = sync_trade(trade, orders, find_order)?;
     Ok((status, updated_orders, log))
 }
 
@@ -34,9 +35,10 @@ pub fn sync(
 fn sync_trade(
     trade: &Trade,
     orders: Vec<AlpacaOrder>,
+    find_order: fn(Vec<AlpacaOrder>, &Trade) -> Result<AlpacaOrder, Box<dyn Error>>,
 ) -> Result<(Status, Vec<Order>), Box<dyn Error>> {
     // 1. Find entry order
-    let entry_order = find_entry(orders, trade)?;
+    let entry_order = find_order(orders, trade)?;
 
     // 2. Map entry order that has Stop and Target as legs.
     let updated_orders = order_mapper::map_orders(entry_order, trade)?;
@@ -60,15 +62,22 @@ async fn get_closed_orders(
     };
 
     let orders = client.issue::<Get>(&request).await.unwrap();
-
     Ok(orders)
 }
 
 /// Find entry order from closed orders
-fn find_entry(orders: Vec<AlpacaOrder>, trade: &Trade) -> Result<AlpacaOrder, Box<dyn Error>> {
+pub fn find_entry(orders: Vec<AlpacaOrder>, trade: &Trade) -> Result<AlpacaOrder, Box<dyn Error>> {
     orders
         .into_iter()
         .find(|x| x.client_order_id == trade.entry.id.to_string())
+        .ok_or_else(|| "Entry order not found, it can be that is not filled yet".into())
+}
+
+/// Find the target order that is on the first level of the JSON
+pub fn find_target(orders: Vec<AlpacaOrder>, trade: &Trade) -> Result<AlpacaOrder, Box<dyn Error>> {
+    orders
+        .into_iter()
+        .find(|x| x.id.to_string() == trade.target.broker_order_id.unwrap().to_string())
         .ok_or_else(|| "Entry order not found, it can be that is not filled yet".into())
 }
 
@@ -324,7 +333,7 @@ mod tests {
         // Create some sample orders
         let orders = default_from_json();
 
-        let (status, updated_orders) = sync_trade(&trade, orders).unwrap();
+        let (status, updated_orders) = sync_trade(&trade, orders, find_entry).unwrap();
 
         // Assert that the orders has been updated
         assert_eq!(status, Status::ClosedTarget);

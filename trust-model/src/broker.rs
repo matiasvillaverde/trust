@@ -42,7 +42,14 @@ pub trait Broker {
         trade: &Trade,
         account: &Account,
     ) -> Result<(BrokerLog, OrderIds), Box<dyn Error>>;
+
     fn sync_trade(
+        &self,
+        trade: &Trade,
+        account: &Account,
+    ) -> Result<(Status, Vec<Order>, BrokerLog), Box<dyn Error>>;
+
+    fn sync_manually_closed_trade(
         &self,
         trade: &Trade,
         account: &Account,
