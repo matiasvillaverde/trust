@@ -362,7 +362,7 @@ impl TrustFacade {
 
         // 3. Transfer funds back to account
         let (tx, account_o, trade_o) =
-            TransactionWorker::transfer_payment_from(&trade, self.factory.as_mut())?;
+            TransactionWorker::transfer_payment_from(trade, self.factory.as_mut())?;
 
         Ok((trade_o, account_o, tx))
     }

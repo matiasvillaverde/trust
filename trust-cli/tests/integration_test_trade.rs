@@ -643,7 +643,7 @@ impl MockBroker {
     ) -> MockBroker {
         MockBroker {
             sync_trade: provider,
-            closed_order: closed_order,
+            closed_order,
         }
     }
 }

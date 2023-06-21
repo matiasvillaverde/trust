@@ -35,20 +35,15 @@ fn sync_trade(
     trade: &Trade,
     orders: Vec<AlpacaOrder>,
 ) -> Result<(Status, Vec<Order>), Box<dyn Error>> {
-    let updated_orders;
+    let updated_orders = match trade.status {
+        Status::Canceled => {
+            find_target(orders, trade).and_then(|order| order_mapper::map_target(order, trade))
+        }
+        _ => find_entry(orders, trade).and_then(|order| order_mapper::map_entry(order, trade)),
+    }?;
 
-    if trade.status == Status::Canceled {
-        let order = find_target(orders, trade)?;
-        updated_orders = order_mapper::map_target(order, &trade)?;
-    } else {
-        let order = find_entry(orders, trade)?;
-        updated_orders = order_mapper::map_entry(order, &trade)?;
-    }
-
-    // 3. Update Trade Status
     let status = order_mapper::map_trade_status(trade, &updated_orders);
 
-    // 5. Return updated orders and status
     Ok((status, updated_orders))
 }
 
@@ -501,11 +496,10 @@ mod tests {
             ..Default::default()
         };
 
-        // Create a sample order
         let orders = vec![default(); 5];
         let mut all_orders = vec![entry_order.clone()];
-        all_orders.append(&mut orders.clone());
-        all_orders.append(&mut vec![default(); 6]);
+        all_orders.extend(orders);
+        all_orders.resize(12, default());
 
         let result_1 = find_entry(all_orders, &trade);
         assert_eq!(result_1.unwrap(), entry_order);
