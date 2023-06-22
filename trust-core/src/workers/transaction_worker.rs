@@ -302,12 +302,12 @@ impl TransactionWorker {
 
         // 3. If the stop was lower than the planned price, then we should create a transaction
         // with category slippage. For more information see: https://www.investopedia.com/terms/s/slippage.asp
-        let category;
-        if total > trade.safety_stop.unit_price * Decimal::from(trade.entry.quantity) {
-            category = TransactionCategory::CloseSafetyStopSlippage(trade.id);
+        let category = if total > trade.safety_stop.unit_price * Decimal::from(trade.entry.quantity)
+        {
+            TransactionCategory::CloseSafetyStopSlippage(trade.id)
         } else {
-            category = TransactionCategory::CloseSafetyStop(trade.id);
-        }
+            TransactionCategory::CloseSafetyStop(trade.id)
+        };
 
         // 4. Create transaction
         let transaction = database.write_transaction_db().create_transaction(
