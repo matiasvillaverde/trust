@@ -120,8 +120,13 @@ impl TradeDialogBuilder {
         self
     }
 
-    pub fn currency(mut self) -> Self {
-        let currencies = Currency::all(); // TODO: Show only currencies available
+    pub fn currency(mut self, trust: &mut TrustFacade) -> Self {
+        let currencies: Vec<Currency> = trust
+            .search_all_overviews(self.account.clone().unwrap().id)
+            .unwrap()
+            .into_iter()
+            .map(|overview| overview.currency)
+            .collect();
 
         let selected_currency = FuzzySelect::with_theme(&ColorfulTheme::default())
             .with_prompt("Currency:")
