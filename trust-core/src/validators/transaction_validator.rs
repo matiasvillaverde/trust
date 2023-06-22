@@ -2,7 +2,8 @@ use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use std::error::Error;
 use trust_model::{
-    Currency, ReadAccountOverviewDB, ReadTradeDB, Status, Trade, TransactionCategory,
+    AccountOverview, Currency, ReadAccountOverviewDB, ReadTradeDB, Status, Trade,
+    TransactionCategory,
 };
 use uuid::Uuid;
 pub struct TransactionValidator;
@@ -61,6 +62,23 @@ impl TransactionValidator {
             return Err(Box::new(TransactionValidationError {
                 code: TransactionValidationErrorCode::NotEnoughFunds,
                 message: "Trade doesn't have enough funding".to_string(),
+            }));
+        }
+        Ok(())
+    }
+
+    pub fn validate_fee(account: &AccountOverview, fee: Decimal) -> TransactionValidationResult {
+        if fee <= dec!(0) {
+            return Err(Box::new(TransactionValidationError {
+                code: TransactionValidationErrorCode::FeeMustBePositive,
+                message: "Fee must be positive".to_string(),
+            }));
+        }
+
+        if fee > account.total_available {
+            return Err(Box::new(TransactionValidationError {
+                code: TransactionValidationErrorCode::NotEnoughFunds,
+                message: "Account doesn't have enough funds".to_string(),
             }));
         }
         Ok(())
@@ -188,6 +206,7 @@ pub enum TransactionValidationErrorCode {
     NotEnoughFunds,
     WrongTradeStatus,
     FillingMustBePositive,
+    FeeMustBePositive,
 }
 
 #[derive(Debug, PartialEq)]
@@ -300,5 +319,45 @@ mod tests {
                 message: "Trade status is wrong".to_string(),
             }))
         );
+    }
+
+    #[test]
+    fn test_validate_fee_positive() {
+        let account = AccountOverview {
+            total_available: dec!(100),
+            ..Default::default()
+        };
+        let fee = dec!(10);
+        assert_eq!(TransactionValidator::validate_fee(&account, fee), Ok(()));
+    }
+
+    #[test]
+    fn test_validate_fee_zero() {
+        let account = AccountOverview {
+            total_available: dec!(100),
+            ..Default::default()
+        };
+        let fee = dec!(0);
+        assert!(TransactionValidator::validate_fee(&account, fee).is_err());
+    }
+
+    #[test]
+    fn test_validate_fee_negative() {
+        let account = AccountOverview {
+            total_available: dec!(100),
+            ..Default::default()
+        };
+        let fee = dec!(-10);
+        assert!(TransactionValidator::validate_fee(&account, fee).is_err());
+    }
+
+    #[test]
+    fn test_validate_fee_not_enough_funds() {
+        let account = AccountOverview {
+            total_available: dec!(100),
+            ..Default::default()
+        };
+        let fee = dec!(200);
+        assert!(TransactionValidator::validate_fee(&account, fee).is_err());
     }
 }

@@ -206,12 +206,16 @@ impl TransactionWorker {
         trade: &Trade,
         database: &mut dyn DatabaseFactory,
     ) -> Result<(Transaction, AccountOverview), Box<dyn Error>> {
-        // TODO: Validate that account has enough funds to pay a fee.
+        // 1. Validate that account has enough funds to pay a fee.
+        let account_overview = database
+            .read_account_overview_db()
+            .read_account_overview_currency(trade.account_id, &trade.currency)?;
+        TransactionValidator::validate_fee(&account_overview, fee)?;
 
+        // 2. Create transaction
         let account = database
             .read_account_db()
             .read_account_id(trade.account_id)?;
-
         let transaction = database.write_transaction_db().create_transaction(
             &account,
             fee,
@@ -219,7 +223,7 @@ impl TransactionWorker {
             TransactionCategory::FeeOpen(trade.id),
         )?;
 
-        // Update account overview
+        // 3. Update account overview
         let overview =
             OverviewWorker::update_account_overview(database, &account, &trade.currency)?;
 
