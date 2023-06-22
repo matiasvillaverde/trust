@@ -1,6 +1,9 @@
 use rust_decimal::Decimal;
+use rust_decimal_macros::dec;
 use std::error::Error;
-use trust_model::{Currency, ReadAccountOverviewDB, ReadTradeDB, Status, TransactionCategory};
+use trust_model::{
+    Currency, ReadAccountOverviewDB, ReadTradeDB, Status, Trade, TransactionCategory,
+};
 use uuid::Uuid;
 pub struct TransactionValidator;
 type TransactionValidationResult = Result<(), Box<TransactionValidationError>>;
@@ -144,6 +147,30 @@ fn validate_trade(
     }
 }
 
+pub fn validate_fill(trade: &Trade, total: Decimal) -> TransactionValidationResult {
+    if trade.status != Status::Funded {
+        return Err(Box::new(TransactionValidationError {
+            code: TransactionValidationErrorCode::WrongTradeStatus,
+            message: "Trade status is wrong".to_string(),
+        }));
+    }
+
+    if total <= dec!(0) {
+        return Err(Box::new(TransactionValidationError {
+            code: TransactionValidationErrorCode::FillingMustBePositive,
+            message: "Filling must be positive".to_string(),
+        }));
+    }
+
+    if total > trade.overview.funding {
+        return Err(Box::new(TransactionValidationError {
+            code: TransactionValidationErrorCode::NotEnoughFunds,
+            message: "Trade doesn't have enough funding".to_string(),
+        }));
+    }
+    Ok(())
+}
+
 #[derive(Debug, PartialEq)]
 pub enum TransactionValidationErrorCode {
     NotAuthorized,
@@ -155,9 +182,12 @@ pub enum TransactionValidationErrorCode {
     OverviewForWithdrawNotFound,
     OverviewForTradeNotFound,
     TradeNotFound,
+    NotEnoughFunds,
+    WrongTradeStatus,
+    FillingMustBePositive,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct TransactionValidationError {
     pub code: TransactionValidationErrorCode,
     pub message: String,
@@ -172,5 +202,83 @@ impl std::fmt::Display for TransactionValidationError {
 impl Error for TransactionValidationError {
     fn description(&self) -> &str {
         &self.message
+    }
+}
+#[cfg(test)]
+mod tests {
+    use trust_model::TradeOverview;
+
+    use super::*;
+
+    #[test]
+    fn test_validate_fill_with_enough_funds() {
+        let trade = Trade {
+            overview: TradeOverview {
+                funding: dec!(500),
+                ..Default::default()
+            },
+            status: Status::Funded,
+            ..Default::default()
+        };
+        let total = dec!(500);
+        assert!(validate_fill(&trade, total).is_ok());
+    }
+
+    #[test]
+    fn test_validate_fill_with_not_enough_funds() {
+        let trade = Trade {
+            overview: TradeOverview {
+                funding: dec!(500),
+                ..Default::default()
+            },
+            status: Status::Funded,
+            ..Default::default()
+        };
+        let total = dec!(1500);
+        let expected_err = TransactionValidationError {
+            code: TransactionValidationErrorCode::NotEnoughFunds,
+            message: "Trade doesn't have enough funding".to_string(),
+        };
+        assert_eq!(validate_fill(&trade, total), Err(Box::new(expected_err)));
+    }
+
+    #[test]
+    fn test_validate_fill_with_zero_total() {
+        let trade = Trade {
+            overview: TradeOverview {
+                funding: dec!(500),
+                ..Default::default()
+            },
+            status: Status::Funded,
+            ..Default::default()
+        };
+        let total = dec!(0);
+        assert_eq!(
+            validate_fill(&trade, total),
+            Err(Box::new(TransactionValidationError {
+                code: TransactionValidationErrorCode::FillingMustBePositive,
+                message: "Filling must be positive".to_string(),
+            }))
+        );
+    }
+
+    #[test]
+    fn test_validate_fill_with_unfunded_trade() {
+        let trade = Trade {
+            overview: TradeOverview {
+                funding: dec!(500),
+                ..Default::default()
+            },
+            status: Status::Filled,
+            ..Default::default()
+        };
+        let total = dec!(500);
+        assert_eq!(
+            validate_fill(&trade, total),
+            Err(Box::new(TransactionValidationError {
+                code: TransactionValidationErrorCode::WrongTradeStatus,
+                message: "Trade status is wrong".to_string(),
+            }))
+        );
     }
 }

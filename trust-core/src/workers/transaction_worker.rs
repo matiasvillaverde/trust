@@ -164,11 +164,14 @@ impl TransactionWorker {
         database: &mut dyn DatabaseFactory,
     ) -> Result<(Transaction, TradeOverview), Box<dyn Error>> {
         // TODO: Validate that trade has enough funds to be opened
+
         let account = database
             .read_account_db()
             .read_account_id(trade.account_id)?;
 
         let total = trade.entry.average_filled_price.unwrap() * Decimal::from(trade.entry.quantity);
+
+        if total > dec!(0) && total <= trade.overview.funding {}
 
         let transaction = database.write_transaction_db().create_transaction(
             &account,
