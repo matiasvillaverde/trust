@@ -68,7 +68,7 @@ impl TransactionWorker {
                     TransactionCategory::Deposit,
                 )?;
                 let updated_overview =
-                    OverviewWorker::update_account_overview(database, &account, currency)?;
+                    OverviewWorker::calculate_account(database, &account, currency)?;
                 Ok((transaction, updated_overview))
             }
             Err(error) => {
@@ -83,7 +83,7 @@ impl TransactionWorker {
                         .write_account_overview_db()
                         .create_account_overview(&account, currency)?;
                     let updated_overview =
-                        OverviewWorker::update_account_overview(database, &account, currency)?;
+                        OverviewWorker::calculate_account(database, &account, currency)?;
                     Ok((transaction, updated_overview))
                 } else {
                     Err(error)
@@ -119,8 +119,7 @@ impl TransactionWorker {
         )?;
 
         // Update account overview
-        let updated_overview =
-            OverviewWorker::update_account_overview(database, &account, currency)?;
+        let updated_overview = OverviewWorker::calculate_account(database, &account, currency)?;
 
         Ok((transaction, updated_overview))
     }
@@ -152,9 +151,9 @@ impl TransactionWorker {
         )?;
 
         let account_overview =
-            OverviewWorker::update_account_overview(database, &account, &trade.currency)?;
+            OverviewWorker::calculate_account(database, &account, &trade.currency)?;
 
-        let trade_overview: TradeOverview = OverviewWorker::update_trade_overview(database, trade)?;
+        let trade_overview: TradeOverview = OverviewWorker::calculate_trade(database, trade)?;
 
         Ok((transaction, account_overview, trade_overview))
     }
@@ -163,13 +162,17 @@ impl TransactionWorker {
         trade: &Trade,
         database: &mut dyn DatabaseFactory,
     ) -> Result<(Transaction, TradeOverview), Box<dyn Error>> {
-        // TODO: Validate that trade has enough funds to be opened
         let account = database
             .read_account_db()
             .read_account_id(trade.account_id)?;
 
+        // 1. Calculate the total amount of the trade
         let total = trade.entry.average_filled_price.unwrap() * Decimal::from(trade.entry.quantity);
 
+        // 2. Validate that the trade has enough funds to fill the trade
+        TransactionValidator::validate_fill(trade, total)?;
+
+        // 3. Create transaction
         let transaction = database.write_transaction_db().create_transaction(
             &account,
             total,
@@ -177,7 +180,7 @@ impl TransactionWorker {
             TransactionCategory::OpenTrade(trade.id),
         )?;
 
-        // If there is a difference between the unit_price and the average_filled_price
+        // 4. If there is a difference between the unit_price and the average_filled_price
         // then we should create a transaction to transfer the difference to the account.
         let mut total_difference =
             total - trade.entry.unit_price * Decimal::from(trade.entry.quantity);
@@ -192,8 +195,8 @@ impl TransactionWorker {
             )?;
         }
 
-        // Update trade overview
-        let trade_overview: TradeOverview = OverviewWorker::update_trade_overview(database, trade)?;
+        // 5. Update trade overview
+        let trade_overview: TradeOverview = OverviewWorker::calculate_trade(database, trade)?;
         Ok((transaction, trade_overview))
     }
 
@@ -202,12 +205,16 @@ impl TransactionWorker {
         trade: &Trade,
         database: &mut dyn DatabaseFactory,
     ) -> Result<(Transaction, AccountOverview), Box<dyn Error>> {
-        // TODO: Validate that account has enough funds to pay a fee.
+        // 1. Validate that account has enough funds to pay a fee.
+        let account_overview = database
+            .read_account_overview_db()
+            .read_account_overview_currency(trade.account_id, &trade.currency)?;
+        TransactionValidator::validate_fee(&account_overview, fee)?;
 
+        // 2. Create transaction
         let account = database
             .read_account_db()
             .read_account_id(trade.account_id)?;
-
         let transaction = database.write_transaction_db().create_transaction(
             &account,
             fee,
@@ -215,9 +222,8 @@ impl TransactionWorker {
             TransactionCategory::FeeOpen(trade.id),
         )?;
 
-        // Update account overview
-        let overview =
-            OverviewWorker::update_account_overview(database, &account, &trade.currency)?;
+        // 3. Update account overview
+        let overview = OverviewWorker::calculate_account(database, &account, &trade.currency)?;
 
         Ok((transaction, overview))
     }
@@ -227,7 +233,12 @@ impl TransactionWorker {
         trade: &Trade,
         database: &mut dyn DatabaseFactory,
     ) -> Result<(Transaction, AccountOverview), Box<dyn Error>> {
-        // TODO: Validate that account has enough funds to pay a fee.
+        // 1. Validate that account has enough funds to pay a fee.
+        let account_overview = database
+            .read_account_overview_db()
+            .read_account_overview_currency(trade.account_id, &trade.currency)?;
+        TransactionValidator::validate_fee(&account_overview, fee)?;
+
         let account = database
             .read_account_db()
             .read_account_id(trade.account_id)?;
@@ -240,8 +251,7 @@ impl TransactionWorker {
         )?;
 
         // Update account overview
-        let overview =
-            OverviewWorker::update_account_overview(database, &account, &trade.currency)?;
+        let overview = OverviewWorker::calculate_account(database, &account, &trade.currency)?;
 
         Ok((transaction, overview))
     }
@@ -250,8 +260,6 @@ impl TransactionWorker {
         trade: &Trade,
         database: &mut dyn DatabaseFactory,
     ) -> Result<(Transaction, TradeOverview), Box<dyn Error>> {
-        // TODO: Validate that trade can be closed
-
         let account = database
             .read_account_db()
             .read_account_id(trade.account_id)?;
@@ -259,6 +267,10 @@ impl TransactionWorker {
         let total =
             trade.target.average_filled_price.unwrap() * Decimal::from(trade.entry.quantity);
 
+        // 1. Validate that the closing is possible
+        TransactionValidator::validate_close(total)?;
+
+        // 2. Create transaction
         let transaction = database.write_transaction_db().create_transaction(
             &account,
             total,
@@ -266,9 +278,9 @@ impl TransactionWorker {
             TransactionCategory::CloseTarget(trade.id),
         )?;
 
-        // Update trade overview
-        let trade_overview: TradeOverview = OverviewWorker::update_trade_overview(database, trade)?;
-        OverviewWorker::update_account_overview(database, &account, &trade.currency)?;
+        // 3. Update trade overview and account overview
+        let trade_overview: TradeOverview = OverviewWorker::calculate_trade(database, trade)?;
+        OverviewWorker::calculate_account(database, &account, &trade.currency)?;
 
         Ok((transaction, trade_overview))
     }
@@ -277,24 +289,37 @@ impl TransactionWorker {
         trade: &Trade,
         database: &mut dyn DatabaseFactory,
     ) -> Result<(Transaction, TradeOverview), Box<dyn Error>> {
-        // TODO: Validate that trade can be closed
-
         let account = database
             .read_account_db()
             .read_account_id(trade.account_id)?;
 
-        let total = trade.safety_stop.unit_price * Decimal::from(trade.entry.quantity);
+        // 1. Calculate the total amount of the trade
+        let total =
+            trade.safety_stop.average_filled_price.unwrap() * Decimal::from(trade.entry.quantity);
 
+        // 2. Validate that the closing is possible
+        TransactionValidator::validate_close(total)?;
+
+        // 3. If the stop was lower than the planned price, then we should create a transaction
+        // with category slippage. For more information see: https://www.investopedia.com/terms/s/slippage.asp
+        let category = if total > trade.safety_stop.unit_price * Decimal::from(trade.entry.quantity)
+        {
+            TransactionCategory::CloseSafetyStopSlippage(trade.id)
+        } else {
+            TransactionCategory::CloseSafetyStop(trade.id)
+        };
+
+        // 4. Create transaction
         let transaction = database.write_transaction_db().create_transaction(
             &account,
             total,
             &trade.currency,
-            TransactionCategory::CloseSafetyStop(trade.id),
+            category,
         )?;
 
-        // Update trade overview
-        let trade_overview: TradeOverview = OverviewWorker::update_trade_overview(database, trade)?;
-        OverviewWorker::update_account_overview(database, &account, &trade.currency)?;
+        // 5. Update trade overview and account overview
+        let trade_overview: TradeOverview = OverviewWorker::calculate_trade(database, trade)?;
+        OverviewWorker::calculate_account(database, &account, &trade.currency)?;
 
         Ok((transaction, trade_overview))
     }
@@ -319,8 +344,8 @@ impl TransactionWorker {
 
         // Update account overview and trade overview.
         let account_overview: AccountOverview =
-            OverviewWorker::update_account_overview(database, &account, &trade.currency)?;
-        let trade_overview: TradeOverview = OverviewWorker::update_trade_overview(database, trade)?;
+            OverviewWorker::calculate_account(database, &account, &trade.currency)?;
+        let trade_overview: TradeOverview = OverviewWorker::calculate_trade(database, trade)?;
 
         Ok((transaction, account_overview, trade_overview))
     }

@@ -12,7 +12,7 @@ use crate::{
 pub struct OverviewWorker;
 
 impl OverviewWorker {
-    pub fn update_account_overview(
+    pub fn calculate_account(
         database: &mut dyn DatabaseFactory,
         account: &Account,
         currency: &Currency,
@@ -53,7 +53,7 @@ impl OverviewWorker {
             )
     }
 
-    pub fn update_trade_overview(
+    pub fn calculate_trade(
         database: &mut dyn DatabaseFactory,
         trade: &Trade,
     ) -> Result<TradeOverview, Box<dyn Error>> {

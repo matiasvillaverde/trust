@@ -399,8 +399,42 @@ fn assert_stop_filled(trade: &Trade, trust: &mut TrustFacade) {
     let account = trust.search_account("alpaca").unwrap();
     let overview = trust.search_overview(account.id, &Currency::USD).unwrap();
     assert_eq!(overview.currency, Currency::USD);
-    assert_eq!(overview.total_available, dec!(49050)); // Including the 50 USD from the difference of the target unit price and average filled price
-    assert_eq!(overview.total_balance, dec!(49050));
+    assert_eq!(overview.total_available, dec!(49550.0)); // Including the 50 USD from the difference of the target unit price and average filled price
+    assert_eq!(overview.total_balance, dec!(49550.0));
+    assert_eq!(overview.total_in_trade, dec!(0));
+    assert_eq!(overview.taxed, dec!(0));
+}
+
+#[test]
+fn test_trade_stop_filled_slippage() {
+    let (trust, account, trade) = create_trade(BrokerResponse::orders_stop_filled_slippage, None);
+    let mut trust = trust;
+
+    // 9. Sync trade with the Broker - Target is filled
+    trust.sync_trade(&trade, &account).unwrap();
+
+    let trade = trust
+        .search_trades(account.id, Status::ClosedStopLoss)
+        .unwrap()
+        .first()
+        .unwrap()
+        .clone();
+
+    assert_eq!(trade.status, Status::ClosedStopLoss);
+
+    // Assert Stop
+    assert_eq!(trade.safety_stop.quantity, 500);
+    assert_eq!(trade.safety_stop.unit_price, dec!(38));
+    assert_eq!(trade.safety_stop.average_filled_price, Some(dec!(30.2)));
+    assert_eq!(trade.safety_stop.filled_quantity, 500);
+    assert_eq!(trade.safety_stop.status, OrderStatus::Filled);
+
+    // Assert Account Overview
+    let account = trust.search_account("alpaca").unwrap();
+    let overview = trust.search_overview(account.id, &Currency::USD).unwrap();
+    assert_eq!(overview.currency, Currency::USD);
+    assert_eq!(overview.total_available, dec!(45150.0)); // Including the 50 USD from the difference of the target unit price and average filled price
+    assert_eq!(overview.total_balance, dec!(45150.0));
     assert_eq!(overview.total_in_trade, dec!(0));
     assert_eq!(overview.taxed, dec!(0));
 }
@@ -615,6 +649,34 @@ impl BrokerResponse {
         };
 
         (Status::ClosedStopLoss, vec![entry, target, stop])
+    }
+
+    fn orders_stop_filled_slippage(trade: &Trade) -> (Status, Vec<Order>) {
+        let entry = Order {
+            id: trade.entry.id,
+            broker_order_id: Some(Uuid::parse_str("b6b12dc0-8e21-4d2e-8315-907d3116a6b8").unwrap()),
+            filled_quantity: 500,
+            average_filled_price: Some(dec!(39.9)),
+            status: OrderStatus::Filled,
+            filled_at: Some(Utc::now().naive_utc()),
+            expired_at: None,
+            cancelled_at: None,
+            ..Default::default()
+        };
+
+        let stop = Order {
+            id: trade.safety_stop.id,
+            broker_order_id: Some(Uuid::parse_str("b6b12dc0-8e21-4d2e-8315-907d3116a6b8").unwrap()),
+            filled_quantity: 500,
+            average_filled_price: Some(dec!(30.2)),
+            status: OrderStatus::Filled,
+            filled_at: Some(Utc::now().naive_utc()),
+            expired_at: None,
+            cancelled_at: None,
+            ..Default::default()
+        };
+
+        (Status::ClosedStopLoss, vec![entry, stop])
     }
 
     fn closed_order(trade: &Trade) -> Option<Order> {

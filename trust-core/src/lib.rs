@@ -285,7 +285,7 @@ impl TrustFacade {
         TradeWorker::update_status(&trade, status, &mut *self.factory)?;
 
         // 5. Update Account Overview
-        OverviewWorker::update_account_overview(&mut *self.factory, account, &trade.currency)?;
+        OverviewWorker::calculate_account(&mut *self.factory, account, &trade.currency)?;
 
         Ok((status, orders, log))
     }
@@ -306,8 +306,7 @@ impl TrustFacade {
         (Transaction, Transaction, TradeOverview, AccountOverview),
         Box<dyn std::error::Error>,
     > {
-        let (trade, tx_stop) =
-            TradeWorker::update_trade_stop_executed(trade, fee, self.factory.as_mut())?;
+        let (trade, tx_stop) = TradeWorker::stop_executed(trade, fee, self.factory.as_mut())?;
         let (tx_payment, account_overview, trade_overview) =
             TransactionWorker::transfer_payment_from(&trade, self.factory.as_mut())?;
         Ok((tx_stop, tx_payment, trade_overview, account_overview))
@@ -375,8 +374,7 @@ impl TrustFacade {
         (Transaction, Transaction, TradeOverview, AccountOverview),
         Box<dyn std::error::Error>,
     > {
-        let (trade, tx_target) =
-            TradeWorker::update_trade_target_executed(trade, fee, self.factory.as_mut())?;
+        let (trade, tx_target) = TradeWorker::target_executed(trade, fee, self.factory.as_mut())?;
         let (tx_payment, account_overview, trade_overview) =
             TransactionWorker::transfer_payment_from(&trade, self.factory.as_mut())?;
         Ok((tx_target, tx_payment, trade_overview, account_overview))
