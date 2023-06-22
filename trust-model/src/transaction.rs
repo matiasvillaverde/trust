@@ -222,6 +222,13 @@ impl TransactionCategory {
                     Err(TransactionCategoryParseError)
                 }
             }
+            "close_safety_stop_slippage" => {
+                if let Some(trade_id) = trade_id {
+                    Ok(TransactionCategory::CloseSafetyStopSlippage(trade_id))
+                } else {
+                    Err(TransactionCategoryParseError)
+                }
+            }
             "fee_open" => {
                 if let Some(trade_id) = trade_id {
                     Ok(TransactionCategory::FeeOpen(trade_id))

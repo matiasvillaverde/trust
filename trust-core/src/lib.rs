@@ -285,7 +285,7 @@ impl TrustFacade {
         TradeWorker::update_status(&trade, status, &mut *self.factory)?;
 
         // 5. Update Account Overview
-        OverviewWorker::update_account_overview(&mut *self.factory, account, &trade.currency)?;
+        OverviewWorker::calculate_account(&mut *self.factory, account, &trade.currency)?;
 
         Ok((status, orders, log))
     }

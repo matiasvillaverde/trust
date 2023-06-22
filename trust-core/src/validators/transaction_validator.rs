@@ -83,6 +83,16 @@ impl TransactionValidator {
         }
         Ok(())
     }
+
+    pub fn validate_close(total: Decimal) -> TransactionValidationResult {
+        if total <= dec!(0) {
+            return Err(Box::new(TransactionValidationError {
+                code: TransactionValidationErrorCode::ClosingMustBePositive,
+                message: "Closing must be positive".to_string(),
+            }));
+        }
+        Ok(())
+    }
 }
 
 fn validate_deposit(
@@ -207,6 +217,7 @@ pub enum TransactionValidationErrorCode {
     WrongTradeStatus,
     FillingMustBePositive,
     FeeMustBePositive,
+    ClosingMustBePositive,
 }
 
 #[derive(Debug, PartialEq)]
@@ -359,5 +370,24 @@ mod tests {
         };
         let fee = dec!(200);
         assert!(TransactionValidator::validate_fee(&account, fee).is_err());
+    }
+
+    #[test]
+    fn test_validate_close_success() {
+        let result = TransactionValidator::validate_close(dec!(10));
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_close_failure() {
+        let result = TransactionValidator::validate_close(dec!(-10));
+        assert!(result.is_err());
+
+        let err = result.unwrap_err();
+        assert_eq!(
+            err.code,
+            TransactionValidationErrorCode::ClosingMustBePositive
+        );
+        assert_eq!(err.message, "Closing must be positive");
     }
 }
