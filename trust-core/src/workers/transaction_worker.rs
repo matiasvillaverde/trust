@@ -163,16 +163,17 @@ impl TransactionWorker {
         trade: &Trade,
         database: &mut dyn DatabaseFactory,
     ) -> Result<(Transaction, TradeOverview), Box<dyn Error>> {
-        // TODO: Validate that trade has enough funds to be opened
-
         let account = database
             .read_account_db()
             .read_account_id(trade.account_id)?;
 
+        // 1. Calculate the total amount of the trade
         let total = trade.entry.average_filled_price.unwrap() * Decimal::from(trade.entry.quantity);
 
-        if total > dec!(0) && total <= trade.overview.funding {}
+        // 2. Validate that the trade has enough funds to fill the trade
+        TransactionValidator::validate_fill(trade, total)?;
 
+        // 3. Create transaction
         let transaction = database.write_transaction_db().create_transaction(
             &account,
             total,
@@ -180,7 +181,7 @@ impl TransactionWorker {
             TransactionCategory::OpenTrade(trade.id),
         )?;
 
-        // If there is a difference between the unit_price and the average_filled_price
+        // 4. If there is a difference between the unit_price and the average_filled_price
         // then we should create a transaction to transfer the difference to the account.
         let mut total_difference =
             total - trade.entry.unit_price * Decimal::from(trade.entry.quantity);
@@ -195,7 +196,7 @@ impl TransactionWorker {
             )?;
         }
 
-        // Update trade overview
+        // 5. Update trade overview
         let trade_overview: TradeOverview = OverviewWorker::update_trade_overview(database, trade)?;
         Ok((transaction, trade_overview))
     }
