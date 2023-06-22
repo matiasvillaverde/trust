@@ -3,7 +3,7 @@ members = ["trust-model", "trust-db-sqlite", "trust-core", "trust-cli", "trust-b
 
 [workspace.package]
 name = "trust"
-version = "0.2.0"
+version = "0.2.1"
 authors = ["Matias Villaverde <matiasvillaverde@protonmail.com>"]
 rust-version = "1.68.2"
 license = "MIT"

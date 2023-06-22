@@ -12,7 +12,7 @@ repository = { workspace = true }
 
 [dependencies]
 
-trust-model = { path = "../trust-model", version = "0.2.0" }
+trust-model = { path = "../trust-model", version = "0.2.1" }
 
 
 rust_decimal = {workspace = true}
