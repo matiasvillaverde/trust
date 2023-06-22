@@ -33,8 +33,7 @@ impl TradeWorker {
                 let trade = database.read_trade_db().read_trade(trade.id)?;
                 if trade.status == Status::Filled {
                     // We also update the trade stop loss
-                    let (trade, _) =
-                        TradeWorker::update_trade_stop_executed(&trade, dec!(0), database)?;
+                    let (trade, _) = TradeWorker::stop_executed(&trade, dec!(0), database)?;
                     let (tx, _, _) = TransactionWorker::transfer_payment_from(&trade, database)?;
 
                     return Ok((trade, Some(tx)));
@@ -54,8 +53,7 @@ impl TradeWorker {
                 if trade.status == Status::Filled || trade.status == Status::Canceled {
                     // It can be canceled if the target was updated.
                     // We also update the trade stop loss
-                    let (trade, _) =
-                        TradeWorker::update_trade_target_executed(&trade, dec!(0), database)?;
+                    let (trade, _) = TradeWorker::target_executed(&trade, dec!(0), database)?;
                     let (tx, _, _) = TransactionWorker::transfer_payment_from(&trade, database)?;
 
                     return Ok((trade, Some(tx)));
@@ -99,29 +97,27 @@ impl TradeWorker {
         Ok((trade, tx))
     }
 
-    pub fn update_trade_target_executed(
+    pub fn target_executed(
         trade: &Trade,
         fee: Decimal,
         database: &mut dyn DatabaseFactory,
     ) -> Result<(Trade, Transaction), Box<dyn Error>> {
-        // Create Transaction to pay for fees
-        if fee.is_sign_positive() {
+        // 1. Create Transaction to pay for fees
+        if fee > dec!(0) {
             TransactionWorker::transfer_closing_fee(fee, trade, database)?;
-        } else {
-            panic!("Fee cannot be negative");
         }
 
-        // Create Transaction to transfer funds from the market to the trade
+        // 2. Create Transaction to transfer funds from the market to the trade
         let (tx, _) = TransactionWorker::transfer_to_close_target(trade, database)?;
 
-        // Record timestamp when the order was closed
+        // 3. Record timestamp when the target order was closed
         OrderWorker::record_timestamp_target(
             trade,
             database.write_order_db().as_mut(),
             database.read_trade_db().as_mut(),
         )?;
 
-        // Record timestamp when the trade was closed
+        // 4. Record timestamp when the trade was closed
         let trade = database
             .write_trade_db()
             .update_trade_status(Status::ClosedTarget, trade)?;
@@ -129,29 +125,27 @@ impl TradeWorker {
         Ok((trade, tx))
     }
 
-    pub fn update_trade_stop_executed(
+    pub fn stop_executed(
         trade: &Trade,
         fee: Decimal,
         database: &mut dyn DatabaseFactory,
     ) -> Result<(Trade, Transaction), Box<dyn Error>> {
-        // Create Transaction to pay for fees
-        if fee.is_sign_positive() {
+        // 1. Create Transaction to pay for fees
+        if fee > dec!(0) {
             TransactionWorker::transfer_closing_fee(fee, trade, database)?;
-        } else {
-            panic!("Fee cannot be negative");
         }
 
-        // Create Transaction to transfer funds from the market to the trade
+        // 2. Create Transaction to transfer funds from the market to the trade
         let (tx, _) = TransactionWorker::transfer_to_close_stop(trade, database)?;
 
-        // Record timestamp when the order was closed
+        // 3. Record timestamp when the stop order was closed
         OrderWorker::record_timestamp_stop(
             trade,
             database.write_order_db().as_mut(),
             database.read_trade_db().as_mut(),
         )?;
 
-        // Record timestamp when the trade was closed
+        // 4. Record timestamp when the trade was closed
         let trade = database
             .write_trade_db()
             .update_trade_status(Status::ClosedStopLoss, trade)?;
