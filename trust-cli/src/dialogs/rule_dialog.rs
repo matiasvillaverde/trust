@@ -66,7 +66,7 @@ impl RuleDialogBuilder {
     pub fn name(mut self) -> Self {
         println!("For more information about each rule, run: rule <rule-name>");
 
-        let available_rules = RuleName::all(); //TODO: Only show the rules that can be added.
+        let available_rules = RuleName::all();
 
         let selected_rule = FuzzySelect::with_theme(&ColorfulTheme::default())
             .with_prompt("Rule:")

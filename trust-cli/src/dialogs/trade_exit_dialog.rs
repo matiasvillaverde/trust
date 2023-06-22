@@ -109,7 +109,26 @@ impl ExitDialogBuilder {
     }
 
     pub fn fee(mut self) -> Self {
-        let fee_price = Input::new().with_prompt("Fee price").interact().unwrap(); // TODO: Validate
+        let fee_price = Input::with_theme(&ColorfulTheme::default())
+            .with_prompt("Fee")
+            .validate_with({
+                |input: &String| -> Result<(), &str> {
+                    match input.parse::<Decimal>() {
+                        Ok(parsed) => {
+                            if parsed.is_sign_negative() {
+                                return Err("Please enter a positive fee");
+                            }
+                            Ok(())
+                        }
+                        Err(_) => Err("Please enter a valid number for the fee"),
+                    }
+                }
+            })
+            .interact_text()
+            .unwrap()
+            .parse::<Decimal>()
+            .unwrap();
+
         self.fee = Some(fee_price);
         self
     }
