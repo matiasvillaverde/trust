@@ -58,7 +58,6 @@ impl TransactionWorker {
             currency,
             account_id,
             database.read_account_overview_db().as_mut(),
-            database.read_trade_db().as_mut(),
         ) {
             Ok(_) => {
                 let transaction = database.write_transaction_db().create_transaction(
@@ -107,7 +106,6 @@ impl TransactionWorker {
             currency,
             account_id,
             database.read_account_overview_db().as_mut(),
-            database.read_trade_db().as_mut(),
         )?;
 
         // Create transaction
@@ -128,20 +126,15 @@ impl TransactionWorker {
         trade: &Trade,
         database: &mut dyn DatabaseFactory,
     ) -> Result<(Transaction, AccountOverview, TradeOverview), Box<dyn Error>> {
+        // 1. Validate that trade can be fund
+        crate::validators::funding_validator::can_fund(trade, database)?;
+
+        // 2. Create transaction
         let account = database
             .read_account_db()
             .read_account_id(trade.account_id)?;
 
         let trade_total = trade.entry.unit_price * Decimal::from(trade.entry.quantity);
-
-        TransactionValidator::validate(
-            TransactionCategory::FundTrade(trade.id),
-            trade_total,
-            &trade.currency,
-            account.id,
-            database.read_account_overview_db().as_mut(),
-            database.read_trade_db().as_mut(),
-        )?;
 
         let transaction = database.write_transaction_db().create_transaction(
             &account,
@@ -150,9 +143,9 @@ impl TransactionWorker {
             TransactionCategory::FundTrade(trade.id),
         )?;
 
+        // 3. Update Account Overview and Trade Overview
         let account_overview =
             OverviewWorker::calculate_account(database, &account, &trade.currency)?;
-
         let trade_overview: TradeOverview = OverviewWorker::calculate_trade(database, trade)?;
 
         Ok((transaction, account_overview, trade_overview))
