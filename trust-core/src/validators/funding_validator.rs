@@ -22,17 +22,17 @@ pub fn can_fund(trade: &Trade, database: &mut dyn DatabaseFactory) -> FundingVal
             // 3. Validate that there is enough capital available to fund the trade
             validate_enough_capital(trade, &overview)?;
             // 4. Validate the trade against all the applicable rules
-            return validate_rules(trade, &overview, database);
+            validate_rules(trade, &overview, database)
         }
         Err(e) => {
             // If there is not enough funds in the account for the given currency, return an error
-            return Err(Box::new(FundValidationError {
+            Err(Box::new(FundValidationError {
                 code: FundValidationErrorCode::NotEnoughFunds,
                 message: format!(
                     "Not enough funds in account {} for currency {}. Error: {}",
                     trade.account_id, trade.currency, e
                 ),
-            }));
+            }))
         }
     }
 }
