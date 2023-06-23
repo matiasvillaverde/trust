@@ -127,7 +127,7 @@ impl TransactionWorker {
         database: &mut dyn DatabaseFactory,
     ) -> Result<(Transaction, AccountOverview, TradeOverview), Box<dyn Error>> {
         // 1. Validate that trade can be fund
-        crate::validators::funding_validator::can_fund(trade, database)?;
+        crate::validators::funding::can_fund(trade, database)?;
 
         // 2. Create transaction
         let account = database

@@ -1,8 +1,8 @@
-pub mod funding_validator;
-pub mod rule_validator;
-pub mod trade_validator;
-mod transaction_validator;
+pub mod funding;
+pub mod rule;
+pub mod trade;
+mod transaction;
 
-pub use transaction_validator::{
+pub use transaction::{
     TransactionValidationError, TransactionValidationErrorCode, TransactionValidator,
 };
