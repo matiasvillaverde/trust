@@ -10,7 +10,7 @@ target/
 *.pdb
 
 # Ignore all database files
-trust-db-sqlite/*.db
+db-sqlite/*.db
 *.db
 
 # Ignore all environmental files

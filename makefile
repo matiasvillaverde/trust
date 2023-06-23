@@ -1,13 +1,13 @@
 # Rust Project Makefile
 
 # Set the name of your CLI executable
-CLI_NAME = trust-cli
+CLI_NAME = cli
 
 # Set the path to your database migrations folder
-MIGRATIONS_DIRECTORY = ./trust-db-sqlite/migrations
+MIGRATIONS_DIRECTORY = ./db-sqlite/migrations
 
 # Set the name of your Diesel DB configuration file
-DIESEL_CONFIG_FILE = ./trust-db-sqlite/diesel.toml
+DIESEL_CONFIG_FILE = ./db-sqlite/diesel.toml
 
 # Set the path to your Diesel DB URL
 CLI_DATABASE_URL = ~/.trust/debug.db

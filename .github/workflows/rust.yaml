@@ -30,13 +30,13 @@ jobs:
         key: ${{ runner.os }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
 
     - name: Run cargo build model
-      run: cargo build -p trust-model --locked --release
+      run: cargo build -p model --locked --release
 
     - name: Run cargo build trust
-      run: cargo build -p trust-core --locked --release
+      run: cargo build -p core --locked --release
 
     - name: Run cargo build cli
-      run: cargo build -p trust-cli --locked --release
+      run: cargo build -p cli --locked --release
 
     - name: Run cargo build main
       run: cargo build --all --locked --release
