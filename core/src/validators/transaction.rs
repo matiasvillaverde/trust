@@ -5,7 +5,7 @@ use std::error::Error;
 use uuid::Uuid;
 type TransactionValidationResult = Result<(), Box<TransactionValidationError>>;
 
-pub fn validate_fill(trade: &Trade, total: Decimal) -> TransactionValidationResult {
+pub fn can_transfer_fill(trade: &Trade, total: Decimal) -> TransactionValidationResult {
     match trade.status {
         Status::Submitted | Status::Funded => (),
         _ => {
@@ -32,7 +32,7 @@ pub fn validate_fill(trade: &Trade, total: Decimal) -> TransactionValidationResu
     Ok(())
 }
 
-pub fn validate_fee(account: &AccountOverview, fee: Decimal) -> TransactionValidationResult {
+pub fn can_transfer_fee(account: &AccountOverview, fee: Decimal) -> TransactionValidationResult {
     if fee <= dec!(0) {
         return Err(Box::new(TransactionValidationError {
             code: TransactionValidationErrorCode::FeeMustBePositive,
@@ -49,7 +49,7 @@ pub fn validate_fee(account: &AccountOverview, fee: Decimal) -> TransactionValid
     Ok(())
 }
 
-pub fn validate_close(total: Decimal) -> TransactionValidationResult {
+pub fn can_transfer_close(total: Decimal) -> TransactionValidationResult {
     if total <= dec!(0) {
         return Err(Box::new(TransactionValidationError {
             code: TransactionValidationErrorCode::ClosingMustBePositive,
@@ -59,7 +59,7 @@ pub fn validate_close(total: Decimal) -> TransactionValidationResult {
     Ok(())
 }
 
-pub fn validate_deposit(
+pub fn can_transfer_deposit(
     amount: Decimal,
     currency: &Currency,
     account_id: Uuid,
@@ -81,7 +81,7 @@ pub fn validate_deposit(
     }
 }
 
-pub fn validate_withdraw(
+pub fn can_transfer_withdraw(
     amount: Decimal,
     currency: &Currency,
     account_id: Uuid,
@@ -161,7 +161,7 @@ mod tests {
             ..Default::default()
         };
         let total = dec!(500);
-        assert!(validate_fill(&trade, total).is_ok());
+        assert!(can_transfer_fill(&trade, total).is_ok());
     }
 
     #[test]
@@ -175,7 +175,7 @@ mod tests {
             ..Default::default()
         };
         let total = dec!(459.3);
-        assert!(validate_fill(&trade, total).is_ok());
+        assert!(can_transfer_fill(&trade, total).is_ok());
     }
 
     #[test]
@@ -193,7 +193,10 @@ mod tests {
             code: TransactionValidationErrorCode::NotEnoughFunds,
             message: "Trade doesn't have enough funding".to_string(),
         };
-        assert_eq!(validate_fill(&trade, total), Err(Box::new(expected_err)));
+        assert_eq!(
+            can_transfer_fill(&trade, total),
+            Err(Box::new(expected_err))
+        );
     }
 
     #[test]
@@ -208,7 +211,7 @@ mod tests {
         };
         let total = dec!(0);
         assert_eq!(
-            validate_fill(&trade, total),
+            can_transfer_fill(&trade, total),
             Err(Box::new(TransactionValidationError {
                 code: TransactionValidationErrorCode::FillingMustBePositive,
                 message: "Filling must be positive".to_string(),
@@ -228,7 +231,7 @@ mod tests {
         };
         let total = dec!(500);
         assert_eq!(
-            validate_fill(&trade, total),
+            can_transfer_fill(&trade, total),
             Err(Box::new(TransactionValidationError {
                 code: TransactionValidationErrorCode::WrongTradeStatus,
                 message: "Trade status is wrong".to_string(),
@@ -243,7 +246,7 @@ mod tests {
             ..Default::default()
         };
         let fee = dec!(10);
-        assert_eq!(validate_fee(&account, fee), Ok(()));
+        assert_eq!(can_transfer_fee(&account, fee), Ok(()));
     }
 
     #[test]
@@ -253,7 +256,7 @@ mod tests {
             ..Default::default()
         };
         let fee = dec!(0);
-        assert!(validate_fee(&account, fee).is_err());
+        assert!(can_transfer_fee(&account, fee).is_err());
     }
 
     #[test]
@@ -263,7 +266,7 @@ mod tests {
             ..Default::default()
         };
         let fee = dec!(-10);
-        assert!(validate_fee(&account, fee).is_err());
+        assert!(can_transfer_fee(&account, fee).is_err());
     }
 
     #[test]
@@ -273,18 +276,18 @@ mod tests {
             ..Default::default()
         };
         let fee = dec!(200);
-        assert!(validate_fee(&account, fee).is_err());
+        assert!(can_transfer_fee(&account, fee).is_err());
     }
 
     #[test]
     fn test_validate_close_success() {
-        let result = validate_close(dec!(10));
+        let result = can_transfer_close(dec!(10));
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_validate_close_failure() {
-        let result = validate_close(dec!(-10));
+        let result = can_transfer_close(dec!(-10));
         assert!(result.is_err());
 
         let err = result.unwrap_err();

@@ -10,7 +10,7 @@ use uuid::Uuid;
 use crate::{
     trade_calculators::TradeCapitalOutOfMarket,
     validators::{
-        transaction::{self, validate_deposit},
+        transaction::{self, can_transfer_deposit},
         TransactionValidationErrorCode,
     },
 };
@@ -55,7 +55,7 @@ impl TransactionWorker {
     ) -> Result<(Transaction, AccountOverview), Box<dyn Error>> {
         let account = database.read_account_db().read_account_id(account_id)?;
 
-        match validate_deposit(
+        match can_transfer_deposit(
             amount,
             currency,
             account_id,
@@ -102,7 +102,7 @@ impl TransactionWorker {
         let account = database.read_account_db().read_account_id(account_id)?;
 
         // Validate that account has enough funds to withdraw
-        transaction::validate_withdraw(
+        transaction::can_transfer_withdraw(
             amount,
             currency,
             account_id,
@@ -164,7 +164,7 @@ impl TransactionWorker {
         let total = trade.entry.average_filled_price.unwrap() * Decimal::from(trade.entry.quantity);
 
         // 2. Validate that the trade has enough funds to fill the trade
-        transaction::validate_fill(trade, total)?;
+        transaction::can_transfer_fill(trade, total)?;
 
         // 3. Create transaction
         let transaction = database.write_transaction_db().create_transaction(
@@ -203,7 +203,7 @@ impl TransactionWorker {
         let account_overview = database
             .read_account_overview_db()
             .read_account_overview_currency(trade.account_id, &trade.currency)?;
-        transaction::validate_fee(&account_overview, fee)?;
+        transaction::can_transfer_fee(&account_overview, fee)?;
 
         // 2. Create transaction
         let account = database
@@ -231,7 +231,7 @@ impl TransactionWorker {
         let account_overview = database
             .read_account_overview_db()
             .read_account_overview_currency(trade.account_id, &trade.currency)?;
-        transaction::validate_fee(&account_overview, fee)?;
+        transaction::can_transfer_fee(&account_overview, fee)?;
 
         let account = database
             .read_account_db()
@@ -262,7 +262,7 @@ impl TransactionWorker {
             trade.target.average_filled_price.unwrap() * Decimal::from(trade.entry.quantity);
 
         // 1. Validate that the closing is possible
-        transaction::validate_close(total)?;
+        transaction::can_transfer_close(total)?;
 
         // 2. Create transaction
         let transaction = database.write_transaction_db().create_transaction(
@@ -292,7 +292,7 @@ impl TransactionWorker {
             trade.safety_stop.average_filled_price.unwrap() * Decimal::from(trade.entry.quantity);
 
         // 2. Validate that the closing is possible
-        transaction::validate_close(total)?;
+        transaction::can_transfer_close(total)?;
 
         // 3. If the stop was lower than the planned price, then we should create a transaction
         // with category slippage. For more information see: https://www.investopedia.com/terms/s/slippage.asp
