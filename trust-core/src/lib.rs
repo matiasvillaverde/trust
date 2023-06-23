@@ -6,7 +6,7 @@ use trust_model::{
     TradingVehicle, TradingVehicleCategory, Transaction, TransactionCategory,
 };
 use uuid::Uuid;
-use validators::RuleValidator;
+use validators::trade_validator;
 use workers::{OrderWorker, OverviewWorker, RuleWorker, TradeWorker, TransactionWorker};
 
 pub struct TrustFacade {
@@ -207,7 +207,7 @@ impl TrustFacade {
     ) -> Result<(Trade, Transaction, AccountOverview, TradeOverview), Box<dyn std::error::Error>>
     {
         // 1. Validate Trade by running rules
-        RuleValidator::validate_trade(trade, &mut *self.factory)?;
+        crate::validators::funding_validator::can_fund(trade, &mut *self.factory)?;
 
         // 2. Fund in case rule succeed
         self.factory
@@ -225,7 +225,7 @@ impl TrustFacade {
         trade: &Trade,
     ) -> Result<(Trade, BrokerLog), Box<dyn std::error::Error>> {
         // 1. Validate Trade
-        RuleValidator::validate_submit(trade)?;
+        trade_validator::can_submit(trade)?;
 
         // 2. Submit trade to broker
         let account = self
@@ -317,7 +317,7 @@ impl TrustFacade {
         trade: &Trade,
     ) -> Result<(TradeOverview, BrokerLog), Box<dyn std::error::Error>> {
         // 1. Verify it can be closed
-        RuleValidator::validate_close(trade)?;
+        trade_validator::can_close(trade)?;
 
         // 2. Submit a market order to Alpaca
         let account = self
@@ -352,7 +352,7 @@ impl TrustFacade {
         trade: &Trade,
     ) -> Result<(TradeOverview, AccountOverview, Transaction), Box<dyn std::error::Error>> {
         // 1. Verify it can be canceled
-        RuleValidator::validate_cancel(trade)?;
+        trade_validator::can_cancel(trade)?;
 
         // 2. Update Trade Status
         self.factory
