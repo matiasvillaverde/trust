@@ -1,10 +1,10 @@
-use rust_decimal::Decimal;
-use trade_calculators::QuantityCalculator;
 use model::{
     Account, AccountOverview, Broker, BrokerLog, Currency, DatabaseFactory, DraftTrade,
     Environment, Order, OrderStatus, Rule, RuleLevel, RuleName, Status, Trade, TradeOverview,
     TradingVehicle, TradingVehicleCategory, Transaction, TransactionCategory,
 };
+use rust_decimal::Decimal;
+use trade_calculators::QuantityCalculator;
 use uuid::Uuid;
 use validators::trade;
 use workers::{OrderWorker, OverviewWorker, RuleWorker, TradeWorker, TransactionWorker};

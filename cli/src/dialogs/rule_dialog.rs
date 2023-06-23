@@ -1,8 +1,8 @@
 use std::error::Error;
 
 use crate::{dialogs::AccountSearchDialog, views::RuleView};
-use dialoguer::{theme::ColorfulTheme, FuzzySelect, Input};
 use core::TrustFacade;
+use dialoguer::{theme::ColorfulTheme, FuzzySelect, Input};
 use model::{Account, Rule, RuleLevel, RuleName};
 
 pub struct RuleDialogBuilder {

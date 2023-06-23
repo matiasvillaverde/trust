@@ -9,8 +9,8 @@ use std::str::FromStr;
 use tokio::runtime::Runtime;
 use uuid::Uuid;
 
-use std::error::Error;
 use model::{Account, BrokerLog, Order, OrderIds, Trade, TradeCategory};
+use std::error::Error;
 
 use crate::keys;
 

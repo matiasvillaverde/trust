@@ -4,8 +4,8 @@ use std::str::FromStr;
 use crate::schema::trading_vehicles;
 use chrono::{NaiveDateTime, Utc};
 use diesel::prelude::*;
-use tracing::error;
 use model::{TradingVehicle, TradingVehicleCategory};
+use tracing::error;
 use uuid::Uuid;
 
 pub struct WorkerTradingVehicle;

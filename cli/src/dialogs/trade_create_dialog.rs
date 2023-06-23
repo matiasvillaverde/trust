@@ -3,11 +3,11 @@ use crate::{
     views::TradeOverviewView,
     views::TradeView,
 };
+use core::TrustFacade;
 use dialoguer::{theme::ColorfulTheme, FuzzySelect, Input};
+use model::{Account, Currency, DraftTrade, Trade, TradeCategory, TradingVehicle};
 use rust_decimal::Decimal;
 use std::error::Error;
-use core::TrustFacade;
-use model::{Account, Currency, DraftTrade, Trade, TradeCategory, TradingVehicle};
 
 pub struct TradeDialogBuilder {
     account: Option<Account>,

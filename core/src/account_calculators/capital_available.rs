@@ -1,5 +1,5 @@
-use rust_decimal::Decimal;
 use model::{Currency, ReadTransactionDB, TransactionCategory};
+use rust_decimal::Decimal;
 use uuid::Uuid;
 
 pub struct AccountCapitalAvailable;

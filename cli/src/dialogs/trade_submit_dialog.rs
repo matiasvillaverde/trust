@@ -1,9 +1,9 @@
 use crate::dialogs::AccountSearchDialog;
 use crate::views::{LogView, OrderView, TradeOverviewView, TradeView};
-use dialoguer::{theme::ColorfulTheme, FuzzySelect};
-use std::error::Error;
 use core::TrustFacade;
+use dialoguer::{theme::ColorfulTheme, FuzzySelect};
 use model::{Account, BrokerLog, Status, Trade};
+use std::error::Error;
 
 type TradeDialogApproverBuilderResult = Option<Result<(Trade, BrokerLog), Box<dyn Error>>>;
 

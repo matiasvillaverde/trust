@@ -1,9 +1,9 @@
 use crate::dialogs::AccountSearchDialog;
 use crate::views::{AccountOverviewView, TradeOverviewView, TradeView, TransactionView};
-use dialoguer::{theme::ColorfulTheme, FuzzySelect};
-use std::error::Error;
 use core::TrustFacade;
+use dialoguer::{theme::ColorfulTheme, FuzzySelect};
 use model::{Account, AccountOverview, Status, Trade, TradeOverview, Transaction};
+use std::error::Error;
 
 type CancelDialogBuilderResult =
     Option<Result<(TradeOverview, AccountOverview, Transaction), Box<dyn Error>>>;

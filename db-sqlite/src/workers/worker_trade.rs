@@ -1,12 +1,12 @@
 use crate::schema::{trades, trades_overviews};
 use chrono::{NaiveDateTime, Utc};
 use diesel::prelude::*;
+use model::{Currency, DraftTrade, Status};
+use model::{Order, Trade, TradeCategory, TradeOverview};
 use rust_decimal::Decimal;
 use std::error::Error;
 use std::str::FromStr;
 use tracing::error;
-use model::{Currency, DraftTrade, Status};
-use model::{Order, Trade, TradeCategory, TradeOverview};
 use uuid::Uuid;
 
 use super::{WorkerOrder, WorkerTradingVehicle};

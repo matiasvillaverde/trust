@@ -1,9 +1,9 @@
 use std::error::Error;
 
 use crate::dialogs::AccountSearchDialog;
-use dialoguer::{theme::ColorfulTheme, FuzzySelect, Input};
 use alpaca_broker::{AlpacaBroker, Keys};
 use core::TrustFacade;
+use dialoguer::{theme::ColorfulTheme, FuzzySelect, Input};
 use model::{Account, Environment};
 
 pub struct KeysWriteDialogBuilder {

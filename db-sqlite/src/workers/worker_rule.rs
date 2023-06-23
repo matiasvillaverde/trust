@@ -1,9 +1,9 @@
 use crate::schema::rules;
 use chrono::{NaiveDateTime, Utc};
 use diesel::prelude::*;
+use model::{Account, Rule, RuleLevel, RuleName};
 use std::error::Error;
 use tracing::error;
-use model::{Account, Rule, RuleLevel, RuleName};
 use uuid::Uuid;
 
 pub struct WorkerRule;

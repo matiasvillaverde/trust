@@ -1,10 +1,10 @@
 use std::error::Error;
 
 use crate::views::{AccountOverviewView, AccountView, RuleView};
-use dialoguer::{theme::ColorfulTheme, FuzzySelect, Input};
-use rust_decimal::Decimal;
 use core::TrustFacade;
+use dialoguer::{theme::ColorfulTheme, FuzzySelect, Input};
 use model::{Account, Environment};
+use rust_decimal::Decimal;
 
 pub struct AccountDialogBuilder {
     name: String,

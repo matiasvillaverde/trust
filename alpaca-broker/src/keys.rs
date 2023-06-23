@@ -1,11 +1,11 @@
 use apca::ApiInfo;
 use keyring::Entry;
+use model::{Account, Environment};
 use std::error::Error;
 use std::{
     fmt::{self, Display, Formatter},
     str::FromStr,
 };
-use model::{Account, Environment};
 
 pub fn read_api_key(env: &Environment, account: &Account) -> Result<ApiInfo, Box<dyn Error>> {
     let keys = Keys::read(env, &account.name)?;

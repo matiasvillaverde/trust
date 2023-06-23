@@ -1,7 +1,7 @@
+use model::{Trade, TradeOverview};
 use tabled::settings::style::Style;
 use tabled::Table;
 use tabled::Tabled;
-use model::{Trade, TradeOverview};
 
 #[derive(Tabled)]
 pub struct TradeView {

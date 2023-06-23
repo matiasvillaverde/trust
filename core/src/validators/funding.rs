@@ -1,8 +1,8 @@
 use crate::{trade_calculators::RiskCalculator, workers::OverviewWorker};
+use model::{AccountOverview, DatabaseFactory, Rule, RuleName, Trade};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use std::error::Error;
-use model::{AccountOverview, DatabaseFactory, Rule, RuleName, Trade};
 use uuid::Uuid;
 
 type FundingValidationResult = Result<(), Box<FundValidationError>>;

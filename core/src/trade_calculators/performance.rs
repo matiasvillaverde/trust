@@ -1,6 +1,6 @@
+use model::{ReadTransactionDB, TransactionCategory};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
-use model::{ReadTransactionDB, TransactionCategory};
 use uuid::Uuid;
 
 pub struct TradePerformance;

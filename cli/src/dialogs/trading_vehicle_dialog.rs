@@ -1,7 +1,7 @@
 use std::error::Error;
 
-use dialoguer::{theme::ColorfulTheme, FuzzySelect, Input};
 use core::TrustFacade;
+use dialoguer::{theme::ColorfulTheme, FuzzySelect, Input};
 use model::{TradingVehicle, TradingVehicleCategory};
 
 use crate::views::TradingVehicleView;

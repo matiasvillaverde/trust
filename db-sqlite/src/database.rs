@@ -3,10 +3,6 @@ use crate::workers::{
     WorkerTradingVehicle, WorkerTransaction,
 };
 use diesel::prelude::*;
-use rust_decimal::Decimal;
-use std::error::Error;
-use std::sync::Arc;
-use std::sync::Mutex;
 use model::DraftTrade;
 use model::Status;
 use model::{
@@ -17,6 +13,10 @@ use model::{
     TradingVehicleCategory, Transaction, TransactionCategory, WriteAccountOverviewDB, WriteOrderDB,
     WriteRuleDB, WriteTradeDB, WriteTradingVehicleDB, WriteTransactionDB,
 };
+use rust_decimal::Decimal;
+use std::error::Error;
+use std::sync::Arc;
+use std::sync::Mutex;
 use uuid::Uuid;
 
 pub struct SqliteDatabase {

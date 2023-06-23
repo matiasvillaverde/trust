@@ -2,14 +2,12 @@ use crate::schema::accounts_overviews;
 use chrono::{NaiveDateTime, Utc};
 use diesel::prelude::*;
 use diesel::SqliteConnection;
+use model::{Account, AccountOverview, Currency, ReadAccountOverviewDB, WriteAccountOverviewDB};
 use rust_decimal::Decimal;
 use std::error::Error;
 use std::sync::Arc;
 use std::sync::Mutex;
 use tracing::error;
-use model::{
-    Account, AccountOverview, Currency, ReadAccountOverviewDB, WriteAccountOverviewDB,
-};
 use uuid::Uuid;
 
 pub struct AccountOverviewDB {
@@ -191,8 +189,8 @@ mod tests {
 
     use super::*;
     use diesel_migrations::*;
-    use rust_decimal_macros::dec;
     use model::DatabaseFactory;
+    use rust_decimal_macros::dec;
 
     pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
 

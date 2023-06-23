@@ -6,14 +6,14 @@ use crate::dialogs::{
     TradingVehicleSearchDialogBuilder, TransactionDialogBuilder,
 };
 use crate::dialogs::{RuleDialogBuilder, RuleRemoveDialogBuilder};
-use clap::ArgMatches;
-use shellexpand::tilde;
-use std::ffi::OsString;
-use std::fs;
 use alpaca_broker::AlpacaBroker;
+use clap::ArgMatches;
 use core::TrustFacade;
 use db_sqlite::SqliteDatabase;
 use model::TransactionCategory;
+use shellexpand::tilde;
+use std::ffi::OsString;
+use std::fs;
 
 pub struct ArgDispatcher {
     trust: TrustFacade,

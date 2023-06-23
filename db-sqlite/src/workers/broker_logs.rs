@@ -1,11 +1,11 @@
 use crate::schema::logs;
 use chrono::{NaiveDateTime, Utc};
 use diesel::prelude::*;
+use model::{BrokerLog, ReadBrokerLogsDB, Trade, WriteBrokerLogsDB};
 use std::error::Error;
 use std::sync::Arc;
 use std::sync::Mutex;
 use tracing::error;
-use model::{BrokerLog, ReadBrokerLogsDB, Trade, WriteBrokerLogsDB};
 use uuid::Uuid;
 
 pub struct BrokerLogDB {

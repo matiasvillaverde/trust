@@ -1,7 +1,7 @@
+use model::Rule;
 use tabled::settings::style::Style;
 use tabled::Table;
 use tabled::Tabled;
-use model::Rule;
 
 #[derive(Tabled)]
 pub struct RuleView {

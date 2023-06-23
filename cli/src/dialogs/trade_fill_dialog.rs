@@ -1,10 +1,10 @@
 use crate::dialogs::AccountSearchDialog;
 use crate::views::{TradeOverviewView, TradeView, TransactionView};
+use core::TrustFacade;
 use dialoguer::{theme::ColorfulTheme, FuzzySelect, Input};
+use model::{Account, Status, Trade, Transaction};
 use rust_decimal::Decimal;
 use std::error::Error;
-use core::TrustFacade;
-use model::{Account, Status, Trade, Transaction};
 
 type EntryDialogBuilderResult = Option<Result<(Trade, Transaction), Box<dyn Error>>>;
 

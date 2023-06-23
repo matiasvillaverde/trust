@@ -1,7 +1,7 @@
+use model::{Account, AccountOverview};
 use tabled::settings::style::Style;
 use tabled::Table;
 use tabled::Tabled;
-use model::{Account, AccountOverview};
 
 #[derive(Tabled)]
 pub struct AccountView {

@@ -1,7 +1,7 @@
+use model::TradingVehicle;
 use tabled::settings::style::Style;
 use tabled::Table;
 use tabled::Tabled;
-use model::TradingVehicle;
 
 #[derive(Tabled)]
 pub struct TradingVehicleView {

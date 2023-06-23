@@ -1,14 +1,14 @@
 use crate::dialogs::account_dialog::AccountSearchDialog;
 use crate::views::{AccountOverviewView, TransactionView};
-use dialoguer::{theme::ColorfulTheme, FuzzySelect, Input};
-use rust_decimal::Decimal;
-use std::error::Error;
 use core::TrustFacade;
+use dialoguer::{theme::ColorfulTheme, FuzzySelect, Input};
 use model::Account;
 use model::AccountOverview;
 use model::Currency;
 use model::Transaction;
 use model::TransactionCategory;
+use rust_decimal::Decimal;
+use std::error::Error;
 
 pub struct TransactionDialogBuilder {
     amount: Option<Decimal>,

@@ -1,6 +1,6 @@
+use model::{Currency, DatabaseFactory, RuleName};
 use rust_decimal::{prelude::ToPrimitive, Decimal};
 use rust_decimal_macros::dec;
-use model::{Currency, DatabaseFactory, RuleName};
 use uuid::Uuid;
 
 use crate::account_calculators::AccountCapitalAvailable;

@@ -1,8 +1,8 @@
-use rust_decimal::Decimal;
 use model::{
     Currency, DatabaseFactory, Order, OrderAction, OrderCategory, ReadTradeDB, Trade,
     TradeCategory, WriteOrderDB,
 };
+use rust_decimal::Decimal;
 use uuid::Uuid;
 
 pub struct OrderWorker;

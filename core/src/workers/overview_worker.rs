@@ -1,5 +1,5 @@
-use std::error::Error;
 use model::{Account, AccountOverview, Currency, DatabaseFactory, Trade, TradeOverview};
+use std::error::Error;
 
 use crate::{
     account_calculators::{

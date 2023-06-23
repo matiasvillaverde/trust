@@ -1,8 +1,8 @@
 use crate::{OrderWorker, TransactionWorker};
+use model::{DatabaseFactory, Status, Trade, Transaction};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use std::error::Error;
-use model::{DatabaseFactory, Status, Trade, Transaction};
 
 pub struct TradeWorker;
 

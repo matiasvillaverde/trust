@@ -1,5 +1,3 @@
-use rust_decimal_macros::dec;
-use std::error::Error;
 use core::TrustFacade;
 use db_sqlite::SqliteDatabase;
 use model::Broker;
@@ -7,6 +5,8 @@ use model::{
     Account, BrokerLog, Currency, Order, OrderIds, RuleLevel, RuleName, Status, Trade,
     TransactionCategory,
 };
+use rust_decimal_macros::dec;
+use std::error::Error;
 
 fn create_trust() -> TrustFacade {
     let db = SqliteDatabase::new_in_memory();

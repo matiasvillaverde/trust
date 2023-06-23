@@ -1,9 +1,9 @@
 use crate::dialogs::AccountSearchDialog;
 use crate::views::{LogView, OrderView};
-use dialoguer::{theme::ColorfulTheme, FuzzySelect};
-use std::error::Error;
 use core::TrustFacade;
+use dialoguer::{theme::ColorfulTheme, FuzzySelect};
 use model::{Account, BrokerLog, Order, Status, Trade};
+use std::error::Error;
 
 type EntryDialogBuilderResult = Option<Result<(Status, Vec<Order>, BrokerLog), Box<dyn Error>>>;
 

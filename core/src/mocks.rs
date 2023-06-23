@@ -2,12 +2,12 @@
 pub mod read_transaction_db_mocks {
 
     use chrono::Utc;
-    use rust_decimal::Decimal;
-    use std::error::Error;
     use model::{
         Currency, Order, OrderAction, OrderCategory, ReadTradeDB, ReadTransactionDB, Status, Trade,
         TradeCategory, TradeOverview, TradingVehicle, Transaction, TransactionCategory,
     };
+    use rust_decimal::Decimal;
+    use std::error::Error;
     use uuid::Uuid;
 
     pub struct MockDatabase {

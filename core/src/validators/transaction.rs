@@ -1,91 +1,65 @@
+use model::{AccountOverview, Currency, ReadAccountOverviewDB, Status, Trade};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use std::error::Error;
-use model::{
-    AccountOverview, Currency, ReadAccountOverviewDB, Status, Trade, TransactionCategory,
-};
 use uuid::Uuid;
-pub struct TransactionValidator;
 type TransactionValidationResult = Result<(), Box<TransactionValidationError>>;
 
-impl TransactionValidator {
-    pub fn validate(
-        category: TransactionCategory,
-        amount: Decimal,
-        currency: &Currency,
-        account_id: Uuid,
-        database: &mut dyn ReadAccountOverviewDB,
-    ) -> TransactionValidationResult {
-        match category {
-            TransactionCategory::Deposit => {
-                validate_deposit(amount, currency, account_id, database)
-            }
-            TransactionCategory::Withdrawal => {
-                validate_withdraw(amount, currency, account_id, database)
-            }
-            _default => Err(Box::new(TransactionValidationError {
-                code: TransactionValidationErrorCode::NotAuthorized,
-                message: "Manually creating transaction is not allowed".to_string(),
-            })),
+pub fn validate_fill(trade: &Trade, total: Decimal) -> TransactionValidationResult {
+    match trade.status {
+        Status::Submitted | Status::Funded => (),
+        _ => {
+            return Err(Box::new(TransactionValidationError {
+                code: TransactionValidationErrorCode::WrongTradeStatus,
+                message: "Trade status is wrong".to_string(),
+            }))
         }
     }
 
-    pub fn validate_fill(trade: &Trade, total: Decimal) -> TransactionValidationResult {
-        match trade.status {
-            Status::Submitted | Status::Funded => (),
-            _ => {
-                return Err(Box::new(TransactionValidationError {
-                    code: TransactionValidationErrorCode::WrongTradeStatus,
-                    message: "Trade status is wrong".to_string(),
-                }))
-            }
-        }
-
-        if total <= dec!(0) {
-            return Err(Box::new(TransactionValidationError {
-                code: TransactionValidationErrorCode::FillingMustBePositive,
-                message: "Filling must be positive".to_string(),
-            }));
-        }
-
-        if total > trade.overview.funding {
-            return Err(Box::new(TransactionValidationError {
-                code: TransactionValidationErrorCode::NotEnoughFunds,
-                message: "Trade doesn't have enough funding".to_string(),
-            }));
-        }
-        Ok(())
+    if total <= dec!(0) {
+        return Err(Box::new(TransactionValidationError {
+            code: TransactionValidationErrorCode::FillingMustBePositive,
+            message: "Filling must be positive".to_string(),
+        }));
     }
 
-    pub fn validate_fee(account: &AccountOverview, fee: Decimal) -> TransactionValidationResult {
-        if fee <= dec!(0) {
-            return Err(Box::new(TransactionValidationError {
-                code: TransactionValidationErrorCode::FeeMustBePositive,
-                message: "Fee must be positive".to_string(),
-            }));
-        }
-
-        if fee > account.total_available {
-            return Err(Box::new(TransactionValidationError {
-                code: TransactionValidationErrorCode::NotEnoughFunds,
-                message: "Account doesn't have enough funds".to_string(),
-            }));
-        }
-        Ok(())
+    if total > trade.overview.funding {
+        return Err(Box::new(TransactionValidationError {
+            code: TransactionValidationErrorCode::NotEnoughFunds,
+            message: "Trade doesn't have enough funding".to_string(),
+        }));
     }
-
-    pub fn validate_close(total: Decimal) -> TransactionValidationResult {
-        if total <= dec!(0) {
-            return Err(Box::new(TransactionValidationError {
-                code: TransactionValidationErrorCode::ClosingMustBePositive,
-                message: "Closing must be positive".to_string(),
-            }));
-        }
-        Ok(())
-    }
+    Ok(())
 }
 
-fn validate_deposit(
+pub fn validate_fee(account: &AccountOverview, fee: Decimal) -> TransactionValidationResult {
+    if fee <= dec!(0) {
+        return Err(Box::new(TransactionValidationError {
+            code: TransactionValidationErrorCode::FeeMustBePositive,
+            message: "Fee must be positive".to_string(),
+        }));
+    }
+
+    if fee > account.total_available {
+        return Err(Box::new(TransactionValidationError {
+            code: TransactionValidationErrorCode::NotEnoughFunds,
+            message: "Account doesn't have enough funds".to_string(),
+        }));
+    }
+    Ok(())
+}
+
+pub fn validate_close(total: Decimal) -> TransactionValidationResult {
+    if total <= dec!(0) {
+        return Err(Box::new(TransactionValidationError {
+            code: TransactionValidationErrorCode::ClosingMustBePositive,
+            message: "Closing must be positive".to_string(),
+        }));
+    }
+    Ok(())
+}
+
+pub fn validate_deposit(
     amount: Decimal,
     currency: &Currency,
     account_id: Uuid,
@@ -107,7 +81,7 @@ fn validate_deposit(
     }
 }
 
-fn validate_withdraw(
+pub fn validate_withdraw(
     amount: Decimal,
     currency: &Currency,
     account_id: Uuid,
@@ -141,7 +115,6 @@ fn validate_withdraw(
 
 #[derive(Debug, PartialEq)]
 pub enum TransactionValidationErrorCode {
-    NotAuthorized,
     AmountOfWithdrawalMustBePositive,
     AmountOfDepositMustBePositive,
     WithdrawalAmountIsGreaterThanAvailableAmount,
@@ -188,7 +161,7 @@ mod tests {
             ..Default::default()
         };
         let total = dec!(500);
-        assert!(TransactionValidator::validate_fill(&trade, total).is_ok());
+        assert!(validate_fill(&trade, total).is_ok());
     }
 
     #[test]
@@ -202,7 +175,7 @@ mod tests {
             ..Default::default()
         };
         let total = dec!(459.3);
-        assert!(TransactionValidator::validate_fill(&trade, total).is_ok());
+        assert!(validate_fill(&trade, total).is_ok());
     }
 
     #[test]
@@ -220,10 +193,7 @@ mod tests {
             code: TransactionValidationErrorCode::NotEnoughFunds,
             message: "Trade doesn't have enough funding".to_string(),
         };
-        assert_eq!(
-            TransactionValidator::validate_fill(&trade, total),
-            Err(Box::new(expected_err))
-        );
+        assert_eq!(validate_fill(&trade, total), Err(Box::new(expected_err)));
     }
 
     #[test]
@@ -238,7 +208,7 @@ mod tests {
         };
         let total = dec!(0);
         assert_eq!(
-            TransactionValidator::validate_fill(&trade, total),
+            validate_fill(&trade, total),
             Err(Box::new(TransactionValidationError {
                 code: TransactionValidationErrorCode::FillingMustBePositive,
                 message: "Filling must be positive".to_string(),
@@ -258,7 +228,7 @@ mod tests {
         };
         let total = dec!(500);
         assert_eq!(
-            TransactionValidator::validate_fill(&trade, total),
+            validate_fill(&trade, total),
             Err(Box::new(TransactionValidationError {
                 code: TransactionValidationErrorCode::WrongTradeStatus,
                 message: "Trade status is wrong".to_string(),
@@ -273,7 +243,7 @@ mod tests {
             ..Default::default()
         };
         let fee = dec!(10);
-        assert_eq!(TransactionValidator::validate_fee(&account, fee), Ok(()));
+        assert_eq!(validate_fee(&account, fee), Ok(()));
     }
 
     #[test]
@@ -283,7 +253,7 @@ mod tests {
             ..Default::default()
         };
         let fee = dec!(0);
-        assert!(TransactionValidator::validate_fee(&account, fee).is_err());
+        assert!(validate_fee(&account, fee).is_err());
     }
 
     #[test]
@@ -293,7 +263,7 @@ mod tests {
             ..Default::default()
         };
         let fee = dec!(-10);
-        assert!(TransactionValidator::validate_fee(&account, fee).is_err());
+        assert!(validate_fee(&account, fee).is_err());
     }
 
     #[test]
@@ -303,18 +273,18 @@ mod tests {
             ..Default::default()
         };
         let fee = dec!(200);
-        assert!(TransactionValidator::validate_fee(&account, fee).is_err());
+        assert!(validate_fee(&account, fee).is_err());
     }
 
     #[test]
     fn test_validate_close_success() {
-        let result = TransactionValidator::validate_close(dec!(10));
+        let result = validate_close(dec!(10));
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_validate_close_failure() {
-        let result = TransactionValidator::validate_close(dec!(-10));
+        let result = validate_close(dec!(-10));
         assert!(result.is_err());
 
         let err = result.unwrap_err();

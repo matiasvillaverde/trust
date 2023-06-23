@@ -1,5 +1,5 @@
-use std::error::Error;
 use model::{Status, Trade};
+use std::error::Error;
 
 type TradeValidationResult = Result<(), Box<TradeValidationError>>;
 

@@ -4,9 +4,9 @@ use apca::api::v2::order::{
     TimeInForce, Type,
 };
 use apca::Client;
+use model::{Account, BrokerLog, Order, Trade, TradeCategory};
 use std::error::Error;
 use tokio::runtime::Runtime;
-use model::{Account, BrokerLog, Order, Trade, TradeCategory};
 use uuid::Uuid;
 
 pub fn close(trade: &Trade, account: &Account) -> Result<(Order, BrokerLog), Box<dyn Error>> {

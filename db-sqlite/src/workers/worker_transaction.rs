@@ -1,11 +1,11 @@
 use crate::schema::transactions;
 use chrono::{Datelike, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use diesel::prelude::*;
+use model::{Currency, Status, Transaction, TransactionCategory};
 use rust_decimal::Decimal;
 use std::error::Error;
 use std::str::FromStr;
 use tracing::error;
-use model::{Currency, Status, Transaction, TransactionCategory};
 use uuid::Uuid;
 
 use super::WorkerTrade;
@@ -412,8 +412,8 @@ mod tests {
     use super::*;
     use crate::SqliteDatabase;
     use diesel_migrations::*;
-    use std::sync::{Arc, Mutex};
     use model::{DatabaseFactory, Environment};
+    use std::sync::{Arc, Mutex};
 
     pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
 

@@ -1,7 +1,7 @@
+use model::Transaction;
 use tabled::settings::style::Style;
 use tabled::Table;
 use tabled::Tabled;
-use model::Transaction;
 
 #[derive(Tabled)]
 pub struct TransactionView {

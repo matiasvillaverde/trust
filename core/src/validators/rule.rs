@@ -1,5 +1,5 @@
-use std::error::Error;
 use model::{Account, ReadRuleDB, RuleName};
+use std::error::Error;
 
 type RuleValidationResult = Result<(), Box<RuleValidationError>>;
 

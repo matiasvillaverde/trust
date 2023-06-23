@@ -1,5 +1,5 @@
-use std::error::Error;
 use model::{Account, Broker, BrokerLog, Environment, Order, OrderIds, Status, Trade};
+use std::error::Error;
 
 mod close_trade;
 mod keys;

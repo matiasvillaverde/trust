@@ -1,14 +1,14 @@
 use crate::schema::orders::{self};
 use chrono::{NaiveDateTime, Utc};
 use diesel::prelude::*;
+use model::{
+    Currency, Order, OrderAction, OrderCategory, OrderStatus, TimeInForce, TradingVehicle,
+};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use std::error::Error;
 use std::str::FromStr;
 use tracing::error;
-use model::{
-    Currency, Order, OrderAction, OrderCategory, OrderStatus, TimeInForce, TradingVehicle,
-};
 use uuid::Uuid;
 
 pub struct WorkerOrder;
@@ -254,8 +254,8 @@ mod tests {
 
     use super::*;
     use diesel_migrations::*;
-    use rust_decimal_macros::dec;
     use model::{Currency, TradingVehicleCategory};
+    use rust_decimal_macros::dec;
 
     pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
 

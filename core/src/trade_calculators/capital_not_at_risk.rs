@@ -1,6 +1,6 @@
+use model::{Currency, ReadTradeDB};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
-use model::{Currency, ReadTradeDB};
 use uuid::Uuid;
 
 pub struct TradeCapitalNotAtRisk;

@@ -2,10 +2,10 @@ use apca::api::v2::order::{Order as AlpacaOrder, Status as AlpacaStatus};
 use chrono::DateTime;
 use chrono::NaiveDateTime;
 use chrono::Utc;
+use model::{Order, OrderCategory, OrderStatus, Status, Trade};
 use rust_decimal::Decimal;
 use std::error::Error;
 use std::str::FromStr;
-use model::{Order, OrderCategory, OrderStatus, Status, Trade};
 use uuid::Uuid;
 
 /// Maps an Alpaca order to our domain model.

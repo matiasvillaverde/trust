@@ -3,9 +3,9 @@ use crate::order_mapper;
 use apca::api::v2::order::Order as AlpacaOrder;
 use apca::api::v2::orders::{Get, OrdersReq, Status as AlpacaRequestStatus};
 use apca::Client;
+use model::{Account, BrokerLog, Order, Status, Trade};
 use std::error::Error;
 use tokio::runtime::Runtime;
-use model::{Account, BrokerLog, Order, Status, Trade};
 
 pub fn sync(
     trade: &Trade,

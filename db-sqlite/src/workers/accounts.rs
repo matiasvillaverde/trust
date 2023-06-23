@@ -1,14 +1,14 @@
 use crate::schema::accounts;
 use chrono::{NaiveDateTime, Utc};
 use diesel::prelude::*;
+use model::ReadAccountDB;
+use model::{Account, Environment, WriteAccountDB};
 use rust_decimal::Decimal;
 use std::error::Error;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::Mutex;
 use tracing::error;
-use model::ReadAccountDB;
-use model::{Account, Environment, WriteAccountDB};
 use uuid::Uuid;
 
 pub struct AccountDB {
@@ -153,8 +153,8 @@ mod tests {
     use super::*;
     use crate::SqliteDatabase;
     use diesel_migrations::*;
-    use rust_decimal_macros::dec;
     use model::DatabaseFactory;
+    use rust_decimal_macros::dec;
     pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
     // Declare a test database connection
     fn establish_connection() -> SqliteConnection {

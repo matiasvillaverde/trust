@@ -1,6 +1,4 @@
 use chrono::Utc;
-use rust_decimal_macros::dec;
-use std::error::Error;
 use core::TrustFacade;
 use db_sqlite::SqliteDatabase;
 use model::{
@@ -8,6 +6,8 @@ use model::{
     Trade, TradeCategory, TradingVehicleCategory, TransactionCategory,
 };
 use model::{Broker, DraftTrade, OrderStatus};
+use rust_decimal_macros::dec;
+use std::error::Error;
 use uuid::Uuid;
 
 fn create_trade(

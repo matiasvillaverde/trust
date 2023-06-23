@@ -1,7 +1,7 @@
+use model::Order;
 use tabled::settings::style::Style;
 use tabled::Table;
 use tabled::Tabled;
-use model::Order;
 
 #[derive(Tabled)]
 pub struct OrderView {
