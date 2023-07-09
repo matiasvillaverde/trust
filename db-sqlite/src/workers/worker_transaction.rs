@@ -438,8 +438,8 @@ mod tests {
 
         // Create a new account record
         let account = db
-            .write_account_db()
-            .create_account(
+            .account_write()
+            .create(
                 "Test Account 3",
                 "This is a test account",
                 Environment::Paper,
@@ -448,7 +448,7 @@ mod tests {
             )
             .expect("Error creating account");
         let tx = db
-            .write_transaction_db()
+            .transaction_write()
             .create_transaction(
                 &account,
                 dec!(10.99),
@@ -472,8 +472,8 @@ mod tests {
 
         // Create a new account record
         let account = db
-            .write_account_db()
-            .create_account(
+            .account_write()
+            .create(
                 "Test Account 3",
                 "This is a test account",
                 Environment::Paper,
@@ -482,7 +482,7 @@ mod tests {
             )
             .expect("Error creating account");
         let tx = db
-            .write_transaction_db()
+            .transaction_write()
             .create_transaction(
                 &account,
                 dec!(10.99),

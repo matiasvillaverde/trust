@@ -53,16 +53,16 @@ impl TransactionWorker {
         currency: &Currency,
         account_id: Uuid,
     ) -> Result<(Transaction, AccountOverview), Box<dyn Error>> {
-        let account = database.read_account_db().read_account_id(account_id)?;
+        let account = database.account_read().id(account_id)?;
 
         match can_transfer_deposit(
             amount,
             currency,
             account_id,
-            database.read_account_overview_db().as_mut(),
+            database.account_overview_read().as_mut(),
         ) {
             Ok(_) => {
-                let transaction = database.write_transaction_db().create_transaction(
+                let transaction = database.transaction_write().create_transaction(
                     &account,
                     amount,
                     currency,
@@ -74,15 +74,15 @@ impl TransactionWorker {
             }
             Err(error) => {
                 if error.code == TransactionValidationErrorCode::OverviewNotFound {
-                    let transaction = database.write_transaction_db().create_transaction(
+                    let transaction = database.transaction_write().create_transaction(
                         &account,
                         amount,
                         currency,
                         TransactionCategory::Deposit,
                     )?;
                     database
-                        .write_account_overview_db()
-                        .create_account_overview(&account, currency)?;
+                        .account_overview_write()
+                        .create(&account, currency)?;
                     let updated_overview =
                         OverviewWorker::calculate_account(database, &account, currency)?;
                     Ok((transaction, updated_overview))
@@ -99,18 +99,18 @@ impl TransactionWorker {
         currency: &Currency,
         account_id: Uuid,
     ) -> Result<(Transaction, AccountOverview), Box<dyn Error>> {
-        let account = database.read_account_db().read_account_id(account_id)?;
+        let account = database.account_read().id(account_id)?;
 
         // Validate that account has enough funds to withdraw
         transaction::can_transfer_withdraw(
             amount,
             currency,
             account_id,
-            database.read_account_overview_db().as_mut(),
+            database.account_overview_read().as_mut(),
         )?;
 
         // Create transaction
-        let transaction = database.write_transaction_db().create_transaction(
+        let transaction = database.transaction_write().create_transaction(
             &account,
             amount,
             currency,
@@ -132,12 +132,12 @@ impl TransactionWorker {
 
         // 2. Create transaction
         let account = database
-            .read_account_db()
-            .read_account_id(trade.account_id)?;
+            .account_read()
+            .id(trade.account_id)?;
 
         let trade_total = trade.entry.unit_price * Decimal::from(trade.entry.quantity);
 
-        let transaction = database.write_transaction_db().create_transaction(
+        let transaction = database.transaction_write().create_transaction(
             &account,
             trade_total,
             &trade.currency,
@@ -157,8 +157,8 @@ impl TransactionWorker {
         database: &mut dyn DatabaseFactory,
     ) -> Result<(Transaction, TradeOverview), Box<dyn Error>> {
         let account = database
-            .read_account_db()
-            .read_account_id(trade.account_id)?;
+            .account_read()
+            .id(trade.account_id)?;
 
         // 1. Calculate the total amount of the trade
         let total = trade.entry.average_filled_price.unwrap() * Decimal::from(trade.entry.quantity);
@@ -167,7 +167,7 @@ impl TransactionWorker {
         transaction::can_transfer_fill(trade, total)?;
 
         // 3. Create transaction
-        let transaction = database.write_transaction_db().create_transaction(
+        let transaction = database.transaction_write().create_transaction(
             &account,
             total,
             &trade.currency,
@@ -181,7 +181,7 @@ impl TransactionWorker {
         total_difference.set_sign_positive(true);
 
         if total_difference > dec!(0) {
-            database.write_transaction_db().create_transaction(
+            database.transaction_write().create_transaction(
                 &account,
                 total_difference,
                 &trade.currency,
@@ -201,15 +201,15 @@ impl TransactionWorker {
     ) -> Result<(Transaction, AccountOverview), Box<dyn Error>> {
         // 1. Validate that account has enough funds to pay a fee.
         let account_overview = database
-            .read_account_overview_db()
-            .read_account_overview_currency(trade.account_id, &trade.currency)?;
+            .account_overview_read()
+            .for_currency(trade.account_id, &trade.currency)?;
         transaction::can_transfer_fee(&account_overview, fee)?;
 
         // 2. Create transaction
         let account = database
-            .read_account_db()
-            .read_account_id(trade.account_id)?;
-        let transaction = database.write_transaction_db().create_transaction(
+            .account_read()
+            .id(trade.account_id)?;
+        let transaction = database.transaction_write().create_transaction(
             &account,
             fee,
             &trade.currency,
@@ -229,15 +229,15 @@ impl TransactionWorker {
     ) -> Result<(Transaction, AccountOverview), Box<dyn Error>> {
         // 1. Validate that account has enough funds to pay a fee.
         let account_overview = database
-            .read_account_overview_db()
-            .read_account_overview_currency(trade.account_id, &trade.currency)?;
+            .account_overview_read()
+            .for_currency(trade.account_id, &trade.currency)?;
         transaction::can_transfer_fee(&account_overview, fee)?;
 
         let account = database
-            .read_account_db()
-            .read_account_id(trade.account_id)?;
+            .account_read()
+            .id(trade.account_id)?;
 
-        let transaction = database.write_transaction_db().create_transaction(
+        let transaction = database.transaction_write().create_transaction(
             &account,
             fee,
             &trade.currency,
@@ -255,8 +255,8 @@ impl TransactionWorker {
         database: &mut dyn DatabaseFactory,
     ) -> Result<(Transaction, TradeOverview), Box<dyn Error>> {
         let account = database
-            .read_account_db()
-            .read_account_id(trade.account_id)?;
+            .account_read()
+            .id(trade.account_id)?;
 
         let total =
             trade.target.average_filled_price.unwrap() * Decimal::from(trade.entry.quantity);
@@ -265,7 +265,7 @@ impl TransactionWorker {
         transaction::can_transfer_close(total)?;
 
         // 2. Create transaction
-        let transaction = database.write_transaction_db().create_transaction(
+        let transaction = database.transaction_write().create_transaction(
             &account,
             total,
             &trade.currency,
@@ -284,8 +284,8 @@ impl TransactionWorker {
         database: &mut dyn DatabaseFactory,
     ) -> Result<(Transaction, TradeOverview), Box<dyn Error>> {
         let account = database
-            .read_account_db()
-            .read_account_id(trade.account_id)?;
+            .account_read()
+            .id(trade.account_id)?;
 
         // 1. Calculate the total amount of the trade
         let total =
@@ -304,7 +304,7 @@ impl TransactionWorker {
         };
 
         // 4. Create transaction
-        let transaction = database.write_transaction_db().create_transaction(
+        let transaction = database.transaction_write().create_transaction(
             &account,
             total,
             &trade.currency,
@@ -324,12 +324,12 @@ impl TransactionWorker {
     ) -> Result<(Transaction, AccountOverview, TradeOverview), Box<dyn Error>> {
         // Create transaction
         let account = database
-            .read_account_db()
-            .read_account_id(trade.account_id)?;
+            .account_read()
+            .id(trade.account_id)?;
         let total_to_withdrawal =
-            TradeCapitalOutOfMarket::calculate(trade.id, database.read_transaction_db().as_mut())?;
+            TradeCapitalOutOfMarket::calculate(trade.id, database.transaction_read().as_mut())?;
 
-        let transaction = database.write_transaction_db().create_transaction(
+        let transaction = database.transaction_write().create_transaction(
             &account,
             total_to_withdrawal,
             &trade.currency,

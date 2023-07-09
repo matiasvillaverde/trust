@@ -1,6 +1,6 @@
 use model::{
     Currency, DatabaseFactory, Order, OrderAction, OrderCategory, ReadTradeDB, Trade,
-    TradeCategory, WriteOrderDB,
+    TradeCategory, OrderWrite,
 };
 use rust_decimal::Decimal;
 use uuid::Uuid;
@@ -17,9 +17,9 @@ impl OrderWorker {
         database: &mut dyn DatabaseFactory,
     ) -> Result<Order, Box<dyn std::error::Error>> {
         let tv = database
-            .read_trading_vehicle_db()
+            .trading_vehicle_read()
             .read_trading_vehicle(trading_vehicle_id)?;
-        database.write_order_db().create_order(
+        database.order_write().create(
             &tv,
             quantity,
             price,
@@ -38,9 +38,9 @@ impl OrderWorker {
         database: &mut dyn DatabaseFactory,
     ) -> Result<Order, Box<dyn std::error::Error>> {
         let tv = database
-            .read_trading_vehicle_db()
+            .trading_vehicle_read()
             .read_trading_vehicle(trading_vehicle_id)?;
-        database.write_order_db().create_order(
+        database.order_write().create(
             &tv,
             quantity,
             price,
@@ -54,7 +54,7 @@ impl OrderWorker {
         order: &Order,
         database: &mut dyn DatabaseFactory,
     ) -> Result<Order, Box<dyn std::error::Error>> {
-        database.write_order_db().update_order(order)
+        database.order_write().update(order)
     }
 
     pub fn create_target(
@@ -66,12 +66,12 @@ impl OrderWorker {
         database: &mut dyn DatabaseFactory,
     ) -> Result<Order, Box<dyn std::error::Error>> {
         let tv = database
-            .read_trading_vehicle_db()
+            .trading_vehicle_read()
             .read_trading_vehicle(trading_vehicle_id)?;
 
         let action = action_for_target(category);
 
-        database.write_order_db().create_order(
+        database.order_write().create(
             &tv,
             quantity,
             price,
@@ -83,28 +83,28 @@ impl OrderWorker {
 
     pub fn record_timestamp_filled(
         trade: &Trade,
-        write_database: &mut dyn WriteOrderDB,
+        write_database: &mut dyn OrderWrite,
         read_database: &mut dyn ReadTradeDB,
     ) -> Result<Trade, Box<dyn std::error::Error>> {
-        write_database.record_filled(&trade.entry)?;
+        write_database.filling_of(&trade.entry)?;
         read_database.read_trade(trade.id)
     }
 
     pub fn record_timestamp_stop(
         trade: &Trade,
-        write_database: &mut dyn WriteOrderDB,
+        write_database: &mut dyn OrderWrite,
         read_database: &mut dyn ReadTradeDB,
     ) -> Result<Trade, Box<dyn std::error::Error>> {
-        write_database.record_order_closing(&trade.safety_stop)?;
+        write_database.closing_of(&trade.safety_stop)?;
         read_database.read_trade(trade.id)
     }
 
     pub fn record_timestamp_target(
         trade: &Trade,
-        write_database: &mut dyn WriteOrderDB,
+        write_database: &mut dyn OrderWrite,
         read_database: &mut dyn ReadTradeDB,
     ) -> Result<Trade, Box<dyn std::error::Error>> {
-        write_database.record_order_closing(&trade.target)?;
+        write_database.closing_of(&trade.target)?;
         read_database.read_trade(trade.id)
     }
 }

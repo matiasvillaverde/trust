@@ -32,7 +32,7 @@ impl TrustFacade {
         taxes_percentage: Decimal,
         earnings_percentage: Decimal,
     ) -> Result<Account, Box<dyn std::error::Error>> {
-        self.factory.write_account_db().create_account(
+        self.factory.account_write().create(
             name,
             description,
             environment,
@@ -42,18 +42,18 @@ impl TrustFacade {
     }
 
     pub fn search_account(&mut self, name: &str) -> Result<Account, Box<dyn std::error::Error>> {
-        self.factory.read_account_db().read_account(name)
+        self.factory.account_read().for_name(name)
     }
 
     pub fn search_all_accounts(&mut self) -> Result<Vec<Account>, Box<dyn std::error::Error>> {
-        self.factory.read_account_db().read_all_accounts()
+        self.factory.account_read().all()
     }
 
     pub fn search_all_rules(
         &mut self,
         account_id: Uuid,
     ) -> Result<Vec<Rule>, Box<dyn std::error::Error>> {
-        self.factory.read_rule_db().read_all_rules(account_id)
+        self.factory.rule_read().read_all_rules(account_id)
     }
 
     pub fn create_transaction(
@@ -72,8 +72,8 @@ impl TrustFacade {
         currency: &Currency,
     ) -> Result<AccountOverview, Box<dyn std::error::Error>> {
         self.factory
-            .read_account_overview_db()
-            .read_account_overview_currency(account_id, currency)
+            .account_overview_read()
+            .for_currency(account_id, currency)
     }
 
     pub fn search_all_overviews(
@@ -81,8 +81,8 @@ impl TrustFacade {
         account_id: Uuid,
     ) -> Result<Vec<AccountOverview>, Box<dyn std::error::Error>> {
         self.factory
-            .read_account_overview_db()
-            .read_account_overview(account_id)
+            .account_overview_read()
+            .for_account(account_id)
     }
 
     pub fn create_rule(
@@ -96,14 +96,14 @@ impl TrustFacade {
     }
 
     pub fn deactivate_rule(&mut self, rule: &Rule) -> Result<Rule, Box<dyn std::error::Error>> {
-        self.factory.write_rule_db().make_rule_inactive(rule)
+        self.factory.rule_write().make_rule_inactive(rule)
     }
 
     pub fn search_rules(
         &mut self,
         account_id: Uuid,
     ) -> Result<Vec<Rule>, Box<dyn std::error::Error>> {
-        self.factory.read_rule_db().read_all_rules(account_id)
+        self.factory.rule_read().read_all_rules(account_id)
     }
 
     pub fn create_trading_vehicle(
@@ -114,7 +114,7 @@ impl TrustFacade {
         broker: &str,
     ) -> Result<TradingVehicle, Box<dyn std::error::Error>> {
         self.factory
-            .write_trading_vehicle_db()
+            .trading_vehicle_write()
             .create_trading_vehicle(symbol, isin, category, broker)
     }
 
@@ -122,7 +122,7 @@ impl TrustFacade {
         &mut self,
     ) -> Result<Vec<TradingVehicle>, Box<dyn std::error::Error>> {
         self.factory
-            .read_trading_vehicle_db()
+            .trading_vehicle_read()
             .read_all_trading_vehicles()
     }
 
@@ -185,7 +185,7 @@ impl TrustFacade {
         };
 
         self.factory
-            .write_trade_db()
+            .trade_write()
             .create_trade(draft, &stop, &entry, &target)
     }
 
@@ -195,7 +195,7 @@ impl TrustFacade {
         status: Status,
     ) -> Result<Vec<Trade>, Box<dyn std::error::Error>> {
         self.factory
-            .read_trade_db()
+            .trade_read()
             .read_trades_with_status(account_id, status)
     }
 
@@ -211,7 +211,7 @@ impl TrustFacade {
 
         // 2. Fund in case rule succeed
         self.factory
-            .write_trade_db()
+            .trade_write()
             .update_trade_status(Status::Funded, trade)?;
 
         // 3. Create transaction to fund the trade
@@ -230,34 +230,34 @@ impl TrustFacade {
         // 2. Submit trade to broker
         let account = self
             .factory
-            .read_account_db()
-            .read_account_id(trade.account_id)?;
+            .account_read()
+            .id(trade.account_id)?;
         let (log, order_id) = self.broker.submit_trade(trade, &account)?;
 
         // 3. Save log in the DB
         self.factory
-            .write_broker_log_db()
+            .log_write()
             .create_log(log.log.as_str(), trade)?;
 
         // 4. Mark Trade as submitted
         let trade = self
             .factory
-            .write_trade_db()
+            .trade_write()
             .update_trade_status(Status::Submitted, trade)?;
 
         // 5. Update Orders order to submitted
         self.factory
-            .write_order_db()
-            .record_submit(&trade.safety_stop, order_id.stop)?;
+            .order_write()
+            .submit_of(&trade.safety_stop, order_id.stop)?;
         self.factory
-            .write_order_db()
-            .record_submit(&trade.entry, order_id.entry)?;
+            .order_write()
+            .submit_of(&trade.entry, order_id.entry)?;
         self.factory
-            .write_order_db()
-            .record_submit(&trade.target, order_id.target)?;
+            .order_write()
+            .submit_of(&trade.target, order_id.target)?;
 
         // 6. Read Trade with updated values
-        let trade = self.factory.read_trade_db().read_trade(trade.id)?;
+        let trade = self.factory.trade_read().read_trade(trade.id)?;
 
         Ok((trade, log))
     }
@@ -272,7 +272,7 @@ impl TrustFacade {
 
         // 2. Save log in the DB
         self.factory
-            .write_broker_log_db()
+            .log_write()
             .create_log(log.log.as_str(), trade)?;
 
         // 3. Update Orders
@@ -281,7 +281,7 @@ impl TrustFacade {
         }
 
         // 4. Update Trade Status
-        let trade = self.factory.read_trade_db().read_trade(trade.id)?; // We need to read the trade again to get the updated orders
+        let trade = self.factory.trade_read().read_trade(trade.id)?; // We need to read the trade again to get the updated orders
         TradeWorker::update_status(&trade, status, &mut *self.factory)?;
 
         // 5. Update Account Overview
@@ -322,13 +322,13 @@ impl TrustFacade {
         // 2. Submit a market order to Alpaca
         let account = self
             .factory
-            .read_account_db()
-            .read_account_id(trade.account_id)?;
+            .account_read()
+            .id(trade.account_id)?;
         let (order, log) = self.broker.close_trade(trade, &account)?;
 
         // 3. Save log
         self.factory
-            .write_broker_log_db()
+            .log_write()
             .create_log(log.log.as_str(), trade)?;
 
         // 4. Update Order Target with the market price and new ID
@@ -336,13 +336,13 @@ impl TrustFacade {
 
         // 5. Update Trade Status
         self.factory
-            .write_trade_db()
+            .trade_write()
             .update_trade_status(Status::Canceled, trade)?;
 
         // 6. Cancel Stop Order
         let mut stop_order = trade.safety_stop.clone();
         stop_order.status = OrderStatus::Canceled;
-        self.factory.write_order_db().update_order(&stop_order)?;
+        self.factory.order_write().update(&stop_order)?;
 
         Ok((trade.overview.clone(), log))
     }
@@ -356,7 +356,7 @@ impl TrustFacade {
 
         // 2. Update Trade Status
         self.factory
-            .write_trade_db()
+            .trade_write()
             .update_trade_status(Status::Canceled, trade)?;
 
         // 3. Transfer funds back to account

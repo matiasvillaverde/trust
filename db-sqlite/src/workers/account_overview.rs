@@ -2,7 +2,7 @@ use crate::schema::accounts_overviews;
 use chrono::{NaiveDateTime, Utc};
 use diesel::prelude::*;
 use diesel::SqliteConnection;
-use model::{Account, AccountOverview, Currency, ReadAccountOverviewDB, WriteAccountOverviewDB};
+use model::{Account, AccountOverview, Currency, AccountOverviewRead, AccountOverviewWrite};
 use rust_decimal::Decimal;
 use std::error::Error;
 use std::sync::Arc;
@@ -14,8 +14,8 @@ pub struct AccountOverviewDB {
     pub connection: Arc<Mutex<SqliteConnection>>,
 }
 
-impl WriteAccountOverviewDB for AccountOverviewDB {
-    fn create_account_overview(
+impl AccountOverviewWrite for AccountOverviewDB {
+    fn create(
         &mut self,
         account: &Account,
         currency: &Currency,
@@ -39,7 +39,7 @@ impl WriteAccountOverviewDB for AccountOverviewDB {
         Ok(overview)
     }
 
-    fn update_account_overview(
+    fn update(
         &mut self,
         overview: &AccountOverview,
         total_balance: Decimal,
@@ -67,8 +67,8 @@ impl WriteAccountOverviewDB for AccountOverviewDB {
     }
 }
 
-impl ReadAccountOverviewDB for AccountOverviewDB {
-    fn read_account_overview(
+impl AccountOverviewRead for AccountOverviewDB {
+    fn for_account(
         &mut self,
         account_id: Uuid,
     ) -> Result<Vec<AccountOverview>, Box<dyn Error>> {
@@ -90,7 +90,7 @@ impl ReadAccountOverviewDB for AccountOverviewDB {
         Ok(overviews)
     }
 
-    fn read_account_overview_currency(
+    fn for_currency(
         &mut self,
         account_id: Uuid,
         currency: &Currency,
@@ -213,8 +213,8 @@ mod tests {
         let db = create_factory();
 
         let account = db
-            .write_account_db()
-            .create_account(
+            .account_write()
+            .create(
                 "Test Account",
                 "Some description",
                 model::Environment::Paper,
@@ -222,9 +222,9 @@ mod tests {
                 dec!(10),
             )
             .expect("Failed to create account");
-        let mut db = db.write_account_overview_db();
+        let mut db = db.account_overview_write();
         let overview = db
-            .create_account_overview(&account, &Currency::BTC)
+            .create(&account, &Currency::BTC)
             .expect("Failed to create overview");
 
         assert_eq!(overview.account_id, account.id);
@@ -240,8 +240,8 @@ mod tests {
         let db = create_factory();
 
         let account = db
-            .write_account_db()
-            .create_account(
+            .account_write()
+            .create(
                 "Test Account",
                 "Some description",
                 model::Environment::Paper,
@@ -249,18 +249,18 @@ mod tests {
                 dec!(10),
             )
             .expect("Failed to create account");
-        let mut write_db = db.write_account_overview_db();
+        let mut write_db = db.account_overview_write();
 
         let overview_btc = write_db
-            .create_account_overview(&account, &Currency::BTC)
+            .create(&account, &Currency::BTC)
             .expect("Failed to create overview");
         let overview_usd = write_db
-            .create_account_overview(&account, &Currency::USD)
+            .create(&account, &Currency::USD)
             .expect("Failed to create overview");
 
-        let mut db = db.read_account_overview_db();
+        let mut db = db.account_overview_read();
         let overviews = db
-            .read_account_overview(account.id)
+            .for_account(account.id)
             .expect("Failed to read overviews");
 
         assert_eq!(overviews.len(), 2);
@@ -273,8 +273,8 @@ mod tests {
         let db = create_factory();
 
         let account = db
-            .write_account_db()
-            .create_account(
+            .account_write()
+            .create(
                 "Test Account",
                 "Some description",
                 model::Environment::Paper,
@@ -282,13 +282,13 @@ mod tests {
                 dec!(10),
             )
             .expect("Failed to create account");
-        let mut db = db.write_account_overview_db();
+        let mut db = db.account_overview_write();
         let overview = db
-            .create_account_overview(&account, &Currency::BTC)
+            .create(&account, &Currency::BTC)
             .expect("Failed to create overview");
 
         let updated_overview = db
-            .update_account_overview(&overview, dec!(200), dec!(1), dec!(203), dec!(44.2))
+            .update(&overview, dec!(200), dec!(1), dec!(203), dec!(44.2))
             .expect("Failed to update overview");
 
         assert_eq!(updated_overview.total_balance, dec!(200));

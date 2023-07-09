@@ -10,8 +10,8 @@ impl RuleWorker {
         description: &str,
         level: &RuleLevel,
     ) -> Result<Rule, Box<dyn std::error::Error>> {
-        crate::validators::rule::can_create(rule_name, account, database.read_rule_db().as_mut())?;
-        database.write_rule_db().create_rule(
+        crate::validators::rule::can_create(rule_name, account, database.rule_read().as_mut())?;
+        database.rule_write().create_rule(
             account,
             rule_name,
             description,

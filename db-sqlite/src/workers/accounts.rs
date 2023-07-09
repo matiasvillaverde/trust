@@ -1,8 +1,8 @@
 use crate::schema::accounts;
 use chrono::{NaiveDateTime, Utc};
 use diesel::prelude::*;
-use model::ReadAccountDB;
-use model::{Account, Environment, WriteAccountDB};
+use model::AccountRead;
+use model::{Account, Environment, AccountWrite};
 use rust_decimal::Decimal;
 use std::error::Error;
 use std::str::FromStr;
@@ -15,8 +15,8 @@ pub struct AccountDB {
     pub connection: Arc<Mutex<SqliteConnection>>,
 }
 
-impl WriteAccountDB for AccountDB {
-    fn create_account(
+impl AccountWrite for AccountDB {
+    fn create(
         &mut self,
         name: &str,
         description: &str,
@@ -53,8 +53,8 @@ impl WriteAccountDB for AccountDB {
     }
 }
 
-impl ReadAccountDB for AccountDB {
-    fn read_account(&mut self, name: &str) -> Result<Account, Box<dyn Error>> {
+impl AccountRead for AccountDB {
+    fn for_name(&mut self, name: &str) -> Result<Account, Box<dyn Error>> {
         let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap();
 
         let account = accounts::table
@@ -68,7 +68,7 @@ impl ReadAccountDB for AccountDB {
         Ok(account)
     }
 
-    fn read_account_id(&mut self, id: Uuid) -> Result<Account, Box<dyn Error>> {
+    fn id(&mut self, id: Uuid) -> Result<Account, Box<dyn Error>> {
         let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap();
 
         let account = accounts::table
@@ -82,7 +82,7 @@ impl ReadAccountDB for AccountDB {
         Ok(account)
     }
 
-    fn read_all_accounts(&mut self) -> Result<Vec<Account>, Box<dyn Error>> {
+    fn all(&mut self) -> Result<Vec<Account>, Box<dyn Error>> {
         let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap();
         let accounts = accounts::table
             .filter(accounts::deleted_at.is_null())
@@ -176,7 +176,7 @@ mod tests {
         };
         // Create a new account record
         let account = db
-            .create_account(
+            .create(
                 "Test Account",
                 "This is a test account",
                 Environment::Paper,
@@ -197,7 +197,7 @@ mod tests {
         };
         // Create a new account record
         let created_account = db
-            .create_account(
+            .create(
                 "Test Account",
                 "This is a test account",
                 Environment::Paper,
@@ -207,7 +207,7 @@ mod tests {
             .expect("Error creating account");
         // Read the account record by name
         let read_account = db
-            .read_account("Test Account")
+            .for_name("Test Account")
             .expect("Account should be found");
         assert_eq!(read_account, created_account);
     }
@@ -219,7 +219,7 @@ mod tests {
         };
         // Create a new account record
         let created_account = db
-            .create_account(
+            .create(
                 "Test Account",
                 "This is a test account",
                 Environment::Paper,
@@ -229,7 +229,7 @@ mod tests {
             .expect("Error creating account");
         // Read the account record by name
         let read_account = db
-            .read_account_id(created_account.id)
+            .id(created_account.id)
             .expect("Account should be found");
         assert_eq!(read_account, created_account);
     }
@@ -241,7 +241,7 @@ mod tests {
         };
         let name = "Test Account";
         // Create a new account record
-        db.create_account(
+        db.create(
             name,
             "This is a test account",
             Environment::Paper,
@@ -250,7 +250,7 @@ mod tests {
         )
         .expect("Error creating account");
         // Create a new account record with the same name
-        db.create_account(
+        db.create(
             name,
             "This is a test account",
             Environment::Paper,
@@ -265,15 +265,15 @@ mod tests {
         let mut db = AccountDB {
             connection: Arc::new(Mutex::new(conn)),
         };
-        db.read_account("Non existent account")
+        db.for_name("Non existent account")
             .expect_err("Account should not be found");
     }
     #[test]
     fn test_read_all_accounts() {
         let db = create_factory(establish_connection());
         let created_accounts = vec![
-            db.write_account_db()
-                .create_account(
+            db.account_write()
+                .create(
                     "Test Account 1",
                     "This is a test account",
                     Environment::Paper,
@@ -281,8 +281,8 @@ mod tests {
                     dec!(80),
                 )
                 .expect("Error creating account"),
-            db.write_account_db()
-                .create_account(
+            db.account_write()
+                .create(
                     "Test Account 2",
                     "This is a test account",
                     Environment::Paper,
@@ -290,8 +290,8 @@ mod tests {
                     dec!(80),
                 )
                 .expect("Error creating account"),
-            db.write_account_db()
-                .create_account(
+            db.account_write()
+                .create(
                     "Test Account 3",
                     "This is a test account",
                     Environment::Paper,
@@ -303,8 +303,8 @@ mod tests {
 
         // Read all account records
         let accounts = db
-            .read_account_db()
-            .read_all_accounts()
+            .account_read()
+            .all()
             .expect("Error reading all accounts");
         assert_eq!(accounts, created_accounts);
     }

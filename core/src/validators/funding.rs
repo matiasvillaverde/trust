@@ -11,8 +11,8 @@ type FundingValidationResult = Result<(), Box<FundValidationError>>;
 pub fn can_fund(trade: &Trade, database: &mut dyn DatabaseFactory) -> FundingValidationResult {
     // 1.  Get account overview
     let account = database
-        .read_account_db()
-        .read_account_id(trade.account_id)
+        .account_read()
+        .id(trade.account_id)
         .unwrap();
 
     // 2. Calculate account overview based on the given trade currency
@@ -55,7 +55,7 @@ fn validate_enough_capital(trade: &Trade, overview: &AccountOverview) -> Funding
 
 fn sorted_rules(account_id: Uuid, database: &mut dyn DatabaseFactory) -> Vec<Rule> {
     let mut rules = database
-        .read_rule_db()
+        .rule_read()
         .read_all_rules(account_id)
         .unwrap_or_else(|_| vec![]);
     rules.sort_by(|a, b| a.priority.cmp(&b.priority));

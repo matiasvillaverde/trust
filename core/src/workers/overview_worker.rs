@@ -20,31 +20,31 @@ impl OverviewWorker {
         let total_available = AccountCapitalAvailable::calculate(
             account.id,
             currency,
-            database.read_transaction_db().as_mut(),
+            database.transaction_read().as_mut(),
         )?;
         let total_in_trade = AccountCapitalInApprovedTrades::calculate(
             account.id,
             currency,
-            database.read_transaction_db().as_mut(),
+            database.transaction_read().as_mut(),
         )?;
         let taxed = AccountCapitalTaxable::calculate(
             account.id,
             currency,
-            database.read_transaction_db().as_mut(),
+            database.transaction_read().as_mut(),
         )?;
         let total_balance = AccountCapitalBalance::calculate(
             account.id,
             currency,
-            database.read_transaction_db().as_mut(),
+            database.transaction_read().as_mut(),
         )?;
 
         let overview = database
-            .read_account_overview_db()
-            .read_account_overview_currency(account.id, currency)?;
+            .account_overview_read()
+            .for_currency(account.id, currency)?;
 
         database
-            .write_account_overview_db()
-            .update_account_overview(
+            .account_overview_write()
+            .update(
                 &overview,
                 total_balance,
                 total_in_trade,
@@ -58,17 +58,17 @@ impl OverviewWorker {
         trade: &Trade,
     ) -> Result<TradeOverview, Box<dyn Error>> {
         let funding =
-            TradeCapitalFunded::calculate(trade.id, database.read_transaction_db().as_mut())?;
+            TradeCapitalFunded::calculate(trade.id, database.transaction_read().as_mut())?;
         let capital_in_market =
-            TradeCapitalInMarket::calculate(trade.id, database.read_transaction_db().as_mut())?;
+            TradeCapitalInMarket::calculate(trade.id, database.transaction_read().as_mut())?;
         let capital_out_market =
-            TradeCapitalOutOfMarket::calculate(trade.id, database.read_transaction_db().as_mut())?;
+            TradeCapitalOutOfMarket::calculate(trade.id, database.transaction_read().as_mut())?;
         let taxed =
-            TradeCapitalTaxable::calculate(trade.id, database.read_transaction_db().as_mut())?;
+            TradeCapitalTaxable::calculate(trade.id, database.transaction_read().as_mut())?;
         let total_performance =
-            TradePerformance::calculate(trade.id, database.read_transaction_db().as_mut())?;
+            TradePerformance::calculate(trade.id, database.transaction_read().as_mut())?;
 
-        database.write_trade_overview_db().update_trade_overview(
+        database.trade_overview_write().update_trade_overview(
             trade,
             funding,
             capital_in_market,

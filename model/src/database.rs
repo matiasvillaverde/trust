@@ -21,33 +21,33 @@ use std::error::Error;
 /// - Reads can be Uuid
 /// - Writes and updates must be Domain Models
 pub trait DatabaseFactory {
-    fn read_account_db(&self) -> Box<dyn ReadAccountDB>;
-    fn write_account_db(&self) -> Box<dyn WriteAccountDB>;
-    fn read_account_overview_db(&self) -> Box<dyn ReadAccountOverviewDB>;
-    fn write_account_overview_db(&self) -> Box<dyn WriteAccountOverviewDB>;
-    fn read_order_db(&self) -> Box<dyn ReadOrderDB>;
-    fn write_order_db(&self) -> Box<dyn WriteOrderDB>;
-    fn read_transaction_db(&self) -> Box<dyn ReadTransactionDB>;
-    fn write_transaction_db(&self) -> Box<dyn WriteTransactionDB>;
-    fn read_trade_db(&self) -> Box<dyn ReadTradeDB>;
-    fn write_trade_db(&self) -> Box<dyn WriteTradeDB>;
-    fn write_trade_overview_db(&self) -> Box<dyn WriteTradeOverviewDB>;
-    fn read_rule_db(&self) -> Box<dyn ReadRuleDB>;
-    fn write_rule_db(&self) -> Box<dyn WriteRuleDB>;
-    fn read_trading_vehicle_db(&self) -> Box<dyn ReadTradingVehicleDB>;
-    fn write_trading_vehicle_db(&self) -> Box<dyn WriteTradingVehicleDB>;
-    fn read_broker_log_db(&self) -> Box<dyn ReadBrokerLogsDB>;
-    fn write_broker_log_db(&self) -> Box<dyn WriteBrokerLogsDB>;
+    fn account_read(&self) -> Box<dyn AccountRead>;
+    fn account_write(&self) -> Box<dyn AccountWrite>;
+    fn account_overview_read(&self) -> Box<dyn AccountOverviewRead>;
+    fn account_overview_write(&self) -> Box<dyn AccountOverviewWrite>;
+    fn order_read(&self) -> Box<dyn OrderRead>;
+    fn order_write(&self) -> Box<dyn OrderWrite>;
+    fn transaction_read(&self) -> Box<dyn ReadTransactionDB>;
+    fn transaction_write(&self) -> Box<dyn WriteTransactionDB>;
+    fn trade_read(&self) -> Box<dyn ReadTradeDB>;
+    fn trade_write(&self) -> Box<dyn WriteTradeDB>;
+    fn trade_overview_write(&self) -> Box<dyn WriteTradeOverviewDB>;
+    fn rule_read(&self) -> Box<dyn ReadRuleDB>;
+    fn rule_write(&self) -> Box<dyn WriteRuleDB>;
+    fn trading_vehicle_read(&self) -> Box<dyn ReadTradingVehicleDB>;
+    fn trading_vehicle_write(&self) -> Box<dyn WriteTradingVehicleDB>;
+    fn log_read(&self) -> Box<dyn ReadBrokerLogsDB>;
+    fn log_write(&self) -> Box<dyn WriteBrokerLogsDB>;
+}
+ // TODO: Rename
+pub trait AccountRead {
+    fn for_name(&mut self, name: &str) -> Result<Account, Box<dyn Error>>;
+    fn id(&mut self, id: Uuid) -> Result<Account, Box<dyn Error>>;
+    fn all(&mut self) -> Result<Vec<Account>, Box<dyn Error>>;
 }
 
-pub trait ReadAccountDB {
-    fn read_account(&mut self, name: &str) -> Result<Account, Box<dyn Error>>;
-    fn read_account_id(&mut self, id: Uuid) -> Result<Account, Box<dyn Error>>;
-    fn read_all_accounts(&mut self) -> Result<Vec<Account>, Box<dyn Error>>;
-}
-
-pub trait WriteAccountDB {
-    fn create_account(
+pub trait AccountWrite {
+    fn create(
         &mut self,
         name: &str,
         description: &str,
@@ -57,42 +57,42 @@ pub trait WriteAccountDB {
     ) -> Result<Account, Box<dyn Error>>;
 }
 
-pub trait ReadAccountOverviewDB {
-    fn read_account_overview(
+pub trait AccountOverviewRead {
+    fn for_account(
         &mut self,
         account_id: Uuid,
     ) -> Result<Vec<AccountOverview>, Box<dyn Error>>;
 
-    fn read_account_overview_currency(
+    fn for_currency(
         &mut self,
         account_id: Uuid,
         currency: &Currency,
     ) -> Result<AccountOverview, Box<dyn Error>>;
 }
 
-pub trait WriteAccountOverviewDB {
-    fn create_account_overview(
+pub trait AccountOverviewWrite {
+    fn create(
         &mut self,
         account: &Account,
         currency: &Currency,
     ) -> Result<AccountOverview, Box<dyn Error>>;
 
-    fn update_account_overview(
+    fn update(
         &mut self,
         overview: &AccountOverview,
-        total_balance: Decimal,
-        total_in_trade: Decimal,
-        total_available: Decimal,
+        balance: Decimal,
+        in_trade: Decimal,
+        available: Decimal,
         taxed: Decimal,
     ) -> Result<AccountOverview, Box<dyn Error>>;
 }
 
-pub trait ReadOrderDB {
-    fn read_order(&mut self, id: Uuid) -> Result<Order, Box<dyn Error>>;
+pub trait OrderRead {
+    fn for_id(&mut self, id: Uuid) -> Result<Order, Box<dyn Error>>;
 }
 
-pub trait WriteOrderDB {
-    fn create_order(
+pub trait OrderWrite {
+    fn create(
         &mut self,
         trading_vehicle: &TradingVehicle,
         quantity: i64,
@@ -101,14 +101,14 @@ pub trait WriteOrderDB {
         action: &OrderAction,
         category: &OrderCategory,
     ) -> Result<Order, Box<dyn Error>>;
-    fn record_submit(
+    fn submit_of(
         &mut self,
         order: &Order,
         broker_order_id: Uuid,
     ) -> Result<Order, Box<dyn Error>>;
-    fn record_filled(&mut self, order: &Order) -> Result<Order, Box<dyn Error>>;
-    fn record_order_closing(&mut self, order: &Order) -> Result<Order, Box<dyn Error>>;
-    fn update_order(&mut self, order: &Order) -> Result<Order, Box<dyn Error>>;
+    fn filling_of(&mut self, order: &Order) -> Result<Order, Box<dyn Error>>;
+    fn closing_of(&mut self, order: &Order) -> Result<Order, Box<dyn Error>>;
+    fn update(&mut self, order: &Order) -> Result<Order, Box<dyn Error>>;
 }
 
 pub trait ReadTransactionDB {

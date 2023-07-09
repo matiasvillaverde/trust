@@ -30,7 +30,7 @@ impl TradeWorker {
                 }
 
                 // We only update the trade target once
-                let trade = database.read_trade_db().read_trade(trade.id)?;
+                let trade = database.trade_read().read_trade(trade.id)?;
                 if trade.status == Status::Filled {
                     // We also update the trade stop loss
                     let (trade, _) = TradeWorker::stop_executed(&trade, dec!(0), database)?;
@@ -49,7 +49,7 @@ impl TradeWorker {
                 }
 
                 // We only update the trade target once
-                let trade = database.read_trade_db().read_trade(trade.id)?;
+                let trade = database.trade_read().read_trade(trade.id)?;
                 if trade.status == Status::Filled || trade.status == Status::Canceled {
                     // It can be canceled if the target was updated.
                     // We also update the trade stop loss
@@ -85,13 +85,13 @@ impl TradeWorker {
         // Record timestamp when the order was opened
         OrderWorker::record_timestamp_filled(
             trade,
-            database.write_order_db().as_mut(),
-            database.read_trade_db().as_mut(),
+            database.order_write().as_mut(),
+            database.trade_read().as_mut(),
         )?;
 
         // Record timestamp when the trade was opened
         let trade = database
-            .write_trade_db()
+            .trade_write()
             .update_trade_status(Status::Filled, trade)?;
 
         Ok((trade, tx))
@@ -113,13 +113,13 @@ impl TradeWorker {
         // 3. Record timestamp when the target order was closed
         OrderWorker::record_timestamp_target(
             trade,
-            database.write_order_db().as_mut(),
-            database.read_trade_db().as_mut(),
+            database.order_write().as_mut(),
+            database.trade_read().as_mut(),
         )?;
 
         // 4. Record timestamp when the trade was closed
         let trade = database
-            .write_trade_db()
+            .trade_write()
             .update_trade_status(Status::ClosedTarget, trade)?;
 
         Ok((trade, tx))
@@ -141,13 +141,13 @@ impl TradeWorker {
         // 3. Record timestamp when the stop order was closed
         OrderWorker::record_timestamp_stop(
             trade,
-            database.write_order_db().as_mut(),
-            database.read_trade_db().as_mut(),
+            database.order_write().as_mut(),
+            database.trade_read().as_mut(),
         )?;
 
         // 4. Record timestamp when the trade was closed
         let trade = database
-            .write_trade_db()
+            .trade_write()
             .update_trade_status(Status::ClosedStopLoss, trade)?;
 
         Ok((trade, tx))

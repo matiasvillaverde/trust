@@ -6,11 +6,11 @@ use diesel::prelude::*;
 use model::DraftTrade;
 use model::Status;
 use model::{
-    database::{WriteAccountDB, WriteTradeOverviewDB},
-    Account, Currency, DatabaseFactory, Order, OrderAction, OrderCategory, ReadAccountDB,
-    ReadAccountOverviewDB, ReadOrderDB, ReadRuleDB, ReadTradeDB, ReadTradingVehicleDB,
+    database::{AccountWrite, WriteTradeOverviewDB},
+    Account, Currency, DatabaseFactory, Order, OrderAction, OrderCategory, AccountRead,
+    AccountOverviewRead, OrderRead, ReadRuleDB, ReadTradeDB, ReadTradingVehicleDB,
     ReadTransactionDB, Rule, RuleName, Trade, TradeOverview, TradingVehicle,
-    TradingVehicleCategory, Transaction, TransactionCategory, WriteAccountOverviewDB, WriteOrderDB,
+    TradingVehicleCategory, Transaction, TransactionCategory, AccountOverviewWrite, OrderWrite,
     WriteRuleDB, WriteTradeDB, WriteTradingVehicleDB, WriteTransactionDB,
 };
 use rust_decimal::Decimal;
@@ -24,74 +24,74 @@ pub struct SqliteDatabase {
 }
 
 impl DatabaseFactory for SqliteDatabase {
-    fn read_account_db(&self) -> Box<dyn ReadAccountDB> {
+    fn account_read(&self) -> Box<dyn AccountRead> {
         Box::new(AccountDB {
             connection: self.connection.clone(),
         })
     }
 
-    fn write_account_db(&self) -> Box<dyn WriteAccountDB> {
+    fn account_write(&self) -> Box<dyn AccountWrite> {
         Box::new(AccountDB {
             connection: self.connection.clone(),
         })
     }
 
-    fn read_broker_log_db(&self) -> Box<dyn model::ReadBrokerLogsDB> {
+    fn log_read(&self) -> Box<dyn model::ReadBrokerLogsDB> {
         Box::new(BrokerLogDB {
             connection: self.connection.clone(),
         })
     }
 
-    fn write_broker_log_db(&self) -> Box<dyn model::WriteBrokerLogsDB> {
+    fn log_write(&self) -> Box<dyn model::WriteBrokerLogsDB> {
         Box::new(BrokerLogDB {
             connection: self.connection.clone(),
         })
     }
 
-    fn read_account_overview_db(&self) -> Box<dyn ReadAccountOverviewDB> {
+    fn account_overview_read(&self) -> Box<dyn AccountOverviewRead> {
         Box::new(AccountOverviewDB {
             connection: self.connection.clone(),
         })
     }
 
-    fn write_account_overview_db(&self) -> Box<dyn WriteAccountOverviewDB> {
+    fn account_overview_write(&self) -> Box<dyn AccountOverviewWrite> {
         Box::new(AccountOverviewDB {
             connection: self.connection.clone(),
         })
     }
 
-    fn read_order_db(&self) -> Box<dyn ReadOrderDB> {
+    fn order_read(&self) -> Box<dyn OrderRead> {
         Box::new(SqliteDatabase::new_from(self.connection.clone()))
     }
-    fn write_order_db(&self) -> Box<dyn WriteOrderDB> {
+    fn order_write(&self) -> Box<dyn OrderWrite> {
         Box::new(SqliteDatabase::new_from(self.connection.clone()))
     }
 
-    fn read_transaction_db(&self) -> Box<dyn ReadTransactionDB> {
+    fn transaction_read(&self) -> Box<dyn ReadTransactionDB> {
         Box::new(SqliteDatabase::new_from(self.connection.clone()))
     }
-    fn write_transaction_db(&self) -> Box<dyn WriteTransactionDB> {
+    fn transaction_write(&self) -> Box<dyn WriteTransactionDB> {
         Box::new(SqliteDatabase::new_from(self.connection.clone()))
     }
-    fn read_trade_db(&self) -> Box<dyn ReadTradeDB> {
+    fn trade_read(&self) -> Box<dyn ReadTradeDB> {
         Box::new(SqliteDatabase::new_from(self.connection.clone()))
     }
-    fn write_trade_db(&self) -> Box<dyn WriteTradeDB> {
+    fn trade_write(&self) -> Box<dyn WriteTradeDB> {
         Box::new(SqliteDatabase::new_from(self.connection.clone()))
     }
-    fn write_trade_overview_db(&self) -> Box<dyn WriteTradeOverviewDB> {
+    fn trade_overview_write(&self) -> Box<dyn WriteTradeOverviewDB> {
         Box::new(SqliteDatabase::new_from(self.connection.clone()))
     }
-    fn read_rule_db(&self) -> Box<dyn ReadRuleDB> {
+    fn rule_read(&self) -> Box<dyn ReadRuleDB> {
         Box::new(SqliteDatabase::new_from(self.connection.clone()))
     }
-    fn write_rule_db(&self) -> Box<dyn WriteRuleDB> {
+    fn rule_write(&self) -> Box<dyn WriteRuleDB> {
         Box::new(SqliteDatabase::new_from(self.connection.clone()))
     }
-    fn read_trading_vehicle_db(&self) -> Box<dyn ReadTradingVehicleDB> {
+    fn trading_vehicle_read(&self) -> Box<dyn ReadTradingVehicleDB> {
         Box::new(SqliteDatabase::new_from(self.connection.clone()))
     }
-    fn write_trading_vehicle_db(&self) -> Box<dyn WriteTradingVehicleDB> {
+    fn trading_vehicle_write(&self) -> Box<dyn WriteTradingVehicleDB> {
         Box::new(SqliteDatabase::new_from(self.connection.clone()))
     }
 }
@@ -138,8 +138,8 @@ impl SqliteDatabase {
     }
 }
 
-impl WriteOrderDB for SqliteDatabase {
-    fn create_order(
+impl OrderWrite for SqliteDatabase {
+    fn create(
         &mut self,
         trading_vehicle: &TradingVehicle,
         quantity: i64,
@@ -159,11 +159,11 @@ impl WriteOrderDB for SqliteDatabase {
         )
     }
 
-    fn update_order(&mut self, order: &Order) -> Result<Order, Box<dyn Error>> {
+    fn update(&mut self, order: &Order) -> Result<Order, Box<dyn Error>> {
         WorkerOrder::update(&mut self.connection.lock().unwrap(), order)
     }
 
-    fn record_submit(
+    fn submit_of(
         &mut self,
         order: &Order,
         broker_order_id: Uuid,
@@ -175,11 +175,11 @@ impl WriteOrderDB for SqliteDatabase {
         )
     }
 
-    fn record_filled(&mut self, order: &Order) -> Result<Order, Box<dyn Error>> {
+    fn filling_of(&mut self, order: &Order) -> Result<Order, Box<dyn Error>> {
         WorkerOrder::update_filled_at(&mut self.connection.lock().unwrap(), order)
     }
 
-    fn record_order_closing(&mut self, order: &Order) -> Result<Order, Box<dyn Error>> {
+    fn closing_of(&mut self, order: &Order) -> Result<Order, Box<dyn Error>> {
         WorkerOrder::update_closed_at(&mut self.connection.lock().unwrap(), order)
     }
 }
@@ -444,8 +444,8 @@ impl WriteTradeOverviewDB for SqliteDatabase {
     }
 }
 
-impl ReadOrderDB for SqliteDatabase {
-    fn read_order(&mut self, id: Uuid) -> Result<Order, Box<dyn Error>> {
+impl OrderRead for SqliteDatabase {
+    fn for_id(&mut self, id: Uuid) -> Result<Order, Box<dyn Error>> {
         WorkerOrder::read(&mut self.connection.lock().unwrap(), id)
     }
 }

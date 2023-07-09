@@ -1,4 +1,4 @@
-use model::{AccountOverview, Currency, ReadAccountOverviewDB, Status, Trade};
+use model::{AccountOverview, Currency, AccountOverviewRead, Status, Trade};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use std::error::Error;
@@ -63,7 +63,7 @@ pub fn can_transfer_deposit(
     amount: Decimal,
     currency: &Currency,
     account_id: Uuid,
-    database: &mut dyn ReadAccountOverviewDB,
+    database: &mut dyn AccountOverviewRead,
 ) -> TransactionValidationResult {
     if amount.is_sign_negative() {
         Err(Box::new(TransactionValidationError {
@@ -71,7 +71,7 @@ pub fn can_transfer_deposit(
             message: "Amount of deposit must be positive".to_string(),
         }))
     } else {
-        match database.read_account_overview_currency(account_id, currency) {
+        match database.for_currency(account_id, currency) {
             Ok(_) => Ok(()),
             Err(_) => Err(Box::new(TransactionValidationError {
                 code: TransactionValidationErrorCode::OverviewNotFound,
@@ -85,7 +85,7 @@ pub fn can_transfer_withdraw(
     amount: Decimal,
     currency: &Currency,
     account_id: Uuid,
-    database: &mut dyn ReadAccountOverviewDB,
+    database: &mut dyn AccountOverviewRead,
 ) -> TransactionValidationResult {
     if amount.is_sign_negative() | amount.is_zero() {
         Err(Box::new(TransactionValidationError {
@@ -93,7 +93,7 @@ pub fn can_transfer_withdraw(
             message: "Amount of withdrawal must be positive".to_string(),
         }))
     } else {
-        let overview = database.read_account_overview_currency(account_id, currency);
+        let overview = database.for_currency(account_id, currency);
         match overview {
             Ok(overview) => {
                 if overview.total_available >= amount {

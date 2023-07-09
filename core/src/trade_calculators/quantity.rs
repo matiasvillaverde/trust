@@ -19,11 +19,11 @@ impl QuantityCalculator {
         let total_available = AccountCapitalAvailable::calculate(
             account_id,
             currency,
-            database.read_transaction_db().as_mut(),
+            database.transaction_read().as_mut(),
         )?;
 
         // Get rules by priority
-        let mut rules = database.read_rule_db().read_all_rules(account_id)?;
+        let mut rules = database.rule_read().read_all_rules(account_id)?;
         rules.sort_by(|a, b| a.priority.cmp(&b.priority));
 
         let mut risk_per_month = dec!(100.0); // Default to 100% of the available capital
