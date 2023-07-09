@@ -52,6 +52,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "alpaca-broker"
+version = "0.2.1"
+dependencies = [
+ "apca",
+ "chrono",
+ "dotenv",
+ "keyring",
+ "model",
+ "num-decimal",
+ "rust_decimal",
+ "rust_decimal_macros",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "android-tzdata"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -539,6 +556,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2da6da31387c7e4ef160ffab6d5e7f00c42626fe39aea70a7b0f1773f7dd6c1b"
 
 [[package]]
+name = "cli"
+version = "0.2.1"
+dependencies = [
+ "alpaca-broker",
+ "chrono",
+ "clap",
+ "core",
+ "db-sqlite",
+ "dialoguer",
+ "model",
+ "rust_decimal",
+ "rust_decimal_macros",
+ "shellexpand",
+ "tabled",
+ "uuid",
+]
+
+[[package]]
 name = "colorchoice"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -564,6 +599,17 @@ dependencies = [
  "libc",
  "unicode-width",
  "windows-sys 0.45.0",
+]
+
+[[package]]
+name = "core"
+version = "0.2.1"
+dependencies = [
+ "chrono",
+ "model",
+ "rust_decimal",
+ "rust_decimal_macros",
+ "uuid",
 ]
 
 [[package]]
@@ -617,6 +663,22 @@ checksum = "1bfb12502f3fc46cca1bb51ac28df9d618d813cdc3d2f25b9fe775a34af26bb3"
 dependencies = [
  "generic-array",
  "typenum",
+]
+
+[[package]]
+name = "db-sqlite"
+version = "0.2.1"
+dependencies = [
+ "chrono",
+ "diesel",
+ "diesel-derive-enum",
+ "diesel_migrations",
+ "model",
+ "rust_decimal",
+ "rust_decimal_macros",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]
@@ -1317,6 +1379,16 @@ dependencies = [
  "libc",
  "wasi 0.11.0+wasi-snapshot-preview1",
  "windows-sys 0.48.0",
+]
+
+[[package]]
+name = "model"
+version = "0.2.1"
+dependencies = [
+ "chrono",
+ "rust_decimal",
+ "rust_decimal_macros",
+ "uuid",
 ]
 
 [[package]]
@@ -2414,78 +2486,6 @@ dependencies = [
  "thread_local",
  "tracing-core",
  "tracing-log",
-]
-
-[[package]]
-name = "trust-broker"
-version = "0.2.1"
-dependencies = [
- "apca",
- "chrono",
- "dotenv",
- "keyring",
- "num-decimal",
- "rust_decimal",
- "rust_decimal_macros",
- "serde_json",
- "tokio",
- "trust-model",
- "uuid",
-]
-
-[[package]]
-name = "trust-cli"
-version = "0.2.1"
-dependencies = [
- "chrono",
- "clap",
- "dialoguer",
- "rust_decimal",
- "rust_decimal_macros",
- "shellexpand",
- "tabled",
- "trust-broker",
- "trust-core",
- "trust-db-sqlite",
- "trust-model",
- "uuid",
-]
-
-[[package]]
-name = "trust-core"
-version = "0.2.1"
-dependencies = [
- "chrono",
- "rust_decimal",
- "rust_decimal_macros",
- "trust-model",
- "uuid",
-]
-
-[[package]]
-name = "trust-db-sqlite"
-version = "0.2.1"
-dependencies = [
- "chrono",
- "diesel",
- "diesel-derive-enum",
- "diesel_migrations",
- "rust_decimal",
- "rust_decimal_macros",
- "tracing",
- "tracing-subscriber",
- "trust-model",
- "uuid",
-]
-
-[[package]]
-name = "trust-model"
-version = "0.2.1"
-dependencies = [
- "chrono",
- "rust_decimal",
- "rust_decimal_macros",
- "uuid",
 ]
 
 [[package]]

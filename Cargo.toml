@@ -1,5 +1,5 @@
 [workspace]
-members = ["trust-model", "trust-db-sqlite", "trust-core", "trust-cli", "trust-broker"]
+members = ["model", "db-sqlite", "core", "cli", "alpaca-broker"]
 
 [workspace.package]
 name = "trust"

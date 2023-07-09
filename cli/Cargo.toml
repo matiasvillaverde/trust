@@ -1,0 +1,21 @@
+[package]
+name = "cli"
+version = "0.2.1"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+model = { path = "../model", version = "0.2.1" }
+core = { path = "../core", version = "0.2.1" }
+alpaca-broker = { path = "../alpaca-broker", version = "0.2.1" }
+db-sqlite = { path = "../db-sqlite", version = "0.2.1" }
+
+clap = {workspace = true}
+dialoguer = {workspace = true}
+tabled = {workspace = true}
+rust_decimal_macros = {workspace = true}
+rust_decimal = {workspace = true}
+shellexpand = {workspace = true}
+uuid = {workspace = true}
+chrono = {workspace = true}
