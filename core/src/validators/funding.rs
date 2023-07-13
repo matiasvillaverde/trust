@@ -10,10 +10,7 @@ type FundingValidationResult = Result<(), Box<FundValidationError>>;
 // Validate if trade can be funded by checking account overview, available capital and rules
 pub fn can_fund(trade: &Trade, database: &mut dyn DatabaseFactory) -> FundingValidationResult {
     // 1.  Get account overview
-    let account = database
-        .account_read()
-        .id(trade.account_id)
-        .unwrap();
+    let account = database.account_read().id(trade.account_id).unwrap();
 
     // 2. Calculate account overview based on the given trade currency
     // This calculators uses all the transactions to ensure that the account overview is the latest one

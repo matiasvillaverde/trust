@@ -2,7 +2,7 @@ use crate::schema::accounts;
 use chrono::{NaiveDateTime, Utc};
 use diesel::prelude::*;
 use model::AccountRead;
-use model::{Account, Environment, AccountWrite};
+use model::{Account, AccountWrite, Environment};
 use rust_decimal::Decimal;
 use std::error::Error;
 use std::str::FromStr;
@@ -228,9 +228,7 @@ mod tests {
             )
             .expect("Error creating account");
         // Read the account record by name
-        let read_account = db
-            .id(created_account.id)
-            .expect("Account should be found");
+        let read_account = db.id(created_account.id).expect("Account should be found");
         assert_eq!(read_account, created_account);
     }
     #[test]
@@ -302,10 +300,7 @@ mod tests {
         ];
 
         // Read all account records
-        let accounts = db
-            .account_read()
-            .all()
-            .expect("Error reading all accounts");
+        let accounts = db.account_read().all().expect("Error reading all accounts");
         assert_eq!(accounts, created_accounts);
     }
 }

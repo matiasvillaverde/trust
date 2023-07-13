@@ -39,6 +39,19 @@ pub fn can_cancel(trade: &Trade) -> TradeValidationResult {
     }
 }
 
+pub fn can_cancel_submitted(trade: &Trade) -> TradeValidationResult {
+    match trade.status {
+        Status::Submitted => Ok(()),
+        _ => Err(Box::new(TradeValidationError {
+            code: TradeValidationErrorCode::TradeNotFunded,
+            message: format!(
+                "Trade with id {} is not funded, cannot be cancelled",
+                trade.id
+            ),
+        })),
+    }
+}
+
 #[derive(Debug, PartialEq)]
 
 pub enum TradeValidationErrorCode {

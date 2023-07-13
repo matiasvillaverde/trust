@@ -39,7 +39,7 @@ pub trait DatabaseFactory {
     fn log_read(&self) -> Box<dyn ReadBrokerLogsDB>;
     fn log_write(&self) -> Box<dyn WriteBrokerLogsDB>;
 }
- // TODO: Rename
+// TODO: Rename
 pub trait AccountRead {
     fn for_name(&mut self, name: &str) -> Result<Account, Box<dyn Error>>;
     fn id(&mut self, id: Uuid) -> Result<Account, Box<dyn Error>>;
@@ -58,10 +58,7 @@ pub trait AccountWrite {
 }
 
 pub trait AccountOverviewRead {
-    fn for_account(
-        &mut self,
-        account_id: Uuid,
-    ) -> Result<Vec<AccountOverview>, Box<dyn Error>>;
+    fn for_account(&mut self, account_id: Uuid) -> Result<Vec<AccountOverview>, Box<dyn Error>>;
 
     fn for_currency(
         &mut self,
@@ -101,11 +98,7 @@ pub trait OrderWrite {
         action: &OrderAction,
         category: &OrderCategory,
     ) -> Result<Order, Box<dyn Error>>;
-    fn submit_of(
-        &mut self,
-        order: &Order,
-        broker_order_id: Uuid,
-    ) -> Result<Order, Box<dyn Error>>;
+    fn submit_of(&mut self, order: &Order, broker_order_id: Uuid) -> Result<Order, Box<dyn Error>>;
     fn filling_of(&mut self, order: &Order) -> Result<Order, Box<dyn Error>>;
     fn closing_of(&mut self, order: &Order) -> Result<Order, Box<dyn Error>>;
     fn update(&mut self, order: &Order) -> Result<Order, Box<dyn Error>>;

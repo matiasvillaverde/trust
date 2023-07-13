@@ -23,11 +23,8 @@ impl RiskCalculator {
         )?;
 
         // Calculate the capital of the open trades that is not at risk.
-        let total_capital_not_at_risk = TradeCapitalNotAtRisk::calculate(
-            account_id,
-            currency,
-            database.trade_read().as_mut(),
-        )?;
+        let total_capital_not_at_risk =
+            TradeCapitalNotAtRisk::calculate(account_id, currency, database.trade_read().as_mut())?;
 
         // Calculate the total capital at the beginning of the month.
         let total_beginning_of_month = AccountCapitalBeginningOfMonth::calculate(
