@@ -366,7 +366,7 @@ impl TrustFacade {
 
         // 2. Cancel with broker
         let account = self.factory.account_read().id(trade.account_id)?;
-        self.broker.close_trade(trade, &account)?;
+        self.broker.cancel_trade(trade, &account)?;
 
         // 3. Update Trade Status
         self.factory
