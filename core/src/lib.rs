@@ -343,7 +343,7 @@ impl TrustFacade {
         trade: &Trade,
     ) -> Result<(TradeOverview, AccountOverview, Transaction), Box<dyn std::error::Error>> {
         // 1. Verify it can be canceled
-        validators::trade::can_cancel(trade)?;
+        validators::trade::can_cancel_funded(trade)?;
 
         // 2. Update Trade Status
         self.factory
