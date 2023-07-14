@@ -58,4 +58,8 @@ pub trait Broker {
         trade: &Trade,
         account: &Account,
     ) -> Result<(Order, BrokerLog), Box<dyn Error>>;
+
+    // Cancel a trade that has been submitted
+    // The order should not be filled
+    fn cancel_trade(&self, trade: &Trade, account: &Account) -> Result<(), Box<dyn Error>>;
 }

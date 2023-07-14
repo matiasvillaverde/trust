@@ -26,9 +26,22 @@ pub fn can_close(trade: &Trade) -> TradeValidationResult {
     }
 }
 
-pub fn can_cancel(trade: &Trade) -> TradeValidationResult {
+pub fn can_cancel_funded(trade: &Trade) -> TradeValidationResult {
     match trade.status {
         Status::Funded => Ok(()),
+        _ => Err(Box::new(TradeValidationError {
+            code: TradeValidationErrorCode::TradeNotFunded,
+            message: format!(
+                "Trade with id {} is not funded, cannot be cancelled",
+                trade.id
+            ),
+        })),
+    }
+}
+
+pub fn can_cancel_submitted(trade: &Trade) -> TradeValidationResult {
+    match trade.status {
+        Status::Submitted => Ok(()),
         _ => Err(Box::new(TradeValidationError {
             code: TradeValidationErrorCode::TradeNotFunded,
             message: format!(
@@ -110,7 +123,7 @@ mod tests {
             status: Status::Funded,
             ..Default::default()
         };
-        let result = can_cancel(&trade);
+        let result = can_cancel_funded(&trade);
         assert!(result.is_ok());
     }
 
@@ -120,7 +133,27 @@ mod tests {
             status: Status::Canceled,
             ..Default::default()
         };
-        let result = can_cancel(&trade);
+        let result = can_cancel_funded(&trade);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_cancel_submitted() {
+        let trade = Trade {
+            status: Status::Submitted,
+            ..Default::default()
+        };
+        let result = can_cancel_submitted(&trade);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_cancel_not_submitted() {
+        let trade = Trade {
+            status: Status::Canceled,
+            ..Default::default()
+        };
+        let result = can_cancel_submitted(&trade);
         assert!(result.is_err());
     }
 }

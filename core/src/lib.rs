@@ -6,7 +6,6 @@ use model::{
 use rust_decimal::Decimal;
 use trade_calculators::QuantityCalculator;
 use uuid::Uuid;
-use validators::trade;
 use workers::{OrderWorker, OverviewWorker, RuleWorker, TradeWorker, TransactionWorker};
 
 pub struct TrustFacade {
@@ -80,9 +79,7 @@ impl TrustFacade {
         &mut self,
         account_id: Uuid,
     ) -> Result<Vec<AccountOverview>, Box<dyn std::error::Error>> {
-        self.factory
-            .account_overview_read()
-            .for_account(account_id)
+        self.factory.account_overview_read().for_account(account_id)
     }
 
     pub fn create_rule(
@@ -225,13 +222,10 @@ impl TrustFacade {
         trade: &Trade,
     ) -> Result<(Trade, BrokerLog), Box<dyn std::error::Error>> {
         // 1. Validate Trade
-        trade::can_submit(trade)?;
+        validators::trade::can_submit(trade)?;
 
         // 2. Submit trade to broker
-        let account = self
-            .factory
-            .account_read()
-            .id(trade.account_id)?;
+        let account = self.factory.account_read().id(trade.account_id)?;
         let (log, order_id) = self.broker.submit_trade(trade, &account)?;
 
         // 3. Save log in the DB
@@ -317,13 +311,10 @@ impl TrustFacade {
         trade: &Trade,
     ) -> Result<(TradeOverview, BrokerLog), Box<dyn std::error::Error>> {
         // 1. Verify it can be closed
-        trade::can_close(trade)?;
+        validators::trade::can_close(trade)?;
 
         // 2. Submit a market order to Alpaca
-        let account = self
-            .factory
-            .account_read()
-            .id(trade.account_id)?;
+        let account = self.factory.account_read().id(trade.account_id)?;
         let (order, log) = self.broker.close_trade(trade, &account)?;
 
         // 3. Save log
@@ -352,7 +343,7 @@ impl TrustFacade {
         trade: &Trade,
     ) -> Result<(TradeOverview, AccountOverview, Transaction), Box<dyn std::error::Error>> {
         // 1. Verify it can be canceled
-        trade::can_cancel(trade)?;
+        validators::trade::can_cancel_funded(trade)?;
 
         // 2. Update Trade Status
         self.factory
@@ -360,6 +351,29 @@ impl TrustFacade {
             .update_trade_status(Status::Canceled, trade)?;
 
         // 3. Transfer funds back to account
+        let (tx, account_o, trade_o) =
+            TransactionWorker::transfer_payment_from(trade, self.factory.as_mut())?;
+
+        Ok((trade_o, account_o, tx))
+    }
+
+    pub fn cancel_submitted_trade(
+        &mut self,
+        trade: &Trade,
+    ) -> Result<(TradeOverview, AccountOverview, Transaction), Box<dyn std::error::Error>> {
+        // 1. Verify it can be canceled
+        validators::trade::can_cancel_submitted(trade)?;
+
+        // 2. Cancel with broker
+        let account = self.factory.account_read().id(trade.account_id)?;
+        self.broker.cancel_trade(trade, &account)?;
+
+        // 3. Update Trade Status
+        self.factory
+            .trade_write()
+            .update_trade_status(Status::Canceled, trade)?;
+
+        // 4. Transfer funds back to account
         let (tx, account_o, trade_o) =
             TransactionWorker::transfer_payment_from(trade, self.factory.as_mut())?;
 

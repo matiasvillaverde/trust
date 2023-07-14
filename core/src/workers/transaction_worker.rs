@@ -131,9 +131,7 @@ impl TransactionWorker {
         crate::validators::funding::can_fund(trade, database)?;
 
         // 2. Create transaction
-        let account = database
-            .account_read()
-            .id(trade.account_id)?;
+        let account = database.account_read().id(trade.account_id)?;
 
         let trade_total = trade.entry.unit_price * Decimal::from(trade.entry.quantity);
 
@@ -156,9 +154,7 @@ impl TransactionWorker {
         trade: &Trade,
         database: &mut dyn DatabaseFactory,
     ) -> Result<(Transaction, TradeOverview), Box<dyn Error>> {
-        let account = database
-            .account_read()
-            .id(trade.account_id)?;
+        let account = database.account_read().id(trade.account_id)?;
 
         // 1. Calculate the total amount of the trade
         let total = trade.entry.average_filled_price.unwrap() * Decimal::from(trade.entry.quantity);
@@ -206,9 +202,7 @@ impl TransactionWorker {
         transaction::can_transfer_fee(&account_overview, fee)?;
 
         // 2. Create transaction
-        let account = database
-            .account_read()
-            .id(trade.account_id)?;
+        let account = database.account_read().id(trade.account_id)?;
         let transaction = database.transaction_write().create_transaction(
             &account,
             fee,
@@ -233,9 +227,7 @@ impl TransactionWorker {
             .for_currency(trade.account_id, &trade.currency)?;
         transaction::can_transfer_fee(&account_overview, fee)?;
 
-        let account = database
-            .account_read()
-            .id(trade.account_id)?;
+        let account = database.account_read().id(trade.account_id)?;
 
         let transaction = database.transaction_write().create_transaction(
             &account,
@@ -254,9 +246,7 @@ impl TransactionWorker {
         trade: &Trade,
         database: &mut dyn DatabaseFactory,
     ) -> Result<(Transaction, TradeOverview), Box<dyn Error>> {
-        let account = database
-            .account_read()
-            .id(trade.account_id)?;
+        let account = database.account_read().id(trade.account_id)?;
 
         let total =
             trade.target.average_filled_price.unwrap() * Decimal::from(trade.entry.quantity);
@@ -283,9 +273,7 @@ impl TransactionWorker {
         trade: &Trade,
         database: &mut dyn DatabaseFactory,
     ) -> Result<(Transaction, TradeOverview), Box<dyn Error>> {
-        let account = database
-            .account_read()
-            .id(trade.account_id)?;
+        let account = database.account_read().id(trade.account_id)?;
 
         // 1. Calculate the total amount of the trade
         let total =
@@ -323,9 +311,7 @@ impl TransactionWorker {
         database: &mut dyn DatabaseFactory,
     ) -> Result<(Transaction, AccountOverview, TradeOverview), Box<dyn Error>> {
         // Create transaction
-        let account = database
-            .account_read()
-            .id(trade.account_id)?;
+        let account = database.account_read().id(trade.account_id)?;
         let total_to_withdrawal =
             TradeCapitalOutOfMarket::calculate(trade.id, database.transaction_read().as_mut())?;
 

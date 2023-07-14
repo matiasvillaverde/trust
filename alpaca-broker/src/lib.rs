@@ -1,6 +1,7 @@
 use model::{Account, Broker, BrokerLog, Environment, Order, OrderIds, Status, Trade};
 use std::error::Error;
 
+mod cancel_trade;
 mod close_trade;
 mod keys;
 mod order_mapper;
@@ -35,6 +36,11 @@ impl Broker for AlpacaBroker {
         account: &Account,
     ) -> Result<(Order, BrokerLog), Box<dyn Error>> {
         close_trade::close(trade, account)
+    }
+
+    fn cancel_trade(&self, trade: &Trade, account: &Account) -> Result<(), Box<dyn Error>> {
+        println!("Canceling trade: {:?}", trade);
+        cancel_trade::cancel(trade, account)
     }
 }
 

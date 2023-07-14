@@ -218,4 +218,8 @@ impl Broker for MockBroker {
     ) -> Result<(Order, BrokerLog), Box<dyn Error>> {
         unimplemented!()
     }
+
+    fn cancel_trade(&self, trade: &Trade, account: &Account) -> Result<(), Box<dyn Error>> {
+        unimplemented!("Cancel trade: {:?} {:?}", trade, account)
+    }
 }

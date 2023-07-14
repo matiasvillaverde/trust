@@ -42,15 +42,13 @@ impl OverviewWorker {
             .account_overview_read()
             .for_currency(account.id, currency)?;
 
-        database
-            .account_overview_write()
-            .update(
-                &overview,
-                total_balance,
-                total_in_trade,
-                total_available,
-                taxed,
-            )
+        database.account_overview_write().update(
+            &overview,
+            total_balance,
+            total_in_trade,
+            total_available,
+            taxed,
+        )
     }
 
     pub fn calculate_trade(
@@ -63,8 +61,7 @@ impl OverviewWorker {
             TradeCapitalInMarket::calculate(trade.id, database.transaction_read().as_mut())?;
         let capital_out_market =
             TradeCapitalOutOfMarket::calculate(trade.id, database.transaction_read().as_mut())?;
-        let taxed =
-            TradeCapitalTaxable::calculate(trade.id, database.transaction_read().as_mut())?;
+        let taxed = TradeCapitalTaxable::calculate(trade.id, database.transaction_read().as_mut())?;
         let total_performance =
             TradePerformance::calculate(trade.id, database.transaction_read().as_mut())?;
 

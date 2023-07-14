@@ -29,7 +29,16 @@ impl CancelDialogBuilder {
             .clone()
             .expect("No trade found, did you forget to select one?");
 
-        self.result = Some(trust.cancel_funded_trade(&trade));
+        match trade.status {
+            Status::Funded => {
+                self.result = Some(trust.cancel_funded_trade(&trade));
+            }
+            Status::Submitted => {
+                self.result = Some(trust.cancel_submitted_trade(&trade));
+            }
+            _ => panic!("Trade is not in a cancellable state"),
+        }
+
         self
     }
 
@@ -61,25 +70,32 @@ impl CancelDialogBuilder {
     }
 
     pub fn search(mut self, trust: &mut TrustFacade) -> Self {
-        let trades = trust.search_trades(self.account.clone().unwrap().id, Status::Funded);
-        match trades {
-            Ok(trades) => {
-                if trades.is_empty() {
-                    panic!("No trade found, did you forget to fund one?")
-                }
-                let trade = FuzzySelect::with_theme(&ColorfulTheme::default())
-                    .with_prompt("Trade:")
-                    .items(&trades[..])
-                    .default(0)
-                    .interact_opt()
-                    .unwrap()
-                    .map(|index| trades.get(index).unwrap())
-                    .unwrap();
+        let funded_trades = trust
+            .search_trades(self.account.clone().unwrap().id, Status::Funded)
+            .unwrap_or_default();
+        let submitted_trades = trust
+            .search_trades(self.account.clone().unwrap().id, Status::Submitted)
+            .unwrap_or_default();
 
-                self.trade = Some(trade.to_owned());
-            }
-            Err(error) => self.result = Some(Err(error)),
+        let trades = funded_trades
+            .into_iter()
+            .chain(submitted_trades.into_iter())
+            .collect::<Vec<Trade>>();
+
+        if trades.is_empty() {
+            panic!("No trade found, did you forget to fund one?")
         }
+
+        let trade = FuzzySelect::with_theme(&ColorfulTheme::default())
+            .with_prompt("Trade:")
+            .items(&trades[..])
+            .default(0)
+            .interact_opt()
+            .unwrap()
+            .map(|index| trades.get(index).unwrap())
+            .unwrap();
+
+        self.trade = Some(trade.to_owned());
 
         self
     }

@@ -1,6 +1,6 @@
 use model::{
-    Currency, DatabaseFactory, Order, OrderAction, OrderCategory, ReadTradeDB, Trade,
-    TradeCategory, OrderWrite,
+    Currency, DatabaseFactory, Order, OrderAction, OrderCategory, OrderWrite, ReadTradeDB, Trade,
+    TradeCategory,
 };
 use rust_decimal::Decimal;
 use uuid::Uuid;

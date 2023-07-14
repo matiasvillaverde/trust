@@ -7,11 +7,11 @@ use model::DraftTrade;
 use model::Status;
 use model::{
     database::{AccountWrite, WriteTradeOverviewDB},
-    Account, Currency, DatabaseFactory, Order, OrderAction, OrderCategory, AccountRead,
-    AccountOverviewRead, OrderRead, ReadRuleDB, ReadTradeDB, ReadTradingVehicleDB,
-    ReadTransactionDB, Rule, RuleName, Trade, TradeOverview, TradingVehicle,
-    TradingVehicleCategory, Transaction, TransactionCategory, AccountOverviewWrite, OrderWrite,
-    WriteRuleDB, WriteTradeDB, WriteTradingVehicleDB, WriteTransactionDB,
+    Account, AccountOverviewRead, AccountOverviewWrite, AccountRead, Currency, DatabaseFactory,
+    Order, OrderAction, OrderCategory, OrderRead, OrderWrite, ReadRuleDB, ReadTradeDB,
+    ReadTradingVehicleDB, ReadTransactionDB, Rule, RuleName, Trade, TradeOverview, TradingVehicle,
+    TradingVehicleCategory, Transaction, TransactionCategory, WriteRuleDB, WriteTradeDB,
+    WriteTradingVehicleDB, WriteTransactionDB,
 };
 use rust_decimal::Decimal;
 use std::error::Error;
@@ -163,11 +163,7 @@ impl OrderWrite for SqliteDatabase {
         WorkerOrder::update(&mut self.connection.lock().unwrap(), order)
     }
 
-    fn submit_of(
-        &mut self,
-        order: &Order,
-        broker_order_id: Uuid,
-    ) -> Result<Order, Box<dyn Error>> {
+    fn submit_of(&mut self, order: &Order, broker_order_id: Uuid) -> Result<Order, Box<dyn Error>> {
         WorkerOrder::update_submitted_at(
             &mut self.connection.lock().unwrap(),
             order,
