@@ -364,12 +364,16 @@ impl TrustFacade {
         // 1. Verify it can be canceled
         validators::trade::can_cancel_submitted(trade)?;
 
-        // 2. Update Trade Status
+        // 2. Cancel with broker
+        let account = self.factory.account_read().id(trade.account_id)?;
+        self.broker.close_trade(trade, &account)?;
+
+        // 3. Update Trade Status
         self.factory
             .trade_write()
             .update_trade_status(Status::Canceled, trade)?;
 
-        // 3. Transfer funds back to account
+        // 4. Transfer funds back to account
         let (tx, account_o, trade_o) =
             TransactionWorker::transfer_payment_from(trade, self.factory.as_mut())?;
 

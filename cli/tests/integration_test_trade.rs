@@ -744,4 +744,8 @@ impl Broker for MockBroker {
         let log = BrokerLog::default();
         Ok((order, log))
     }
+
+    fn cancel_trade(&self, _trade: &Trade, _account: &Account) -> Result<(), Box<dyn Error>> {
+        Ok(())
+    }
 }
