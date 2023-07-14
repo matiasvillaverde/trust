@@ -12,6 +12,11 @@ pub fn cancel(trade: &Trade, account: &Account) -> Result<(), Box<dyn Error>> {
     let api_info = keys::read_api_key(&account.environment, account)?;
     let client = Client::new(api_info);
 
+    println!(
+        "Canceling trade entry order: {:?}",
+        trade.entry.broker_order_id
+    );
+
     // Cancel the entry order.
     Runtime::new()
         .unwrap()
