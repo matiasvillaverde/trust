@@ -1,12 +1,14 @@
 use crate::{OrderWorker, TransactionWorker};
-use model::{DatabaseFactory, DraftTrade, Status, Trade, Transaction};
+use model::{
+    AccountOverview, DatabaseFactory, DraftTrade, Status, Trade, TradeOverview, Transaction,
+};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use std::error::Error;
 
-pub struct TradeWorker;
+pub struct TradeAction;
 
-impl TradeWorker {
+impl TradeAction {
     pub fn update_status(
         trade: &Trade,
         status: Status,
@@ -14,7 +16,7 @@ impl TradeWorker {
     ) -> Result<(Trade, Option<Transaction>), Box<dyn Error>> {
         match status {
             Status::Filled if trade.status == Status::Submitted => {
-                let (trade, tx) = TradeWorker::fill_trade(trade, dec!(0), database)?;
+                let (trade, tx) = TradeAction::fill_trade(trade, dec!(0), database)?;
                 return Ok((trade, Some(tx)));
             }
             Status::Filled if trade.status == Status::Filled => {
@@ -26,14 +28,14 @@ impl TradeWorker {
             Status::ClosedStopLoss => {
                 if trade.status == Status::Submitted {
                     // We also update the trade entry
-                    TradeWorker::fill_trade(trade, dec!(0), database)?;
+                    TradeAction::fill_trade(trade, dec!(0), database)?;
                 }
 
                 // We only update the trade target once
                 let trade = database.trade_read().read_trade(trade.id)?;
                 if trade.status == Status::Filled {
                     // We also update the trade stop loss
-                    let (trade, _) = TradeWorker::stop_executed(&trade, dec!(0), database)?;
+                    let (trade, _) = TradeAction::stop_executed(&trade, dec!(0), database)?;
                     let (tx, _, _) = TransactionWorker::transfer_payment_from(&trade, database)?;
 
                     return Ok((trade, Some(tx)));
@@ -45,7 +47,7 @@ impl TradeWorker {
             Status::ClosedTarget => {
                 if trade.status == Status::Submitted {
                     // We also update the trade entry
-                    TradeWorker::fill_trade(trade, dec!(0), database)?;
+                    TradeAction::fill_trade(trade, dec!(0), database)?;
                 }
 
                 // We only update the trade target once
@@ -53,7 +55,7 @@ impl TradeWorker {
                 if trade.status == Status::Filled || trade.status == Status::Canceled {
                     // It can be canceled if the target was updated.
                     // We also update the trade stop loss
-                    let (trade, _) = TradeWorker::target_executed(&trade, dec!(0), database)?;
+                    let (trade, _) = TradeAction::target_executed(&trade, dec!(0), database)?;
                     let (tx, _, _) = TransactionWorker::transfer_payment_from(&trade, database)?;
 
                     return Ok((trade, Some(tx)));
@@ -202,5 +204,19 @@ impl TradeWorker {
         database
             .trade_write()
             .create_trade(draft, &stop, &entry, &target)
+    }
+
+    pub fn stop_trade(
+        trade: &Trade,
+        fee: Decimal,
+        database: &mut dyn DatabaseFactory,
+    ) -> Result<
+        (Transaction, Transaction, TradeOverview, AccountOverview),
+        Box<dyn std::error::Error>,
+    > {
+        let (trade, tx_stop) = TradeAction::stop_executed(trade, fee, database)?;
+        let (tx_payment, account_overview, trade_overview) =
+            TransactionWorker::transfer_payment_from(&trade, database)?;
+        Ok((tx_stop, tx_payment, trade_overview, account_overview))
     }
 }

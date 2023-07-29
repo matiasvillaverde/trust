@@ -1,6 +1,7 @@
-use crate::TransactionWorker;
+use crate::{OrderStatus, OrderWorker, OverviewWorker, TradeAction, TransactionWorker};
 use model::{
-    AccountOverview, Broker, BrokerLog, DatabaseFactory, Status, Trade, TradeOverview, Transaction,
+    Account, AccountOverview, Broker, BrokerLog, DatabaseFactory, Order, Status, Trade,
+    TradeOverview, Transaction,
 };
 
 pub struct TradeLifecycle;
@@ -63,5 +64,63 @@ impl TradeLifecycle {
 
         // 7. Return Trade and Log
         Ok((trade, log))
+    }
+
+    pub fn sync_trade(
+        trade: &Trade,
+        account: &Account,
+        database: &mut dyn DatabaseFactory,
+        broker: &mut dyn Broker,
+    ) -> Result<(Status, Vec<Order>, BrokerLog), Box<dyn std::error::Error>> {
+        // 1. Sync Trade with Broker
+        let (status, orders, log) = broker.sync_trade(trade, account)?;
+
+        // 2. Save log in the DB
+        database.log_write().create_log(log.log.as_str(), trade)?;
+
+        // 3. Update Orders
+        for order in orders.clone() {
+            OrderWorker::update_order(&order, database)?;
+        }
+
+        // 4. Update Trade Status
+        let trade = database.trade_read().read_trade(trade.id)?; // We need to read the trade again to get the updated orders
+        TradeAction::update_status(&trade, status, database)?;
+
+        // 5. Update Account Overview
+        OverviewWorker::calculate_account(database, account, &trade.currency)?;
+
+        Ok((status, orders, log))
+    }
+
+    pub fn close_trade(
+        trade: &Trade,
+        database: &mut dyn DatabaseFactory,
+        broker: &mut dyn Broker,
+    ) -> Result<(TradeOverview, BrokerLog), Box<dyn std::error::Error>> {
+        // 1. Verify trade can be closed
+        crate::validators::trade::can_close(trade)?;
+
+        // 2. Submit a market order to close the trade
+        let account = database.account_read().id(trade.account_id)?;
+        let (target_order, log) = broker.close_trade(trade, &account)?;
+
+        // 3. Save log in the database
+        database.log_write().create_log(log.log.as_str(), trade)?;
+
+        // 4. Update Order Target with the filled price and new ID
+        OrderWorker::update_order(&target_order, database)?;
+
+        // 5. Update Trade Status
+        database
+            .trade_write()
+            .update_trade_status(Status::Canceled, trade)?;
+
+        // 6. Cancel Stop-loss Order
+        let mut stop_order = trade.safety_stop.clone();
+        stop_order.status = OrderStatus::Canceled;
+        database.order_write().update(&stop_order)?;
+
+        Ok((trade.overview.clone(), log))
     }
 }

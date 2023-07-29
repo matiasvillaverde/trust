@@ -7,7 +7,7 @@ use rust_decimal::Decimal;
 use trade_calculators::QuantityCalculator;
 use uuid::Uuid;
 use workers::{
-    OrderWorker, OverviewWorker, RuleWorker, TradeLifecycle, TradeWorker, TransactionWorker,
+    OrderWorker, OverviewWorker, RuleWorker, TradeAction, TradeLifecycle, TransactionWorker,
 };
 
 pub struct TrustFacade {
@@ -148,7 +148,7 @@ impl TrustFacade {
         entry_price: Decimal,
         target_price: Decimal,
     ) -> Result<Trade, Box<dyn std::error::Error>> {
-        TradeWorker::create_trade(
+        TradeAction::create_trade(
             trade,
             stop_price,
             entry_price,
@@ -189,27 +189,7 @@ impl TrustFacade {
         trade: &Trade,
         account: &Account,
     ) -> Result<(Status, Vec<Order>, BrokerLog), Box<dyn std::error::Error>> {
-        // 1. Sync Trade with Broker
-        let (status, orders, log) = self.broker.sync_trade(trade, account)?;
-
-        // 2. Save log in the DB
-        self.factory
-            .log_write()
-            .create_log(log.log.as_str(), trade)?;
-
-        // 3. Update Orders
-        for order in orders.clone() {
-            OrderWorker::update_order(&order, &mut *self.factory)?;
-        }
-
-        // 4. Update Trade Status
-        let trade = self.factory.trade_read().read_trade(trade.id)?; // We need to read the trade again to get the updated orders
-        TradeWorker::update_status(&trade, status, &mut *self.factory)?;
-
-        // 5. Update Account Overview
-        OverviewWorker::calculate_account(&mut *self.factory, account, &trade.currency)?;
-
-        Ok((status, orders, log))
+        TradeLifecycle::sync_trade(trade, account, &mut *self.factory, &mut *self.broker)
     }
 
     pub fn fill_trade(
@@ -217,7 +197,7 @@ impl TrustFacade {
         trade: &Trade,
         fee: Decimal,
     ) -> Result<(Trade, Transaction), Box<dyn std::error::Error>> {
-        TradeWorker::fill_trade(trade, fee, self.factory.as_mut())
+        TradeAction::fill_trade(trade, fee, self.factory.as_mut())
     }
 
     pub fn stop_trade(
@@ -228,42 +208,14 @@ impl TrustFacade {
         (Transaction, Transaction, TradeOverview, AccountOverview),
         Box<dyn std::error::Error>,
     > {
-        let (trade, tx_stop) = TradeWorker::stop_executed(trade, fee, self.factory.as_mut())?;
-        let (tx_payment, account_overview, trade_overview) =
-            TransactionWorker::transfer_payment_from(&trade, self.factory.as_mut())?;
-        Ok((tx_stop, tx_payment, trade_overview, account_overview))
+        TradeAction::stop_trade(trade, fee, &mut *self.factory)
     }
 
     pub fn close_trade(
         &mut self,
         trade: &Trade,
     ) -> Result<(TradeOverview, BrokerLog), Box<dyn std::error::Error>> {
-        // 1. Verify it can be closed
-        validators::trade::can_close(trade)?;
-
-        // 2. Submit a market order to Alpaca
-        let account = self.factory.account_read().id(trade.account_id)?;
-        let (order, log) = self.broker.close_trade(trade, &account)?;
-
-        // 3. Save log
-        self.factory
-            .log_write()
-            .create_log(log.log.as_str(), trade)?;
-
-        // 4. Update Order Target with the market price and new ID
-        OrderWorker::update_order(&order, &mut *self.factory)?;
-
-        // 5. Update Trade Status
-        self.factory
-            .trade_write()
-            .update_trade_status(Status::Canceled, trade)?;
-
-        // 6. Cancel Stop Order
-        let mut stop_order = trade.safety_stop.clone();
-        stop_order.status = OrderStatus::Canceled;
-        self.factory.order_write().update(&stop_order)?;
-
-        Ok((trade.overview.clone(), log))
+        TradeLifecycle::close_trade(trade, &mut *self.factory, &mut *self.broker)
     }
 
     pub fn cancel_funded_trade(
@@ -316,7 +268,7 @@ impl TrustFacade {
         (Transaction, Transaction, TradeOverview, AccountOverview),
         Box<dyn std::error::Error>,
     > {
-        let (trade, tx_target) = TradeWorker::target_executed(trade, fee, self.factory.as_mut())?;
+        let (trade, tx_target) = TradeAction::target_executed(trade, fee, self.factory.as_mut())?;
         let (tx_payment, account_overview, trade_overview) =
             TransactionWorker::transfer_payment_from(&trade, self.factory.as_mut())?;
         Ok((tx_target, tx_payment, trade_overview, account_overview))
