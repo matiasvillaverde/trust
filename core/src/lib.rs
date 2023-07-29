@@ -181,39 +181,7 @@ impl TrustFacade {
         &mut self,
         trade: &Trade,
     ) -> Result<(Trade, BrokerLog), Box<dyn std::error::Error>> {
-        // 1. Validate Trade
-        validators::trade::can_submit(trade)?;
-
-        // 2. Submit trade to broker
-        let account = self.factory.account_read().id(trade.account_id)?;
-        let (log, order_id) = self.broker.submit_trade(trade, &account)?;
-
-        // 3. Save log in the DB
-        self.factory
-            .log_write()
-            .create_log(log.log.as_str(), trade)?;
-
-        // 4. Mark Trade as submitted
-        let trade = self
-            .factory
-            .trade_write()
-            .update_trade_status(Status::Submitted, trade)?;
-
-        // 5. Update Orders order to submitted
-        self.factory
-            .order_write()
-            .submit_of(&trade.safety_stop, order_id.stop)?;
-        self.factory
-            .order_write()
-            .submit_of(&trade.entry, order_id.entry)?;
-        self.factory
-            .order_write()
-            .submit_of(&trade.target, order_id.target)?;
-
-        // 6. Read Trade with updated values
-        let trade = self.factory.trade_read().read_trade(trade.id)?;
-
-        Ok((trade, log))
+        TradeLifecycle::submit_trade(trade, &mut *self.factory, &mut *self.broker)
     }
 
     pub fn sync_trade(
