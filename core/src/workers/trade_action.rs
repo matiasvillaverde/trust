@@ -1,6 +1,6 @@
 use crate::{OrderWorker, TransactionWorker};
 use model::{
-    AccountOverview, DatabaseFactory, DraftTrade, Status, Trade, TradeOverview, Transaction,
+    AccountOverview, Broker, DatabaseFactory, DraftTrade, Status, Trade, TradeOverview, Transaction,
 };
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
@@ -218,5 +218,60 @@ impl TradeAction {
         let (tx_payment, account_overview, trade_overview) =
             TransactionWorker::transfer_payment_from(&trade, database)?;
         Ok((tx_stop, tx_payment, trade_overview, account_overview))
+    }
+
+    pub fn target_acquired(
+        trade: &Trade,
+        fee: Decimal,
+        database: &mut dyn DatabaseFactory,
+    ) -> Result<
+        (Transaction, Transaction, TradeOverview, AccountOverview),
+        Box<dyn std::error::Error>,
+    > {
+        let (trade, tx_target) = TradeAction::target_executed(trade, fee, database)?;
+        let (tx_payment, account_overview, trade_overview) =
+            TransactionWorker::transfer_payment_from(&trade, database)?;
+        Ok((tx_target, tx_payment, trade_overview, account_overview))
+    }
+
+    pub fn cancel_funded_trade(
+        trade: &Trade,
+        database: &mut dyn DatabaseFactory,
+    ) -> Result<(TradeOverview, AccountOverview, Transaction), Box<dyn std::error::Error>> {
+        // 1. Verify trade can be canceled
+        crate::validators::trade::can_cancel_funded(trade)?;
+
+        // 2. Update Trade Status
+        database
+            .trade_write()
+            .update_trade_status(Status::Canceled, trade)?;
+
+        // 3. Transfer funds back to account
+        let (tx, account_o, trade_o) = TransactionWorker::transfer_payment_from(trade, database)?;
+
+        Ok((trade_o, account_o, tx))
+    }
+
+    pub fn cancel_submitted_trade(
+        trade: &Trade,
+        database: &mut dyn DatabaseFactory,
+        broker: &mut dyn Broker,
+    ) -> Result<(TradeOverview, AccountOverview, Transaction), Box<dyn std::error::Error>> {
+        // 1. Verify trade can be canceled
+        crate::validators::trade::can_cancel_submitted(trade)?;
+
+        // 2. Cancel trade with broker
+        let account = database.account_read().id(trade.account_id)?;
+        broker.cancel_trade(trade, &account)?;
+
+        // 3. Update Trade Status
+        database
+            .trade_write()
+            .update_trade_status(Status::Canceled, trade)?;
+
+        // 4. Transfer funds back to account
+        let (tx, account_o, trade_o) = TransactionWorker::transfer_payment_from(trade, database)?;
+
+        Ok((trade_o, account_o, tx))
     }
 }

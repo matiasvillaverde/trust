@@ -86,16 +86,11 @@ impl TradeSearchDialogBuilder {
     }
 
     pub fn show_overview(mut self) -> Self {
-        if Confirm::with_theme(&ColorfulTheme::default())
+        self.overview = Confirm::with_theme(&ColorfulTheme::default())
             .with_prompt("Do you want to see details form each trade?")
             .default(true)
             .interact()
-            .unwrap()
-        {
-            self.overview = true;
-        } else {
-            self.overview = false;
-        }
+            .unwrap();
         self
     }
 }

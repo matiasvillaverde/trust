@@ -222,42 +222,14 @@ impl TrustFacade {
         &mut self,
         trade: &Trade,
     ) -> Result<(TradeOverview, AccountOverview, Transaction), Box<dyn std::error::Error>> {
-        // 1. Verify it can be canceled
-        validators::trade::can_cancel_funded(trade)?;
-
-        // 2. Update Trade Status
-        self.factory
-            .trade_write()
-            .update_trade_status(Status::Canceled, trade)?;
-
-        // 3. Transfer funds back to account
-        let (tx, account_o, trade_o) =
-            TransactionWorker::transfer_payment_from(trade, self.factory.as_mut())?;
-
-        Ok((trade_o, account_o, tx))
+        TradeAction::cancel_funded_trade(trade, &mut *self.factory)
     }
 
     pub fn cancel_submitted_trade(
         &mut self,
         trade: &Trade,
     ) -> Result<(TradeOverview, AccountOverview, Transaction), Box<dyn std::error::Error>> {
-        // 1. Verify it can be canceled
-        validators::trade::can_cancel_submitted(trade)?;
-
-        // 2. Cancel with broker
-        let account = self.factory.account_read().id(trade.account_id)?;
-        self.broker.cancel_trade(trade, &account)?;
-
-        // 3. Update Trade Status
-        self.factory
-            .trade_write()
-            .update_trade_status(Status::Canceled, trade)?;
-
-        // 4. Transfer funds back to account
-        let (tx, account_o, trade_o) =
-            TransactionWorker::transfer_payment_from(trade, self.factory.as_mut())?;
-
-        Ok((trade_o, account_o, tx))
+        TradeAction::cancel_submitted_trade(trade, &mut *self.factory, &mut *self.broker)
     }
 
     pub fn target_acquired(
@@ -268,10 +240,7 @@ impl TrustFacade {
         (Transaction, Transaction, TradeOverview, AccountOverview),
         Box<dyn std::error::Error>,
     > {
-        let (trade, tx_target) = TradeAction::target_executed(trade, fee, self.factory.as_mut())?;
-        let (tx_payment, account_overview, trade_overview) =
-            TransactionWorker::transfer_payment_from(&trade, self.factory.as_mut())?;
-        Ok((tx_target, tx_payment, trade_overview, account_overview))
+        TradeAction::target_acquired(trade, fee, &mut *self.factory)
     }
 }
 
@@ -280,8 +249,3 @@ mod mocks;
 mod trade_calculators;
 mod validators;
 mod workers;
-
-pub trait Command {
-    fn execute(&self) -> &str;
-    fn rollback(&self) -> &str;
-}
