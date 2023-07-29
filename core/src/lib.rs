@@ -6,7 +6,9 @@ use model::{
 use rust_decimal::Decimal;
 use trade_calculators::QuantityCalculator;
 use uuid::Uuid;
-use workers::{OrderWorker, OverviewWorker, RuleWorker, TradeWorker, TransactionWorker};
+use workers::{
+    OrderWorker, OverviewWorker, RuleWorker, TradeLifecycle, TradeWorker, TransactionWorker,
+};
 
 pub struct TrustFacade {
     factory: Box<dyn DatabaseFactory>,
@@ -146,44 +148,13 @@ impl TrustFacade {
         entry_price: Decimal,
         target_price: Decimal,
     ) -> Result<Trade, Box<dyn std::error::Error>> {
-        let stop = OrderWorker::create_stop(
-            trade.trading_vehicle.id,
-            trade.quantity,
+        TradeWorker::create_trade(
+            trade,
             stop_price,
-            &trade.currency,
-            &trade.category,
-            &mut *self.factory,
-        )?;
-
-        let entry = OrderWorker::create_entry(
-            trade.trading_vehicle.id,
-            trade.quantity,
             entry_price,
-            &trade.currency,
-            &trade.category,
-            &mut *self.factory,
-        )?;
-
-        let target = OrderWorker::create_target(
-            trade.trading_vehicle.id,
-            trade.quantity,
             target_price,
-            &trade.currency,
-            &trade.category,
             &mut *self.factory,
-        )?;
-
-        let draft = DraftTrade {
-            account: trade.account,
-            trading_vehicle: trade.trading_vehicle,
-            quantity: trade.quantity,
-            currency: trade.currency,
-            category: trade.category,
-        };
-
-        self.factory
-            .trade_write()
-            .create_trade(draft, &stop, &entry, &target)
+        )
     }
 
     pub fn search_trades(
@@ -203,18 +174,7 @@ impl TrustFacade {
         trade: &Trade,
     ) -> Result<(Trade, Transaction, AccountOverview, TradeOverview), Box<dyn std::error::Error>>
     {
-        // 1. Validate Trade by running rules
-        crate::validators::funding::can_fund(trade, &mut *self.factory)?;
-
-        // 2. Fund in case rule succeed
-        self.factory
-            .trade_write()
-            .update_trade_status(Status::Funded, trade)?;
-
-        // 3. Create transaction to fund the trade
-        let (transaction, account_overview, trade_overview) =
-            TransactionWorker::transfer_to_fund_trade(trade, &mut *self.factory)?;
-        Ok((trade.clone(), transaction, account_overview, trade_overview))
+        TradeLifecycle::fund_trade(trade, &mut *self.factory)
     }
 
     pub fn submit_trade(
@@ -400,3 +360,8 @@ mod mocks;
 mod trade_calculators;
 mod validators;
 mod workers;
+
+pub trait Command {
+    fn execute(&self) -> &str;
+    fn rollback(&self) -> &str;
+}

@@ -1,5 +1,5 @@
 use crate::{OrderWorker, TransactionWorker};
-use model::{DatabaseFactory, Status, Trade, Transaction};
+use model::{DatabaseFactory, DraftTrade, Status, Trade, Transaction};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use std::error::Error;
@@ -151,5 +151,56 @@ impl TradeWorker {
             .update_trade_status(Status::ClosedStopLoss, trade)?;
 
         Ok((trade, tx))
+    }
+
+    pub fn create_trade(
+        trade: DraftTrade,
+        stop_price: Decimal,
+        entry_price: Decimal,
+        target_price: Decimal,
+        database: &mut dyn DatabaseFactory,
+    ) -> Result<Trade, Box<dyn std::error::Error>> {
+        // 1. Create Stop-loss Order
+        let stop = OrderWorker::create_stop(
+            trade.trading_vehicle.id,
+            trade.quantity,
+            stop_price,
+            &trade.currency,
+            &trade.category,
+            database,
+        )?;
+
+        // 2. Create Entry Order
+        let entry = OrderWorker::create_entry(
+            trade.trading_vehicle.id,
+            trade.quantity,
+            entry_price,
+            &trade.currency,
+            &trade.category,
+            database,
+        )?;
+
+        // 3. Create Target Order
+        let target = OrderWorker::create_target(
+            trade.trading_vehicle.id,
+            trade.quantity,
+            target_price,
+            &trade.currency,
+            &trade.category,
+            database,
+        )?;
+
+        // 4. Create Trade
+        let draft = DraftTrade {
+            account: trade.account,
+            trading_vehicle: trade.trading_vehicle,
+            quantity: trade.quantity,
+            currency: trade.currency,
+            category: trade.category,
+        };
+
+        database
+            .trade_write()
+            .create_trade(draft, &stop, &entry, &target)
     }
 }
