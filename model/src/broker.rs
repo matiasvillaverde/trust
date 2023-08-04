@@ -67,6 +67,7 @@ pub trait Broker {
     fn modify_stop(
         &self,
         trade: &Trade,
+        account: &Account,
         new_stop_price: Decimal,
-    ) -> Result<(Order, BrokerLog), Box<dyn Error>>;
+    ) -> Result<BrokerLog, Box<dyn Error>>;
 }

@@ -6,6 +6,7 @@ use model::{
     Trade, TradeCategory, TradingVehicleCategory, TransactionCategory,
 };
 use model::{Broker, DraftTrade, OrderStatus};
+use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use std::error::Error;
 use uuid::Uuid;
@@ -752,8 +753,14 @@ impl Broker for MockBroker {
     fn modify_stop(
         &self,
         trade: &Trade,
-        new_stop_price: rust_decimal::Decimal,
-    ) -> Result<(Order, BrokerLog), Box<dyn Error>> {
-        unimplemented!("Modify stop not implemented")
+        account: &Account,
+        new_stop_price: Decimal,
+    ) -> Result<BrokerLog, Box<dyn Error>> {
+        unimplemented!(
+            "Modify stop: {:?} {:?} {:?}",
+            trade,
+            account,
+            new_stop_price
+        )
     }
 }

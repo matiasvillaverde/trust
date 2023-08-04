@@ -246,9 +246,16 @@ impl TrustFacade {
     pub fn modify_stop(
         &mut self,
         trade: &Trade,
+        account: &Account,
         new_stop_price: Decimal,
     ) -> Result<(Trade, BrokerLog), Box<dyn std::error::Error>> {
-        TradeAction::modify_stop(trade, new_stop_price, &mut *self.broker, &mut *self.factory)
+        TradeAction::modify_stop(
+            trade,
+            account,
+            new_stop_price,
+            &mut *self.broker,
+            &mut *self.factory,
+        )
     }
 }
 

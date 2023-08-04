@@ -30,11 +30,16 @@ impl ModifyStopDialogBuilder {
             .trade
             .clone()
             .expect("No trade found, did you forget to call search?");
+
+        let account = self
+            .account
+            .clone()
+            .expect("No account found, did you forget to call account?");
         let stop_price = self
             .new_stop_price
             .expect("No stop price found, did you forget to call stop_price?");
 
-        match trust.modify_stop(&trade, stop_price) {
+        match trust.modify_stop(&trade, &account, stop_price) {
             Ok((trade, log)) => self.result = Some(Ok((trade, log))),
             Err(error) => self.result = Some(Err(error)),
         }
