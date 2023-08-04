@@ -286,19 +286,18 @@ impl TradeAction {
         crate::validators::trade::can_modify_stop(trade)?;
 
         // 2. Update Trade on the broker
-        let (order, log) = broker.modify_stop(trade, new_stop_price)?;
+        let (_, log) = broker.modify_stop(trade, new_stop_price)?;
 
         // 3. Modify stop order
-        //let stop = OrderWorker::modify_stop(trade, new_stop_price, database)?;
+        OrderWorker::modify_stop(
+            &trade.safety_stop,
+            new_stop_price,
+            &mut *database.order_write(),
+        )?;
 
-        unimplemented!();
+        // 4. Refresh Trade
+        let trade = database.trade_read().read_trade(trade.id)?;
 
-        // // 4. Update stop order locally
-        // let trade = database.trade_write().update_stop(trade, &stop)?;
-
-        // // 5. Refresh Trade
-        // let trade = database.trade_read().read_trade(trade.id)?;
-
-        // Ok(trade)
+        Ok((trade, log))
     }
 }

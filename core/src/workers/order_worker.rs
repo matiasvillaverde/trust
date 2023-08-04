@@ -107,6 +107,15 @@ impl OrderWorker {
         write_database.closing_of(&trade.target)?;
         read_database.read_trade(trade.id)
     }
+
+    pub fn modify_stop(
+        stop: &Order,
+        new_stop_price: Decimal,
+        write_database: &mut dyn OrderWrite,
+    ) -> Result<Order, Box<dyn std::error::Error>> {
+        let stop = write_database.update_price(&stop, new_stop_price)?;
+        Ok(stop)
+    }
 }
 
 fn action_for_stop(category: &TradeCategory) -> OrderAction {
