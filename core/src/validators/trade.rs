@@ -52,6 +52,19 @@ pub fn can_cancel_submitted(trade: &Trade) -> TradeValidationResult {
     }
 }
 
+pub fn can_modify_stop(trade: &Trade) -> TradeValidationResult {
+    match trade.status {
+        Status::Filled => Ok(()),
+        _ => Err(Box::new(TradeValidationError {
+            code: TradeValidationErrorCode::TradeNotFilled,
+            message: format!(
+                "Trade with id {} is not filled, cannot be modified",
+                trade.id
+            ),
+        })),
+    }
+}
+
 #[derive(Debug, PartialEq)]
 
 pub enum TradeValidationErrorCode {
@@ -154,6 +167,26 @@ mod tests {
             ..Default::default()
         };
         let result = can_cancel_submitted(&trade);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_modify_stop() {
+        let trade = Trade {
+            status: Status::Filled,
+            ..Default::default()
+        };
+        let result = can_modify_stop(&trade);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_modify_stop_not_filled() {
+        let trade = Trade {
+            status: Status::Canceled,
+            ..Default::default()
+        };
+        let result = can_modify_stop(&trade);
         assert!(result.is_err());
     }
 }
