@@ -42,6 +42,14 @@ impl Broker for AlpacaBroker {
         println!("Canceling trade: {:?}", trade);
         cancel_trade::cancel(trade, account)
     }
+
+    fn modify_stop(
+        &self,
+        trade: &Trade,
+        new_stop_price: rust_decimal::Decimal,
+    ) -> Result<(Order, BrokerLog), Box<dyn Error>> {
+        unimplemented!()
+    }
 }
 
 /// Alpaca-specific Broker API

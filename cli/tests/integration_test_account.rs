@@ -222,4 +222,12 @@ impl Broker for MockBroker {
     fn cancel_trade(&self, trade: &Trade, account: &Account) -> Result<(), Box<dyn Error>> {
         unimplemented!("Cancel trade: {:?} {:?}", trade, account)
     }
+
+    fn modify_stop(
+        &self,
+        trade: &Trade,
+        new_stop_price: rust_decimal::Decimal,
+    ) -> Result<(Order, BrokerLog), Box<dyn Error>> {
+        unimplemented!("Modify stop not implemented")
+    }
 }

@@ -282,16 +282,16 @@ impl TradeAction {
         broker: &mut dyn Broker,
         database: &mut dyn DatabaseFactory,
     ) -> Result<(Trade, BrokerLog), Box<dyn std::error::Error>> {
-        // // 1. Verify trade can be modified
+        // 1. Verify trade can be modified
         crate::validators::trade::can_modify_stop(trade)?;
 
+        // 2. Update Trade on the broker
+        let (order, log) = broker.modify_stop(trade, new_stop_price)?;
+
+        // 3. Modify stop order
+        //let stop = OrderWorker::modify_stop(trade, new_stop_price, database)?;
+
         unimplemented!();
-
-        // // 2. Modify stop order
-        // let stop = OrderWorker::modify_stop(trade, new_stop_price, database)?;
-
-        // // 3. Update Trade on the broker
-        // broker.modify_stop(trade, &stop)?;
 
         // // 4. Update stop order locally
         // let trade = database.trade_write().update_stop(trade, &stop)?;

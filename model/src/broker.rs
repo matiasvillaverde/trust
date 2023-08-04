@@ -1,5 +1,6 @@
 use crate::{Account, Order, Status, Trade};
 use chrono::NaiveDateTime;
+use rust_decimal::Decimal;
 use std::error::Error;
 use uuid::Uuid;
 
@@ -62,4 +63,10 @@ pub trait Broker {
     // Cancel a trade that has been submitted
     // The order should not be filled
     fn cancel_trade(&self, trade: &Trade, account: &Account) -> Result<(), Box<dyn Error>>;
+
+    fn modify_stop(
+        &self,
+        trade: &Trade,
+        new_stop_price: Decimal,
+    ) -> Result<(Order, BrokerLog), Box<dyn Error>>;
 }
