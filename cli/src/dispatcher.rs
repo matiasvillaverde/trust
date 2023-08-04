@@ -1,9 +1,9 @@
 use crate::dialogs::{
     AccountDialogBuilder, AccountSearchDialog, CancelDialogBuilder, CloseDialogBuilder,
     ExitDialogBuilder, FillTradeDialogBuilder, FundingDialogBuilder, KeysDeleteDialogBuilder,
-    KeysReadDialogBuilder, KeysWriteDialogBuilder, SubmitDialogBuilder, SyncTradeDialogBuilder,
-    TradeDialogBuilder, TradeSearchDialogBuilder, TradingVehicleDialogBuilder,
-    TradingVehicleSearchDialogBuilder, TransactionDialogBuilder,
+    KeysReadDialogBuilder, KeysWriteDialogBuilder, ModifyStopDialogBuilder, SubmitDialogBuilder,
+    SyncTradeDialogBuilder, TradeDialogBuilder, TradeSearchDialogBuilder,
+    TradingVehicleDialogBuilder, TradingVehicleSearchDialogBuilder, TransactionDialogBuilder,
 };
 use crate::dialogs::{RuleDialogBuilder, RuleRemoveDialogBuilder};
 use alpaca_broker::AlpacaBroker;
@@ -78,6 +78,7 @@ impl ArgDispatcher {
                 Some(("manually-close", _)) => self.close(),
                 Some(("sync", _)) => self.create_sync(),
                 Some(("search", _)) => self.search_trade(),
+                Some(("modify-stop", _)) => self.modify_stop(),
                 _ => unreachable!("No subcommand provided"),
             },
             Some((ext, sub_matches)) => {
@@ -263,6 +264,15 @@ impl ArgDispatcher {
         CloseDialogBuilder::new()
             .account(&mut self.trust)
             .search(&mut self.trust)
+            .build(&mut self.trust)
+            .display();
+    }
+
+    fn modify_stop(&mut self) {
+        ModifyStopDialogBuilder::new()
+            .account(&mut self.trust)
+            .search(&mut self.trust)
+            .stop_price()
             .build(&mut self.trust)
             .display();
     }

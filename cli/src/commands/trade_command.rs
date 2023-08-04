@@ -67,6 +67,13 @@ impl TradeCommandBuilder {
         self
     }
 
+    pub fn modify_stop(mut self) -> Self {
+        self.subcommands.push(
+            Command::new("modify-stop").about("Modify the stop loss order of a filled trade."),
+        );
+        self
+    }
+
     pub fn manually_target(mut self) -> Self {
         self.subcommands
             .push(Command::new("manually-target").about("Execute manually the target of a trade"));
