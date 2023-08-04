@@ -26,7 +26,18 @@ impl ModifyStopDialogBuilder {
     }
 
     pub fn build(mut self, trust: &mut TrustFacade) -> ModifyStopDialogBuilder {
-        unimplemented!("ModifyStopDialogBuilder::build");
+        let trade = self
+            .trade
+            .clone()
+            .expect("No trade found, did you forget to call search?");
+        let stop_price = self
+            .new_stop_price
+            .expect("No stop price found, did you forget to call stop_price?");
+
+        match trust.modify_stop(&trade, stop_price) {
+            Ok((trade, log)) => self.result = Some(Ok((trade, log))),
+            Err(error) => self.result = Some(Err(error)),
+        }
         self
     }
 
@@ -36,19 +47,13 @@ impl ModifyStopDialogBuilder {
             .expect("No result found, did you forget to call search?")
         {
             Ok((trade, log)) => {
-                println!("Trade submitted:");
+                println!("Trade stop updated:");
                 TradeView::display(&trade, &self.account.unwrap().name);
 
                 TradeOverviewView::display(&trade.overview);
 
-                println!("Stop:");
+                println!("Stop updated:");
                 OrderView::display(trade.safety_stop);
-
-                println!("Entry:");
-                OrderView::display(trade.entry);
-
-                println!("Target:");
-                OrderView::display(trade.target);
 
                 LogView::display(&log);
             }
