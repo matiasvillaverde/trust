@@ -42,7 +42,7 @@ async fn modify_entry(
     price: Decimal,
 ) -> Result<Order, Box<dyn Error>> {
     let request = ChangeReqInit {
-        limit_price: Some(Num::from_str(price.to_string().as_str()).unwrap()),
+        stop_price: Some(Num::from_str(price.to_string().as_str()).unwrap()),
         ..Default::default()
     }
     .init();
