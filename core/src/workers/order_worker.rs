@@ -113,7 +113,7 @@ impl OrderWorker {
         new_stop_price: Decimal,
         write_database: &mut dyn OrderWrite,
     ) -> Result<Order, Box<dyn std::error::Error>> {
-        let stop = write_database.update_price(&stop, new_stop_price)?;
+        let stop = write_database.update_price(stop, new_stop_price)?;
         Ok(stop)
     }
 }

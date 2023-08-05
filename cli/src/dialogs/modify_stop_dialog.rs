@@ -92,7 +92,7 @@ impl ModifyStopDialogBuilder {
                     .unwrap();
 
                 println!("Trade selected:");
-                TradeView::display(&trade, &self.account.clone().unwrap().name);
+                TradeView::display(trade, &self.account.clone().unwrap().name);
                 self.trade = Some(trade.to_owned());
             }
             Err(error) => self.result = Some(Err(error)),
