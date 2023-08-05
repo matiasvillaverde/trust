@@ -6,6 +6,7 @@ use model::{
     Trade, TradeCategory, TradingVehicleCategory, TransactionCategory,
 };
 use model::{Broker, DraftTrade, OrderStatus};
+use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use std::error::Error;
 use uuid::Uuid;
@@ -488,6 +489,44 @@ fn test_trade_close() {
     assert_eq!(trade.target.status, OrderStatus::PendingNew);
 }
 
+#[test]
+fn test_trade_modify_stop_long() {
+    let (trust, account, trade) = create_trade(
+        BrokerResponse::orders_entry_filled,
+        Some(BrokerResponse::closed_order),
+    );
+    let mut trust = trust;
+
+    // 1. Sync trade with the Broker - Entry is filled
+    trust
+        .sync_trade(&trade, &account)
+        .expect("Failed to sync trade with broker when entry is filled");
+
+    let trade = trust
+        .search_trades(account.id, Status::Filled)
+        .expect("Failed to find trade with status submitted 2")
+        .first()
+        .unwrap()
+        .clone();
+
+    // 7. Modify stop
+    let (_, log) = trust
+        .modify_stop(&trade, &account, dec!(39))
+        .expect("Failed to modify stop");
+
+    let trade = trust
+        .search_trades(account.id, Status::Filled)
+        .expect("Failed to find trade with status filled")
+        .first()
+        .unwrap()
+        .clone();
+
+    // Assert Trade Overview
+    assert_eq!(trade.status, Status::Filled); // The trade is still filled, but the stop was changed
+    assert_eq!(trade.safety_stop.unit_price, dec!(39));
+    assert_eq!(log.trade_id, trade.id);
+}
+
 struct BrokerResponse;
 
 impl BrokerResponse {
@@ -747,5 +786,22 @@ impl Broker for MockBroker {
 
     fn cancel_trade(&self, _trade: &Trade, _account: &Account) -> Result<(), Box<dyn Error>> {
         Ok(())
+    }
+
+    fn modify_stop(
+        &self,
+        trade: &Trade,
+        account: &Account,
+        new_stop_price: Decimal,
+    ) -> Result<BrokerLog, Box<dyn Error>> {
+        assert_eq!(trade.account_id, account.id);
+        assert_eq!(trade.safety_stop.unit_price, dec!(38));
+        assert_eq!(new_stop_price, dec!(39));
+
+        Ok(BrokerLog {
+            trade_id: trade.id,
+            log: "".to_string(),
+            ..Default::default()
+        })
     }
 }

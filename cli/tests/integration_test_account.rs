@@ -5,6 +5,7 @@ use model::{
     Account, BrokerLog, Currency, Order, OrderIds, RuleLevel, RuleName, Status, Trade,
     TransactionCategory,
 };
+use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use std::error::Error;
 
@@ -221,5 +222,19 @@ impl Broker for MockBroker {
 
     fn cancel_trade(&self, trade: &Trade, account: &Account) -> Result<(), Box<dyn Error>> {
         unimplemented!("Cancel trade: {:?} {:?}", trade, account)
+    }
+
+    fn modify_stop(
+        &self,
+        trade: &Trade,
+        account: &Account,
+        new_stop_price: Decimal,
+    ) -> Result<BrokerLog, Box<dyn Error>> {
+        unimplemented!(
+            "Modify stop: {:?} {:?} {:?}",
+            trade,
+            account,
+            new_stop_price
+        )
     }
 }

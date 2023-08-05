@@ -81,6 +81,23 @@ impl WorkerOrder {
         return WorkerOrder::read(connection, order.id);
     }
 
+    pub fn update_price(
+        connection: &mut SqliteConnection,
+        order: &Order,
+        new_price: Decimal,
+    ) -> Result<Order, Box<dyn Error>> {
+        let now: NaiveDateTime = Utc::now().naive_utc();
+        diesel::update(orders::table)
+            .filter(orders::id.eq(&order.id.to_string()))
+            .set((
+                orders::updated_at.eq(now),
+                orders::unit_price.eq(new_price.to_string()),
+            ))
+            .execute(connection)?;
+
+        return WorkerOrder::read(connection, order.id);
+    }
+
     pub fn update_submitted_at(
         connection: &mut SqliteConnection,
         order: &Order,

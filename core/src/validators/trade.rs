@@ -1,4 +1,5 @@
-use model::{Status, Trade};
+use model::{Status, Trade, TradeCategory};
+use rust_decimal::Decimal;
 use std::error::Error;
 
 type TradeValidationResult = Result<(), Box<TradeValidationError>>;
@@ -52,11 +53,37 @@ pub fn can_cancel_submitted(trade: &Trade) -> TradeValidationResult {
     }
 }
 
+pub fn can_modify_stop(trade: &Trade, new_price_stop: Decimal) -> TradeValidationResult {
+    if trade.category == TradeCategory::Long && trade.safety_stop.unit_price > new_price_stop
+        || trade.category == TradeCategory::Short && trade.safety_stop.unit_price < new_price_stop
+    {
+        return Err(Box::new(TradeValidationError {
+            code: TradeValidationErrorCode::StopPriceNotValid,
+            message: format!(
+                "Stops can not be modified because you are risking more money. Do not give more room to stops loss. Current stop: {}, new stop: {}",
+                trade.safety_stop.unit_price, new_price_stop
+            ),
+        }));
+    }
+
+    match trade.status {
+        Status::Filled => Ok(()),
+        _ => Err(Box::new(TradeValidationError {
+            code: TradeValidationErrorCode::TradeNotFilled,
+            message: format!(
+                "Trade with id {} is not filled, cannot be modified",
+                trade.id
+            ),
+        })),
+    }
+}
+
 #[derive(Debug, PartialEq)]
 
 pub enum TradeValidationErrorCode {
     TradeNotFunded,
     TradeNotFilled,
+    StopPriceNotValid,
 }
 
 #[derive(Debug)]
@@ -80,6 +107,7 @@ impl Error for TradeValidationError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rust_decimal_macros::dec;
 
     #[test]
     fn test_validate_submit_funded() {
@@ -155,5 +183,115 @@ mod tests {
         };
         let result = can_cancel_submitted(&trade);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_modify_stop() {
+        let trade = Trade {
+            status: Status::Filled,
+            ..Default::default()
+        };
+        let result = can_modify_stop(&trade, dec!(10));
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_modify_stop_not_filled() {
+        let trade = Trade {
+            status: Status::Canceled,
+            ..Default::default()
+        };
+        let result = can_modify_stop(&trade, dec!(10));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_modify_stop_risking_more_money_long() {
+        let trade = Trade {
+            status: Status::Filled,
+            category: TradeCategory::Long,
+            safety_stop: model::Order {
+                unit_price: dec!(10),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let result = can_modify_stop(&trade, dec!(9));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_modify_stop_risking_more_money_short() {
+        let trade = Trade {
+            status: Status::Filled,
+            category: TradeCategory::Short,
+            safety_stop: model::Order {
+                unit_price: dec!(11),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let result = can_modify_stop(&trade, dec!(12));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_modify_stop_risking_same_money() {
+        let trade = Trade {
+            status: Status::Filled,
+            category: TradeCategory::Short,
+            safety_stop: model::Order {
+                unit_price: dec!(10),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let result = can_modify_stop(&trade, dec!(10));
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_modify_stop_risking_same_money_long() {
+        let trade = Trade {
+            status: Status::Filled,
+            category: TradeCategory::Long,
+            safety_stop: model::Order {
+                unit_price: dec!(10),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let result = can_modify_stop(&trade, dec!(10));
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_modify_stop_risking_less_money_long() {
+        let trade = Trade {
+            status: Status::Filled,
+            category: TradeCategory::Long,
+            safety_stop: model::Order {
+                unit_price: dec!(10),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let result = can_modify_stop(&trade, dec!(11));
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_modify_stop_risking_less_money_short() {
+        let trade = Trade {
+            status: Status::Filled,
+            category: TradeCategory::Short,
+            safety_stop: model::Order {
+                unit_price: dec!(11),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let result = can_modify_stop(&trade, dec!(10));
+        assert!(result.is_ok());
     }
 }

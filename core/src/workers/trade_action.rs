@@ -1,6 +1,7 @@
 use crate::{OrderWorker, TransactionWorker};
 use model::{
-    AccountOverview, Broker, DatabaseFactory, DraftTrade, Status, Trade, TradeOverview, Transaction,
+    Account, AccountOverview, Broker, BrokerLog, DatabaseFactory, DraftTrade, Status, Trade,
+    TradeOverview, Transaction,
 };
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
@@ -273,5 +274,31 @@ impl TradeAction {
         let (tx, account_o, trade_o) = TransactionWorker::transfer_payment_from(trade, database)?;
 
         Ok((trade_o, account_o, tx))
+    }
+
+    pub fn modify_stop(
+        trade: &Trade,
+        account: &Account,
+        new_stop_price: Decimal,
+        broker: &mut dyn Broker,
+        database: &mut dyn DatabaseFactory,
+    ) -> Result<(Trade, BrokerLog), Box<dyn std::error::Error>> {
+        // 1. Verify trade can be modified
+        crate::validators::trade::can_modify_stop(trade, new_stop_price)?;
+
+        // 2. Update Trade on the broker
+        let log = broker.modify_stop(trade, account, new_stop_price)?;
+
+        // 3. Modify stop order
+        OrderWorker::modify_stop(
+            &trade.safety_stop,
+            new_stop_price,
+            &mut *database.order_write(),
+        )?;
+
+        // 4. Refresh Trade
+        let trade = database.trade_read().read_trade(trade.id)?;
+
+        Ok((trade, log))
     }
 }

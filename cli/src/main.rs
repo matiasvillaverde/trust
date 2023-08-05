@@ -58,6 +58,7 @@ fn main() {
                 .manually_stop()
                 .manually_target()
                 .manually_close()
+                .modify_stop()
                 .build(),
         )
         .get_matches();

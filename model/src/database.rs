@@ -102,6 +102,7 @@ pub trait OrderWrite {
     fn filling_of(&mut self, order: &Order) -> Result<Order, Box<dyn Error>>;
     fn closing_of(&mut self, order: &Order) -> Result<Order, Box<dyn Error>>;
     fn update(&mut self, order: &Order) -> Result<Order, Box<dyn Error>>;
+    fn update_price(&mut self, order: &Order, price: Decimal) -> Result<Order, Box<dyn Error>>;
 }
 
 pub trait ReadTransactionDB {
