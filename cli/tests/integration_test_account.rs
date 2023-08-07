@@ -237,4 +237,18 @@ impl Broker for MockBroker {
             new_stop_price
         )
     }
+
+    fn modify_target(
+        &self,
+        trade: &Trade,
+        account: &Account,
+        new_target_price: rust_decimal::Decimal,
+    ) -> Result<BrokerLog, Box<dyn Error>> {
+        unimplemented!(
+            "Modify target: {:?} {:?} {:?}",
+            trade,
+            account,
+            new_target_price
+        )
+    }
 }

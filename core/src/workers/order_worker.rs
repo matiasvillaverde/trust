@@ -108,12 +108,12 @@ impl OrderWorker {
         read_database.read_trade(trade.id)
     }
 
-    pub fn modify_stop(
-        stop: &Order,
-        new_stop_price: Decimal,
+    pub fn modify(
+        order: &Order,
+        new_price: Decimal,
         write_database: &mut dyn OrderWrite,
     ) -> Result<Order, Box<dyn std::error::Error>> {
-        let stop = write_database.update_price(stop, new_stop_price)?;
+        let stop = write_database.update_price(order, new_price)?;
         Ok(stop)
     }
 }

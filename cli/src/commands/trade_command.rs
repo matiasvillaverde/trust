@@ -74,6 +74,13 @@ impl TradeCommandBuilder {
         self
     }
 
+    pub fn modify_target(mut self) -> Self {
+        self.subcommands.push(
+            Command::new("modify-target").about("Modify the target order of a filled trade."),
+        );
+        self
+    }
+
     pub fn manually_target(mut self) -> Self {
         self.subcommands
             .push(Command::new("manually-target").about("Execute manually the target of a trade"));

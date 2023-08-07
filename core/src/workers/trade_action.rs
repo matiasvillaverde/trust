@@ -290,11 +290,33 @@ impl TradeAction {
         let log = broker.modify_stop(trade, account, new_stop_price)?;
 
         // 3. Modify stop order
-        OrderWorker::modify_stop(
+        OrderWorker::modify(
             &trade.safety_stop,
             new_stop_price,
             &mut *database.order_write(),
         )?;
+
+        // 4. Refresh Trade
+        let trade = database.trade_read().read_trade(trade.id)?;
+
+        Ok((trade, log))
+    }
+
+    pub fn modify_target(
+        trade: &Trade,
+        account: &Account,
+        new_price: Decimal,
+        broker: &mut dyn Broker,
+        database: &mut dyn DatabaseFactory,
+    ) -> Result<(Trade, BrokerLog), Box<dyn std::error::Error>> {
+        // 1. Verify trade can be modified
+        crate::validators::trade::can_modify_target(trade)?;
+
+        // 2. Update Trade on the broker
+        let log = broker.modify_target(trade, account, new_price)?;
+
+        // 3. Modify stop order
+        OrderWorker::modify(&trade.target, new_price, &mut *database.order_write())?;
 
         // 4. Refresh Trade
         let trade = database.trade_read().read_trade(trade.id)?;

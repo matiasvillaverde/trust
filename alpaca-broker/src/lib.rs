@@ -4,7 +4,8 @@ use std::error::Error;
 mod cancel_trade;
 mod close_trade;
 mod keys;
-mod modify_trade;
+mod modify_stop;
+mod modify_target;
 mod order_mapper;
 mod submit_trade;
 mod sync_trade;
@@ -50,7 +51,16 @@ impl Broker for AlpacaBroker {
         account: &Account,
         new_stop_price: rust_decimal::Decimal,
     ) -> Result<BrokerLog, Box<dyn Error>> {
-        modify_trade::modify_stop(trade, account, new_stop_price)
+        modify_stop::modify(trade, account, new_stop_price)
+    }
+
+    fn modify_target(
+        &self,
+        trade: &Trade,
+        account: &Account,
+        new_target_price: rust_decimal::Decimal,
+    ) -> Result<BrokerLog, Box<dyn Error>> {
+        modify_target::modify(trade, account, new_target_price)
     }
 }
 

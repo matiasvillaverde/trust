@@ -257,6 +257,21 @@ impl TrustFacade {
             &mut *self.factory,
         )
     }
+
+    pub fn modify_target(
+        &mut self,
+        trade: &Trade,
+        account: &Account,
+        new_target_price: Decimal,
+    ) -> Result<(Trade, BrokerLog), Box<dyn std::error::Error>> {
+        TradeAction::modify_target(
+            trade,
+            account,
+            new_target_price,
+            &mut *self.broker,
+            &mut *self.factory,
+        )
+    }
 }
 
 mod account_calculators;

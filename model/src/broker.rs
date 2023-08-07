@@ -70,4 +70,11 @@ pub trait Broker {
         account: &Account,
         new_stop_price: Decimal,
     ) -> Result<BrokerLog, Box<dyn Error>>;
+
+    fn modify_target(
+        &self,
+        trade: &Trade,
+        account: &Account,
+        new_price: Decimal,
+    ) -> Result<BrokerLog, Box<dyn Error>>;
 }

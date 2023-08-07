@@ -59,6 +59,7 @@ fn main() {
                 .manually_target()
                 .manually_close()
                 .modify_stop()
+                .modify_target()
                 .build(),
         )
         .get_matches();

@@ -527,6 +527,44 @@ fn test_trade_modify_stop_long() {
     assert_eq!(log.trade_id, trade.id);
 }
 
+#[test]
+fn test_trade_modify_target() {
+    let (trust, account, trade) = create_trade(
+        BrokerResponse::orders_entry_filled,
+        Some(BrokerResponse::closed_order),
+    );
+    let mut trust = trust;
+
+    // 1. Sync trade with the Broker - Entry is filled
+    trust
+        .sync_trade(&trade, &account)
+        .expect("Failed to sync trade with broker when entry is filled");
+
+    let trade = trust
+        .search_trades(account.id, Status::Filled)
+        .expect("Failed to find trade with status submitted 2")
+        .first()
+        .unwrap()
+        .clone();
+
+    // 7. Modify stop
+    let (_, log) = trust
+        .modify_target(&trade, &account, dec!(100.1))
+        .expect("Failed to modify stop");
+
+    let trade = trust
+        .search_trades(account.id, Status::Filled)
+        .expect("Failed to find trade with status filled")
+        .first()
+        .unwrap()
+        .clone();
+
+    // Assert Trade Overview
+    assert_eq!(trade.status, Status::Filled); // The trade is still filled, but the stop was changed
+    assert_eq!(trade.target.unit_price, dec!(100.1));
+    assert_eq!(log.trade_id, trade.id);
+}
+
 struct BrokerResponse;
 
 impl BrokerResponse {
@@ -797,6 +835,23 @@ impl Broker for MockBroker {
         assert_eq!(trade.account_id, account.id);
         assert_eq!(trade.safety_stop.unit_price, dec!(38));
         assert_eq!(new_stop_price, dec!(39));
+
+        Ok(BrokerLog {
+            trade_id: trade.id,
+            log: "".to_string(),
+            ..Default::default()
+        })
+    }
+
+    fn modify_target(
+        &self,
+        trade: &Trade,
+        account: &Account,
+        new_target_price: rust_decimal::Decimal,
+    ) -> Result<BrokerLog, Box<dyn Error>> {
+        assert_eq!(trade.account_id, account.id);
+        assert_eq!(trade.target.unit_price, dec!(50));
+        assert_eq!(new_target_price, dec!(100.1));
 
         Ok(BrokerLog {
             trade_id: trade.id,
