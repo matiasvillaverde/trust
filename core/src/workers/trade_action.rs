@@ -310,7 +310,7 @@ impl TradeAction {
         database: &mut dyn DatabaseFactory,
     ) -> Result<(Trade, BrokerLog), Box<dyn std::error::Error>> {
         // 1. Verify trade can be modified
-        crate::validators::trade::can_modify_target(trade, new_price)?;
+        crate::validators::trade::can_modify_target(trade)?;
 
         // 2. Update Trade on the broker
         let log = broker.modify_target(trade, account, new_price)?;

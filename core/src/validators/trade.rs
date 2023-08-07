@@ -78,7 +78,7 @@ pub fn can_modify_stop(trade: &Trade, new_price_stop: Decimal) -> TradeValidatio
     }
 }
 
-pub fn can_modify_target(trade: &Trade, new_price: Decimal) -> TradeValidationResult {
+pub fn can_modify_target(trade: &Trade) -> TradeValidationResult {
     match trade.status {
         Status::Filled => Ok(()),
         _ => Err(Box::new(TradeValidationError {
@@ -314,7 +314,7 @@ mod tests {
             status: Status::Filled,
             ..Default::default()
         };
-        let result = can_modify_target(&trade, dec!(10));
+        let result = can_modify_target(&trade);
         assert!(result.is_ok());
     }
 
@@ -324,7 +324,7 @@ mod tests {
             status: Status::Canceled,
             ..Default::default()
         };
-        let result = can_modify_target(&trade, dec!(10));
+        let result = can_modify_target(&trade);
         assert!(result.is_err());
     }
 }

@@ -9,7 +9,7 @@ use std::{error::Error, str::FromStr};
 use tokio::runtime::Runtime;
 use uuid::Uuid;
 
-pub fn modify_stop(
+pub fn modify(
     trade: &Trade,
     account: &Account,
     price: Decimal,
@@ -20,7 +20,7 @@ pub fn modify_stop(
     let client = Client::new(api_info);
 
     // Modify the stop order.
-    let alpaca_order = Runtime::new().unwrap().block_on(modify_entry(
+    let alpaca_order = Runtime::new().unwrap().block_on(submit(
         &client,
         trade.safety_stop.broker_order_id.unwrap(),
         price,
@@ -36,11 +36,7 @@ pub fn modify_stop(
     Ok(log)
 }
 
-async fn modify_entry(
-    client: &Client,
-    order_id: Uuid,
-    price: Decimal,
-) -> Result<Order, Box<dyn Error>> {
+async fn submit(client: &Client, order_id: Uuid, price: Decimal) -> Result<Order, Box<dyn Error>> {
     let request = ChangeReqInit {
         stop_price: Some(Num::from_str(price.to_string().as_str()).unwrap()),
         ..Default::default()
