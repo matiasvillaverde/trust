@@ -804,4 +804,21 @@ impl Broker for MockBroker {
             ..Default::default()
         })
     }
+
+    fn modify_target(
+        &self,
+        trade: &Trade,
+        account: &Account,
+        new_target_price: rust_decimal::Decimal,
+    ) -> Result<BrokerLog, Box<dyn Error>> {
+        assert_eq!(trade.account_id, account.id);
+        assert_eq!(trade.target.unit_price, dec!(38));
+        assert_eq!(new_target_price, dec!(39));
+
+        Ok(BrokerLog {
+            trade_id: trade.id,
+            log: "".to_string(),
+            ..Default::default()
+        })
+    }
 }

@@ -78,6 +78,19 @@ pub fn can_modify_stop(trade: &Trade, new_price_stop: Decimal) -> TradeValidatio
     }
 }
 
+pub fn can_modify_target(trade: &Trade, new_price: Decimal) -> TradeValidationResult {
+    match trade.status {
+        Status::Filled => Ok(()),
+        _ => Err(Box::new(TradeValidationError {
+            code: TradeValidationErrorCode::TradeNotFilled,
+            message: format!(
+                "Trade with id {} is not filled, cannot be modified",
+                trade.id
+            ),
+        })),
+    }
+}
+
 #[derive(Debug, PartialEq)]
 
 pub enum TradeValidationErrorCode {
@@ -293,5 +306,25 @@ mod tests {
         };
         let result = can_modify_stop(&trade, dec!(10));
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_modify_target() {
+        let trade = Trade {
+            status: Status::Filled,
+            ..Default::default()
+        };
+        let result = can_modify_target(&trade, dec!(10));
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_modify_target_not_filled() {
+        let trade = Trade {
+            status: Status::Canceled,
+            ..Default::default()
+        };
+        let result = can_modify_target(&trade, dec!(10));
+        assert!(result.is_err());
     }
 }

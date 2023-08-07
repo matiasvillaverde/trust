@@ -262,9 +262,15 @@ impl TrustFacade {
         &mut self,
         trade: &Trade,
         account: &Account,
-        new_stop_price: Decimal,
+        new_target_price: Decimal,
     ) -> Result<(Trade, BrokerLog), Box<dyn std::error::Error>> {
-        unimplemented!("Not implemented yet")
+        TradeAction::modify_target(
+            trade,
+            account,
+            new_target_price,
+            &mut *self.broker,
+            &mut *self.factory,
+        )
     }
 }
 

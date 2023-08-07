@@ -52,6 +52,15 @@ impl Broker for AlpacaBroker {
     ) -> Result<BrokerLog, Box<dyn Error>> {
         modify_trade::modify_stop(trade, account, new_stop_price)
     }
+
+    fn modify_target(
+        &self,
+        trade: &Trade,
+        account: &Account,
+        new_target_price: rust_decimal::Decimal,
+    ) -> Result<BrokerLog, Box<dyn Error>> {
+        unimplemented!("Alpaca does not support modifying target prices")
+    }
 }
 
 /// Alpaca-specific Broker API
