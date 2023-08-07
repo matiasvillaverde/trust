@@ -6,26 +6,26 @@ use model::{Account, BrokerLog, Status, Trade};
 use rust_decimal::Decimal;
 use std::error::Error;
 
-type ModifyStopDialogBuilderResult = Option<Result<(Trade, BrokerLog), Box<dyn Error>>>;
+type ModifyDialogBuilderResult = Option<Result<(Trade, BrokerLog), Box<dyn Error>>>;
 
-pub struct ModifyStopDialogBuilder {
+pub struct ModifyDialogBuilder {
     account: Option<Account>,
     trade: Option<Trade>,
-    new_stop_price: Option<Decimal>,
-    result: ModifyStopDialogBuilderResult,
+    new_price: Option<Decimal>,
+    result: ModifyDialogBuilderResult,
 }
 
-impl ModifyStopDialogBuilder {
+impl ModifyDialogBuilder {
     pub fn new() -> Self {
-        ModifyStopDialogBuilder {
+        ModifyDialogBuilder {
             account: None,
             trade: None,
-            new_stop_price: None,
+            new_price: None,
             result: None,
         }
     }
 
-    pub fn build(mut self, trust: &mut TrustFacade) -> ModifyStopDialogBuilder {
+    pub fn build_stop(mut self, trust: &mut TrustFacade) -> ModifyDialogBuilder {
         let trade = self
             .trade
             .clone()
@@ -36,10 +36,31 @@ impl ModifyStopDialogBuilder {
             .clone()
             .expect("No account found, did you forget to call account?");
         let stop_price = self
-            .new_stop_price
+            .new_price
             .expect("No stop price found, did you forget to call stop_price?");
 
         match trust.modify_stop(&trade, &account, stop_price) {
+            Ok((trade, log)) => self.result = Some(Ok((trade, log))),
+            Err(error) => self.result = Some(Err(error)),
+        }
+        self
+    }
+
+    pub fn build_target(mut self, trust: &mut TrustFacade) -> ModifyDialogBuilder {
+        let trade = self
+            .trade
+            .clone()
+            .expect("No trade found, did you forget to call search?");
+
+        let account = self
+            .account
+            .clone()
+            .expect("No account found, did you forget to call account?");
+        let target_price = self
+            .new_price
+            .expect("No target price found, did you forget to call stop_price?");
+
+        match trust.modify_target(&trade, &account, target_price) {
             Ok((trade, log)) => self.result = Some(Ok((trade, log))),
             Err(error) => self.result = Some(Err(error)),
         }
@@ -52,13 +73,16 @@ impl ModifyStopDialogBuilder {
             .expect("No result found, did you forget to call search?")
         {
             Ok((trade, log)) => {
-                println!("Trade stop updated:");
+                println!("Trade updated:");
                 TradeView::display(&trade, &self.account.unwrap().name);
 
                 TradeOverviewView::display(&trade.overview);
 
-                println!("Stop updated:");
+                println!("Stop:");
                 OrderView::display(trade.safety_stop);
+
+                println!("Target:");
+                OrderView::display(trade.target);
 
                 LogView::display(&log);
             }
@@ -101,12 +125,9 @@ impl ModifyStopDialogBuilder {
         self
     }
 
-    pub fn stop_price(mut self) -> Self {
-        let stop_price = Input::new()
-            .with_prompt("New stop price")
-            .interact()
-            .unwrap();
-        self.new_stop_price = Some(stop_price);
+    pub fn new_price(mut self) -> Self {
+        let stop_price = Input::new().with_prompt("New price").interact().unwrap();
+        self.new_price = Some(stop_price);
         self
     }
 }

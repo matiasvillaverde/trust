@@ -257,6 +257,15 @@ impl TrustFacade {
             &mut *self.factory,
         )
     }
+
+    pub fn modify_target(
+        &mut self,
+        trade: &Trade,
+        account: &Account,
+        new_stop_price: Decimal,
+    ) -> Result<(Trade, BrokerLog), Box<dyn std::error::Error>> {
+        unimplemented!("Not implemented yet")
+    }
 }
 
 mod account_calculators;

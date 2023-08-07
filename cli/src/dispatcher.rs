@@ -1,7 +1,7 @@
 use crate::dialogs::{
     AccountDialogBuilder, AccountSearchDialog, CancelDialogBuilder, CloseDialogBuilder,
     ExitDialogBuilder, FillTradeDialogBuilder, FundingDialogBuilder, KeysDeleteDialogBuilder,
-    KeysReadDialogBuilder, KeysWriteDialogBuilder, ModifyStopDialogBuilder, SubmitDialogBuilder,
+    KeysReadDialogBuilder, KeysWriteDialogBuilder, ModifyDialogBuilder, SubmitDialogBuilder,
     SyncTradeDialogBuilder, TradeDialogBuilder, TradeSearchDialogBuilder,
     TradingVehicleDialogBuilder, TradingVehicleSearchDialogBuilder, TransactionDialogBuilder,
 };
@@ -79,6 +79,7 @@ impl ArgDispatcher {
                 Some(("sync", _)) => self.create_sync(),
                 Some(("search", _)) => self.search_trade(),
                 Some(("modify-stop", _)) => self.modify_stop(),
+                Some(("modify-target", _)) => self.modify_target(),
                 _ => unreachable!("No subcommand provided"),
             },
             Some((ext, sub_matches)) => {
@@ -269,11 +270,20 @@ impl ArgDispatcher {
     }
 
     fn modify_stop(&mut self) {
-        ModifyStopDialogBuilder::new()
+        ModifyDialogBuilder::new()
             .account(&mut self.trust)
             .search(&mut self.trust)
-            .stop_price()
-            .build(&mut self.trust)
+            .new_price()
+            .build_stop(&mut self.trust)
+            .display();
+    }
+
+    fn modify_target(&mut self) {
+        ModifyDialogBuilder::new()
+            .account(&mut self.trust)
+            .search(&mut self.trust)
+            .new_price()
+            .build_target(&mut self.trust)
             .display();
     }
 }
