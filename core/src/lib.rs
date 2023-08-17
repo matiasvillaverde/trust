@@ -241,7 +241,7 @@ impl TrustFacade {
         trade: &Trade,
         account: &Account,
         new_stop_price: Decimal,
-    ) -> Result<(Trade, BrokerLog), Box<dyn std::error::Error>> {
+    ) -> Result<Trade, Box<dyn std::error::Error>> {
         commands::trade::modify_stop(
             trade,
             account,
@@ -256,7 +256,7 @@ impl TrustFacade {
         trade: &Trade,
         account: &Account,
         new_target_price: Decimal,
-    ) -> Result<(Trade, BrokerLog), Box<dyn std::error::Error>> {
+    ) -> Result<Trade, Box<dyn std::error::Error>> {
         commands::trade::modify_target(
             trade,
             account,

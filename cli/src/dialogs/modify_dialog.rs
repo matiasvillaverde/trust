@@ -1,12 +1,12 @@
 use crate::dialogs::AccountSearchDialog;
-use crate::views::{LogView, OrderView, TradeBalanceView, TradeView};
+use crate::views::{OrderView, TradeBalanceView, TradeView};
 use core::TrustFacade;
 use dialoguer::{theme::ColorfulTheme, FuzzySelect, Input};
-use model::{Account, BrokerLog, Status, Trade};
+use model::{Account, Status, Trade};
 use rust_decimal::Decimal;
 use std::error::Error;
 
-type ModifyDialogBuilderResult = Option<Result<(Trade, BrokerLog), Box<dyn Error>>>;
+type ModifyDialogBuilderResult = Option<Result<Trade, Box<dyn Error>>>;
 
 pub struct ModifyDialogBuilder {
     account: Option<Account>,
@@ -40,7 +40,7 @@ impl ModifyDialogBuilder {
             .expect("No stop price found, did you forget to call stop_price?");
 
         match trust.modify_stop(&trade, &account, stop_price) {
-            Ok((trade, log)) => self.result = Some(Ok((trade, log))),
+            Ok(trade) => self.result = Some(Ok(trade)),
             Err(error) => self.result = Some(Err(error)),
         }
         self
@@ -61,7 +61,7 @@ impl ModifyDialogBuilder {
             .expect("No target price found, did you forget to call stop_price?");
 
         match trust.modify_target(&trade, &account, target_price) {
-            Ok((trade, log)) => self.result = Some(Ok((trade, log))),
+            Ok(trade) => self.result = Some(Ok(trade)),
             Err(error) => self.result = Some(Err(error)),
         }
         self
@@ -72,7 +72,7 @@ impl ModifyDialogBuilder {
             .result
             .expect("No result found, did you forget to call search?")
         {
-            Ok((trade, log)) => {
+            Ok(trade) => {
                 println!("Trade updated:");
                 TradeView::display(&trade, &self.account.unwrap().name);
 
@@ -83,8 +83,6 @@ impl ModifyDialogBuilder {
 
                 println!("Target:");
                 OrderView::display(trade.target);
-
-                LogView::display(&log);
             }
             Err(error) => println!("Error submitting trade: {:?}", error),
         }

@@ -1,5 +1,6 @@
 use model::{Account, Broker, BrokerLog, Environment, Order, OrderIds, Status, Trade};
 use std::error::Error;
+use uuid::Uuid;
 
 mod cancel_trade;
 mod close_trade;
@@ -50,7 +51,7 @@ impl Broker for AlpacaBroker {
         trade: &Trade,
         account: &Account,
         new_stop_price: rust_decimal::Decimal,
-    ) -> Result<BrokerLog, Box<dyn Error>> {
+    ) -> Result<Uuid, Box<dyn Error>> {
         modify_stop::modify(trade, account, new_stop_price)
     }
 
@@ -59,7 +60,7 @@ impl Broker for AlpacaBroker {
         trade: &Trade,
         account: &Account,
         new_target_price: rust_decimal::Decimal,
-    ) -> Result<BrokerLog, Box<dyn Error>> {
+    ) -> Result<Uuid, Box<dyn Error>> {
         modify_target::modify(trade, account, new_target_price)
     }
 }

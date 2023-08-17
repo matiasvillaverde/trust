@@ -85,6 +85,7 @@ impl WorkerOrder {
         connection: &mut SqliteConnection,
         order: &Order,
         new_price: Decimal,
+        new_broker_id: Uuid,
     ) -> Result<Order, Box<dyn Error>> {
         let now: NaiveDateTime = Utc::now().naive_utc();
         diesel::update(orders::table)
@@ -92,6 +93,7 @@ impl WorkerOrder {
             .set((
                 orders::updated_at.eq(now),
                 orders::unit_price.eq(new_price.to_string()),
+                orders::broker_order_id.eq(new_broker_id.to_string()),
             ))
             .execute(connection)?;
 
