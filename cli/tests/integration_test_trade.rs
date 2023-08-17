@@ -510,7 +510,7 @@ fn test_trade_modify_stop_long() {
         .clone();
 
     // 7. Modify stop
-    let (_, log) = trust
+    trust
         .modify_stop(&trade, &account, dec!(39))
         .expect("Failed to modify stop");
 
@@ -524,7 +524,10 @@ fn test_trade_modify_stop_long() {
     // Assert Trade Overview
     assert_eq!(trade.status, Status::Filled); // The trade is still filled, but the stop was changed
     assert_eq!(trade.safety_stop.unit_price, dec!(39));
-    assert_eq!(log.trade_id, trade.id);
+    assert_eq!(
+        trade.safety_stop.broker_order_id.unwrap(),
+        Uuid::parse_str("7654f70e-3b42-4014-a9ac-5a7101989aad").unwrap()
+    );
 }
 
 #[test]
@@ -548,7 +551,7 @@ fn test_trade_modify_target() {
         .clone();
 
     // 7. Modify stop
-    let (_, log) = trust
+    trust
         .modify_target(&trade, &account, dec!(100.1))
         .expect("Failed to modify stop");
 
@@ -562,7 +565,10 @@ fn test_trade_modify_target() {
     // Assert Trade Overview
     assert_eq!(trade.status, Status::Filled); // The trade is still filled, but the stop was changed
     assert_eq!(trade.target.unit_price, dec!(100.1));
-    assert_eq!(log.trade_id, trade.id);
+    assert_eq!(
+        trade.target.broker_order_id.unwrap(),
+        Uuid::parse_str("5654f70e-3b42-4014-a9ac-5a7101989aad").unwrap()
+    );
 }
 
 struct BrokerResponse;
@@ -831,16 +837,12 @@ impl Broker for MockBroker {
         trade: &Trade,
         account: &Account,
         new_stop_price: Decimal,
-    ) -> Result<BrokerLog, Box<dyn Error>> {
+    ) -> Result<Uuid, Box<dyn Error>> {
         assert_eq!(trade.account_id, account.id);
         assert_eq!(trade.safety_stop.unit_price, dec!(38));
         assert_eq!(new_stop_price, dec!(39));
 
-        Ok(BrokerLog {
-            trade_id: trade.id,
-            log: "".to_string(),
-            ..Default::default()
-        })
+        Ok(Uuid::parse_str("7654f70e-3b42-4014-a9ac-5a7101989aad").unwrap())
     }
 
     fn modify_target(
@@ -848,15 +850,11 @@ impl Broker for MockBroker {
         trade: &Trade,
         account: &Account,
         new_target_price: rust_decimal::Decimal,
-    ) -> Result<BrokerLog, Box<dyn Error>> {
+    ) -> Result<Uuid, Box<dyn Error>> {
         assert_eq!(trade.account_id, account.id);
         assert_eq!(trade.target.unit_price, dec!(50));
         assert_eq!(new_target_price, dec!(100.1));
 
-        Ok(BrokerLog {
-            trade_id: trade.id,
-            log: "".to_string(),
-            ..Default::default()
-        })
+        Ok(Uuid::parse_str("5654f70e-3b42-4014-a9ac-5a7101989aad").unwrap())
     }
 }

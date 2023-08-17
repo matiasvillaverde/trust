@@ -178,8 +178,18 @@ impl OrderWrite for SqliteDatabase {
     fn closing_of(&mut self, order: &Order) -> Result<Order, Box<dyn Error>> {
         WorkerOrder::update_closed_at(&mut self.connection.lock().unwrap(), order)
     }
-    fn update_price(&mut self, order: &Order, price: Decimal) -> Result<Order, Box<dyn Error>> {
-        WorkerOrder::update_price(&mut self.connection.lock().unwrap(), order, price)
+    fn update_price(
+        &mut self,
+        order: &Order,
+        price: Decimal,
+        new_broker_id: Uuid,
+    ) -> Result<Order, Box<dyn Error>> {
+        WorkerOrder::update_price(
+            &mut self.connection.lock().unwrap(),
+            order,
+            price,
+            new_broker_id,
+        )
     }
 }
 
