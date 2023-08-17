@@ -11,11 +11,11 @@ mod transaction;
 pub mod database;
 
 // Re-export the types from the model crate.
-pub use account::{Account, AccountOverview, Environment};
+pub use account::{Account, AccountBalance, Environment};
 pub use broker::{Broker, BrokerLog, OrderIds};
 pub use currency::Currency;
 pub use database::{
-    AccountOverviewRead, AccountOverviewWrite, AccountRead, AccountWrite, DatabaseFactory,
+    AccountBalanceRead, AccountBalanceWrite, AccountRead, AccountWrite, DatabaseFactory,
     DraftTrade, OrderRead, OrderWrite, ReadBrokerLogsDB, ReadRuleDB, ReadTradeDB,
     ReadTradingVehicleDB, ReadTransactionDB, WriteBrokerLogsDB, WriteRuleDB, WriteTradeDB,
     WriteTradingVehicleDB, WriteTransactionDB,
@@ -23,6 +23,6 @@ pub use database::{
 pub use order::{Order, OrderAction, OrderCategory, OrderStatus, TimeInForce};
 pub use rule::{Rule, RuleLevel, RuleName};
 pub use strategy::Strategy;
-pub use trade::{Status, Trade, TradeCategory, TradeOverview};
+pub use trade::{Status, Trade, TradeBalance, TradeCategory};
 pub use trading_vehicle::{TradingVehicle, TradingVehicleCategory};
 pub use transaction::{Transaction, TransactionCategory};

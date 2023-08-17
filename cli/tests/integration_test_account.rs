@@ -50,7 +50,7 @@ fn test_transactions() {
         )
         .unwrap();
 
-    let (tx, overview) = trust
+    let (tx, balance) = trust
         .create_transaction(
             &account,
             &TransactionCategory::Deposit,
@@ -63,12 +63,12 @@ fn test_transactions() {
     assert_eq!(tx.category, TransactionCategory::Deposit);
     assert_eq!(tx.currency, Currency::USD);
     assert_eq!(tx.account_id, account.id);
-    assert_eq!(overview.account_id, account.id);
-    assert_eq!(overview.currency, Currency::USD);
-    assert_eq!(overview.total_available, dec!(40000));
-    assert_eq!(overview.total_balance, dec!(40000));
-    assert_eq!(overview.total_in_trade, dec!(0));
-    assert_eq!(overview.taxed, dec!(0));
+    assert_eq!(balance.account_id, account.id);
+    assert_eq!(balance.currency, Currency::USD);
+    assert_eq!(balance.total_available, dec!(40000));
+    assert_eq!(balance.total_balance, dec!(40000));
+    assert_eq!(balance.total_in_trade, dec!(0));
+    assert_eq!(balance.taxed, dec!(0));
 }
 
 #[test]
@@ -126,7 +126,7 @@ fn test_multiple_transactions() {
         )
         .unwrap();
 
-    let (tx, overview) = trust
+    let (tx, balance) = trust
         .create_transaction(
             &account,
             &TransactionCategory::Deposit,
@@ -139,12 +139,12 @@ fn test_multiple_transactions() {
     assert_eq!(tx.category, TransactionCategory::Deposit);
     assert_eq!(tx.currency, Currency::USD);
     assert_eq!(tx.account_id, account.id);
-    assert_eq!(overview.account_id, account.id);
-    assert_eq!(overview.currency, Currency::USD);
-    assert_eq!(overview.total_available, dec!(38045.2398));
-    assert_eq!(overview.total_balance, dec!(38045.2398));
-    assert_eq!(overview.total_in_trade, dec!(0));
-    assert_eq!(overview.taxed, dec!(0));
+    assert_eq!(balance.account_id, account.id);
+    assert_eq!(balance.currency, Currency::USD);
+    assert_eq!(balance.total_available, dec!(38045.2398));
+    assert_eq!(balance.total_balance, dec!(38045.2398));
+    assert_eq!(balance.total_in_trade, dec!(0));
+    assert_eq!(balance.taxed, dec!(0));
 }
 
 #[test]

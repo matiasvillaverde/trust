@@ -1,6 +1,6 @@
 use std::error::Error;
 
-use crate::views::{AccountOverviewView, AccountView, RuleView};
+use crate::views::{AccountBalanceView, AccountView, RuleView};
 use core::TrustFacade;
 use dialoguer::{theme::ColorfulTheme, FuzzySelect, Input};
 use model::{Account, Environment};
@@ -119,19 +119,19 @@ impl AccountSearchDialog {
             .expect("No result found, did you forget to call search?")
         {
             Ok(account) => {
-                let overviews = trust
-                    .search_all_overviews(account.id)
-                    .expect("Error searching account overviews");
+                let balances = trust
+                    .search_all_balances(account.id)
+                    .expect("Error searching account balances");
                 let rules = trust
                     .search_all_rules(account.id)
                     .expect("Error searching account rules");
                 let name = account.name.clone();
                 AccountView::display_account(account);
-                if overviews.is_empty() {
+                if balances.is_empty() {
                     println!("No transactions found");
                 } else {
                     println!("Overviews:");
-                    AccountOverviewView::display_overviews(overviews, &name);
+                    AccountBalanceView::display_balances(balances, &name);
                 }
                 println!();
                 println!("Rules:");

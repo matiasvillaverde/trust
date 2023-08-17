@@ -1,6 +1,6 @@
 use crate::{
-    Account, AccountOverview, BrokerLog, Currency, Environment, Order, OrderAction, OrderCategory,
-    Rule, RuleLevel, RuleName, Status, Trade, TradeCategory, TradeOverview, TradingVehicle,
+    Account, AccountBalance, BrokerLog, Currency, Environment, Order, OrderAction, OrderCategory,
+    Rule, RuleLevel, RuleName, Status, Trade, TradeBalance, TradeCategory, TradingVehicle,
     TradingVehicleCategory, Transaction, TransactionCategory,
 };
 use rust_decimal::Decimal;
@@ -23,15 +23,15 @@ use std::error::Error;
 pub trait DatabaseFactory {
     fn account_read(&self) -> Box<dyn AccountRead>;
     fn account_write(&self) -> Box<dyn AccountWrite>;
-    fn account_overview_read(&self) -> Box<dyn AccountOverviewRead>;
-    fn account_overview_write(&self) -> Box<dyn AccountOverviewWrite>;
+    fn account_balance_read(&self) -> Box<dyn AccountBalanceRead>;
+    fn account_balance_write(&self) -> Box<dyn AccountBalanceWrite>;
     fn order_read(&self) -> Box<dyn OrderRead>;
     fn order_write(&self) -> Box<dyn OrderWrite>;
     fn transaction_read(&self) -> Box<dyn ReadTransactionDB>;
     fn transaction_write(&self) -> Box<dyn WriteTransactionDB>;
     fn trade_read(&self) -> Box<dyn ReadTradeDB>;
     fn trade_write(&self) -> Box<dyn WriteTradeDB>;
-    fn trade_overview_write(&self) -> Box<dyn WriteTradeOverviewDB>;
+    fn trade_balance_write(&self) -> Box<dyn WriteAccountBalanceDB>;
     fn rule_read(&self) -> Box<dyn ReadRuleDB>;
     fn rule_write(&self) -> Box<dyn WriteRuleDB>;
     fn trading_vehicle_read(&self) -> Box<dyn ReadTradingVehicleDB>;
@@ -57,31 +57,31 @@ pub trait AccountWrite {
     ) -> Result<Account, Box<dyn Error>>;
 }
 
-pub trait AccountOverviewRead {
-    fn for_account(&mut self, account_id: Uuid) -> Result<Vec<AccountOverview>, Box<dyn Error>>;
+pub trait AccountBalanceRead {
+    fn for_account(&mut self, account_id: Uuid) -> Result<Vec<AccountBalance>, Box<dyn Error>>;
 
     fn for_currency(
         &mut self,
         account_id: Uuid,
         currency: &Currency,
-    ) -> Result<AccountOverview, Box<dyn Error>>;
+    ) -> Result<AccountBalance, Box<dyn Error>>;
 }
 
-pub trait AccountOverviewWrite {
+pub trait AccountBalanceWrite {
     fn create(
         &mut self,
         account: &Account,
         currency: &Currency,
-    ) -> Result<AccountOverview, Box<dyn Error>>;
+    ) -> Result<AccountBalance, Box<dyn Error>>;
 
     fn update(
         &mut self,
-        overview: &AccountOverview,
+        balance: &AccountBalance,
         balance: Decimal,
         in_trade: Decimal,
         available: Decimal,
         taxed: Decimal,
-    ) -> Result<AccountOverview, Box<dyn Error>>;
+    ) -> Result<AccountBalance, Box<dyn Error>>;
 }
 
 pub trait OrderRead {
@@ -204,8 +204,8 @@ pub trait WriteTradeDB {
     ) -> Result<Trade, Box<dyn Error>>;
 }
 
-pub trait WriteTradeOverviewDB {
-    fn update_trade_overview(
+pub trait WriteAccountBalanceDB {
+    fn update_trade_balance(
         &mut self,
         trade: &Trade,
         funding: Decimal,
@@ -213,7 +213,7 @@ pub trait WriteTradeOverviewDB {
         capital_out_market: Decimal,
         taxed: Decimal,
         total_performance: Decimal,
-    ) -> Result<TradeOverview, Box<dyn Error>>;
+    ) -> Result<TradeBalance, Box<dyn Error>>;
 }
 
 // Rule DB

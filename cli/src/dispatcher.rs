@@ -256,7 +256,7 @@ impl ArgDispatcher {
         TradeSearchDialogBuilder::new()
             .account(&mut self.trust)
             .status()
-            .show_overview()
+            .show_balance()
             .search(&mut self.trust)
             .display();
     }

@@ -46,10 +46,10 @@ pub struct Trade {
     /// The account that the trade is associated with
     pub account_id: Uuid,
 
-    /// The overview of the trade - It is a cache of the calculations of the trade.
+    /// The balance of the trade - It is a cache of the calculations of the trade.
     /// It is a snapshot of the trade. It should be updated every time the trade is updated.
     /// WARNING: It is read-only and it can be out of sync if the trade is open.
-    pub overview: TradeOverview,
+    pub balance: TradeBalance,
 }
 
 impl std::fmt::Display for Trade {
@@ -190,7 +190,7 @@ impl std::str::FromStr for TradeCategory {
 }
 
 #[derive(PartialEq, Debug, Clone)]
-pub struct TradeOverview {
+pub struct TradeBalance {
     pub id: Uuid,
 
     // Entity timestamps
@@ -233,15 +233,15 @@ impl Default for Trade {
             entry: Order::default(),
             target: Order::default(),
             account_id: Uuid::new_v4(),
-            overview: TradeOverview::default(),
+            balance: TradeBalance::default(),
         }
     }
 }
 
-impl Default for TradeOverview {
+impl Default for TradeBalance {
     fn default() -> Self {
         let now = Utc::now().naive_utc();
-        TradeOverview {
+        TradeBalance {
             id: Uuid::new_v4(),
             created_at: now,
             updated_at: now,

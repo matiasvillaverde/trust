@@ -1,4 +1,4 @@
-mod account_overview;
+mod account_balance;
 mod accounts;
 mod broker_logs;
 mod worker_order;
@@ -7,7 +7,7 @@ mod worker_trade;
 mod worker_trading_vehicle;
 mod worker_transaction;
 
-pub use account_overview::AccountOverviewDB;
+pub use account_balance::AccountBalanceDB;
 pub use accounts::AccountDB;
 pub use broker_logs::BrokerLogDB;
 pub use worker_order::WorkerOrder;

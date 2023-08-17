@@ -2,14 +2,14 @@ use core::TrustFacade;
 use model::{Account, Status, Trade};
 
 use crate::views::{OrderView, TradeView};
-use crate::{dialogs::AccountSearchDialog, views::TradeOverviewView};
+use crate::{dialogs::AccountSearchDialog, views::TradeBalanceView};
 use dialoguer::{theme::ColorfulTheme, Confirm, FuzzySelect};
 use std::error::Error;
 
 pub struct TradeSearchDialogBuilder {
     account: Option<Account>,
     status: Option<Status>,
-    overview: bool,
+    balance: bool,
     result: Option<Result<Vec<Trade>, Box<dyn Error>>>,
 }
 
@@ -18,7 +18,7 @@ impl TradeSearchDialogBuilder {
         TradeSearchDialogBuilder {
             result: None,
             account: None,
-            overview: true,
+            balance: true,
             status: None,
         }
     }
@@ -35,11 +35,11 @@ impl TradeSearchDialogBuilder {
                 }
                 let name = self.account.clone().unwrap().name;
 
-                if self.overview {
+                if self.balance {
                     println!("Trades found:");
                     for trade in trades {
                         TradeView::display(&trade, name.as_str());
-                        TradeOverviewView::display(&trade.overview);
+                        TradeBalanceView::display(&trade.balance);
                         println!("Entry:");
                         OrderView::display(trade.entry);
                         println!("Target:");
@@ -85,8 +85,8 @@ impl TradeSearchDialogBuilder {
         self
     }
 
-    pub fn show_overview(mut self) -> Self {
-        self.overview = Confirm::with_theme(&ColorfulTheme::default())
+    pub fn show_balance(mut self) -> Self {
+        self.balance = Confirm::with_theme(&ColorfulTheme::default())
             .with_prompt("Do you want to see details form each trade?")
             .default(true)
             .interact()

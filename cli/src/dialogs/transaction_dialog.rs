@@ -1,9 +1,9 @@
 use crate::dialogs::account_dialog::AccountSearchDialog;
-use crate::views::{AccountOverviewView, TransactionView};
+use crate::views::{AccountBalanceView, TransactionView};
 use core::TrustFacade;
 use dialoguer::{theme::ColorfulTheme, FuzzySelect, Input};
 use model::Account;
-use model::AccountOverview;
+use model::AccountBalance;
 use model::Currency;
 use model::Transaction;
 use model::TransactionCategory;
@@ -15,7 +15,7 @@ pub struct TransactionDialogBuilder {
     currency: Option<Currency>,
     account: Option<Account>,
     category: TransactionCategory,
-    result: Option<Result<(Transaction, AccountOverview), Box<dyn Error>>>,
+    result: Option<Result<(Transaction, AccountBalance), Box<dyn Error>>>,
 }
 
 impl TransactionDialogBuilder {
@@ -52,12 +52,12 @@ impl TransactionDialogBuilder {
             .result
             .expect("No result found, did you forget to call build?")
         {
-            Ok((transaction, overview)) => {
+            Ok((transaction, balance)) => {
                 let name = self.account.unwrap().name;
                 println!("Transaction created in account:  {}", name);
                 TransactionView::display(&transaction, &name);
-                println!("Now the account {} overview is:", name);
-                AccountOverviewView::display(overview, &name);
+                println!("Now the account {} balance is:", name);
+                AccountBalanceView::display(balance, &name);
             }
             Err(error) => println!("Error creating account: {:?}", error),
         }
@@ -76,12 +76,12 @@ impl TransactionDialogBuilder {
             let currency = self
                 .currency
                 .expect("No currency found, did you forget to call currency?");
-            let overview = trust.search_overview(account_id, &currency);
-            match overview {
-                Ok(overview) => {
+            let balance = trust.search_balance(account_id, &currency);
+            match balance {
+                Ok(balance) => {
                     println!(
                         "Available for withdrawal: {} {}",
-                        overview.total_available, overview.currency
+                        balance.total_available, balance.currency
                     );
                 }
                 Err(error) => println!("Error searching account: {:?}", error),
@@ -116,11 +116,11 @@ impl TransactionDialogBuilder {
                 .clone()
                 .expect("No account found, did you forget to call account?")
                 .id;
-            let overviews = trust.search_all_overviews(account_id);
-            match overviews {
-                Ok(overviews) => {
-                    for overview in overviews {
-                        currencies.push(overview.currency);
+            let balances = trust.search_all_balances(account_id);
+            match balances {
+                Ok(balances) => {
+                    for balance in balances {
+                        currencies.push(balance.currency);
                     }
                 }
                 Err(error) => println!("Error searching account: {:?}", error),

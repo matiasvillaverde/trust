@@ -1,5 +1,5 @@
-use crate::{trade_calculators::RiskCalculator, workers::OverviewWorker};
-use model::{AccountOverview, DatabaseFactory, Rule, RuleName, Trade};
+use crate::calculators_trade::RiskCalculator;
+use model::{AccountBalance, DatabaseFactory, Rule, RuleName, Trade};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use std::error::Error;
@@ -7,19 +7,19 @@ use uuid::Uuid;
 
 type FundingValidationResult = Result<(), Box<FundValidationError>>;
 
-// Validate if trade can be funded by checking account overview, available capital and rules
+// Validate if trade can be funded by checking account balance, available capital and rules
 pub fn can_fund(trade: &Trade, database: &mut dyn DatabaseFactory) -> FundingValidationResult {
-    // 1.  Get account overview
+    // 1.  Get account balance
     let account = database.account_read().id(trade.account_id).unwrap();
 
-    // 2. Calculate account overview based on the given trade currency
-    // This calculators uses all the transactions to ensure that the account overview is the latest one
-    match OverviewWorker::calculate_account(database, &account, &trade.currency) {
-        Ok(overview) => {
+    // 2. Calculate account balance based on the given trade currency
+    // This calculators uses all the transactions to ensure that the account balance is the latest one
+    match crate::commands::balance::calculate_account(database, &account, &trade.currency) {
+        Ok(balance) => {
             // 3. Validate that there is enough capital available to fund the trade
-            validate_enough_capital(trade, &overview)?;
+            validate_enough_capital(trade, &balance)?;
             // 4. Validate the trade against all the applicable rules
-            validate_rules(trade, &overview, database)
+            validate_rules(trade, &balance, database)
         }
         Err(e) => {
             // If there is not enough funds in the account for the given currency, return an error
@@ -34,8 +34,8 @@ pub fn can_fund(trade: &Trade, database: &mut dyn DatabaseFactory) -> FundingVal
     }
 }
 
-fn validate_enough_capital(trade: &Trade, overview: &AccountOverview) -> FundingValidationResult {
-    match overview.total_available >= trade.entry.unit_price * Decimal::from(trade.entry.quantity) {
+fn validate_enough_capital(trade: &Trade, balance: &AccountBalance) -> FundingValidationResult {
+    match balance.total_available >= trade.entry.unit_price * Decimal::from(trade.entry.quantity) {
         true => Ok(()),
         false => Err(Box::new(FundValidationError {
             code: FundValidationErrorCode::NotEnoughFunds,
@@ -43,7 +43,7 @@ fn validate_enough_capital(trade: &Trade, overview: &AccountOverview) -> Funding
                 "Not enough funds in account {} for currency {}. Available: {} and you are trying to trade: {}",
                 trade.account_id,
                 trade.currency,
-                overview.total_available,
+                balance.total_available,
                 trade.entry.unit_price * Decimal::from(trade.entry.quantity)
             ),
         })),
@@ -61,7 +61,7 @@ fn sorted_rules(account_id: Uuid, database: &mut dyn DatabaseFactory) -> Vec<Rul
 
 fn validate_rules(
     trade: &Trade,
-    account_overview: &AccountOverview,
+    account_balance: &AccountBalance,
     database: &mut dyn DatabaseFactory,
 ) -> FundingValidationResult {
     // Get rules by priority
@@ -83,7 +83,7 @@ fn validate_rules(
             RuleName::RiskPerTrade(risk) => {
                 validate_risk_per_trade(
                     trade,
-                    account_overview,
+                    account_balance,
                     Decimal::from_f32_retain(risk).unwrap(),
                     risk_per_month,
                 )?;
@@ -95,11 +95,11 @@ fn validate_rules(
     Ok(())
 }
 
-// This function validates a trade based on the given risk parameters and account overview.
+// This function validates a trade based on the given risk parameters and account balance.
 // If the trade violates any of the rules, it returns an error.
 fn validate_risk_per_trade(
     trade: &Trade,
-    account_overview: &AccountOverview,
+    account_balance: &AccountBalance,
     risk: Decimal,
     risk_per_month: Decimal,
 ) -> FundingValidationResult {
@@ -116,7 +116,7 @@ fn validate_risk_per_trade(
     }
 
     // Calculate the maximum amount that can be risked based on the available funds and risk percentage.
-    let maximum_risk = account_overview.total_available * (risk / dec!(100.0));
+    let maximum_risk = account_balance.total_available * (risk / dec!(100.0));
 
     // Calculate the total amount that will be risked in this trade.
     let total_risk = (trade.entry.unit_price - trade.safety_stop.unit_price)
@@ -179,12 +179,12 @@ mod tests {
             ..Default::default()
         };
 
-        let overview = AccountOverview {
+        let balance = AccountBalance {
             total_available: Decimal::new(100, 0),
             ..Default::default()
         };
 
-        assert!(validate_enough_capital(&trade, &overview).is_ok());
+        assert!(validate_enough_capital(&trade, &balance).is_ok());
     }
 
     #[test]
@@ -200,12 +200,12 @@ mod tests {
             ..Default::default()
         };
 
-        let overview = AccountOverview {
+        let balance = AccountBalance {
             total_available: Decimal::new(100, 0),
             ..Default::default()
         };
 
-        let result = validate_enough_capital(&trade, &overview);
+        let result = validate_enough_capital(&trade, &balance);
 
         assert!(result.is_err());
         assert_eq!(
@@ -228,13 +228,13 @@ mod tests {
             },
             ..Default::default()
         };
-        let account_overview = AccountOverview {
+        let account_balance = AccountBalance {
             total_available: dec!(100),
             ..Default::default()
         };
         let risk = dec!(5);
         let risk_per_month = dec!(6.2);
-        assert!(validate_risk_per_trade(&trade, &account_overview, risk, risk_per_month).is_ok());
+        assert!(validate_risk_per_trade(&trade, &account_balance, risk, risk_per_month).is_ok());
     }
 
     #[test]
@@ -251,14 +251,14 @@ mod tests {
             },
             ..Default::default()
         };
-        let account_overview = AccountOverview {
+        let account_balance = AccountBalance {
             total_available: dec!(100),
             ..Default::default()
         };
         let risk = dec!(5);
         let risk_per_month = dec!(4.9);
         assert_eq!(
-            validate_risk_per_trade(&trade, &account_overview, risk, risk_per_month),
+            validate_risk_per_trade(&trade, &account_balance, risk, risk_per_month),
             Err(Box::new(FundValidationError {
                 code: FundValidationErrorCode::RiskPerMonthExceeded,
                 message: "Risk per month exceeded for risk per trade rule, maximum that can be at risk is 4.9, trade is attempting to risk 5".to_string(),
@@ -280,14 +280,14 @@ mod tests {
             },
             ..Default::default()
         };
-        let account_overview = AccountOverview {
+        let account_balance = AccountBalance {
             total_available: dec!(100),
             ..Default::default()
         };
         let risk = dec!(3);
         let risk_per_month = dec!(5.1);
         assert_eq!(
-            validate_risk_per_trade(&trade, &account_overview, risk, risk_per_month),
+            validate_risk_per_trade(&trade, &account_balance, risk, risk_per_month),
             Err(Box::new(FundValidationError {
                 code: FundValidationErrorCode::RiskPerTradeExceeded,
                 message: "Risk per trade exceeded for risk per trade rule, maximum that can be at risk is 3.00, trade is attempting to risk 5".to_string(),

@@ -1,15 +1,15 @@
 use crate::workers::{
-    AccountDB, AccountOverviewDB, BrokerLogDB, WorkerOrder, WorkerRule, WorkerTrade,
+    AccountBalanceDB, AccountDB, BrokerLogDB, WorkerOrder, WorkerRule, WorkerTrade,
     WorkerTradingVehicle, WorkerTransaction,
 };
 use diesel::prelude::*;
 use model::DraftTrade;
 use model::Status;
 use model::{
-    database::{AccountWrite, WriteTradeOverviewDB},
-    Account, AccountOverviewRead, AccountOverviewWrite, AccountRead, Currency, DatabaseFactory,
+    database::{AccountWrite, WriteAccountBalanceDB},
+    Account, AccountBalanceRead, AccountBalanceWrite, AccountRead, Currency, DatabaseFactory,
     Order, OrderAction, OrderCategory, OrderRead, OrderWrite, ReadRuleDB, ReadTradeDB,
-    ReadTradingVehicleDB, ReadTransactionDB, Rule, RuleName, Trade, TradeOverview, TradingVehicle,
+    ReadTradingVehicleDB, ReadTransactionDB, Rule, RuleName, Trade, TradeBalance, TradingVehicle,
     TradingVehicleCategory, Transaction, TransactionCategory, WriteRuleDB, WriteTradeDB,
     WriteTradingVehicleDB, WriteTransactionDB,
 };
@@ -48,14 +48,14 @@ impl DatabaseFactory for SqliteDatabase {
         })
     }
 
-    fn account_overview_read(&self) -> Box<dyn AccountOverviewRead> {
-        Box::new(AccountOverviewDB {
+    fn account_balance_read(&self) -> Box<dyn AccountBalanceRead> {
+        Box::new(AccountBalanceDB {
             connection: self.connection.clone(),
         })
     }
 
-    fn account_overview_write(&self) -> Box<dyn AccountOverviewWrite> {
-        Box::new(AccountOverviewDB {
+    fn account_balance_write(&self) -> Box<dyn AccountBalanceWrite> {
+        Box::new(AccountBalanceDB {
             connection: self.connection.clone(),
         })
     }
@@ -79,7 +79,7 @@ impl DatabaseFactory for SqliteDatabase {
     fn trade_write(&self) -> Box<dyn WriteTradeDB> {
         Box::new(SqliteDatabase::new_from(self.connection.clone()))
     }
-    fn trade_overview_write(&self) -> Box<dyn WriteTradeOverviewDB> {
+    fn trade_balance_write(&self) -> Box<dyn WriteAccountBalanceDB> {
         Box::new(SqliteDatabase::new_from(self.connection.clone()))
     }
     fn rule_read(&self) -> Box<dyn ReadRuleDB> {
@@ -421,8 +421,8 @@ impl ReadTradeDB for SqliteDatabase {
     }
 }
 
-impl WriteTradeOverviewDB for SqliteDatabase {
-    fn update_trade_overview(
+impl WriteAccountBalanceDB for SqliteDatabase {
+    fn update_trade_balance(
         &mut self,
         trade: &Trade,
         funding: Decimal,
@@ -430,8 +430,8 @@ impl WriteTradeOverviewDB for SqliteDatabase {
         capital_out_market: Decimal,
         taxed: Decimal,
         total_performance: Decimal,
-    ) -> Result<TradeOverview, Box<dyn Error>> {
-        WorkerTrade::update_trade_overview(
+    ) -> Result<TradeBalance, Box<dyn Error>> {
+        WorkerTrade::update_trade_balance(
             &mut self.connection.lock().unwrap(),
             trade,
             funding,

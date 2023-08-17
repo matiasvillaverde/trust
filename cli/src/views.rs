@@ -6,11 +6,11 @@ mod trade_view;
 mod trading_vehicle_view;
 mod transaction_view;
 
-pub use account_view::{AccountOverviewView, AccountView};
+pub use account_view::{AccountBalanceView, AccountView};
 pub use log_view::LogView;
 pub use order_view::OrderView;
 pub use rule_view::RuleView;
-pub use trade_view::{TradeOverviewView, TradeView};
+pub use trade_view::{TradeBalanceView, TradeView};
 pub use trading_vehicle_view::TradingVehicleView;
 pub use transaction_view::TransactionView;
 

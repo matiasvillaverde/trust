@@ -1,12 +1,12 @@
-use crate::views::{AccountOverviewView, TradeOverviewView, TradeView};
+use crate::views::{AccountBalanceView, TradeBalanceView, TradeView};
 use crate::{dialogs::AccountSearchDialog, views::TransactionView};
 use core::TrustFacade;
 use dialoguer::{theme::ColorfulTheme, FuzzySelect};
-use model::{Account, AccountOverview, Status, Trade, TradeOverview, Transaction};
+use model::{Account, AccountBalance, Status, Trade, TradeBalance, Transaction};
 use std::error::Error;
 
 type TradeDialogApproverBuilderResult =
-    Option<Result<(Trade, Transaction, AccountOverview, TradeOverview), Box<dyn Error>>>;
+    Option<Result<(Trade, Transaction, AccountBalance, TradeBalance), Box<dyn Error>>>;
 
 pub struct FundingDialogBuilder {
     account: Option<Account>,
@@ -34,19 +34,19 @@ impl FundingDialogBuilder {
             .result
             .expect("No result found, did you forget to call search?")
         {
-            Ok((trade, tx, account_overview, trade_overview)) => {
+            Ok((trade, tx, account_balance, trade_balance)) => {
                 let account = self.account.clone().unwrap().name;
 
                 println!("Trade approved:");
                 TradeView::display(&trade, &self.account.unwrap().name);
 
-                TradeOverviewView::display(&trade_overview);
+                TradeBalanceView::display(&trade_balance);
 
                 println!("Transaction moving funds to trade:");
                 TransactionView::display(&tx, account.as_str());
 
-                println!("Account overview after funding trade:");
-                AccountOverviewView::display(account_overview, account.as_str());
+                println!("Account balance after funding trade:");
+                AccountBalanceView::display(account_balance, account.as_str());
             }
             Err(error) => println!("Error approving trade: {:?}", error),
         }

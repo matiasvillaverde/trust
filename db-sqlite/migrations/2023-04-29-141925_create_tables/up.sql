@@ -10,7 +10,7 @@ CREATE TABLE accounts (
 	earnings_percentage 		TEXT NOT NULL
 );
 
-CREATE TABLE accounts_overviews (
+CREATE TABLE accounts_balances (
 	id 				TEXT NOT NULL PRIMARY KEY,
 	created_at			DATETIME NOT NULL,
 	updated_at			DATETIME NOT NULL,
@@ -100,10 +100,10 @@ CREATE TABLE "trades" (
 	entry_id 			TEXT NOT NULL REFERENCES orders (id),
 	target_id 			TEXT NOT NULL REFERENCES orders (id),
 	account_id 			TEXT NOT NULL REFERENCES accounts (id),
-	overview_id 		TEXT NOT NULL REFERENCES trades_overviews (id)
+	balance_id 		TEXT NOT NULL REFERENCES trades_balances (id)
 );
 
-CREATE TABLE "trades_overviews" (
+CREATE TABLE "trades_balances" (
 	id 			TEXT NOT NULL PRIMARY KEY,
 	created_at				DATETIME NOT NULL,
 	updated_at				DATETIME NOT NULL,

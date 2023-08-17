@@ -1,4 +1,4 @@
-use model::{AccountOverview, AccountOverviewRead, Currency, Status, Trade};
+use model::{AccountBalance, AccountBalanceRead, Currency, Status, Trade};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use std::error::Error;
@@ -23,7 +23,7 @@ pub fn can_transfer_fill(trade: &Trade, total: Decimal) -> TransactionValidation
         }));
     }
 
-    if total > trade.overview.funding {
+    if total > trade.balance.funding {
         return Err(Box::new(TransactionValidationError {
             code: TransactionValidationErrorCode::NotEnoughFunds,
             message: "Trade doesn't have enough funding".to_string(),
@@ -32,7 +32,7 @@ pub fn can_transfer_fill(trade: &Trade, total: Decimal) -> TransactionValidation
     Ok(())
 }
 
-pub fn can_transfer_fee(account: &AccountOverview, fee: Decimal) -> TransactionValidationResult {
+pub fn can_transfer_fee(account: &AccountBalance, fee: Decimal) -> TransactionValidationResult {
     if fee <= dec!(0) {
         return Err(Box::new(TransactionValidationError {
             code: TransactionValidationErrorCode::FeeMustBePositive,
@@ -63,7 +63,7 @@ pub fn can_transfer_deposit(
     amount: Decimal,
     currency: &Currency,
     account_id: Uuid,
-    database: &mut dyn AccountOverviewRead,
+    database: &mut dyn AccountBalanceRead,
 ) -> TransactionValidationResult {
     if amount.is_sign_negative() {
         Err(Box::new(TransactionValidationError {
@@ -85,7 +85,7 @@ pub fn can_transfer_withdraw(
     amount: Decimal,
     currency: &Currency,
     account_id: Uuid,
-    database: &mut dyn AccountOverviewRead,
+    database: &mut dyn AccountBalanceRead,
 ) -> TransactionValidationResult {
     if amount.is_sign_negative() | amount.is_zero() {
         Err(Box::new(TransactionValidationError {
@@ -93,10 +93,10 @@ pub fn can_transfer_withdraw(
             message: "Amount of withdrawal must be positive".to_string(),
         }))
     } else {
-        let overview = database.for_currency(account_id, currency);
-        match overview {
-            Ok(overview) => {
-                if overview.total_available >= amount {
+        let balance = database.for_currency(account_id, currency);
+        match balance {
+            Ok(balance) => {
+                if balance.total_available >= amount {
                     Ok(())
                 } else {
                     Err(Box::new(TransactionValidationError {
@@ -146,14 +146,14 @@ impl Error for TransactionValidationError {
 }
 #[cfg(test)]
 mod tests {
-    use model::TradeOverview;
+    use model::TradeBalance;
 
     use super::*;
 
     #[test]
     fn test_validate_fill_with_enough_funds() {
         let trade = Trade {
-            overview: TradeOverview {
+            balance: TradeBalance {
                 funding: dec!(500),
                 ..Default::default()
             },
@@ -167,7 +167,7 @@ mod tests {
     #[test]
     fn test_validate_fill_with_enough_funds_status_submitted() {
         let trade = Trade {
-            overview: TradeOverview {
+            balance: TradeBalance {
                 funding: dec!(500),
                 ..Default::default()
             },
@@ -181,7 +181,7 @@ mod tests {
     #[test]
     fn test_validate_fill_with_not_enough_funds() {
         let trade = Trade {
-            overview: TradeOverview {
+            balance: TradeBalance {
                 funding: dec!(500),
                 ..Default::default()
             },
@@ -202,7 +202,7 @@ mod tests {
     #[test]
     fn test_validate_fill_with_zero_total() {
         let trade = Trade {
-            overview: TradeOverview {
+            balance: TradeBalance {
                 funding: dec!(500),
                 ..Default::default()
             },
@@ -222,7 +222,7 @@ mod tests {
     #[test]
     fn test_validate_fill_with_unfunded_trade() {
         let trade = Trade {
-            overview: TradeOverview {
+            balance: TradeBalance {
                 funding: dec!(500),
                 ..Default::default()
             },
@@ -241,7 +241,7 @@ mod tests {
 
     #[test]
     fn test_validate_fee_positive() {
-        let account = AccountOverview {
+        let account = AccountBalance {
             total_available: dec!(100),
             ..Default::default()
         };
@@ -251,7 +251,7 @@ mod tests {
 
     #[test]
     fn test_validate_fee_zero() {
-        let account = AccountOverview {
+        let account = AccountBalance {
             total_available: dec!(100),
             ..Default::default()
         };
@@ -261,7 +261,7 @@ mod tests {
 
     #[test]
     fn test_validate_fee_negative() {
-        let account = AccountOverview {
+        let account = AccountBalance {
             total_available: dec!(100),
             ..Default::default()
         };
@@ -271,7 +271,7 @@ mod tests {
 
     #[test]
     fn test_validate_fee_not_enough_funds() {
-        let account = AccountOverview {
+        let account = AccountBalance {
             total_available: dec!(100),
             ..Default::default()
         };

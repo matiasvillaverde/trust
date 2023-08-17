@@ -1,4 +1,4 @@
-use model::{Account, AccountOverview};
+use model::{Account, AccountBalance};
 use tabled::settings::style::Style;
 use tabled::Table;
 use tabled::Tabled;
@@ -35,7 +35,7 @@ impl AccountView {
 }
 
 #[derive(Tabled)]
-pub struct AccountOverviewView {
+pub struct AccountBalanceView {
     pub account_name: String,
     pub total_balance: String,
     pub total_available: String,
@@ -44,29 +44,29 @@ pub struct AccountOverviewView {
     pub currency: String,
 }
 
-impl AccountOverviewView {
-    fn new(overview: AccountOverview, account_name: &str) -> AccountOverviewView {
-        AccountOverviewView {
+impl AccountBalanceView {
+    fn new(balance: AccountBalance, account_name: &str) -> AccountBalanceView {
+        AccountBalanceView {
             account_name: crate::views::uppercase_first(account_name),
-            total_balance: overview.total_balance.to_string(),
-            total_available: overview.total_available.to_string(),
-            total_in_trade: overview.total_in_trade.to_string(),
-            taxed: overview.taxed.to_string(),
-            currency: overview.currency.to_string(),
+            total_balance: balance.total_balance.to_string(),
+            total_available: balance.total_available.to_string(),
+            total_in_trade: balance.total_in_trade.to_string(),
+            taxed: balance.taxed.to_string(),
+            currency: balance.currency.to_string(),
         }
     }
 
-    pub fn display(overview: AccountOverview, account_name: &str) {
+    pub fn display(balance: AccountBalance, account_name: &str) {
         println!();
-        println!("Account overview: {}", overview.id);
-        AccountOverviewView::display_overviews(vec![overview], account_name);
+        println!("Account balance: {}", balance.id);
+        AccountBalanceView::display_balances(vec![balance], account_name);
         println!();
     }
 
-    pub fn display_overviews(overviews: Vec<AccountOverview>, account_name: &str) {
-        let views: Vec<AccountOverviewView> = overviews
+    pub fn display_balances(balances: Vec<AccountBalance>, account_name: &str) {
+        let views: Vec<AccountBalanceView> = balances
             .into_iter()
-            .map(|x| AccountOverviewView::new(x, account_name))
+            .map(|x| AccountBalanceView::new(x, account_name))
             .collect();
         let mut table = Table::new(views);
         table.with(Style::modern());

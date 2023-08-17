@@ -1,5 +1,5 @@
 use crate::dialogs::AccountSearchDialog;
-use crate::views::{LogView, OrderView, TradeOverviewView, TradeView};
+use crate::views::{LogView, OrderView, TradeBalanceView, TradeView};
 use core::TrustFacade;
 use dialoguer::{theme::ColorfulTheme, FuzzySelect, Input};
 use model::{Account, BrokerLog, Status, Trade};
@@ -76,7 +76,7 @@ impl ModifyDialogBuilder {
                 println!("Trade updated:");
                 TradeView::display(&trade, &self.account.unwrap().name);
 
-                TradeOverviewView::display(&trade.overview);
+                TradeBalanceView::display(&trade.balance);
 
                 println!("Stop:");
                 OrderView::display(trade.safety_stop);

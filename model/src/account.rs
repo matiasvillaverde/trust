@@ -27,17 +27,17 @@ pub struct Account {
     pub earnings_percentage: Decimal,
 }
 
-/// AccountOverview entity (read-only)
-/// This entity is used to display the account overview
+/// AccountBalance entity (read-only)
+/// This entity is used to display the account balance
 /// This entity is a cached calculation of all the transactions that an account have.
 /// This entity is read-only
 /// It is not used to create or update an account
-/// Each account has one AccountOverview per currency
+/// Each account has one AccountBalance per currency
 ///
 /// WARNING: This entity can be out of sync with the actual account.
-/// If your feature is important, consider recalculating the account overview.
+/// If your feature is important, consider recalculating the account balance.
 #[derive(PartialEq, Debug, Clone, Copy)]
-pub struct AccountOverview {
+pub struct AccountBalance {
     pub id: Uuid,
 
     // Entity timestamps
@@ -96,10 +96,10 @@ impl Default for Account {
     }
 }
 
-impl Default for AccountOverview {
+impl Default for AccountBalance {
     fn default() -> Self {
         let now = Utc::now().naive_utc();
-        AccountOverview {
+        AccountBalance {
             id: Uuid::new_v4(),
             created_at: now,
             updated_at: now,
