@@ -1,14 +1,11 @@
 use model::{
     Account, AccountOverview, Broker, BrokerLog, Currency, DatabaseFactory, DraftTrade,
-    Environment, Order, OrderStatus, Rule, RuleLevel, RuleName, Status, Trade, TradeOverview,
-    TradingVehicle, TradingVehicleCategory, Transaction, TransactionCategory,
+    Environment, Order, Rule, RuleLevel, RuleName, Status, Trade, TradeOverview, TradingVehicle,
+    TradingVehicleCategory, Transaction, TransactionCategory,
 };
 use rust_decimal::Decimal;
 use trade_calculators::QuantityCalculator;
 use uuid::Uuid;
-use workers::{
-    OrderWorker, OverviewWorker, RuleWorker, TradeAction, TradeLifecycle, TransactionWorker,
-};
 
 pub struct TrustFacade {
     factory: Box<dyn DatabaseFactory>,
@@ -64,7 +61,7 @@ impl TrustFacade {
         amount: Decimal,
         currency: &Currency,
     ) -> Result<(Transaction, AccountOverview), Box<dyn std::error::Error>> {
-        TransactionWorker::create(&mut *self.factory, category, amount, currency, account.id)
+        commands::transaction::create(&mut *self.factory, category, amount, currency, account.id)
     }
 
     pub fn search_overview(
@@ -91,7 +88,7 @@ impl TrustFacade {
         description: &str,
         level: &RuleLevel,
     ) -> Result<Rule, Box<dyn std::error::Error>> {
-        RuleWorker::create_rule(&mut *self.factory, account, name, description, level)
+        commands::rule::create_rule(&mut *self.factory, account, name, description, level)
     }
 
     pub fn deactivate_rule(&mut self, rule: &Rule) -> Result<Rule, Box<dyn std::error::Error>> {
@@ -148,7 +145,7 @@ impl TrustFacade {
         entry_price: Decimal,
         target_price: Decimal,
     ) -> Result<Trade, Box<dyn std::error::Error>> {
-        TradeAction::create_trade(
+        commands::trade::create_trade(
             trade,
             stop_price,
             entry_price,
@@ -174,14 +171,14 @@ impl TrustFacade {
         trade: &Trade,
     ) -> Result<(Trade, Transaction, AccountOverview, TradeOverview), Box<dyn std::error::Error>>
     {
-        TradeLifecycle::fund_trade(trade, &mut *self.factory)
+        commands::trade::fund_trade(trade, &mut *self.factory)
     }
 
     pub fn submit_trade(
         &mut self,
         trade: &Trade,
     ) -> Result<(Trade, BrokerLog), Box<dyn std::error::Error>> {
-        TradeLifecycle::submit_trade(trade, &mut *self.factory, &mut *self.broker)
+        commands::trade::submit_trade(trade, &mut *self.factory, &mut *self.broker)
     }
 
     pub fn sync_trade(
@@ -189,7 +186,7 @@ impl TrustFacade {
         trade: &Trade,
         account: &Account,
     ) -> Result<(Status, Vec<Order>, BrokerLog), Box<dyn std::error::Error>> {
-        TradeLifecycle::sync_trade(trade, account, &mut *self.factory, &mut *self.broker)
+        commands::trade::sync_trade(trade, account, &mut *self.factory, &mut *self.broker)
     }
 
     pub fn fill_trade(
@@ -197,7 +194,7 @@ impl TrustFacade {
         trade: &Trade,
         fee: Decimal,
     ) -> Result<(Trade, Transaction), Box<dyn std::error::Error>> {
-        TradeAction::fill_trade(trade, fee, self.factory.as_mut())
+        commands::trade::fill_trade(trade, fee, self.factory.as_mut())
     }
 
     pub fn stop_trade(
@@ -208,28 +205,28 @@ impl TrustFacade {
         (Transaction, Transaction, TradeOverview, AccountOverview),
         Box<dyn std::error::Error>,
     > {
-        TradeAction::stop_trade(trade, fee, &mut *self.factory)
+        commands::trade::stop_trade(trade, fee, &mut *self.factory)
     }
 
     pub fn close_trade(
         &mut self,
         trade: &Trade,
     ) -> Result<(TradeOverview, BrokerLog), Box<dyn std::error::Error>> {
-        TradeLifecycle::close_trade(trade, &mut *self.factory, &mut *self.broker)
+        commands::trade::close_trade(trade, &mut *self.factory, &mut *self.broker)
     }
 
     pub fn cancel_funded_trade(
         &mut self,
         trade: &Trade,
     ) -> Result<(TradeOverview, AccountOverview, Transaction), Box<dyn std::error::Error>> {
-        TradeAction::cancel_funded_trade(trade, &mut *self.factory)
+        commands::trade::cancel_funded_trade(trade, &mut *self.factory)
     }
 
     pub fn cancel_submitted_trade(
         &mut self,
         trade: &Trade,
     ) -> Result<(TradeOverview, AccountOverview, Transaction), Box<dyn std::error::Error>> {
-        TradeAction::cancel_submitted_trade(trade, &mut *self.factory, &mut *self.broker)
+        commands::trade::cancel_submitted_trade(trade, &mut *self.factory, &mut *self.broker)
     }
 
     pub fn target_acquired(
@@ -240,7 +237,7 @@ impl TrustFacade {
         (Transaction, Transaction, TradeOverview, AccountOverview),
         Box<dyn std::error::Error>,
     > {
-        TradeAction::target_acquired(trade, fee, &mut *self.factory)
+        commands::trade::target_acquired(trade, fee, &mut *self.factory)
     }
 
     pub fn modify_stop(
@@ -249,7 +246,7 @@ impl TrustFacade {
         account: &Account,
         new_stop_price: Decimal,
     ) -> Result<(Trade, BrokerLog), Box<dyn std::error::Error>> {
-        TradeAction::modify_stop(
+        commands::trade::modify_stop(
             trade,
             account,
             new_stop_price,
@@ -264,7 +261,7 @@ impl TrustFacade {
         account: &Account,
         new_target_price: Decimal,
     ) -> Result<(Trade, BrokerLog), Box<dyn std::error::Error>> {
-        TradeAction::modify_target(
+        commands::trade::modify_target(
             trade,
             account,
             new_target_price,
@@ -275,7 +272,7 @@ impl TrustFacade {
 }
 
 mod account_calculators;
+mod commands;
 mod mocks;
 mod trade_calculators;
 mod validators;
-mod workers;

@@ -1,4 +1,4 @@
-use crate::{trade_calculators::RiskCalculator, workers::OverviewWorker};
+use crate::trade_calculators::RiskCalculator;
 use model::{AccountOverview, DatabaseFactory, Rule, RuleName, Trade};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
@@ -14,7 +14,7 @@ pub fn can_fund(trade: &Trade, database: &mut dyn DatabaseFactory) -> FundingVal
 
     // 2. Calculate account overview based on the given trade currency
     // This calculators uses all the transactions to ensure that the account overview is the latest one
-    match OverviewWorker::calculate_account(database, &account, &trade.currency) {
+    match crate::commands::overview::calculate_account(database, &account, &trade.currency) {
         Ok(overview) => {
             // 3. Validate that there is enough capital available to fund the trade
             validate_enough_capital(trade, &overview)?;
