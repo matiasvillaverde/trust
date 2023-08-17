@@ -2,7 +2,7 @@ use crate::schema::{trades, trades_overviews};
 use chrono::{NaiveDateTime, Utc};
 use diesel::prelude::*;
 use model::{Currency, DraftTrade, Status};
-use model::{Order, Trade, TradeCategory, TradeOverview};
+use model::{Order, Trade, TradeCategory, TradeBalance};
 use rust_decimal::Decimal;
 use std::error::Error;
 use std::str::FromStr;
@@ -55,7 +55,7 @@ impl WorkerTrade {
     pub fn read_overview(
         connection: &mut SqliteConnection,
         id: Uuid,
-    ) -> Result<TradeOverview, diesel::result::Error> {
+    ) -> Result<TradeBalance, diesel::result::Error> {
         trades_overviews::table
             .filter(trades_overviews::id.eq(&id.to_string()))
             .first(connection)
@@ -153,7 +153,7 @@ impl WorkerTrade {
         connection: &mut SqliteConnection,
         currency: &Currency,
         _created_at: NaiveDateTime,
-    ) -> Result<TradeOverview, Box<dyn Error>> {
+    ) -> Result<TradeBalance, Box<dyn Error>> {
         let new_trade_overview = NewTradeOverview {
             currency: currency.to_string(),
             ..Default::default()
@@ -178,7 +178,7 @@ impl WorkerTrade {
         capital_out_market: Decimal,
         taxed: Decimal,
         total_performance: Decimal,
-    ) -> Result<TradeOverview, Box<dyn Error>> {
+    ) -> Result<TradeBalance, Box<dyn Error>> {
         let overview = diesel::update(trades_overviews::table)
             .filter(trades_overviews::id.eq(&trade.overview.id.to_string()))
             .set((
@@ -310,8 +310,8 @@ struct TradeOverviewSQLite {
 }
 
 impl TradeOverviewSQLite {
-    fn domain_model(self) -> TradeOverview {
-        TradeOverview {
+    fn domain_model(self) -> TradeBalance {
+        TradeBalance {
             id: Uuid::parse_str(&self.id).unwrap(),
             created_at: self.created_at,
             updated_at: self.updated_at,

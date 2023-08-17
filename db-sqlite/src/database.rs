@@ -9,7 +9,7 @@ use model::{
     database::{AccountWrite, WriteTradeOverviewDB},
     Account, AccountOverviewRead, AccountOverviewWrite, AccountRead, Currency, DatabaseFactory,
     Order, OrderAction, OrderCategory, OrderRead, OrderWrite, ReadRuleDB, ReadTradeDB,
-    ReadTradingVehicleDB, ReadTransactionDB, Rule, RuleName, Trade, TradeOverview, TradingVehicle,
+    ReadTradingVehicleDB, ReadTransactionDB, Rule, RuleName, Trade, TradeBalance, TradingVehicle,
     TradingVehicleCategory, Transaction, TransactionCategory, WriteRuleDB, WriteTradeDB,
     WriteTradingVehicleDB, WriteTransactionDB,
 };
@@ -430,7 +430,7 @@ impl WriteTradeOverviewDB for SqliteDatabase {
         capital_out_market: Decimal,
         taxed: Decimal,
         total_performance: Decimal,
-    ) -> Result<TradeOverview, Box<dyn Error>> {
+    ) -> Result<TradeBalance, Box<dyn Error>> {
         WorkerTrade::update_trade_overview(
             &mut self.connection.lock().unwrap(),
             trade,

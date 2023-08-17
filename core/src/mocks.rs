@@ -4,7 +4,7 @@ pub mod read_transaction_db_mocks {
     use chrono::Utc;
     use model::{
         Currency, Order, OrderAction, OrderCategory, ReadTradeDB, ReadTransactionDB, Status, Trade,
-        TradeCategory, TradeOverview, TradingVehicle, Transaction, TransactionCategory,
+        TradeCategory, TradeBalance, TradingVehicle, Transaction, TransactionCategory,
     };
     use rust_decimal::Decimal;
     use std::error::Error;
@@ -67,7 +67,7 @@ pub mod read_transaction_db_mocks {
                 ),
                 category: TradeCategory::Long,
                 account_id: self.account_id,
-                overview: TradeOverview::default(),
+                overview: TradeBalance::default(),
             };
 
             self.trades.push(trade);

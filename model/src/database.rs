@@ -1,6 +1,6 @@
 use crate::{
-    Account, AccountOverview, BrokerLog, Currency, Environment, Order, OrderAction, OrderCategory,
-    Rule, RuleLevel, RuleName, Status, Trade, TradeCategory, TradeOverview, TradingVehicle,
+    Account, AccountBalance, BrokerLog, Currency, Environment, Order, OrderAction, OrderCategory,
+    Rule, RuleLevel, RuleName, Status, Trade, TradeCategory, TradeBalance, TradingVehicle,
     TradingVehicleCategory, Transaction, TransactionCategory,
 };
 use rust_decimal::Decimal;
@@ -58,13 +58,13 @@ pub trait AccountWrite {
 }
 
 pub trait AccountOverviewRead {
-    fn for_account(&mut self, account_id: Uuid) -> Result<Vec<AccountOverview>, Box<dyn Error>>;
+    fn for_account(&mut self, account_id: Uuid) -> Result<Vec<AccountBalance>, Box<dyn Error>>;
 
     fn for_currency(
         &mut self,
         account_id: Uuid,
         currency: &Currency,
-    ) -> Result<AccountOverview, Box<dyn Error>>;
+    ) -> Result<AccountBalance, Box<dyn Error>>;
 }
 
 pub trait AccountOverviewWrite {
@@ -72,16 +72,16 @@ pub trait AccountOverviewWrite {
         &mut self,
         account: &Account,
         currency: &Currency,
-    ) -> Result<AccountOverview, Box<dyn Error>>;
+    ) -> Result<AccountBalance, Box<dyn Error>>;
 
     fn update(
         &mut self,
-        overview: &AccountOverview,
+        overview: &AccountBalance,
         balance: Decimal,
         in_trade: Decimal,
         available: Decimal,
         taxed: Decimal,
-    ) -> Result<AccountOverview, Box<dyn Error>>;
+    ) -> Result<AccountBalance, Box<dyn Error>>;
 }
 
 pub trait OrderRead {
@@ -213,7 +213,7 @@ pub trait WriteTradeOverviewDB {
         capital_out_market: Decimal,
         taxed: Decimal,
         total_performance: Decimal,
-    ) -> Result<TradeOverview, Box<dyn Error>>;
+    ) -> Result<TradeBalance, Box<dyn Error>>;
 }
 
 // Rule DB

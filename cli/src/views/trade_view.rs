@@ -1,4 +1,4 @@
-use model::{Trade, TradeOverview};
+use model::{Trade, TradeBalance};
 use tabled::settings::style::Style;
 use tabled::Table;
 use tabled::Tabled;
@@ -60,7 +60,7 @@ pub struct TradeOverviewView {
 }
 
 impl TradeOverviewView {
-    fn new(overview: &TradeOverview) -> TradeOverviewView {
+    fn new(overview: &TradeBalance) -> TradeOverviewView {
         TradeOverviewView {
             funding: overview.funding.to_string(),
             capital_in_market: overview.capital_in_market.to_string(),
@@ -71,11 +71,11 @@ impl TradeOverviewView {
         }
     }
 
-    pub fn display(overview: &TradeOverview) {
+    pub fn display(overview: &TradeBalance) {
         TradeOverviewView::display_overviews(vec![overview]);
     }
 
-    pub fn display_overviews(overviews: Vec<&TradeOverview>) {
+    pub fn display_overviews(overviews: Vec<&TradeBalance>) {
         let views: Vec<TradeOverviewView> =
             overviews.into_iter().map(TradeOverviewView::new).collect();
         let mut table = Table::new(views);

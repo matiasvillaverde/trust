@@ -2,7 +2,7 @@ use crate::schema::accounts_overviews;
 use chrono::{NaiveDateTime, Utc};
 use diesel::prelude::*;
 use diesel::SqliteConnection;
-use model::{Account, AccountOverview, AccountOverviewRead, AccountOverviewWrite, Currency};
+use model::{Account, AccountBalance, AccountOverviewRead, AccountOverviewWrite, Currency};
 use rust_decimal::Decimal;
 use std::error::Error;
 use std::sync::Arc;
@@ -19,7 +19,7 @@ impl AccountOverviewWrite for AccountOverviewDB {
         &mut self,
         account: &Account,
         currency: &Currency,
-    ) -> Result<AccountOverview, Box<dyn Error>> {
+    ) -> Result<AccountBalance, Box<dyn Error>> {
         let new_account_overview = NewAccountOverview {
             account_id: account.id.to_string(),
             currency: currency.to_string(),
@@ -41,12 +41,12 @@ impl AccountOverviewWrite for AccountOverviewDB {
 
     fn update(
         &mut self,
-        overview: &AccountOverview,
+        overview: &AccountBalance,
         total_balance: Decimal,
         total_in_trade: Decimal,
         total_available: Decimal,
         total_taxed: Decimal,
-    ) -> Result<AccountOverview, Box<dyn Error>> {
+    ) -> Result<AccountBalance, Box<dyn Error>> {
         let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap();
         let overview = diesel::update(accounts_overviews::table)
             .filter(accounts_overviews::id.eq(&overview.id.to_string()))
@@ -68,7 +68,7 @@ impl AccountOverviewWrite for AccountOverviewDB {
 }
 
 impl AccountOverviewRead for AccountOverviewDB {
-    fn for_account(&mut self, account_id: Uuid) -> Result<Vec<AccountOverview>, Box<dyn Error>> {
+    fn for_account(&mut self, account_id: Uuid) -> Result<Vec<AccountBalance>, Box<dyn Error>> {
         let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap();
         let overviews = accounts_overviews::table
             .filter(accounts_overviews::account_id.eq(account_id.to_string()))
@@ -91,7 +91,7 @@ impl AccountOverviewRead for AccountOverviewDB {
         &mut self,
         account_id: Uuid,
         currency: &Currency,
-    ) -> Result<AccountOverview, Box<dyn Error>> {
+    ) -> Result<AccountBalance, Box<dyn Error>> {
         let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap();
         let overviews = accounts_overviews::table
             .filter(accounts_overviews::account_id.eq(account_id.to_string()))
@@ -125,9 +125,9 @@ struct AccountOverviewSQLite {
 }
 
 impl AccountOverviewSQLite {
-    fn domain_model(self) -> AccountOverview {
+    fn domain_model(self) -> AccountBalance {
         use std::str::FromStr;
-        AccountOverview {
+        AccountBalance {
             id: Uuid::parse_str(&self.id).unwrap(),
             created_at: self.created_at,
             updated_at: self.updated_at,

@@ -1,5 +1,5 @@
 use crate::calculators_trade::RiskCalculator;
-use model::{AccountOverview, DatabaseFactory, Rule, RuleName, Trade};
+use model::{AccountBalance, DatabaseFactory, Rule, RuleName, Trade};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use std::error::Error;
@@ -34,7 +34,7 @@ pub fn can_fund(trade: &Trade, database: &mut dyn DatabaseFactory) -> FundingVal
     }
 }
 
-fn validate_enough_capital(trade: &Trade, overview: &AccountOverview) -> FundingValidationResult {
+fn validate_enough_capital(trade: &Trade, overview: &AccountBalance) -> FundingValidationResult {
     match overview.total_available >= trade.entry.unit_price * Decimal::from(trade.entry.quantity) {
         true => Ok(()),
         false => Err(Box::new(FundValidationError {
@@ -61,7 +61,7 @@ fn sorted_rules(account_id: Uuid, database: &mut dyn DatabaseFactory) -> Vec<Rul
 
 fn validate_rules(
     trade: &Trade,
-    account_overview: &AccountOverview,
+    account_overview: &AccountBalance,
     database: &mut dyn DatabaseFactory,
 ) -> FundingValidationResult {
     // Get rules by priority
@@ -99,7 +99,7 @@ fn validate_rules(
 // If the trade violates any of the rules, it returns an error.
 fn validate_risk_per_trade(
     trade: &Trade,
-    account_overview: &AccountOverview,
+    account_overview: &AccountBalance,
     risk: Decimal,
     risk_per_month: Decimal,
 ) -> FundingValidationResult {
@@ -179,7 +179,7 @@ mod tests {
             ..Default::default()
         };
 
-        let overview = AccountOverview {
+        let overview = AccountBalance {
             total_available: Decimal::new(100, 0),
             ..Default::default()
         };
@@ -200,7 +200,7 @@ mod tests {
             ..Default::default()
         };
 
-        let overview = AccountOverview {
+        let overview = AccountBalance {
             total_available: Decimal::new(100, 0),
             ..Default::default()
         };
@@ -228,7 +228,7 @@ mod tests {
             },
             ..Default::default()
         };
-        let account_overview = AccountOverview {
+        let account_overview = AccountBalance {
             total_available: dec!(100),
             ..Default::default()
         };
@@ -251,7 +251,7 @@ mod tests {
             },
             ..Default::default()
         };
-        let account_overview = AccountOverview {
+        let account_overview = AccountBalance {
             total_available: dec!(100),
             ..Default::default()
         };
@@ -280,7 +280,7 @@ mod tests {
             },
             ..Default::default()
         };
-        let account_overview = AccountOverview {
+        let account_overview = AccountBalance {
             total_available: dec!(100),
             ..Default::default()
         };

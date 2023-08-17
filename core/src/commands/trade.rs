@@ -1,7 +1,7 @@
 use crate::commands;
 use model::{
-    Account, AccountOverview, Broker, BrokerLog, DatabaseFactory, DraftTrade, Order, OrderStatus,
-    Status, Trade, TradeOverview, Transaction,
+    Account, AccountBalance, Broker, BrokerLog, DatabaseFactory, DraftTrade, Order, OrderStatus,
+    Status, Trade, TradeBalance, Transaction,
 };
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
@@ -208,7 +208,7 @@ pub fn stop_acquired(
     trade: &Trade,
     fee: Decimal,
     database: &mut dyn DatabaseFactory,
-) -> Result<(Transaction, Transaction, TradeOverview, AccountOverview), Box<dyn std::error::Error>>
+) -> Result<(Transaction, Transaction, TradeBalance, AccountBalance), Box<dyn std::error::Error>>
 {
     let (trade, tx_stop) = stop_executed(trade, fee, database)?;
     let (tx_payment, account_overview, trade_overview) =
@@ -220,7 +220,7 @@ pub fn target_acquired(
     trade: &Trade,
     fee: Decimal,
     database: &mut dyn DatabaseFactory,
-) -> Result<(Transaction, Transaction, TradeOverview, AccountOverview), Box<dyn std::error::Error>>
+) -> Result<(Transaction, Transaction, TradeBalance, AccountBalance), Box<dyn std::error::Error>>
 {
     let (trade, tx_target) = target_executed(trade, fee, database)?;
     let (tx_payment, account_overview, trade_overview) =
@@ -231,7 +231,7 @@ pub fn target_acquired(
 pub fn cancel_funded(
     trade: &Trade,
     database: &mut dyn DatabaseFactory,
-) -> Result<(TradeOverview, AccountOverview, Transaction), Box<dyn std::error::Error>> {
+) -> Result<(TradeBalance, AccountBalance, Transaction), Box<dyn std::error::Error>> {
     // 1. Verify trade can be canceled
     crate::validators::trade::can_cancel_funded(trade)?;
 
@@ -251,7 +251,7 @@ pub fn cancel_submitted(
     trade: &Trade,
     database: &mut dyn DatabaseFactory,
     broker: &mut dyn Broker,
-) -> Result<(TradeOverview, AccountOverview, Transaction), Box<dyn std::error::Error>> {
+) -> Result<(TradeBalance, AccountBalance, Transaction), Box<dyn std::error::Error>> {
     // 1. Verify trade can be canceled
     crate::validators::trade::can_cancel_submitted(trade)?;
 
@@ -322,7 +322,7 @@ pub fn modify_target(
 pub fn fund(
     trade: &Trade,
     database: &mut dyn DatabaseFactory,
-) -> Result<(Trade, Transaction, AccountOverview, TradeOverview), Box<dyn std::error::Error>> {
+) -> Result<(Trade, Transaction, AccountBalance, TradeBalance), Box<dyn std::error::Error>> {
     // 1. Validate that trade can be funded
     crate::validators::funding::can_fund(trade, database)?;
 
@@ -408,7 +408,7 @@ pub fn close(
     trade: &Trade,
     database: &mut dyn DatabaseFactory,
     broker: &mut dyn Broker,
-) -> Result<(TradeOverview, BrokerLog), Box<dyn std::error::Error>> {
+) -> Result<(TradeBalance, BrokerLog), Box<dyn std::error::Error>> {
     // 1. Verify trade can be closed
     crate::validators::trade::can_close(trade)?;
 

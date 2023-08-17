@@ -2,10 +2,10 @@ use crate::dialogs::AccountSearchDialog;
 use crate::views::{LogView, TradeOverviewView, TradeView};
 use core::TrustFacade;
 use dialoguer::{theme::ColorfulTheme, FuzzySelect};
-use model::{Account, BrokerLog, Status, Trade, TradeOverview};
+use model::{Account, BrokerLog, Status, Trade, TradeBalance};
 use std::error::Error;
 
-type CancelDialogBuilderResult = Option<Result<(TradeOverview, BrokerLog), Box<dyn Error>>>;
+type CancelDialogBuilderResult = Option<Result<(TradeBalance, BrokerLog), Box<dyn Error>>>;
 
 pub struct CloseDialogBuilder {
     account: Option<Account>,

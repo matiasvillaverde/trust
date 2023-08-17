@@ -1,4 +1,4 @@
-use model::{Account, AccountOverview};
+use model::{Account, AccountBalance};
 use tabled::settings::style::Style;
 use tabled::Table;
 use tabled::Tabled;
@@ -45,7 +45,7 @@ pub struct AccountOverviewView {
 }
 
 impl AccountOverviewView {
-    fn new(overview: AccountOverview, account_name: &str) -> AccountOverviewView {
+    fn new(overview: AccountBalance, account_name: &str) -> AccountOverviewView {
         AccountOverviewView {
             account_name: crate::views::uppercase_first(account_name),
             total_balance: overview.total_balance.to_string(),
@@ -56,14 +56,14 @@ impl AccountOverviewView {
         }
     }
 
-    pub fn display(overview: AccountOverview, account_name: &str) {
+    pub fn display(overview: AccountBalance, account_name: &str) {
         println!();
         println!("Account overview: {}", overview.id);
         AccountOverviewView::display_overviews(vec![overview], account_name);
         println!();
     }
 
-    pub fn display_overviews(overviews: Vec<AccountOverview>, account_name: &str) {
+    pub fn display_overviews(overviews: Vec<AccountBalance>, account_name: &str) {
         let views: Vec<AccountOverviewView> = overviews
             .into_iter()
             .map(|x| AccountOverviewView::new(x, account_name))

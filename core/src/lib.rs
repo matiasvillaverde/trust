@@ -1,7 +1,7 @@
 use calculators_trade::QuantityCalculator;
 use model::{
-    Account, AccountOverview, Broker, BrokerLog, Currency, DatabaseFactory, DraftTrade,
-    Environment, Order, Rule, RuleLevel, RuleName, Status, Trade, TradeOverview, TradingVehicle,
+    Account, AccountBalance, Broker, BrokerLog, Currency, DatabaseFactory, DraftTrade,
+    Environment, Order, Rule, RuleLevel, RuleName, Status, Trade, TradeBalance, TradingVehicle,
     TradingVehicleCategory, Transaction, TransactionCategory,
 };
 use rust_decimal::Decimal;
@@ -60,7 +60,7 @@ impl TrustFacade {
         category: &TransactionCategory,
         amount: Decimal,
         currency: &Currency,
-    ) -> Result<(Transaction, AccountOverview), Box<dyn std::error::Error>> {
+    ) -> Result<(Transaction, AccountBalance), Box<dyn std::error::Error>> {
         commands::transaction::create(&mut *self.factory, category, amount, currency, account.id)
     }
 
@@ -68,7 +68,7 @@ impl TrustFacade {
         &mut self,
         account_id: Uuid,
         currency: &Currency,
-    ) -> Result<AccountOverview, Box<dyn std::error::Error>> {
+    ) -> Result<AccountBalance, Box<dyn std::error::Error>> {
         self.factory
             .account_overview_read()
             .for_currency(account_id, currency)
@@ -77,7 +77,7 @@ impl TrustFacade {
     pub fn search_all_overviews(
         &mut self,
         account_id: Uuid,
-    ) -> Result<Vec<AccountOverview>, Box<dyn std::error::Error>> {
+    ) -> Result<Vec<AccountBalance>, Box<dyn std::error::Error>> {
         self.factory.account_overview_read().for_account(account_id)
     }
 
@@ -169,7 +169,7 @@ impl TrustFacade {
     pub fn fund_trade(
         &mut self,
         trade: &Trade,
-    ) -> Result<(Trade, Transaction, AccountOverview, TradeOverview), Box<dyn std::error::Error>>
+    ) -> Result<(Trade, Transaction, AccountBalance, TradeBalance), Box<dyn std::error::Error>>
     {
         commands::trade::fund(trade, &mut *self.factory)
     }
@@ -202,7 +202,7 @@ impl TrustFacade {
         trade: &Trade,
         fee: Decimal,
     ) -> Result<
-        (Transaction, Transaction, TradeOverview, AccountOverview),
+        (Transaction, Transaction, TradeBalance, AccountBalance),
         Box<dyn std::error::Error>,
     > {
         commands::trade::stop_acquired(trade, fee, &mut *self.factory)
@@ -211,21 +211,21 @@ impl TrustFacade {
     pub fn close_trade(
         &mut self,
         trade: &Trade,
-    ) -> Result<(TradeOverview, BrokerLog), Box<dyn std::error::Error>> {
+    ) -> Result<(TradeBalance, BrokerLog), Box<dyn std::error::Error>> {
         commands::trade::close(trade, &mut *self.factory, &mut *self.broker)
     }
 
     pub fn cancel_funded_trade(
         &mut self,
         trade: &Trade,
-    ) -> Result<(TradeOverview, AccountOverview, Transaction), Box<dyn std::error::Error>> {
+    ) -> Result<(TradeBalance, AccountBalance, Transaction), Box<dyn std::error::Error>> {
         commands::trade::cancel_funded(trade, &mut *self.factory)
     }
 
     pub fn cancel_submitted_trade(
         &mut self,
         trade: &Trade,
-    ) -> Result<(TradeOverview, AccountOverview, Transaction), Box<dyn std::error::Error>> {
+    ) -> Result<(TradeBalance, AccountBalance, Transaction), Box<dyn std::error::Error>> {
         commands::trade::cancel_submitted(trade, &mut *self.factory, &mut *self.broker)
     }
 
@@ -234,7 +234,7 @@ impl TrustFacade {
         trade: &Trade,
         fee: Decimal,
     ) -> Result<
-        (Transaction, Transaction, TradeOverview, AccountOverview),
+        (Transaction, Transaction, TradeBalance, AccountBalance),
         Box<dyn std::error::Error>,
     > {
         commands::trade::target_acquired(trade, fee, &mut *self.factory)

@@ -2,12 +2,12 @@ use crate::dialogs::AccountSearchDialog;
 use crate::views::{AccountOverviewView, TradeOverviewView, TradeView, TransactionView};
 use core::TrustFacade;
 use dialoguer::{theme::ColorfulTheme, FuzzySelect, Input};
-use model::{Account, AccountOverview, Status, Trade, TradeOverview, Transaction};
+use model::{Account, AccountBalance, Status, Trade, TradeBalance, Transaction};
 use rust_decimal::Decimal;
 use std::error::Error;
 
 type ExitDialogBuilderResult =
-    Option<Result<(Transaction, Transaction, TradeOverview, AccountOverview), Box<dyn Error>>>;
+    Option<Result<(Transaction, Transaction, TradeBalance, AccountBalance), Box<dyn Error>>>;
 
 pub struct ExitDialogBuilder {
     account: Option<Account>,

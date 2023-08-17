@@ -3,7 +3,7 @@ use crate::views::{AccountOverviewView, TransactionView};
 use core::TrustFacade;
 use dialoguer::{theme::ColorfulTheme, FuzzySelect, Input};
 use model::Account;
-use model::AccountOverview;
+use model::AccountBalance;
 use model::Currency;
 use model::Transaction;
 use model::TransactionCategory;
@@ -15,7 +15,7 @@ pub struct TransactionDialogBuilder {
     currency: Option<Currency>,
     account: Option<Account>,
     category: TransactionCategory,
-    result: Option<Result<(Transaction, AccountOverview), Box<dyn Error>>>,
+    result: Option<Result<(Transaction, AccountBalance), Box<dyn Error>>>,
 }
 
 impl TransactionDialogBuilder {

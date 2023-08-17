@@ -2,11 +2,11 @@ use crate::views::{AccountOverviewView, TradeOverviewView, TradeView};
 use crate::{dialogs::AccountSearchDialog, views::TransactionView};
 use core::TrustFacade;
 use dialoguer::{theme::ColorfulTheme, FuzzySelect};
-use model::{Account, AccountOverview, Status, Trade, TradeOverview, Transaction};
+use model::{Account, AccountBalance, Status, Trade, TradeBalance, Transaction};
 use std::error::Error;
 
 type TradeDialogApproverBuilderResult =
-    Option<Result<(Trade, Transaction, AccountOverview, TradeOverview), Box<dyn Error>>>;
+    Option<Result<(Trade, Transaction, AccountBalance, TradeBalance), Box<dyn Error>>>;
 
 pub struct FundingDialogBuilder {
     account: Option<Account>,

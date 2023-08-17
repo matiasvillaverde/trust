@@ -1,4 +1,4 @@
-use model::{Account, AccountOverview, Currency, DatabaseFactory, Trade, TradeOverview};
+use model::{Account, AccountBalance, Currency, DatabaseFactory, Trade, TradeBalance};
 use std::error::Error;
 
 use crate::{
@@ -14,7 +14,7 @@ pub fn calculate_account(
     database: &mut dyn DatabaseFactory,
     account: &Account,
     currency: &Currency,
-) -> Result<AccountOverview, Box<dyn Error>> {
+) -> Result<AccountBalance, Box<dyn Error>> {
     let total_available = AccountCapitalAvailable::calculate(
         account.id,
         currency,
@@ -52,7 +52,7 @@ pub fn calculate_account(
 pub fn calculate_trade(
     database: &mut dyn DatabaseFactory,
     trade: &Trade,
-) -> Result<TradeOverview, Box<dyn Error>> {
+) -> Result<TradeBalance, Box<dyn Error>> {
     let funding = TradeCapitalFunded::calculate(trade.id, database.transaction_read().as_mut())?;
     let capital_in_market =
         TradeCapitalInMarket::calculate(trade.id, database.transaction_read().as_mut())?;

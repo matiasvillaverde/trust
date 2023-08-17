@@ -1,5 +1,5 @@
 use model::{
-    AccountOverview, Currency, DatabaseFactory, Trade, TradeOverview, Transaction,
+    AccountBalance, Currency, DatabaseFactory, Trade, TradeBalance, Transaction,
     TransactionCategory,
 };
 use rust_decimal::Decimal;
@@ -23,7 +23,7 @@ pub fn create(
     amount: Decimal,
     currency: &Currency,
     account_id: Uuid,
-) -> Result<(Transaction, AccountOverview), Box<dyn Error>> {
+) -> Result<(Transaction, AccountBalance), Box<dyn Error>> {
     match category {
         TransactionCategory::Deposit => {
             return deposit(database, amount, currency, account_id);
@@ -49,7 +49,7 @@ fn deposit(
     amount: Decimal,
     currency: &Currency,
     account_id: Uuid,
-) -> Result<(Transaction, AccountOverview), Box<dyn Error>> {
+) -> Result<(Transaction, AccountBalance), Box<dyn Error>> {
     let account = database.account_read().id(account_id)?;
 
     match can_transfer_deposit(
@@ -93,7 +93,7 @@ fn withdraw(
     amount: Decimal,
     currency: &Currency,
     account_id: Uuid,
-) -> Result<(Transaction, AccountOverview), Box<dyn Error>> {
+) -> Result<(Transaction, AccountBalance), Box<dyn Error>> {
     let account = database.account_read().id(account_id)?;
 
     // Validate that account has enough funds to withdraw
@@ -121,7 +121,7 @@ fn withdraw(
 pub fn transfer_to_fund_trade(
     trade: &Trade,
     database: &mut dyn DatabaseFactory,
-) -> Result<(Transaction, AccountOverview, TradeOverview), Box<dyn Error>> {
+) -> Result<(Transaction, AccountBalance, TradeBalance), Box<dyn Error>> {
     // 1. Validate that trade can be fund
     crate::validators::funding::can_fund(trade, database)?;
 
@@ -139,7 +139,7 @@ pub fn transfer_to_fund_trade(
 
     // 3. Update Account Overview and Trade Overview
     let account_overview = balance::calculate_account(database, &account, &trade.currency)?;
-    let trade_overview: TradeOverview = balance::calculate_trade(database, trade)?;
+    let trade_overview: TradeBalance = balance::calculate_trade(database, trade)?;
 
     Ok((transaction, account_overview, trade_overview))
 }
@@ -147,7 +147,7 @@ pub fn transfer_to_fund_trade(
 pub fn transfer_to_fill_trade(
     trade: &Trade,
     database: &mut dyn DatabaseFactory,
-) -> Result<(Transaction, TradeOverview), Box<dyn Error>> {
+) -> Result<(Transaction, TradeBalance), Box<dyn Error>> {
     let account = database.account_read().id(trade.account_id)?;
 
     // 1. Calculate the total amount of the trade
@@ -179,7 +179,7 @@ pub fn transfer_to_fill_trade(
     }
 
     // 5. Update trade overview
-    let trade_overview: TradeOverview = balance::calculate_trade(database, trade)?;
+    let trade_overview: TradeBalance = balance::calculate_trade(database, trade)?;
     Ok((transaction, trade_overview))
 }
 
@@ -187,7 +187,7 @@ pub fn transfer_opening_fee(
     fee: Decimal,
     trade: &Trade,
     database: &mut dyn DatabaseFactory,
-) -> Result<(Transaction, AccountOverview), Box<dyn Error>> {
+) -> Result<(Transaction, AccountBalance), Box<dyn Error>> {
     // 1. Validate that account has enough funds to pay a fee.
     let account_overview = database
         .account_overview_read()
@@ -213,7 +213,7 @@ pub fn transfer_closing_fee(
     fee: Decimal,
     trade: &Trade,
     database: &mut dyn DatabaseFactory,
-) -> Result<(Transaction, AccountOverview), Box<dyn Error>> {
+) -> Result<(Transaction, AccountBalance), Box<dyn Error>> {
     // 1. Validate that account has enough funds to pay a fee.
     let account_overview = database
         .account_overview_read()
@@ -238,7 +238,7 @@ pub fn transfer_closing_fee(
 pub fn transfer_to_close_target(
     trade: &Trade,
     database: &mut dyn DatabaseFactory,
-) -> Result<(Transaction, TradeOverview), Box<dyn Error>> {
+) -> Result<(Transaction, TradeBalance), Box<dyn Error>> {
     let account = database.account_read().id(trade.account_id)?;
 
     let total = trade.target.average_filled_price.unwrap() * Decimal::from(trade.entry.quantity);
@@ -255,7 +255,7 @@ pub fn transfer_to_close_target(
     )?;
 
     // 3. Update trade overview and account overview
-    let trade_overview: TradeOverview = balance::calculate_trade(database, trade)?;
+    let trade_overview: TradeBalance = balance::calculate_trade(database, trade)?;
     balance::calculate_account(database, &account, &trade.currency)?;
 
     Ok((transaction, trade_overview))
@@ -264,7 +264,7 @@ pub fn transfer_to_close_target(
 pub fn transfer_to_close_stop(
     trade: &Trade,
     database: &mut dyn DatabaseFactory,
-) -> Result<(Transaction, TradeOverview), Box<dyn Error>> {
+) -> Result<(Transaction, TradeBalance), Box<dyn Error>> {
     let account = database.account_read().id(trade.account_id)?;
 
     // 1. Calculate the total amount of the trade
@@ -291,7 +291,7 @@ pub fn transfer_to_close_stop(
     )?;
 
     // 5. Update trade overview and account overview
-    let trade_overview: TradeOverview = balance::calculate_trade(database, trade)?;
+    let trade_overview: TradeBalance = balance::calculate_trade(database, trade)?;
     balance::calculate_account(database, &account, &trade.currency)?;
 
     Ok((transaction, trade_overview))
@@ -300,7 +300,7 @@ pub fn transfer_to_close_stop(
 pub fn transfer_to_account_from(
     trade: &Trade,
     database: &mut dyn DatabaseFactory,
-) -> Result<(Transaction, AccountOverview, TradeOverview), Box<dyn Error>> {
+) -> Result<(Transaction, AccountBalance, TradeBalance), Box<dyn Error>> {
     // Create transaction
     let account = database.account_read().id(trade.account_id)?;
     let total_to_withdrawal =
@@ -314,9 +314,9 @@ pub fn transfer_to_account_from(
     )?;
 
     // Update account overview and trade overview.
-    let account_overview: AccountOverview =
+    let account_overview: AccountBalance =
         balance::calculate_account(database, &account, &trade.currency)?;
-    let trade_overview: TradeOverview = balance::calculate_trade(database, trade)?;
+    let trade_overview: TradeBalance = balance::calculate_trade(database, trade)?;
 
     Ok((transaction, account_overview, trade_overview))
 }
