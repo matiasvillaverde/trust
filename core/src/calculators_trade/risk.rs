@@ -3,8 +3,8 @@ use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use uuid::Uuid;
 
-use crate::account_calculators::{AccountCapitalAvailable, AccountCapitalBeginningOfMonth};
-use crate::trade_calculators::TradeCapitalNotAtRisk;
+use crate::calculators_account::{AccountCapitalAvailable, AccountCapitalBeginningOfMonth};
+use crate::calculators_trade::TradeCapitalNotAtRisk;
 
 pub struct RiskCalculator;
 

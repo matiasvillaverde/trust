@@ -47,13 +47,6 @@ pub fn create_entry(
     )
 }
 
-pub fn update_order(
-    order: &Order,
-    database: &mut dyn DatabaseFactory,
-) -> Result<Order, Box<dyn std::error::Error>> {
-    database.order_write().update(order)
-}
-
 pub fn create_target(
     trading_vehicle_id: Uuid,
     quantity: i64,
@@ -76,6 +69,13 @@ pub fn create_target(
         &action,
         &OrderCategory::Limit,
     )
+}
+
+pub fn update_order(
+    order: &Order,
+    database: &mut dyn DatabaseFactory,
+) -> Result<Order, Box<dyn std::error::Error>> {
+    database.order_write().update(order)
 }
 
 pub fn record_timestamp_filled(

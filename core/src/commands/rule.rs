@@ -1,6 +1,6 @@
 use model::{Account, DatabaseFactory, Rule, RuleLevel, RuleName};
 
-pub fn create_rule(
+pub fn create(
     database: &mut dyn DatabaseFactory,
     account: &Account,
     rule_name: &RuleName,

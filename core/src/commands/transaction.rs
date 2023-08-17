@@ -8,14 +8,14 @@ use std::error::Error;
 use uuid::Uuid;
 
 use crate::{
-    trade_calculators::TradeCapitalOutOfMarket,
+    calculators_trade::TradeCapitalOutOfMarket,
     validators::{
         transaction::{self, can_transfer_deposit},
         TransactionValidationErrorCode,
     },
 };
 
-use super::overview;
+use super::balance;
 
 pub fn create(
     database: &mut dyn DatabaseFactory,
@@ -65,7 +65,7 @@ fn deposit(
                 currency,
                 TransactionCategory::Deposit,
             )?;
-            let updated_overview = overview::calculate_account(database, &account, currency)?;
+            let updated_overview = balance::calculate_account(database, &account, currency)?;
             Ok((transaction, updated_overview))
         }
         Err(error) => {
@@ -79,7 +79,7 @@ fn deposit(
                 database
                     .account_overview_write()
                     .create(&account, currency)?;
-                let updated_overview = overview::calculate_account(database, &account, currency)?;
+                let updated_overview = balance::calculate_account(database, &account, currency)?;
                 Ok((transaction, updated_overview))
             } else {
                 Err(error)
@@ -113,7 +113,7 @@ fn withdraw(
     )?;
 
     // Update account overview
-    let updated_overview = overview::calculate_account(database, &account, currency)?;
+    let updated_overview = balance::calculate_account(database, &account, currency)?;
 
     Ok((transaction, updated_overview))
 }
@@ -138,8 +138,8 @@ pub fn transfer_to_fund_trade(
     )?;
 
     // 3. Update Account Overview and Trade Overview
-    let account_overview = overview::calculate_account(database, &account, &trade.currency)?;
-    let trade_overview: TradeOverview = overview::calculate_trade(database, trade)?;
+    let account_overview = balance::calculate_account(database, &account, &trade.currency)?;
+    let trade_overview: TradeOverview = balance::calculate_trade(database, trade)?;
 
     Ok((transaction, account_overview, trade_overview))
 }
@@ -179,7 +179,7 @@ pub fn transfer_to_fill_trade(
     }
 
     // 5. Update trade overview
-    let trade_overview: TradeOverview = overview::calculate_trade(database, trade)?;
+    let trade_overview: TradeOverview = balance::calculate_trade(database, trade)?;
     Ok((transaction, trade_overview))
 }
 
@@ -204,7 +204,7 @@ pub fn transfer_opening_fee(
     )?;
 
     // 3. Update account overview
-    let overview = overview::calculate_account(database, &account, &trade.currency)?;
+    let overview = balance::calculate_account(database, &account, &trade.currency)?;
 
     Ok((transaction, overview))
 }
@@ -230,7 +230,7 @@ pub fn transfer_closing_fee(
     )?;
 
     // Update account overview
-    let overview = overview::calculate_account(database, &account, &trade.currency)?;
+    let overview = balance::calculate_account(database, &account, &trade.currency)?;
 
     Ok((transaction, overview))
 }
@@ -255,8 +255,8 @@ pub fn transfer_to_close_target(
     )?;
 
     // 3. Update trade overview and account overview
-    let trade_overview: TradeOverview = overview::calculate_trade(database, trade)?;
-    overview::calculate_account(database, &account, &trade.currency)?;
+    let trade_overview: TradeOverview = balance::calculate_trade(database, trade)?;
+    balance::calculate_account(database, &account, &trade.currency)?;
 
     Ok((transaction, trade_overview))
 }
@@ -291,13 +291,13 @@ pub fn transfer_to_close_stop(
     )?;
 
     // 5. Update trade overview and account overview
-    let trade_overview: TradeOverview = overview::calculate_trade(database, trade)?;
-    overview::calculate_account(database, &account, &trade.currency)?;
+    let trade_overview: TradeOverview = balance::calculate_trade(database, trade)?;
+    balance::calculate_account(database, &account, &trade.currency)?;
 
     Ok((transaction, trade_overview))
 }
 
-pub fn transfer_payment_from(
+pub fn transfer_to_account_from(
     trade: &Trade,
     database: &mut dyn DatabaseFactory,
 ) -> Result<(Transaction, AccountOverview, TradeOverview), Box<dyn Error>> {
@@ -315,8 +315,8 @@ pub fn transfer_payment_from(
 
     // Update account overview and trade overview.
     let account_overview: AccountOverview =
-        overview::calculate_account(database, &account, &trade.currency)?;
-    let trade_overview: TradeOverview = overview::calculate_trade(database, trade)?;
+        balance::calculate_account(database, &account, &trade.currency)?;
+    let trade_overview: TradeOverview = balance::calculate_trade(database, trade)?;
 
     Ok((transaction, account_overview, trade_overview))
 }

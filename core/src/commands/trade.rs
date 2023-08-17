@@ -7,6 +7,57 @@ use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use std::error::Error;
 
+pub fn create_trade(
+    trade: DraftTrade,
+    stop_price: Decimal,
+    entry_price: Decimal,
+    target_price: Decimal,
+    database: &mut dyn DatabaseFactory,
+) -> Result<Trade, Box<dyn std::error::Error>> {
+    // 1. Create Stop-loss Order
+    let stop = commands::order::create_stop(
+        trade.trading_vehicle.id,
+        trade.quantity,
+        stop_price,
+        &trade.currency,
+        &trade.category,
+        database,
+    )?;
+
+    // 2. Create Entry Order
+    let entry = commands::order::create_entry(
+        trade.trading_vehicle.id,
+        trade.quantity,
+        entry_price,
+        &trade.currency,
+        &trade.category,
+        database,
+    )?;
+
+    // 3. Create Target Order
+    let target = commands::order::create_target(
+        trade.trading_vehicle.id,
+        trade.quantity,
+        target_price,
+        &trade.currency,
+        &trade.category,
+        database,
+    )?;
+
+    // 4. Create Trade
+    let draft = DraftTrade {
+        account: trade.account,
+        trading_vehicle: trade.trading_vehicle,
+        quantity: trade.quantity,
+        currency: trade.currency,
+        category: trade.category,
+    };
+
+    database
+        .trade_write()
+        .create_trade(draft, &stop, &entry, &target)
+}
+
 pub fn update_status(
     trade: &Trade,
     status: Status,
@@ -34,7 +85,7 @@ pub fn update_status(
             if trade.status == Status::Filled {
                 // We also update the trade stop loss
                 let (trade, _) = stop_executed(&trade, dec!(0), database)?;
-                let (tx, _, _) = commands::transaction::transfer_payment_from(&trade, database)?;
+                let (tx, _, _) = commands::transaction::transfer_to_account_from(&trade, database)?;
 
                 return Ok((trade, Some(tx)));
             }
@@ -54,7 +105,7 @@ pub fn update_status(
                 // It can be canceled if the target was updated.
                 // We also update the trade stop loss
                 let (trade, _) = target_executed(&trade, dec!(0), database)?;
-                let (tx, _, _) = commands::transaction::transfer_payment_from(&trade, database)?;
+                let (tx, _, _) = commands::transaction::transfer_to_account_from(&trade, database)?;
 
                 return Ok((trade, Some(tx)));
             }
@@ -153,58 +204,7 @@ pub fn stop_executed(
     Ok((trade, tx))
 }
 
-pub fn create_trade(
-    trade: DraftTrade,
-    stop_price: Decimal,
-    entry_price: Decimal,
-    target_price: Decimal,
-    database: &mut dyn DatabaseFactory,
-) -> Result<Trade, Box<dyn std::error::Error>> {
-    // 1. Create Stop-loss Order
-    let stop = commands::order::create_stop(
-        trade.trading_vehicle.id,
-        trade.quantity,
-        stop_price,
-        &trade.currency,
-        &trade.category,
-        database,
-    )?;
-
-    // 2. Create Entry Order
-    let entry = commands::order::create_entry(
-        trade.trading_vehicle.id,
-        trade.quantity,
-        entry_price,
-        &trade.currency,
-        &trade.category,
-        database,
-    )?;
-
-    // 3. Create Target Order
-    let target = commands::order::create_target(
-        trade.trading_vehicle.id,
-        trade.quantity,
-        target_price,
-        &trade.currency,
-        &trade.category,
-        database,
-    )?;
-
-    // 4. Create Trade
-    let draft = DraftTrade {
-        account: trade.account,
-        trading_vehicle: trade.trading_vehicle,
-        quantity: trade.quantity,
-        currency: trade.currency,
-        category: trade.category,
-    };
-
-    database
-        .trade_write()
-        .create_trade(draft, &stop, &entry, &target)
-}
-
-pub fn stop_trade(
+pub fn stop_acquired(
     trade: &Trade,
     fee: Decimal,
     database: &mut dyn DatabaseFactory,
@@ -212,7 +212,7 @@ pub fn stop_trade(
 {
     let (trade, tx_stop) = stop_executed(trade, fee, database)?;
     let (tx_payment, account_overview, trade_overview) =
-        commands::transaction::transfer_payment_from(&trade, database)?;
+        commands::transaction::transfer_to_account_from(&trade, database)?;
     Ok((tx_stop, tx_payment, trade_overview, account_overview))
 }
 
@@ -224,11 +224,11 @@ pub fn target_acquired(
 {
     let (trade, tx_target) = target_executed(trade, fee, database)?;
     let (tx_payment, account_overview, trade_overview) =
-        commands::transaction::transfer_payment_from(&trade, database)?;
+        commands::transaction::transfer_to_account_from(&trade, database)?;
     Ok((tx_target, tx_payment, trade_overview, account_overview))
 }
 
-pub fn cancel_funded_trade(
+pub fn cancel_funded(
     trade: &Trade,
     database: &mut dyn DatabaseFactory,
 ) -> Result<(TradeOverview, AccountOverview, Transaction), Box<dyn std::error::Error>> {
@@ -241,12 +241,13 @@ pub fn cancel_funded_trade(
         .update_trade_status(Status::Canceled, trade)?;
 
     // 3. Transfer funds back to account
-    let (tx, account_o, trade_o) = commands::transaction::transfer_payment_from(trade, database)?;
+    let (tx, account_o, trade_o) =
+        commands::transaction::transfer_to_account_from(trade, database)?;
 
     Ok((trade_o, account_o, tx))
 }
 
-pub fn cancel_submitted_trade(
+pub fn cancel_submitted(
     trade: &Trade,
     database: &mut dyn DatabaseFactory,
     broker: &mut dyn Broker,
@@ -264,7 +265,8 @@ pub fn cancel_submitted_trade(
         .update_trade_status(Status::Canceled, trade)?;
 
     // 4. Transfer funds back to account
-    let (tx, account_o, trade_o) = commands::transaction::transfer_payment_from(trade, database)?;
+    let (tx, account_o, trade_o) =
+        commands::transaction::transfer_to_account_from(trade, database)?;
 
     Ok((trade_o, account_o, tx))
 }
@@ -316,7 +318,8 @@ pub fn modify_target(
 
     Ok((trade, log))
 }
-pub fn fund_trade(
+
+pub fn fund(
     trade: &Trade,
     database: &mut dyn DatabaseFactory,
 ) -> Result<(Trade, Transaction, AccountOverview, TradeOverview), Box<dyn std::error::Error>> {
@@ -336,7 +339,7 @@ pub fn fund_trade(
     Ok((trade.clone(), transaction, account_overview, trade_overview))
 }
 
-pub fn submit_trade(
+pub fn submit(
     trade: &Trade,
     database: &mut dyn DatabaseFactory,
     broker: &mut dyn Broker,
@@ -374,7 +377,7 @@ pub fn submit_trade(
     Ok((trade, log))
 }
 
-pub fn sync_trade(
+pub fn sync_with_broker(
     trade: &Trade,
     account: &Account,
     database: &mut dyn DatabaseFactory,
@@ -396,12 +399,12 @@ pub fn sync_trade(
     update_status(&trade, status, database)?;
 
     // 5. Update Account Overview
-    commands::overview::calculate_account(database, account, &trade.currency)?;
+    commands::balance::calculate_account(database, account, &trade.currency)?;
 
     Ok((status, orders, log))
 }
 
-pub fn close_trade(
+pub fn close(
     trade: &Trade,
     database: &mut dyn DatabaseFactory,
     broker: &mut dyn Broker,

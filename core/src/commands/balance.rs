@@ -2,12 +2,12 @@ use model::{Account, AccountOverview, Currency, DatabaseFactory, Trade, TradeOve
 use std::error::Error;
 
 use crate::{
-    account_calculators::{
+    calculators_account::{
         AccountCapitalAvailable, AccountCapitalBalance, AccountCapitalInApprovedTrades,
         AccountCapitalTaxable,
     },
-    trade_calculators::{TradeCapitalFunded, TradeCapitalInMarket},
-    trade_calculators::{TradeCapitalOutOfMarket, TradeCapitalTaxable, TradePerformance},
+    calculators_trade::{TradeCapitalFunded, TradeCapitalInMarket},
+    calculators_trade::{TradeCapitalOutOfMarket, TradeCapitalTaxable, TradePerformance},
 };
 
 pub fn calculate_account(
