@@ -1,8 +1,8 @@
-use crate::schema::accounts_overviews;
+use crate::schema::accounts_balances;
 use chrono::{NaiveDateTime, Utc};
 use diesel::prelude::*;
 use diesel::SqliteConnection;
-use model::{Account, AccountBalance, AccountOverviewRead, AccountOverviewWrite, Currency};
+use model::{Account, AccountBalance, AccountBalanceRead, AccountBalanceWrite, Currency};
 use rust_decimal::Decimal;
 use std::error::Error;
 use std::sync::Arc;
@@ -10,17 +10,17 @@ use std::sync::Mutex;
 use tracing::error;
 use uuid::Uuid;
 
-pub struct AccountOverviewDB {
+pub struct AccountBalanceDB {
     pub connection: Arc<Mutex<SqliteConnection>>,
 }
 
-impl AccountOverviewWrite for AccountOverviewDB {
+impl AccountBalanceWrite for AccountBalanceDB {
     fn create(
         &mut self,
         account: &Account,
         currency: &Currency,
     ) -> Result<AccountBalance, Box<dyn Error>> {
-        let new_account_overview = NewAccountOverview {
+        let new_account_balance = NewAccountBalance {
             account_id: account.id.to_string(),
             currency: currency.to_string(),
             ..Default::default()
@@ -28,63 +28,63 @@ impl AccountOverviewWrite for AccountOverviewDB {
 
         let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap();
 
-        let overview = diesel::insert_into(accounts_overviews::table)
-            .values(&new_account_overview)
-            .get_result::<AccountOverviewSQLite>(connection)
-            .map(|overview| overview.domain_model())
+        let balance = diesel::insert_into(accounts_balances::table)
+            .values(&new_account_balance)
+            .get_result::<AccountBalanceSQLite>(connection)
+            .map(|balance| balance.domain_model())
             .map_err(|error| {
-                error!("Error creating overview: {:?}", error);
+                error!("Error creating balance: {:?}", error);
                 error
             })?;
-        Ok(overview)
+        Ok(balance)
     }
 
     fn update(
         &mut self,
-        overview: &AccountBalance,
+        balance: &AccountBalance,
         total_balance: Decimal,
         total_in_trade: Decimal,
         total_available: Decimal,
         total_taxed: Decimal,
     ) -> Result<AccountBalance, Box<dyn Error>> {
         let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap();
-        let overview = diesel::update(accounts_overviews::table)
-            .filter(accounts_overviews::id.eq(&overview.id.to_string()))
+        let balance = diesel::update(accounts_balances::table)
+            .filter(accounts_balances::id.eq(&balance.id.to_string()))
             .set((
-                accounts_overviews::updated_at.eq(Utc::now().naive_utc()),
-                accounts_overviews::total_balance.eq(total_balance.to_string()),
-                accounts_overviews::total_available.eq(total_available.to_string()),
-                accounts_overviews::total_in_trade.eq(total_in_trade.to_string()),
-                accounts_overviews::taxed.eq(total_taxed.to_string()),
+                accounts_balances::updated_at.eq(Utc::now().naive_utc()),
+                accounts_balances::total_balance.eq(total_balance.to_string()),
+                accounts_balances::total_available.eq(total_available.to_string()),
+                accounts_balances::total_in_trade.eq(total_in_trade.to_string()),
+                accounts_balances::taxed.eq(total_taxed.to_string()),
             ))
-            .get_result::<AccountOverviewSQLite>(connection)
+            .get_result::<AccountBalanceSQLite>(connection)
             .map(|o| o.domain_model())
             .map_err(|error| {
-                error!("Error updating overview: {:?}", error);
+                error!("Error updating balance: {:?}", error);
                 error
             })?;
-        Ok(overview)
+        Ok(balance)
     }
 }
 
-impl AccountOverviewRead for AccountOverviewDB {
+impl AccountBalanceRead for AccountBalanceDB {
     fn for_account(&mut self, account_id: Uuid) -> Result<Vec<AccountBalance>, Box<dyn Error>> {
         let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap();
-        let overviews = accounts_overviews::table
-            .filter(accounts_overviews::account_id.eq(account_id.to_string()))
-            .filter(accounts_overviews::deleted_at.is_null())
-            .load::<AccountOverviewSQLite>(connection)
-            .map(|overviews| {
-                overviews
+        let balances = accounts_balances::table
+            .filter(accounts_balances::account_id.eq(account_id.to_string()))
+            .filter(accounts_balances::deleted_at.is_null())
+            .load::<AccountBalanceSQLite>(connection)
+            .map(|balances| {
+                balances
                     .into_iter()
-                    .map(|overview| overview.domain_model())
+                    .map(|balance| balance.domain_model())
                     .collect()
             })
             .map_err(|error| {
-                error!("Error reading overviews: {:?}", error);
+                error!("Error reading balances: {:?}", error);
                 error
             })?;
-        Ok(overviews)
+        Ok(balances)
     }
 
     fn for_currency(
@@ -93,24 +93,24 @@ impl AccountOverviewRead for AccountOverviewDB {
         currency: &Currency,
     ) -> Result<AccountBalance, Box<dyn Error>> {
         let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap();
-        let overviews = accounts_overviews::table
-            .filter(accounts_overviews::account_id.eq(account_id.to_string()))
-            .filter(accounts_overviews::currency.eq(currency.to_string()))
-            .filter(accounts_overviews::deleted_at.is_null())
-            .first::<AccountOverviewSQLite>(connection)
-            .map(|overview| overview.domain_model())
+        let balances = accounts_balances::table
+            .filter(accounts_balances::account_id.eq(account_id.to_string()))
+            .filter(accounts_balances::currency.eq(currency.to_string()))
+            .filter(accounts_balances::deleted_at.is_null())
+            .first::<AccountBalanceSQLite>(connection)
+            .map(|balance| balance.domain_model())
             .map_err(|error| {
-                error!("Error creating overview: {:?}", error);
+                error!("Error creating balance: {:?}", error);
                 error
             })?;
-        Ok(overviews)
+        Ok(balances)
     }
 }
 
 #[derive(Queryable, Identifiable, AsChangeset, Insertable)]
-#[diesel(table_name = accounts_overviews)]
+#[diesel(table_name = accounts_balances)]
 #[diesel(treat_none_as_null = true)]
-struct AccountOverviewSQLite {
+struct AccountBalanceSQLite {
     id: String,
     created_at: NaiveDateTime,
     updated_at: NaiveDateTime,
@@ -124,7 +124,7 @@ struct AccountOverviewSQLite {
     total_earnings: String,
 }
 
-impl AccountOverviewSQLite {
+impl AccountBalanceSQLite {
     fn domain_model(self) -> AccountBalance {
         use std::str::FromStr;
         AccountBalance {
@@ -144,8 +144,8 @@ impl AccountOverviewSQLite {
 }
 
 #[derive(Insertable)]
-#[diesel(table_name = accounts_overviews)]
-pub struct NewAccountOverview {
+#[diesel(table_name = accounts_balances)]
+pub struct NewAccountBalance {
     id: String,
     created_at: NaiveDateTime,
     updated_at: NaiveDateTime,
@@ -159,10 +159,10 @@ pub struct NewAccountOverview {
     total_earnings: String,
 }
 
-impl Default for NewAccountOverview {
+impl Default for NewAccountBalance {
     fn default() -> Self {
         let now = Utc::now().naive_utc();
-        NewAccountOverview {
+        NewAccountBalance {
             id: Uuid::new_v4().to_string(),
             created_at: now,
             updated_at: now,
@@ -206,7 +206,7 @@ mod tests {
     }
 
     #[test]
-    fn test_create_overview() {
+    fn test_create_balance() {
         let db = create_factory();
 
         let account = db
@@ -219,21 +219,21 @@ mod tests {
                 dec!(10),
             )
             .expect("Failed to create account");
-        let mut db = db.account_overview_write();
-        let overview = db
+        let mut db = db.account_balance_write();
+        let balance = db
             .create(&account, &Currency::BTC)
-            .expect("Failed to create overview");
+            .expect("Failed to create balance");
 
-        assert_eq!(overview.account_id, account.id);
-        assert_eq!(overview.currency, Currency::BTC);
-        assert_eq!(overview.total_balance, dec!(0));
-        assert_eq!(overview.total_in_trade, dec!(0));
-        assert_eq!(overview.total_available, dec!(0));
-        assert_eq!(overview.taxed, dec!(0));
+        assert_eq!(balance.account_id, account.id);
+        assert_eq!(balance.currency, Currency::BTC);
+        assert_eq!(balance.total_balance, dec!(0));
+        assert_eq!(balance.total_in_trade, dec!(0));
+        assert_eq!(balance.total_available, dec!(0));
+        assert_eq!(balance.taxed, dec!(0));
     }
 
     #[test]
-    fn test_read_overviews() {
+    fn test_read_balances() {
         let db = create_factory();
 
         let account = db
@@ -246,23 +246,21 @@ mod tests {
                 dec!(10),
             )
             .expect("Failed to create account");
-        let mut write_db = db.account_overview_write();
+        let mut write_db = db.account_balance_write();
 
-        let overview_btc = write_db
+        let balance_btc = write_db
             .create(&account, &Currency::BTC)
-            .expect("Failed to create overview");
-        let overview_usd = write_db
+            .expect("Failed to create balance");
+        let balance_usd = write_db
             .create(&account, &Currency::USD)
-            .expect("Failed to create overview");
+            .expect("Failed to create balance");
 
-        let mut db = db.account_overview_read();
-        let overviews = db
-            .for_account(account.id)
-            .expect("Failed to read overviews");
+        let mut db = db.account_balance_read();
+        let balances = db.for_account(account.id).expect("Failed to read balances");
 
-        assert_eq!(overviews.len(), 2);
-        assert_eq!(overviews[0], overview_btc);
-        assert_eq!(overviews[1], overview_usd);
+        assert_eq!(balances.len(), 2);
+        assert_eq!(balances[0], balance_btc);
+        assert_eq!(balances[1], balance_usd);
     }
 
     #[test]
@@ -279,18 +277,18 @@ mod tests {
                 dec!(10),
             )
             .expect("Failed to create account");
-        let mut db = db.account_overview_write();
-        let overview = db
+        let mut db = db.account_balance_write();
+        let balance = db
             .create(&account, &Currency::BTC)
-            .expect("Failed to create overview");
+            .expect("Failed to create balance");
 
-        let updated_overview = db
-            .update(&overview, dec!(200), dec!(1), dec!(203), dec!(44.2))
-            .expect("Failed to update overview");
+        let updated_balance = db
+            .update(&balance, dec!(200), dec!(1), dec!(203), dec!(44.2))
+            .expect("Failed to update balance");
 
-        assert_eq!(updated_overview.total_balance, dec!(200));
-        assert_eq!(updated_overview.total_available, dec!(203));
-        assert_eq!(updated_overview.total_in_trade, dec!(1));
-        assert_eq!(updated_overview.taxed, dec!(44.2));
+        assert_eq!(updated_balance.total_balance, dec!(200));
+        assert_eq!(updated_balance.total_available, dec!(203));
+        assert_eq!(updated_balance.total_in_trade, dec!(1));
+        assert_eq!(updated_balance.taxed, dec!(44.2));
     }
 }

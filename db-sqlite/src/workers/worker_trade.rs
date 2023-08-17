@@ -1,8 +1,8 @@
-use crate::schema::{trades, trades_overviews};
+use crate::schema::{trades, trades_balances};
 use chrono::{NaiveDateTime, Utc};
 use diesel::prelude::*;
 use model::{Currency, DraftTrade, Status};
-use model::{Order, Trade, TradeCategory, TradeBalance};
+use model::{Order, Trade, TradeBalance, TradeCategory};
 use rust_decimal::Decimal;
 use std::error::Error;
 use std::str::FromStr;
@@ -23,7 +23,7 @@ impl WorkerTrade {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().naive_utc();
 
-        let overview = WorkerTrade::create_overview(connection, &draft.currency, now)?;
+        let balance = WorkerTrade::create_balance(connection, &draft.currency, now)?;
 
         let new_trade = NewTrade {
             id,
@@ -38,7 +38,7 @@ impl WorkerTrade {
             entry_id: entry.id.to_string(),
             target_id: target.id.to_string(),
             account_id: draft.account.id.to_string(),
-            overview_id: overview.id.to_string(),
+            balance_id: balance.id.to_string(),
         };
 
         let trade = diesel::insert_into(trades::table)
@@ -52,14 +52,14 @@ impl WorkerTrade {
         Ok(trade)
     }
 
-    pub fn read_overview(
+    pub fn read_balance(
         connection: &mut SqliteConnection,
         id: Uuid,
     ) -> Result<TradeBalance, diesel::result::Error> {
-        trades_overviews::table
-            .filter(trades_overviews::id.eq(&id.to_string()))
+        trades_balances::table
+            .filter(trades_balances::id.eq(&id.to_string()))
             .first(connection)
-            .map(|overview: TradeOverviewSQLite| overview.domain_model())
+            .map(|balance: AccountBalanceSQLite| balance.domain_model())
     }
 
     pub fn read_trade(
@@ -149,28 +149,28 @@ impl WorkerTrade {
         Ok(trades)
     }
 
-    fn create_overview(
+    fn create_balance(
         connection: &mut SqliteConnection,
         currency: &Currency,
         _created_at: NaiveDateTime,
     ) -> Result<TradeBalance, Box<dyn Error>> {
-        let new_trade_overview = NewTradeOverview {
+        let new_trade_balance = NewAccountBalance {
             currency: currency.to_string(),
             ..Default::default()
         };
 
-        let overview = diesel::insert_into(trades_overviews::table)
-            .values(&new_trade_overview)
-            .get_result::<TradeOverviewSQLite>(connection)
-            .map(|overview| overview.domain_model())
+        let balance = diesel::insert_into(trades_balances::table)
+            .values(&new_trade_balance)
+            .get_result::<AccountBalanceSQLite>(connection)
+            .map(|balance| balance.domain_model())
             .map_err(|error| {
-                error!("Error creating trade overview: {:?}", error);
+                error!("Error creating trade balance: {:?}", error);
                 error
             })?;
-        Ok(overview)
+        Ok(balance)
     }
 
-    pub fn update_trade_overview(
+    pub fn update_trade_balance(
         connection: &mut SqliteConnection,
         trade: &Trade,
         funding: Decimal,
@@ -179,23 +179,23 @@ impl WorkerTrade {
         taxed: Decimal,
         total_performance: Decimal,
     ) -> Result<TradeBalance, Box<dyn Error>> {
-        let overview = diesel::update(trades_overviews::table)
-            .filter(trades_overviews::id.eq(&trade.overview.id.to_string()))
+        let balance = diesel::update(trades_balances::table)
+            .filter(trades_balances::id.eq(&trade.balance.id.to_string()))
             .set((
-                trades_overviews::updated_at.eq(Utc::now().naive_utc()),
-                trades_overviews::funding.eq(funding.to_string()),
-                trades_overviews::capital_in_market.eq(capital_in_market.to_string()),
-                trades_overviews::capital_out_market.eq(capital_out_market.to_string()),
-                trades_overviews::taxed.eq(taxed.to_string()),
-                trades_overviews::total_performance.eq(total_performance.to_string()),
+                trades_balances::updated_at.eq(Utc::now().naive_utc()),
+                trades_balances::funding.eq(funding.to_string()),
+                trades_balances::capital_in_market.eq(capital_in_market.to_string()),
+                trades_balances::capital_out_market.eq(capital_out_market.to_string()),
+                trades_balances::taxed.eq(taxed.to_string()),
+                trades_balances::total_performance.eq(total_performance.to_string()),
             ))
-            .get_result::<TradeOverviewSQLite>(connection)
+            .get_result::<AccountBalanceSQLite>(connection)
             .map(|o| o.domain_model())
             .map_err(|error| {
-                error!("Error updating overview: {:?}", error);
+                error!("Error updating balance: {:?}", error);
                 error
             })?;
-        Ok(overview)
+        Ok(balance)
     }
 
     pub fn update_trade_status(
@@ -237,7 +237,7 @@ struct TradeSQLite {
     entry_id: String,
     target_id: String,
     account_id: String,
-    overview_id: String,
+    balance_id: String,
 }
 
 impl TradeSQLite {
@@ -253,8 +253,8 @@ impl TradeSQLite {
             WorkerOrder::read(connection, Uuid::parse_str(&self.entry_id).unwrap()).unwrap();
         let targets =
             WorkerOrder::read(connection, Uuid::parse_str(&self.target_id).unwrap()).unwrap();
-        let overview =
-            WorkerTrade::read_overview(connection, Uuid::parse_str(&self.overview_id).unwrap())
+        let balance =
+            WorkerTrade::read_balance(connection, Uuid::parse_str(&self.balance_id).unwrap())
                 .unwrap();
 
         Trade {
@@ -270,7 +270,7 @@ impl TradeSQLite {
             entry,
             target: targets,
             account_id: Uuid::parse_str(&self.account_id).unwrap(),
-            overview,
+            balance,
         }
     }
 }
@@ -291,12 +291,12 @@ struct NewTrade {
     target_id: String,
     entry_id: String,
     account_id: String,
-    overview_id: String,
+    balance_id: String,
 }
 
 #[derive(Queryable, Identifiable, AsChangeset, Insertable)]
-#[diesel(table_name = trades_overviews)]
-struct TradeOverviewSQLite {
+#[diesel(table_name = trades_balances)]
+struct AccountBalanceSQLite {
     id: String,
     created_at: NaiveDateTime,
     updated_at: NaiveDateTime,
@@ -309,7 +309,7 @@ struct TradeOverviewSQLite {
     total_performance: String,
 }
 
-impl TradeOverviewSQLite {
+impl AccountBalanceSQLite {
     fn domain_model(self) -> TradeBalance {
         TradeBalance {
             id: Uuid::parse_str(&self.id).unwrap(),
@@ -327,8 +327,8 @@ impl TradeOverviewSQLite {
 }
 
 #[derive(Insertable)]
-#[diesel(table_name = trades_overviews)]
-struct NewTradeOverview {
+#[diesel(table_name = trades_balances)]
+struct NewAccountBalance {
     id: String,
     created_at: NaiveDateTime,
     updated_at: NaiveDateTime,
@@ -341,10 +341,10 @@ struct NewTradeOverview {
     total_performance: String,
 }
 
-impl Default for NewTradeOverview {
+impl Default for NewAccountBalance {
     fn default() -> Self {
         let now = Utc::now().naive_utc();
-        NewTradeOverview {
+        NewAccountBalance {
             id: Uuid::new_v4().to_string(),
             created_at: now,
             updated_at: now,

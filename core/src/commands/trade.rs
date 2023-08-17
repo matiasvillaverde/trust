@@ -208,24 +208,22 @@ pub fn stop_acquired(
     trade: &Trade,
     fee: Decimal,
     database: &mut dyn DatabaseFactory,
-) -> Result<(Transaction, Transaction, TradeBalance, AccountBalance), Box<dyn std::error::Error>>
-{
+) -> Result<(Transaction, Transaction, TradeBalance, AccountBalance), Box<dyn std::error::Error>> {
     let (trade, tx_stop) = stop_executed(trade, fee, database)?;
-    let (tx_payment, account_overview, trade_overview) =
+    let (tx_payment, account_balance, trade_balance) =
         commands::transaction::transfer_to_account_from(&trade, database)?;
-    Ok((tx_stop, tx_payment, trade_overview, account_overview))
+    Ok((tx_stop, tx_payment, trade_balance, account_balance))
 }
 
 pub fn target_acquired(
     trade: &Trade,
     fee: Decimal,
     database: &mut dyn DatabaseFactory,
-) -> Result<(Transaction, Transaction, TradeBalance, AccountBalance), Box<dyn std::error::Error>>
-{
+) -> Result<(Transaction, Transaction, TradeBalance, AccountBalance), Box<dyn std::error::Error>> {
     let (trade, tx_target) = target_executed(trade, fee, database)?;
-    let (tx_payment, account_overview, trade_overview) =
+    let (tx_payment, account_balance, trade_balance) =
         commands::transaction::transfer_to_account_from(&trade, database)?;
-    Ok((tx_target, tx_payment, trade_overview, account_overview))
+    Ok((tx_target, tx_payment, trade_balance, account_balance))
 }
 
 pub fn cancel_funded(
@@ -332,11 +330,11 @@ pub fn fund(
         .update_trade_status(Status::Funded, trade)?;
 
     // 3. Create transaction to fund the trade
-    let (transaction, account_overview, trade_overview) =
+    let (transaction, account_balance, trade_balance) =
         commands::transaction::transfer_to_fund_trade(trade, database)?;
 
     // 4. Return data objects
-    Ok((trade.clone(), transaction, account_overview, trade_overview))
+    Ok((trade.clone(), transaction, account_balance, trade_balance))
 }
 
 pub fn submit(
@@ -432,5 +430,5 @@ pub fn close(
     stop_order.status = OrderStatus::Canceled;
     database.order_write().update(&stop_order)?;
 
-    Ok((trade.overview.clone(), log))
+    Ok((trade.balance.clone(), log))
 }

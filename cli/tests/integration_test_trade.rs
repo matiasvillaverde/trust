@@ -174,13 +174,13 @@ fn assert_entry_accepted(trade: &Trade, trust: &mut TrustFacade) {
 
     // Assert Account Overview
     let account = trust.search_account("alpaca").unwrap();
-    let overview = trust.search_overview(account.id, &Currency::USD).unwrap();
+    let balance = trust.search_balance(account.id, &Currency::USD).unwrap();
 
-    assert_eq!(overview.currency, Currency::USD);
-    assert_eq!(overview.total_available, dec!(30000)); // 50000 - 20000
-    assert_eq!(overview.total_balance, dec!(50000));
-    assert_eq!(overview.total_in_trade, dec!(0)); // Entry is not executed yet
-    assert_eq!(overview.taxed, dec!(0));
+    assert_eq!(balance.currency, Currency::USD);
+    assert_eq!(balance.total_available, dec!(30000)); // 50000 - 20000
+    assert_eq!(balance.total_balance, dec!(50000));
+    assert_eq!(balance.total_in_trade, dec!(0)); // Entry is not executed yet
+    assert_eq!(balance.taxed, dec!(0));
 }
 
 #[test]
@@ -253,13 +253,13 @@ fn assert_entry_filled(trade: &Trade, trust: &mut TrustFacade) {
     // not used to buy the shares should be returned to the account.
 
     let account = trust.search_account("alpaca").unwrap();
-    let overview = trust.search_overview(account.id, &Currency::USD).unwrap();
+    let balance = trust.search_balance(account.id, &Currency::USD).unwrap();
 
-    assert_eq!(overview.currency, Currency::USD);
-    assert_eq!(overview.total_available, dec!(30050)); // 30000 + 50 (remaining money)
-    assert_eq!(overview.total_in_trade, dec!(19950)); // 20000 - 50 (remaining money)
-    assert_eq!(overview.total_balance, dec!(30050)); // The opened trade is not counted.
-    assert_eq!(overview.taxed, dec!(0));
+    assert_eq!(balance.currency, Currency::USD);
+    assert_eq!(balance.total_available, dec!(30050)); // 30000 + 50 (remaining money)
+    assert_eq!(balance.total_in_trade, dec!(19950)); // 20000 - 50 (remaining money)
+    assert_eq!(balance.total_balance, dec!(30050)); // The opened trade is not counted.
+    assert_eq!(balance.taxed, dec!(0));
 }
 
 #[test]
@@ -326,12 +326,12 @@ fn assert_target_filled(trade: &Trade, trust: &mut TrustFacade) {
 
     // Assert Account Overview
     let account = trust.search_account("alpaca").unwrap();
-    let overview = trust.search_overview(account.id, &Currency::USD).unwrap();
-    assert_eq!(overview.currency, Currency::USD);
-    assert_eq!(overview.total_available, dec!(56500.0)); // Including the 50 USD from the difference of the target unit price and average filled price
-    assert_eq!(overview.total_balance, dec!(56500.0));
-    assert_eq!(overview.total_in_trade, dec!(0));
-    assert_eq!(overview.taxed, dec!(0));
+    let balance = trust.search_balance(account.id, &Currency::USD).unwrap();
+    assert_eq!(balance.currency, Currency::USD);
+    assert_eq!(balance.total_available, dec!(56500.0)); // Including the 50 USD from the difference of the target unit price and average filled price
+    assert_eq!(balance.total_balance, dec!(56500.0));
+    assert_eq!(balance.total_in_trade, dec!(0));
+    assert_eq!(balance.taxed, dec!(0));
 }
 
 #[test]
@@ -398,12 +398,12 @@ fn assert_stop_filled(trade: &Trade, trust: &mut TrustFacade) {
 
     // Assert Account Overview
     let account = trust.search_account("alpaca").unwrap();
-    let overview = trust.search_overview(account.id, &Currency::USD).unwrap();
-    assert_eq!(overview.currency, Currency::USD);
-    assert_eq!(overview.total_available, dec!(49550.0)); // Including the 50 USD from the difference of the target unit price and average filled price
-    assert_eq!(overview.total_balance, dec!(49550.0));
-    assert_eq!(overview.total_in_trade, dec!(0));
-    assert_eq!(overview.taxed, dec!(0));
+    let balance = trust.search_balance(account.id, &Currency::USD).unwrap();
+    assert_eq!(balance.currency, Currency::USD);
+    assert_eq!(balance.total_available, dec!(49550.0)); // Including the 50 USD from the difference of the target unit price and average filled price
+    assert_eq!(balance.total_balance, dec!(49550.0));
+    assert_eq!(balance.total_in_trade, dec!(0));
+    assert_eq!(balance.taxed, dec!(0));
 }
 
 #[test]
@@ -432,12 +432,12 @@ fn test_trade_stop_filled_slippage() {
 
     // Assert Account Overview
     let account = trust.search_account("alpaca").unwrap();
-    let overview = trust.search_overview(account.id, &Currency::USD).unwrap();
-    assert_eq!(overview.currency, Currency::USD);
-    assert_eq!(overview.total_available, dec!(45150.0)); // Including the 50 USD from the difference of the target unit price and average filled price
-    assert_eq!(overview.total_balance, dec!(45150.0));
-    assert_eq!(overview.total_in_trade, dec!(0));
-    assert_eq!(overview.taxed, dec!(0));
+    let balance = trust.search_balance(account.id, &Currency::USD).unwrap();
+    assert_eq!(balance.currency, Currency::USD);
+    assert_eq!(balance.total_available, dec!(45150.0)); // Including the 50 USD from the difference of the target unit price and average filled price
+    assert_eq!(balance.total_balance, dec!(45150.0));
+    assert_eq!(balance.total_in_trade, dec!(0));
+    assert_eq!(balance.taxed, dec!(0));
 }
 
 #[test]

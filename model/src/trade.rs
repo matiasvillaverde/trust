@@ -46,10 +46,10 @@ pub struct Trade {
     /// The account that the trade is associated with
     pub account_id: Uuid,
 
-    /// The overview of the trade - It is a cache of the calculations of the trade.
+    /// The balance of the trade - It is a cache of the calculations of the trade.
     /// It is a snapshot of the trade. It should be updated every time the trade is updated.
     /// WARNING: It is read-only and it can be out of sync if the trade is open.
-    pub overview: TradeBalance,
+    pub balance: TradeBalance,
 }
 
 impl std::fmt::Display for Trade {
@@ -233,7 +233,7 @@ impl Default for Trade {
             entry: Order::default(),
             target: Order::default(),
             account_id: Uuid::new_v4(),
-            overview: TradeBalance::default(),
+            balance: TradeBalance::default(),
         }
     }
 }

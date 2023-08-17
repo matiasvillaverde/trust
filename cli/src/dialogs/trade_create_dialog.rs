@@ -1,6 +1,6 @@
 use crate::{
     dialogs::{AccountSearchDialog, TradingVehicleSearchDialogBuilder},
-    views::TradeOverviewView,
+    views::TradeBalanceView,
     views::TradeView,
 };
 use core::TrustFacade;
@@ -66,7 +66,7 @@ impl TradeDialogBuilder {
         {
             Ok(trade) => {
                 TradeView::display(&trade, &self.account.unwrap().name);
-                TradeOverviewView::display(&trade.overview);
+                TradeBalanceView::display(&trade.balance);
             }
             Err(error) => println!("Error creating account: {:?}", error),
         }
@@ -122,10 +122,10 @@ impl TradeDialogBuilder {
 
     pub fn currency(mut self, trust: &mut TrustFacade) -> Self {
         let currencies: Vec<Currency> = trust
-            .search_all_overviews(self.account.clone().unwrap().id)
+            .search_all_balances(self.account.clone().unwrap().id)
             .unwrap()
             .into_iter()
-            .map(|overview| overview.currency)
+            .map(|balance| balance.currency)
             .collect();
 
         let selected_currency = FuzzySelect::with_theme(&ColorfulTheme::default())

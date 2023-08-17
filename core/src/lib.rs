@@ -1,7 +1,7 @@
 use calculators_trade::QuantityCalculator;
 use model::{
-    Account, AccountBalance, Broker, BrokerLog, Currency, DatabaseFactory, DraftTrade,
-    Environment, Order, Rule, RuleLevel, RuleName, Status, Trade, TradeBalance, TradingVehicle,
+    Account, AccountBalance, Broker, BrokerLog, Currency, DatabaseFactory, DraftTrade, Environment,
+    Order, Rule, RuleLevel, RuleName, Status, Trade, TradeBalance, TradingVehicle,
     TradingVehicleCategory, Transaction, TransactionCategory,
 };
 use rust_decimal::Decimal;
@@ -64,21 +64,21 @@ impl TrustFacade {
         commands::transaction::create(&mut *self.factory, category, amount, currency, account.id)
     }
 
-    pub fn search_overview(
+    pub fn search_balance(
         &mut self,
         account_id: Uuid,
         currency: &Currency,
     ) -> Result<AccountBalance, Box<dyn std::error::Error>> {
         self.factory
-            .account_overview_read()
+            .account_balance_read()
             .for_currency(account_id, currency)
     }
 
-    pub fn search_all_overviews(
+    pub fn search_all_balances(
         &mut self,
         account_id: Uuid,
     ) -> Result<Vec<AccountBalance>, Box<dyn std::error::Error>> {
-        self.factory.account_overview_read().for_account(account_id)
+        self.factory.account_balance_read().for_account(account_id)
     }
 
     pub fn create_rule(
@@ -201,10 +201,8 @@ impl TrustFacade {
         &mut self,
         trade: &Trade,
         fee: Decimal,
-    ) -> Result<
-        (Transaction, Transaction, TradeBalance, AccountBalance),
-        Box<dyn std::error::Error>,
-    > {
+    ) -> Result<(Transaction, Transaction, TradeBalance, AccountBalance), Box<dyn std::error::Error>>
+    {
         commands::trade::stop_acquired(trade, fee, &mut *self.factory)
     }
 
@@ -233,10 +231,8 @@ impl TrustFacade {
         &mut self,
         trade: &Trade,
         fee: Decimal,
-    ) -> Result<
-        (Transaction, Transaction, TradeBalance, AccountBalance),
-        Box<dyn std::error::Error>,
-    > {
+    ) -> Result<(Transaction, Transaction, TradeBalance, AccountBalance), Box<dyn std::error::Error>>
+    {
         commands::trade::target_acquired(trade, fee, &mut *self.factory)
     }
 

@@ -56,7 +56,7 @@ fn deposit(
         amount,
         currency,
         account_id,
-        database.account_overview_read().as_mut(),
+        database.account_balance_read().as_mut(),
     ) {
         Ok(_) => {
             let transaction = database.transaction_write().create_transaction(
@@ -65,8 +65,8 @@ fn deposit(
                 currency,
                 TransactionCategory::Deposit,
             )?;
-            let updated_overview = balance::calculate_account(database, &account, currency)?;
-            Ok((transaction, updated_overview))
+            let updated_balance = balance::calculate_account(database, &account, currency)?;
+            Ok((transaction, updated_balance))
         }
         Err(error) => {
             if error.code == TransactionValidationErrorCode::OverviewNotFound {
@@ -77,10 +77,10 @@ fn deposit(
                     TransactionCategory::Deposit,
                 )?;
                 database
-                    .account_overview_write()
+                    .account_balance_write()
                     .create(&account, currency)?;
-                let updated_overview = balance::calculate_account(database, &account, currency)?;
-                Ok((transaction, updated_overview))
+                let updated_balance = balance::calculate_account(database, &account, currency)?;
+                Ok((transaction, updated_balance))
             } else {
                 Err(error)
             }
@@ -101,7 +101,7 @@ fn withdraw(
         amount,
         currency,
         account_id,
-        database.account_overview_read().as_mut(),
+        database.account_balance_read().as_mut(),
     )?;
 
     // Create transaction
@@ -112,10 +112,10 @@ fn withdraw(
         TransactionCategory::Withdrawal,
     )?;
 
-    // Update account overview
-    let updated_overview = balance::calculate_account(database, &account, currency)?;
+    // Update account balance
+    let updated_balance = balance::calculate_account(database, &account, currency)?;
 
-    Ok((transaction, updated_overview))
+    Ok((transaction, updated_balance))
 }
 
 pub fn transfer_to_fund_trade(
@@ -138,10 +138,10 @@ pub fn transfer_to_fund_trade(
     )?;
 
     // 3. Update Account Overview and Trade Overview
-    let account_overview = balance::calculate_account(database, &account, &trade.currency)?;
-    let trade_overview: TradeBalance = balance::calculate_trade(database, trade)?;
+    let account_balance = balance::calculate_account(database, &account, &trade.currency)?;
+    let trade_balance: TradeBalance = balance::calculate_trade(database, trade)?;
 
-    Ok((transaction, account_overview, trade_overview))
+    Ok((transaction, account_balance, trade_balance))
 }
 
 pub fn transfer_to_fill_trade(
@@ -178,9 +178,9 @@ pub fn transfer_to_fill_trade(
         )?;
     }
 
-    // 5. Update trade overview
-    let trade_overview: TradeBalance = balance::calculate_trade(database, trade)?;
-    Ok((transaction, trade_overview))
+    // 5. Update trade balance
+    let trade_balance: TradeBalance = balance::calculate_trade(database, trade)?;
+    Ok((transaction, trade_balance))
 }
 
 pub fn transfer_opening_fee(
@@ -189,10 +189,10 @@ pub fn transfer_opening_fee(
     database: &mut dyn DatabaseFactory,
 ) -> Result<(Transaction, AccountBalance), Box<dyn Error>> {
     // 1. Validate that account has enough funds to pay a fee.
-    let account_overview = database
-        .account_overview_read()
+    let account_balance = database
+        .account_balance_read()
         .for_currency(trade.account_id, &trade.currency)?;
-    transaction::can_transfer_fee(&account_overview, fee)?;
+    transaction::can_transfer_fee(&account_balance, fee)?;
 
     // 2. Create transaction
     let account = database.account_read().id(trade.account_id)?;
@@ -203,10 +203,10 @@ pub fn transfer_opening_fee(
         TransactionCategory::FeeOpen(trade.id),
     )?;
 
-    // 3. Update account overview
-    let overview = balance::calculate_account(database, &account, &trade.currency)?;
+    // 3. Update account balance
+    let balance = balance::calculate_account(database, &account, &trade.currency)?;
 
-    Ok((transaction, overview))
+    Ok((transaction, balance))
 }
 
 pub fn transfer_closing_fee(
@@ -215,10 +215,10 @@ pub fn transfer_closing_fee(
     database: &mut dyn DatabaseFactory,
 ) -> Result<(Transaction, AccountBalance), Box<dyn Error>> {
     // 1. Validate that account has enough funds to pay a fee.
-    let account_overview = database
-        .account_overview_read()
+    let account_balance = database
+        .account_balance_read()
         .for_currency(trade.account_id, &trade.currency)?;
-    transaction::can_transfer_fee(&account_overview, fee)?;
+    transaction::can_transfer_fee(&account_balance, fee)?;
 
     let account = database.account_read().id(trade.account_id)?;
 
@@ -229,10 +229,10 @@ pub fn transfer_closing_fee(
         TransactionCategory::FeeClose(trade.id),
     )?;
 
-    // Update account overview
-    let overview = balance::calculate_account(database, &account, &trade.currency)?;
+    // Update account balance
+    let balance = balance::calculate_account(database, &account, &trade.currency)?;
 
-    Ok((transaction, overview))
+    Ok((transaction, balance))
 }
 
 pub fn transfer_to_close_target(
@@ -254,11 +254,11 @@ pub fn transfer_to_close_target(
         TransactionCategory::CloseTarget(trade.id),
     )?;
 
-    // 3. Update trade overview and account overview
-    let trade_overview: TradeBalance = balance::calculate_trade(database, trade)?;
+    // 3. Update trade balance and account balance
+    let trade_balance: TradeBalance = balance::calculate_trade(database, trade)?;
     balance::calculate_account(database, &account, &trade.currency)?;
 
-    Ok((transaction, trade_overview))
+    Ok((transaction, trade_balance))
 }
 
 pub fn transfer_to_close_stop(
@@ -290,11 +290,11 @@ pub fn transfer_to_close_stop(
         category,
     )?;
 
-    // 5. Update trade overview and account overview
-    let trade_overview: TradeBalance = balance::calculate_trade(database, trade)?;
+    // 5. Update trade balance and account balance
+    let trade_balance: TradeBalance = balance::calculate_trade(database, trade)?;
     balance::calculate_account(database, &account, &trade.currency)?;
 
-    Ok((transaction, trade_overview))
+    Ok((transaction, trade_balance))
 }
 
 pub fn transfer_to_account_from(
@@ -313,10 +313,10 @@ pub fn transfer_to_account_from(
         TransactionCategory::PaymentFromTrade(trade.id),
     )?;
 
-    // Update account overview and trade overview.
-    let account_overview: AccountBalance =
+    // Update account balance and trade balance.
+    let account_balance: AccountBalance =
         balance::calculate_account(database, &account, &trade.currency)?;
-    let trade_overview: TradeBalance = balance::calculate_trade(database, trade)?;
+    let trade_balance: TradeBalance = balance::calculate_trade(database, trade)?;
 
-    Ok((transaction, account_overview, trade_overview))
+    Ok((transaction, account_balance, trade_balance))
 }

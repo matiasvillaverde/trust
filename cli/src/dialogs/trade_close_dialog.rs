@@ -1,5 +1,5 @@
 use crate::dialogs::AccountSearchDialog;
-use crate::views::{LogView, TradeOverviewView, TradeView};
+use crate::views::{LogView, TradeBalanceView, TradeView};
 use core::TrustFacade;
 use dialoguer::{theme::ColorfulTheme, FuzzySelect};
 use model::{Account, BrokerLog, Status, Trade, TradeBalance};
@@ -37,12 +37,12 @@ impl CloseDialogBuilder {
             .result
             .expect("No result found, did you forget to call search?")
         {
-            Ok((trade_overview, log)) => {
+            Ok((trade_balance, log)) => {
                 let account_name = self.account.clone().unwrap().name;
 
                 println!("Trade close executed:");
                 TradeView::display(&self.trade.unwrap(), account_name.as_str());
-                TradeOverviewView::display(&trade_overview);
+                TradeBalanceView::display(&trade_balance);
                 LogView::display(&log);
             }
             Err(error) => println!("Error approving trade: {:?}", error),

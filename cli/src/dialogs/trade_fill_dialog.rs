@@ -1,5 +1,5 @@
 use crate::dialogs::AccountSearchDialog;
-use crate::views::{TradeOverviewView, TradeView, TransactionView};
+use crate::views::{TradeBalanceView, TradeView, TransactionView};
 use core::TrustFacade;
 use dialoguer::{theme::ColorfulTheme, FuzzySelect, Input};
 use model::{Account, Status, Trade, Transaction};
@@ -46,7 +46,7 @@ impl FillTradeDialogBuilder {
                 let name = self.account.unwrap().name;
                 println!("Trade entry executed:");
                 TradeView::display(&trade, name.as_str());
-                TradeOverviewView::display(&trade.overview);
+                TradeBalanceView::display(&trade.balance);
                 TransactionView::display(&tx, name.as_str());
             }
             Err(error) => println!("Error approving trade: {:?}", error),

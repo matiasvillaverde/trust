@@ -13,7 +13,7 @@ diesel::table! {
 }
 
 diesel::table! {
-    accounts_overviews (id) {
+    accounts_balances (id) {
         id -> Text,
         created_at -> Timestamp,
         updated_at -> Timestamp,
@@ -113,12 +113,12 @@ diesel::table! {
         entry_id -> Text,
         target_id -> Text,
         account_id -> Text,
-        overview_id -> Text,
+        balance_id -> Text,
     }
 }
 
 diesel::table! {
-    trades_overviews (id) {
+    trades_balances (id) {
         id -> Text,
         created_at -> Timestamp,
         updated_at -> Timestamp,
@@ -144,10 +144,10 @@ diesel::table! {
 }
 
 diesel::joinable!(transactions -> accounts (account_id));
-diesel::joinable!(accounts_overviews -> accounts (account_id));
+diesel::joinable!(accounts_balances -> accounts (account_id));
 diesel::joinable!(orders -> trading_vehicles (trading_vehicle_id));
 diesel::joinable!(trades -> accounts (account_id));
-diesel::joinable!(trades -> trades_overviews (overview_id));
+diesel::joinable!(trades -> trades_balances (balance_id));
 diesel::joinable!(trades -> trading_vehicles (trading_vehicle_id));
 diesel::joinable!(trades -> orders (safety_stop_id));
 diesel::joinable!(logs -> trades (trade_id));

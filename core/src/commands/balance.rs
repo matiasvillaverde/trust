@@ -36,12 +36,12 @@ pub fn calculate_account(
         database.transaction_read().as_mut(),
     )?;
 
-    let overview = database
-        .account_overview_read()
+    let balance = database
+        .account_balance_read()
         .for_currency(account.id, currency)?;
 
-    database.account_overview_write().update(
-        &overview,
+    database.account_balance_write().update(
+        &balance,
         total_balance,
         total_in_trade,
         total_available,
@@ -62,7 +62,7 @@ pub fn calculate_trade(
     let total_performance =
         TradePerformance::calculate(trade.id, database.transaction_read().as_mut())?;
 
-    database.trade_overview_write().update_trade_overview(
+    database.trade_balance_write().update_trade_balance(
         trade,
         funding,
         capital_in_market,

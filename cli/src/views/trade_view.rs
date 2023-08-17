@@ -50,7 +50,7 @@ impl TradeView {
 }
 
 #[derive(Tabled)]
-pub struct TradeOverviewView {
+pub struct TradeBalanceView {
     pub funding: String,
     pub capital_in_market: String,
     pub capital_out_market: String,
@@ -59,25 +59,25 @@ pub struct TradeOverviewView {
     pub currency: String,
 }
 
-impl TradeOverviewView {
-    fn new(overview: &TradeBalance) -> TradeOverviewView {
-        TradeOverviewView {
-            funding: overview.funding.to_string(),
-            capital_in_market: overview.capital_in_market.to_string(),
-            capital_out_market: overview.capital_out_market.to_string(),
-            taxed: overview.taxed.to_string(),
-            total_performance: overview.total_performance.to_string(),
-            currency: overview.currency.to_string(),
+impl TradeBalanceView {
+    fn new(balance: &TradeBalance) -> TradeBalanceView {
+        TradeBalanceView {
+            funding: balance.funding.to_string(),
+            capital_in_market: balance.capital_in_market.to_string(),
+            capital_out_market: balance.capital_out_market.to_string(),
+            taxed: balance.taxed.to_string(),
+            total_performance: balance.total_performance.to_string(),
+            currency: balance.currency.to_string(),
         }
     }
 
-    pub fn display(overview: &TradeBalance) {
-        TradeOverviewView::display_overviews(vec![overview]);
+    pub fn display(balance: &TradeBalance) {
+        TradeBalanceView::display_balances(vec![balance]);
     }
 
-    pub fn display_overviews(overviews: Vec<&TradeBalance>) {
-        let views: Vec<TradeOverviewView> =
-            overviews.into_iter().map(TradeOverviewView::new).collect();
+    pub fn display_balances(balances: Vec<&TradeBalance>) {
+        let views: Vec<TradeBalanceView> =
+            balances.into_iter().map(TradeBalanceView::new).collect();
         let mut table = Table::new(views);
         table.with(Style::modern());
         println!("{}", table);

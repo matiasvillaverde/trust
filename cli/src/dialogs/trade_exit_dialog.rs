@@ -1,5 +1,5 @@
 use crate::dialogs::AccountSearchDialog;
-use crate::views::{AccountOverviewView, TradeOverviewView, TradeView, TransactionView};
+use crate::views::{AccountBalanceView, TradeBalanceView, TradeView, TransactionView};
 use core::TrustFacade;
 use dialoguer::{theme::ColorfulTheme, FuzzySelect, Input};
 use model::{Account, AccountBalance, Status, Trade, TradeBalance, Transaction};
@@ -55,7 +55,7 @@ impl ExitDialogBuilder {
             .result
             .expect("No result found, did you forget to call search?")
         {
-            Ok((tx_exit, tx_payment, trade_overview, account_overview)) => {
+            Ok((tx_exit, tx_payment, trade_balance, account_balance)) => {
                 let account_name = self.account.clone().unwrap().name;
 
                 println!("Trade exit executed:");
@@ -67,9 +67,9 @@ impl ExitDialogBuilder {
                 println!("With transaction of payment back to the account:");
                 TransactionView::display(&tx_payment, account_name.as_str());
 
-                TradeOverviewView::display(&trade_overview);
+                TradeBalanceView::display(&trade_balance);
 
-                AccountOverviewView::display(account_overview, account_name.as_str());
+                AccountBalanceView::display(account_balance, account_name.as_str());
             }
             Err(error) => println!("Error approving trade: {:?}", error),
         }
