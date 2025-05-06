@@ -4,6 +4,8 @@ Welcome to Trust Tool written in Rust, currently in its beta phase. Offering ris
 
 Please note: This product is in beta, and you should proceed only if you comprehend the underlying code and workings.
 
+Here you can find documentation about the project: https://deepwiki.com/matiasvillaverde/trust
+
 ## Features
 
 - Maximum risk per trade.
