@@ -27,7 +27,7 @@ rust_decimal = "1.37.1"
 rust_decimal_macros = "1.37.1"
 tracing = "0.1.41"
 tracing-subscriber = "0.3.19"
-apca = "0.26.1"
+apca = "0.28.0"
 num-decimal = {version = "0.2.4", default-features = false, features = ["num-v04", "serde"]}
 tokio = {version = "1.45.1", default-features = false, features = ["net", "rt-multi-thread", "macros"]}
 dotenv = "0.15.0"
