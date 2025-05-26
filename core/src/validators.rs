@@ -3,4 +3,4 @@ pub mod rule;
 pub mod trade;
 pub mod transaction;
 
-pub use transaction::{TransactionValidationError, TransactionValidationErrorCode};
+pub use transaction::{TransactionValidationErrorCode};

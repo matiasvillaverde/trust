@@ -92,7 +92,6 @@ pub fn can_modify_target(trade: &Trade) -> TradeValidationResult {
 }
 
 #[derive(Debug, PartialEq)]
-
 pub enum TradeValidationErrorCode {
     TradeNotFunded,
     TradeNotFilled,
@@ -107,7 +106,7 @@ pub struct TradeValidationError {
 
 impl std::fmt::Display for TradeValidationError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "TradeValidationError: {}", self.message)
+        write!(f, "TradeValidationError: {}, code: {:?}", self.message, self.code)
     }
 }
 
