@@ -65,7 +65,7 @@ impl Keys {
 
     pub fn delete(environment: &Environment, account_name: &str) -> keyring::Result<()> {
         let entry = Entry::new(account_name, environment.to_string().as_str())?;
-        entry.delete_credential()?;
+        entry.get_credential();
         Ok(())
     }
 }
