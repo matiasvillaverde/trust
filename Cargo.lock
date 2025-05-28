@@ -49,7 +49,7 @@ dependencies = [
 
 [[package]]
 name = "alpaca-broker"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "apca",
  "chrono",
@@ -381,7 +381,7 @@ checksum = "f46ad14479a25103f283c0f10005961cf086d8dc42205bb44c46ac563475dca6"
 
 [[package]]
 name = "cli"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "alpaca-broker",
  "chrono",
@@ -418,7 +418,7 @@ dependencies = [
 
 [[package]]
 name = "core"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "model",
@@ -514,7 +514,7 @@ checksum = "2a2330da5de22e8a3cb63252ce2abb30116bf5265e89c0e01bc17015ce30a476"
 
 [[package]]
 name = "db-sqlite"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "diesel",
@@ -1284,7 +1284,7 @@ dependencies = [
 
 [[package]]
 name = "model"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "rust_decimal",

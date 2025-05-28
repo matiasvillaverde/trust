@@ -3,7 +3,7 @@ members = ["model", "db-sqlite", "core", "cli", "alpaca-broker"]
 
 [workspace.package]
 name = "trust"
-version = "0.2.1"
+version = "0.3.0"
 authors = ["Matias Villaverde <matiasvillaverde@protonmail.com>"]
 rust-version = "1.68.2"
 license = "MIT"

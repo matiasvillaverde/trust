@@ -13,6 +13,7 @@ mod views;
 fn main() {
     let matches = Command::new("trust")
         .about("A tool for managing tradings")
+        .version(env!("CARGO_PKG_VERSION"))
         .subcommand_required(true)
         .arg_required_else_help(true)
         .subcommand(
