@@ -1,7 +1,7 @@
 use crate::keys;
 use apca::api::v2::order::{
-    Amount, Class, Delete, Id, Order as AlpacaOrder, OrderReq, OrderReqInit, Post, Side,
-    TimeInForce, Type,
+    Amount, Class, Delete, Id, Order as AlpacaOrder, CreateReq, Create, Side,
+    TimeInForce, Type, CreateReqInit
 };
 use apca::Client;
 use model::{Account, BrokerLog, Order, Trade, TradeCategory};
@@ -53,9 +53,9 @@ async fn cancel_target(client: &Client, order_id: Uuid) -> Result<(), Box<dyn Er
 
 async fn submit_market_order(
     client: Client,
-    request: OrderReq,
+    request: CreateReq,
 ) -> Result<AlpacaOrder, Box<dyn Error>> {
-    let result = client.issue::<Post>(&request).await;
+    let result = client.issue::<Create>(&request).await;
 
     match result {
         Ok(order) => Ok(order),
@@ -66,8 +66,8 @@ async fn submit_market_order(
     }
 }
 
-fn new_request(trade: &Trade) -> OrderReq {
-    OrderReqInit {
+fn new_request(trade: &Trade) -> CreateReq {
+    CreateReqInit {
         class: Class::Simple,
         type_: Type::Market,
         time_in_force: TimeInForce::UntilCanceled,

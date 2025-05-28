@@ -1,6 +1,6 @@
 use apca::api::v2::order::{
-    Amount, Class, Order as AlpacaOrder, OrderReq, OrderReqInit, Post, Side, StopLoss, TakeProfit,
-    TimeInForce, Type,
+    Amount, Class, Order as AlpacaOrder, CreateReq, Create, Side, StopLoss, TakeProfit,
+    TimeInForce, Type, CreateReqInit
 };
 use apca::Client;
 use num_decimal::Num;
@@ -37,9 +37,9 @@ pub fn submit_sync(
 
 async fn submit(
     client: Client,
-    request: OrderReq,
+    request: CreateReq,
 ) -> Result<apca::api::v2::order::Order, Box<dyn Error>> {
-    let result = client.issue::<Post>(&request).await;
+    let result = client.issue::<Create>(&request).await;
 
     match result {
         Ok(order) => Ok(order),
@@ -80,12 +80,12 @@ fn extract_ids(order: &AlpacaOrder, trade: &Trade) -> OrderIds {
     }
 }
 
-fn new_request(trade: &Trade) -> OrderReq {
+fn new_request(trade: &Trade) -> CreateReq {
     let entry = Num::from_str(trade.entry.unit_price.to_string().as_str()).unwrap();
     let stop = Num::from_str(trade.safety_stop.unit_price.to_string().as_str()).unwrap();
     let target = Num::from_str(trade.target.unit_price.to_string().as_str()).unwrap();
 
-    OrderReqInit {
+    CreateReqInit {
         class: Class::Bracket,
         type_: Type::Limit,
         limit_price: Some(entry),

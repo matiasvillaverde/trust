@@ -1,7 +1,7 @@
 use crate::keys;
 use crate::order_mapper;
 use apca::api::v2::order::Order as AlpacaOrder;
-use apca::api::v2::orders::{Get, OrdersReq, Status as AlpacaRequestStatus};
+use apca::api::v2::orders::{List, ListReq, Status as AlpacaRequestStatus};
 use apca::Client;
 use model::{Account, BrokerLog, Order, Status, Trade};
 use std::error::Error;
@@ -52,13 +52,13 @@ async fn get_closed_orders(
     client: &Client,
     trade: &Trade,
 ) -> Result<Vec<AlpacaOrder>, Box<dyn Error>> {
-    let request: OrdersReq = OrdersReq {
+    let request: ListReq = ListReq {
         symbols: vec![trade.trading_vehicle.symbol.to_string()],
         status: AlpacaRequestStatus::Closed,
         ..Default::default()
     };
 
-    let orders = client.issue::<Get>(&request).await.unwrap();
+    let orders = client.issue::<List>(&request).await.unwrap();
     Ok(orders)
 }
 
@@ -116,6 +116,7 @@ mod tests {
             average_fill_price: None,
             legs: vec![],
             extended_hours: false,
+            _non_exhaustive: (),
         }
     }
 

@@ -1,5 +1,5 @@
 use crate::keys;
-use apca::api::v2::order::{ChangeReqInit, Id, Order, Patch};
+use apca::api::v2::order::{ChangeReq, Id, Order, Change};
 use apca::Client;
 use model::{Account, Trade};
 use num_decimal::Num;
@@ -27,13 +27,12 @@ pub fn modify(trade: &Trade, account: &Account, price: Decimal) -> Result<Uuid, 
 }
 
 async fn submit(client: &Client, order_id: Uuid, price: Decimal) -> Result<Order, Box<dyn Error>> {
-    let request = ChangeReqInit {
+    let request = ChangeReq {
         stop_price: Some(Num::from_str(price.to_string().as_str()).unwrap()),
         ..Default::default()
-    }
-    .init();
+    };
 
-    let result = client.issue::<Patch>(&(Id(order_id), request)).await;
+    let result = client.issue::<Change>(&(Id(order_id), request)).await;
     match result {
         Ok(log) => Ok(log),
         Err(e) => {

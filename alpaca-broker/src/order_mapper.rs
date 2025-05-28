@@ -138,6 +138,7 @@ fn map_from_alpaca(status: AlpacaStatus) -> OrderStatus {
         AlpacaStatus::Held => OrderStatus::Held,
         AlpacaStatus::AcceptedForBidding => OrderStatus::AcceptedForBidding,
         AlpacaStatus::Unknown => OrderStatus::Unknown,
+        _ => OrderStatus::Unknown, // Add this line
     }
 }
 
@@ -183,6 +184,7 @@ mod tests {
             average_fill_price: None,
             legs: vec![],
             extended_hours: false,
+            _non_exhaustive: (),
         }
     }
 
