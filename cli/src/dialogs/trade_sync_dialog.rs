@@ -45,7 +45,7 @@ impl SyncTradeDialogBuilder {
                     return;
                 }
 
-                println!("Trade synced, the status is: {:?}", status);
+                println!("Trade synced, the status is: {status:?}");
                 println!();
                 println!("Updated orders:");
                 OrderView::display_orders(orders);
@@ -53,7 +53,7 @@ impl SyncTradeDialogBuilder {
                 println!("Logs:");
                 LogView::display(&log);
             }
-            Err(error) => println!("Error approving trade: {:?}", error),
+            Err(error) => println!("Error approving trade: {error:?}"),
         }
     }
 
@@ -61,7 +61,7 @@ impl SyncTradeDialogBuilder {
         let account = AccountSearchDialog::new().search(trust).build();
         match account {
             Ok(account) => self.account = Some(account),
-            Err(error) => println!("Error searching account: {:?}", error),
+            Err(error) => println!("Error searching account: {error:?}"),
         }
         self
     }

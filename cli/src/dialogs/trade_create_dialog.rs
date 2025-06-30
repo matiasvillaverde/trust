@@ -68,7 +68,7 @@ impl TradeDialogBuilder {
                 TradeView::display(&trade, &self.account.unwrap().name);
                 TradeBalanceView::display(&trade.balance);
             }
-            Err(error) => println!("Error creating account: {:?}", error),
+            Err(error) => println!("Error creating account: {error:?}"),
         }
     }
 
@@ -76,7 +76,7 @@ impl TradeDialogBuilder {
         let account = AccountSearchDialog::new().search(trust).build();
         match account {
             Ok(account) => self.account = Some(account),
-            Err(error) => println!("Error searching account: {:?}", error),
+            Err(error) => println!("Error searching account: {error:?}"),
         }
         self
     }
@@ -87,7 +87,7 @@ impl TradeDialogBuilder {
             .build();
         match tv {
             Ok(tv) => self.trading_vehicle = Some(tv),
-            Err(error) => println!("Error searching trading vehicle: {:?}", error),
+            Err(error) => println!("Error searching trading vehicle: {error:?}"),
         }
         self
     }
@@ -148,11 +148,11 @@ impl TradeDialogBuilder {
                 &self.currency.unwrap(),
             )
             .unwrap_or_else(|error| {
-                println!("Error calculating maximum quantity {}", error);
+                println!("Error calculating maximum quantity {error}");
                 0
             });
 
-        println!("Maximum quantity: {}", maximum);
+        println!("Maximum quantity: {maximum}");
 
         let quantity = Input::new()
             .with_prompt("Quantity")

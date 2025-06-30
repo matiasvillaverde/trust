@@ -36,7 +36,7 @@ async fn submit(client: &Client, order_id: Uuid, price: Decimal) -> Result<Order
     match result {
         Ok(log) => Ok(log),
         Err(e) => {
-            eprintln!("Error modify stop: {:?}", e);
+            eprintln!("Error modify stop: {e:?}");
             Err(Box::new(e))
         }
     }

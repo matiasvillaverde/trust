@@ -44,7 +44,7 @@ impl AccountDialogBuilder {
             .expect("No result found, did you forget to call build?")
         {
             Ok(account) => AccountView::display_account(account),
-            Err(error) => println!("Error creating account: {:?}", error),
+            Err(error) => println!("Error creating account: {error:?}"),
         }
     }
 
@@ -137,7 +137,7 @@ impl AccountSearchDialog {
                 println!("Rules:");
                 RuleView::display_rules(rules, &name);
             }
-            Err(error) => println!("Error searching account: {:?}", error),
+            Err(error) => println!("Error searching account: {error:?}"),
         }
     }
 

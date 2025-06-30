@@ -19,16 +19,13 @@ impl TradeCapitalFunded {
                     total += tx.amount
                 }
                 default => panic!(
-                    "TradeCapitalFunded: does not know how to calculate transaction with category: {}",
-                    default
+                    "TradeCapitalFunded: does not know how to calculate transaction with category: {default}"
                 ),
             }
         }
 
         if total.is_sign_negative() {
-            return Err(
-                format!("TradeCapitalFunded: capital funded is negative: {}", total).into(),
-            );
+            return Err(format!("TradeCapitalFunded: capital funded is negative: {total}").into());
         }
 
         Ok(total)

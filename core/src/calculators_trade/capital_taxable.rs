@@ -18,14 +18,13 @@ impl TradeCapitalTaxable {
                     total += tx.amount
                 }
                 default => panic!(
-                    "TradeCapitalTaxable: does not know how to calculate transaction with category: {}",
-                    default
+                    "TradeCapitalTaxable: does not know how to calculate transaction with category: {default}"
                 ),
             }
         }
 
         if total.is_sign_negative() {
-            return Err(format!("TradeCapitalTaxable: is negative: {}", total).into());
+            return Err(format!("TradeCapitalTaxable: is negative: {total}").into());
         }
 
         Ok(total)

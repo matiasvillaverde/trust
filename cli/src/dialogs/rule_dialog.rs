@@ -50,7 +50,7 @@ impl RuleDialogBuilder {
             .expect("No result found, did you forget to call build?")
         {
             Ok(rule) => RuleView::display_rule(rule, &self.account.unwrap().name),
-            Err(error) => println!("Error creating rule: {:?}", error),
+            Err(error) => println!("Error creating rule: {error:?}"),
         }
     }
 
@@ -58,7 +58,7 @@ impl RuleDialogBuilder {
         let account = AccountSearchDialog::new().search(trust).build();
         match account {
             Ok(account) => self.account = Some(account),
-            Err(error) => println!("Error searching account: {:?}", error),
+            Err(error) => println!("Error searching account: {error:?}"),
         }
         self
     }
@@ -173,7 +173,7 @@ impl RuleRemoveDialogBuilder {
             .expect("No result found, did you forget to call build?")
         {
             Ok(rule) => RuleView::display_rule(rule, &self.account.unwrap().name),
-            Err(error) => println!("Error creating rule: {:?}", error),
+            Err(error) => println!("Error creating rule: {error:?}"),
         }
     }
 
@@ -181,7 +181,7 @@ impl RuleRemoveDialogBuilder {
         let account = AccountSearchDialog::new().search(trust).build();
         match account {
             Ok(account) => self.account = Some(account),
-            Err(error) => println!("Error searching account: {:?}", error),
+            Err(error) => println!("Error searching account: {error:?}"),
         }
         self
     }
@@ -189,7 +189,7 @@ impl RuleRemoveDialogBuilder {
     pub fn select_rule(mut self, trust: &mut TrustFacade) -> Self {
         let account_id = self.account.clone().expect("Select an account first").id;
         let rules = trust.search_rules(account_id).unwrap_or_else(|error| {
-            println!("Error reading rules: {:?}", error);
+            println!("Error reading rules: {error:?}");
             vec![]
         });
 

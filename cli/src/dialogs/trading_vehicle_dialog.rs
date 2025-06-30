@@ -41,7 +41,7 @@ impl TradingVehicleDialogBuilder {
             .expect("No result found, did you forget to call build?")
         {
             Ok(tv) => TradingVehicleView::display(tv),
-            Err(error) => println!("Error creating trading vehicle: {:?}", error),
+            Err(error) => println!("Error creating trading vehicle: {error:?}"),
         }
     }
 
@@ -136,7 +136,7 @@ impl TradingVehicleSearchDialogBuilder {
             Ok(tv) => {
                 TradingVehicleView::display(tv);
             }
-            Err(error) => println!("Error searching Trading Vehicles: {:?}", error),
+            Err(error) => println!("Error searching Trading Vehicles: {error:?}"),
         }
     }
 

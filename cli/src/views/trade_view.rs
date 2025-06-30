@@ -45,7 +45,7 @@ impl TradeView {
             .collect();
         let mut table = Table::new(views);
         table.with(Style::modern());
-        println!("{}", table);
+        println!("{table}");
     }
 }
 
@@ -80,6 +80,6 @@ impl TradeBalanceView {
             balances.into_iter().map(TradeBalanceView::new).collect();
         let mut table = Table::new(views);
         table.with(Style::modern());
-        println!("{}", table);
+        println!("{table}");
     }
 }

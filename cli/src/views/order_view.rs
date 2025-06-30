@@ -46,6 +46,6 @@ impl OrderView {
         let views: Vec<OrderView> = orders.into_iter().map(OrderView::new).collect();
         let mut table = Table::new(views);
         table.with(Style::modern());
-        println!("{}", table);
+        println!("{table}");
     }
 }

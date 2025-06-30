@@ -45,7 +45,7 @@ impl CloseDialogBuilder {
                 TradeBalanceView::display(&trade_balance);
                 LogView::display(&log);
             }
-            Err(error) => println!("Error approving trade: {:?}", error),
+            Err(error) => println!("Error approving trade: {error:?}"),
         }
     }
 
@@ -53,7 +53,7 @@ impl CloseDialogBuilder {
         let account = AccountSearchDialog::new().search(trust).build();
         match account {
             Ok(account) => self.account = Some(account),
-            Err(error) => println!("Error searching account: {:?}", error),
+            Err(error) => println!("Error searching account: {error:?}"),
         }
         self
     }

@@ -114,7 +114,7 @@ pub fn update_status(
             return Ok((trade.clone(), None));
         }
         _ => {
-            return Err(format!("Status can not be updated in trade: {:?}", status).into());
+            return Err(format!("Status can not be updated in trade: {status:?}").into());
         }
     }
     unimplemented!()

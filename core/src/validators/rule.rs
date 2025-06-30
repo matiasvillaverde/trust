@@ -11,10 +11,7 @@ pub fn can_create(
     if database.rule_for_account(account.id, rule).is_ok() {
         Err(Box::new(RuleValidationError {
             code: RuleValidationErrorCode::RuleAlreadyExistsInAccount,
-            message: format!(
-                "Rule with name {} already exists in the selected account",
-                rule
-            ),
+            message: format!("Rule with name {rule} already exists in the selected account"),
         }))
     } else {
         Ok(())

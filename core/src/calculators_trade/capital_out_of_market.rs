@@ -42,8 +42,7 @@ impl TradeCapitalOutOfMarket {
                     // We ignore the fees because they are charged from the account and not from the trade.
                 }
                 default => panic!(
-                    "TradeCapitalOutOfMarket: does not know how to calculate transaction with category: {}",
-                    default
+                    "TradeCapitalOutOfMarket: does not know how to calculate transaction with category: {default}"
                 ),
             }
         }

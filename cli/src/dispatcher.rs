@@ -329,7 +329,7 @@ fn create_dir_if_necessary() {
 
     // We need to create a directory
     match fs::create_dir(directory_path.clone()) {
-        Ok(_) => println!("Directory {} created successfully!", directory_path),
-        Err(err) => eprintln!("Failed to create directory: {}", err),
+        Ok(_) => println!("Directory {directory_path} created successfully!"),
+        Err(err) => eprintln!("Failed to create directory: {err}"),
     }
 }

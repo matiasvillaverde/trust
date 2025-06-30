@@ -31,6 +31,63 @@ cargo test -p core         # Test specific crate
 cargo run -p cli          # Run the CLI directly
 ```
 
+## CI/CD Workflow
+
+The project includes a comprehensive CI/CD setup that should be run locally before pushing changes.
+
+### Quick CI Commands
+
+```bash
+# Essential commands for daily development
+make fmt         # Auto-format code
+make ci-fast     # Quick checks (fmt + clippy)
+make pre-commit  # Run before committing
+make pre-push    # Run full CI before pushing
+```
+
+### Full CI Pipeline
+
+```bash
+# Run the complete CI pipeline locally
+make ci
+
+# This runs:
+# 1. Format checking (make fmt-check)
+# 2. Clippy linting (make lint)
+# 3. Build verification (make ci-build)
+# 4. Test suite (make ci-test)
+```
+
+### Using GitHub Actions Locally
+
+Install and use `act` to run the actual GitHub Actions workflow:
+
+```bash
+# Install act
+brew install act  # macOS
+# Or see other options: make install-tools
+
+# Run GitHub Actions locally
+make act          # Run all workflows
+make act-job JOB=lint  # Run specific job
+```
+
+### CI Best Practices
+
+1. **Always run before pushing**: Use `make pre-push` to ensure your code will pass CI
+2. **Format first**: Run `make fmt` to auto-format code before committing
+3. **Test database code**: Use `make test-single` for database-related tests
+4. **Quick validation**: Use `make ci-fast` for rapid feedback during development
+
+### Common CI Issues and Solutions
+
+1. **Format failures**: Run `make fmt` (not just `make fmt-check`)
+2. **Clippy warnings**: Address all warnings from `make lint`
+3. **Test failures**: Check if database tests need single-threading
+4. **Build issues**: Ensure `make build-release` succeeds
+
+For detailed CI documentation, see [CI.md](./CI.md).
+
 ## Architecture
 
 The project follows a clean architecture pattern with these key layers:

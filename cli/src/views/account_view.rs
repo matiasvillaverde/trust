@@ -30,7 +30,7 @@ impl AccountView {
         let views: Vec<AccountView> = accounts.into_iter().map(AccountView::new).collect();
         let mut table = Table::new(views);
         table.with(Style::modern());
-        println!("{}", table);
+        println!("{table}");
     }
 }
 
@@ -70,6 +70,6 @@ impl AccountBalanceView {
             .collect();
         let mut table = Table::new(views);
         table.with(Style::modern());
-        println!("{}", table);
+        println!("{table}");
     }
 }

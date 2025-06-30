@@ -27,6 +27,42 @@ git clone https://github.com/matiasvillaverde/trust.git
 cd trust
 ```
 
+## Quick Start
+
+### Development Setup
+
+```bash
+# Clone the repository
+git clone https://github.com/matiasvillaverde/trust.git
+cd trust
+
+# Build the project
+make build
+
+# Run tests
+make test
+
+# Run the CLI
+make run
+```
+
+### CI/CD Quick Reference
+
+Before pushing code, ensure it passes all checks:
+
+```bash
+# Format code
+make fmt
+
+# Run quick CI checks
+make ci-fast
+
+# Run full CI pipeline locally
+make ci
+```
+
+See the [CI Documentation](./CI.md) for detailed CI/CD information.
+
 ## Usage
 
 To start using the tool, you can run it as specified below:
@@ -63,6 +99,42 @@ cargo run --bin cli  -- trade submit
 cargo run --bin cli  -- [command] help
 
 ```
+
+## Development
+
+### Available Commands
+
+Run `make help` to see all available commands:
+
+- **Development**: `make build`, `make test`, `make run`
+- **Code Quality**: `make fmt`, `make lint`, `make audit`
+- **CI Pipeline**: `make ci`, `make pre-commit`, `make pre-push`
+- **Database**: `make setup`, `make migration`, `make clean-db`
+
+### Continuous Integration
+
+This project uses GitHub Actions for CI/CD. The pipeline includes:
+
+- Code formatting checks
+- Clippy linting
+- Comprehensive testing (all features, no features, doc tests)
+- Release build verification
+- Security audit
+
+To run the same checks locally before pushing:
+
+```bash
+# Quick validation
+make pre-commit
+
+# Full CI pipeline
+make pre-push
+
+# Run GitHub Actions locally with act
+make act
+```
+
+For more details, see [CI.md](./CI.md).
 
 ## Disclaimer
 

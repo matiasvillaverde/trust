@@ -108,9 +108,7 @@ fn validate_risk_per_trade(
         return Err(Box::new(FundValidationError {
             code: FundValidationErrorCode::RiskPerMonthExceeded,
             message: format!(
-                "Risk per month exceeded for risk per trade rule, maximum that can be at risk is {}, trade is attempting to risk {}",
-                risk_per_month,
-                risk,
+                "Risk per month exceeded for risk per trade rule, maximum that can be at risk is {risk_per_month}, trade is attempting to risk {risk}",
             ),
         }));
     }
@@ -127,9 +125,7 @@ fn validate_risk_per_trade(
         return Err(Box::new(FundValidationError {
             code: FundValidationErrorCode::RiskPerTradeExceeded,
             message: format!(
-                "Risk per trade exceeded for risk per trade rule, maximum that can be at risk is {}, trade is attempting to risk {}",
-                maximum_risk,
-                total_risk,
+                "Risk per trade exceeded for risk per trade rule, maximum that can be at risk is {maximum_risk}, trade is attempting to risk {total_risk}",
             ),
         }));
     }
@@ -210,7 +206,7 @@ mod tests {
         assert!(result.is_err());
         assert_eq!(
             result.unwrap_err().message,
-            format!("Not enough funds in account {} for currency USD. Available: 100 and you are trying to trade: 10000", id)
+            format!("Not enough funds in account {id} for currency USD. Available: 100 and you are trying to trade: 10000")
         );
     }
 
