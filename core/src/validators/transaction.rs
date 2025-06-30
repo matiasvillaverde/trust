@@ -23,12 +23,18 @@ pub fn can_transfer_fill(trade: &Trade, total: Decimal) -> TransactionValidation
         }));
     }
 
-    if total > trade.balance.funding {
-        return Err(Box::new(TransactionValidationError {
-            code: TransactionValidationErrorCode::NotEnoughFunds,
-            message: "Trade doesn't have enough funding".to_string(),
-        }));
-    }
+    // BUG: Limit orders in SELL SHORT might be filled with more capital.
+    // if total > trade.balance.funding {
+    // return Err(Box::new(TransactionValidationError {
+    //     code: TransactionValidationErrorCode::NotEnoughFunds,
+    //     message: format!(
+    //         "Insufficient funding balance. Required: {}, Available: {}, Shortfall: {}",
+    //         total,
+    //         trade.balance.funding,
+    //         total - trade.balance.funding
+    //     ),
+    // }));
+    // }
     Ok(())
 }
 
