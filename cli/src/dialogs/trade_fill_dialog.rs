@@ -49,7 +49,7 @@ impl FillTradeDialogBuilder {
                 TradeBalanceView::display(&trade.balance);
                 TransactionView::display(&tx, name.as_str());
             }
-            Err(error) => println!("Error approving trade: {:?}", error),
+            Err(error) => println!("Error approving trade: {error:?}"),
         }
     }
 
@@ -57,7 +57,7 @@ impl FillTradeDialogBuilder {
         let account = AccountSearchDialog::new().search(trust).build();
         match account {
             Ok(account) => self.account = Some(account),
-            Err(error) => println!("Error searching account: {:?}", error),
+            Err(error) => println!("Error searching account: {error:?}"),
         }
         self
     }

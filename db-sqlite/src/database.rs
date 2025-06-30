@@ -125,7 +125,7 @@ impl SqliteDatabase {
         let db_exists = std::path::Path::new(database_url).exists();
         // Use the database URL to establish a connection to the SQLite database
         let mut connection = SqliteConnection::establish(database_url)
-            .unwrap_or_else(|_| panic!("Error connecting to {}", database_url));
+            .unwrap_or_else(|_| panic!("Error connecting to {database_url}"));
 
         // Run migrations only if it is a new DB
         if !db_exists {

@@ -84,7 +84,7 @@ impl ModifyDialogBuilder {
                 println!("Target:");
                 OrderView::display(trade.target);
             }
-            Err(error) => println!("Error submitting trade: {:?}", error),
+            Err(error) => println!("Error submitting trade: {error:?}"),
         }
     }
 
@@ -92,7 +92,7 @@ impl ModifyDialogBuilder {
         let account = AccountSearchDialog::new().search(trust).build();
         match account {
             Ok(account) => self.account = Some(account),
-            Err(error) => println!("Error searching account: {:?}", error),
+            Err(error) => println!("Error searching account: {error:?}"),
         }
         self
     }

@@ -45,7 +45,7 @@ async fn cancel_target(client: &Client, order_id: Uuid) -> Result<(), Box<dyn Er
     match result {
         Ok(_) => Ok(()),
         Err(e) => {
-            eprintln!("Error cancel target: {:?}", e);
+            eprintln!("Error cancel target: {e:?}");
             Err(Box::new(e))
         }
     }
@@ -60,7 +60,7 @@ async fn submit_market_order(
     match result {
         Ok(order) => Ok(order),
         Err(e) => {
-            eprintln!("Error posting cancel trade: {:?}", e);
+            eprintln!("Error posting cancel trade: {e:?}");
             Err(Box::new(e))
         }
     }

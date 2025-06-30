@@ -49,7 +49,7 @@ impl KeysWriteDialogBuilder {
             .expect("No result found, did you forget to call build?")
         {
             Ok(keys) => println!("Keys created: {:?}", keys.key_id),
-            Err(error) => println!("Error creating keys: {:?}", error),
+            Err(error) => println!("Error creating keys: {error:?}"),
         }
     }
 
@@ -95,7 +95,7 @@ impl KeysWriteDialogBuilder {
         let account = AccountSearchDialog::new().search(trust).build();
         match account {
             Ok(account) => self.account = Some(account),
-            Err(error) => println!("Error searching account: {:?}", error),
+            Err(error) => println!("Error searching account: {error:?}"),
         }
         self
     }
@@ -135,7 +135,7 @@ impl KeysReadDialogBuilder {
             .expect("No result found, did you forget to call build?")
         {
             Ok(keys) => println!("Keys stored: {:?}", keys.key_id),
-            Err(error) => println!("Error reading keys: {:?}", error),
+            Err(error) => println!("Error reading keys: {error:?}"),
         }
     }
 
@@ -157,7 +157,7 @@ impl KeysReadDialogBuilder {
         let account = AccountSearchDialog::new().search(trust).build();
         match account {
             Ok(account) => self.account = Some(account),
-            Err(error) => println!("Error searching account: {:?}", error),
+            Err(error) => println!("Error searching account: {error:?}"),
         }
         self
     }
@@ -197,7 +197,7 @@ impl KeysDeleteDialogBuilder {
             .expect("No result found, did you forget to call build?")
         {
             Ok(_) => println!("Keys deleted"),
-            Err(error) => println!("Error deleting keys: {:?}", error),
+            Err(error) => println!("Error deleting keys: {error:?}"),
         }
     }
 
@@ -219,7 +219,7 @@ impl KeysDeleteDialogBuilder {
         let account = AccountSearchDialog::new().search(trust).build();
         match account {
             Ok(account) => self.account = Some(account),
-            Err(error) => println!("Error searching account: {:?}", error),
+            Err(error) => println!("Error searching account: {error:?}"),
         }
         self
     }

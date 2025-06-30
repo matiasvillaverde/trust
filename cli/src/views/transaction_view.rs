@@ -35,6 +35,6 @@ impl TransactionView {
             .collect();
         let mut table = Table::new(views);
         table.with(Style::modern());
-        println!("{}", table);
+        println!("{table}");
     }
 }

@@ -32,6 +32,6 @@ impl TradingVehicleView {
         let views: Vec<TradingVehicleView> = tvs.into_iter().map(TradingVehicleView::new).collect();
         let mut table = Table::new(views);
         table.with(Style::modern());
-        println!("{}", table);
+        println!("{table}");
     }
 }

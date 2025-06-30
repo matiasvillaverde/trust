@@ -30,14 +30,13 @@ impl TradeCapitalInMarket {
                     // We ignore the fees because they are charged from the account and not from the trade.
                 }
                 default => panic!(
-                    "TradeCapitalInMarket: does not know how to calculate transaction with category: {}",
-                    default
+                    "TradeCapitalInMarket: does not know how to calculate transaction with category: {default}"
                 ),
             }
         }
 
         if total.is_sign_negative() {
-            return Err(format!("TradeCapitalInMarket: capital is negative: {}", total).into());
+            return Err(format!("TradeCapitalInMarket: capital is negative: {total}").into());
         }
 
         Ok(total)

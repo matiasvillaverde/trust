@@ -12,8 +12,7 @@ pub fn can_create(
         Err(Box::new(RuleValidationError {
             code: RuleValidationErrorCode::RuleAlreadyExistsInAccount,
             message: format!(
-                "Rule with name {} already exists in the selected account",
-                rule
+                "Rule with name {rule} already exists in the selected account"
             ),
         }))
     } else {

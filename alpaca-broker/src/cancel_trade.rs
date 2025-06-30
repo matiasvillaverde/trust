@@ -30,7 +30,7 @@ async fn cancel_entry(client: &Client, order_id: Uuid) -> Result<(), Box<dyn Err
     match result {
         Ok(_) => Ok(()),
         Err(e) => {
-            eprintln!("Error cancel entry: {:?}", e);
+            eprintln!("Error cancel entry: {e:?}");
             Err(Box::new(e))
         }
     }

@@ -20,8 +20,7 @@ impl AccountCapitalTaxable {
                 TransactionCategory::PaymentTax(_) => transaction.amount,
                 TransactionCategory::WithdrawalTax => -transaction.amount,
                 default => panic!(
-                    "capital_taxable: does not know how to calculate transaction with category: {}",
-                    default
+                    "capital_taxable: does not know how to calculate transaction with category: {default}"
                 ),
             })
             .sum();

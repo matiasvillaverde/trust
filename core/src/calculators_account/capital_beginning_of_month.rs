@@ -30,17 +30,14 @@ impl AccountCapitalBeginningOfMonth {
                     total += transaction.amount
                 }
                 default => panic!(
-                    "capital_at_beginning_of_month: does not know how to calculate transaction with category: {}. Transaction: {:?}",
-                    default,
-                    transaction
+                    "capital_at_beginning_of_month: does not know how to calculate transaction with category: {default}. Transaction: {transaction:?}"
                 ),
             }
         }
 
         if total.is_sign_negative() {
             return Err(format!(
-                "capital_at_beginning_of_month: capital at beginning of the month was negative: {}",
-                total
+                "capital_at_beginning_of_month: capital at beginning of the month was negative: {total}"
             )
             .into());
         }

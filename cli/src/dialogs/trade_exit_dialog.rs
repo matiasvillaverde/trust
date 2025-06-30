@@ -71,7 +71,7 @@ impl ExitDialogBuilder {
 
                 AccountBalanceView::display(account_balance, account_name.as_str());
             }
-            Err(error) => println!("Error approving trade: {:?}", error),
+            Err(error) => println!("Error approving trade: {error:?}"),
         }
     }
 
@@ -79,7 +79,7 @@ impl ExitDialogBuilder {
         let account = AccountSearchDialog::new().search(trust).build();
         match account {
             Ok(account) => self.account = Some(account),
-            Err(error) => println!("Error searching account: {:?}", error),
+            Err(error) => println!("Error searching account: {error:?}"),
         }
         self
     }

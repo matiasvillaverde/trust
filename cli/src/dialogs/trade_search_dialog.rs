@@ -52,7 +52,7 @@ impl TradeSearchDialogBuilder {
                     TradeView::display_trades(trades, name.as_str());
                 }
             }
-            Err(error) => println!("Error searching account: {:?}", error),
+            Err(error) => println!("Error searching account: {error:?}"),
         }
     }
 
@@ -60,7 +60,7 @@ impl TradeSearchDialogBuilder {
         let account = AccountSearchDialog::new().search(trust).build();
         match account {
             Ok(account) => self.account = Some(account),
-            Err(error) => println!("Error searching account: {:?}", error),
+            Err(error) => println!("Error searching account: {error:?}"),
         }
         self
     }

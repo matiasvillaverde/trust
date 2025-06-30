@@ -54,12 +54,12 @@ impl TransactionDialogBuilder {
         {
             Ok((transaction, balance)) => {
                 let name = self.account.unwrap().name;
-                println!("Transaction created in account:  {}", name);
+                println!("Transaction created in account:  {name}");
                 TransactionView::display(&transaction, &name);
-                println!("Now the account {} balance is:", name);
+                println!("Now the account {name} balance is:");
                 AccountBalanceView::display(balance, &name);
             }
-            Err(error) => println!("Error creating account: {:?}", error),
+            Err(error) => println!("Error creating account: {error:?}"),
         }
     }
 
@@ -84,7 +84,7 @@ impl TransactionDialogBuilder {
                         balance.total_available, balance.currency
                     );
                 }
-                Err(error) => println!("Error searching account: {:?}", error),
+                Err(error) => println!("Error searching account: {error:?}"),
             }
         }
 
@@ -123,7 +123,7 @@ impl TransactionDialogBuilder {
                         currencies.push(balance.currency);
                     }
                 }
-                Err(error) => println!("Error searching account: {:?}", error),
+                Err(error) => println!("Error searching account: {error:?}"),
             }
         } else {
             currencies = Currency::all();
@@ -146,7 +146,7 @@ impl TransactionDialogBuilder {
         let account = AccountSearchDialog::new().search(trust).build();
         match account {
             Ok(account) => self.account = Some(account),
-            Err(error) => println!("Error searching account: {:?}", error),
+            Err(error) => println!("Error searching account: {error:?}"),
         }
         self
     }

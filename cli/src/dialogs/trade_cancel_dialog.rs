@@ -56,7 +56,7 @@ impl CancelDialogBuilder {
                 AccountBalanceView::display(account_o, account_name.as_str());
                 TransactionView::display(&tx, account_name.as_str());
             }
-            Err(error) => println!("Error approving trade: {:?}", error),
+            Err(error) => println!("Error approving trade: {error:?}"),
         }
     }
 
@@ -64,7 +64,7 @@ impl CancelDialogBuilder {
         let account = AccountSearchDialog::new().search(trust).build();
         match account {
             Ok(account) => self.account = Some(account),
-            Err(error) => println!("Error searching account: {:?}", error),
+            Err(error) => println!("Error searching account: {error:?}"),
         }
         self
     }

@@ -34,7 +34,7 @@ pub fn create(
             unimplemented!("WithdrawalEarnings is not implemented yet")
         }
         default => {
-            let message = format!("Manually creating transaction category {:?} is not allowed. Only Withdrawals and deposits are allowed", default);
+            let message = format!("Manually creating transaction category {default:?} is not allowed. Only Withdrawals and deposits are allowed");
             Err(message.into())
         }
     }

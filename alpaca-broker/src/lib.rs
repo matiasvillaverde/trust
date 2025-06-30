@@ -42,7 +42,7 @@ impl Broker for AlpacaBroker {
     }
 
     fn cancel_trade(&self, trade: &Trade, account: &Account) -> Result<(), Box<dyn Error>> {
-        println!("Canceling trade: {:?}", trade);
+        println!("Canceling trade: {trade:?}");
         cancel_trade::cancel(trade, account)
     }
 

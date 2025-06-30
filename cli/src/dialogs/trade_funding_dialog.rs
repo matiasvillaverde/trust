@@ -48,7 +48,7 @@ impl FundingDialogBuilder {
                 println!("Account balance after funding trade:");
                 AccountBalanceView::display(account_balance, account.as_str());
             }
-            Err(error) => println!("Error approving trade: {:?}", error),
+            Err(error) => println!("Error approving trade: {error:?}"),
         }
     }
 
@@ -56,7 +56,7 @@ impl FundingDialogBuilder {
         let account = AccountSearchDialog::new().search(trust).build();
         match account {
             Ok(account) => self.account = Some(account),
-            Err(error) => println!("Error searching account: {:?}", error),
+            Err(error) => println!("Error searching account: {error:?}"),
         }
         self
     }
