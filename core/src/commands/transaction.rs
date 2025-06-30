@@ -25,12 +25,8 @@ pub fn create(
     account_id: Uuid,
 ) -> Result<(Transaction, AccountBalance), Box<dyn Error>> {
     match category {
-        TransactionCategory::Deposit => {
-            deposit(database, amount, currency, account_id)
-        }
-        TransactionCategory::Withdrawal => {
-            withdraw(database, amount, currency, account_id)
-        }
+        TransactionCategory::Deposit => deposit(database, amount, currency, account_id),
+        TransactionCategory::Withdrawal => withdraw(database, amount, currency, account_id),
         TransactionCategory::WithdrawalTax => {
             unimplemented!("WithdrawalTax is not implemented yet")
         }

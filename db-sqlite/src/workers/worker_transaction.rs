@@ -167,9 +167,7 @@ impl WorkerTransaction {
             currency,
         )?;
 
-        let in_market_trades = submitted_trades
-            .into_iter()
-            .chain(filled_trades);
+        let in_market_trades = submitted_trades.into_iter().chain(filled_trades);
 
         let submitted_trades: Vec<Transaction> = in_market_trades
             .into_iter()
@@ -183,10 +181,7 @@ impl WorkerTransaction {
             .flatten()
             .collect();
 
-        Ok(funded_tx
-            .into_iter()
-            .chain(submitted_trades)
-            .collect())
+        Ok(funded_tx.into_iter().chain(submitted_trades).collect())
     }
 
     pub fn read_all_account_transactions_taxes(
