@@ -877,9 +877,9 @@ fn test_short_trade_funding_with_better_entry_execution() {
             dec!(10),
         )
         .expect("Failed to create account");
-    
+
     let account = trust.search_account("alpaca").unwrap();
-    
+
     trust
         .create_transaction(
             &account,
@@ -888,7 +888,7 @@ fn test_short_trade_funding_with_better_entry_execution() {
             &Currency::USD,
         )
         .expect("Failed to deposit money");
-    
+
     trust
         .create_rule(
             &account,
@@ -919,7 +919,7 @@ fn test_short_trade_funding_with_better_entry_execution() {
     trust
         .create_trade(draft_trade, dec!(15), dec!(10), dec!(8)) // stop, entry, target
         .expect("Failed to create short trade");
-    
+
     let trade = trust
         .search_trades(account.id, Status::New)
         .expect("Failed to find trade")
@@ -935,7 +935,12 @@ fn test_short_trade_funding_with_better_entry_execution() {
     // Verify the trade was funded with the correct amount
     let balance = trust.search_balance(account.id, &Currency::USD).unwrap();
     println!("Balance after funding: {}", balance.total_available);
-    println!("Expected funding for short trade: stop({}) * quantity({}) = {}", 15, 6, 15 * 6);
+    println!(
+        "Expected funding for short trade: stop({}) * quantity({}) = {}",
+        15,
+        6,
+        15 * 6
+    );
     // For short trades, we should fund based on stop price
     // Initial: 100, Funding: -90 (15*6), Remaining: 10
     // But the actual calculation might include the entry amount
@@ -976,7 +981,7 @@ fn test_short_trade_funding_with_better_entry_execution() {
     // 6. Verify transaction succeeds without funding errors
     // The fact that sync_trade succeeded means the validation passed
     assert_eq!(filled_trade.status, Status::Filled);
-    
+
     // Verify the account balance is still correct after fill
     let final_balance = trust.search_balance(account.id, &Currency::USD).unwrap();
     // Balance should reflect the entry transaction

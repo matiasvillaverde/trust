@@ -36,7 +36,7 @@ pub fn can_fund(trade: &Trade, database: &mut dyn DatabaseFactory) -> FundingVal
 
 fn validate_enough_capital(trade: &Trade, balance: &AccountBalance) -> FundingValidationResult {
     let required_capital = TradeCapitalRequired::calculate(trade);
-    
+
     if balance.total_available >= required_capital {
         Ok(())
     } else {

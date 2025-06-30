@@ -32,20 +32,18 @@ pub fn can_transfer_fill(trade: &Trade, total: Decimal) -> TransactionValidation
             trade.balance.funding
         }
     };
-    
+
     if total > max_possible_fill {
         return Err(Box::new(TransactionValidationError {
             code: TransactionValidationErrorCode::NotEnoughFunds,
             message: format!(
                 "Insufficient funding balance for {} trade. \
                 Required: {}, Maximum allowed: {}",
-                trade.category,
-                total,
-                max_possible_fill
+                trade.category, total, max_possible_fill
             ),
         }));
     }
-    
+
     Ok(())
 }
 
@@ -233,11 +231,11 @@ mod tests {
             },
             ..Default::default()
         };
-        
+
         // When: Entry fills at better price ($11 instead of $10)
         // Total needed: $11 * 6 = $66
         let total = dec!(66);
-        
+
         // Then: Should pass validation (because funded for worst case)
         assert!(can_transfer_fill(&trade, total).is_ok());
     }
