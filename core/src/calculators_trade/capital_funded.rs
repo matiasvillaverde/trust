@@ -25,9 +25,7 @@ impl TradeCapitalFunded {
         }
 
         if total.is_sign_negative() {
-            return Err(
-                format!("TradeCapitalFunded: capital funded is negative: {total}").into(),
-            );
+            return Err(format!("TradeCapitalFunded: capital funded is negative: {total}").into());
         }
 
         Ok(total)

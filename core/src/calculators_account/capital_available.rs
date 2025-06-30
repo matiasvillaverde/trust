@@ -32,9 +32,7 @@ impl AccountCapitalAvailable {
 
         // Check if the total is negative, if it is then return an error
         if total.is_sign_negative() {
-            return Err(
-                format!("capital_available: total available is negative: {total}").into(),
-            );
+            return Err(format!("capital_available: total available is negative: {total}").into());
         }
 
         // If total is positive, return the value of total
