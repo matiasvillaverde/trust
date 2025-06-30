@@ -1,4 +1,4 @@
-use model::{AccountBalance, AccountBalanceRead, Currency, Status, Trade};
+use model::{AccountBalance, AccountBalanceRead, Currency, Status, Trade, TradeCategory};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use std::error::Error;
@@ -23,18 +23,27 @@ pub fn can_transfer_fill(trade: &Trade, total: Decimal) -> TransactionValidation
         }));
     }
 
-    // BUG: Limit orders in SELL SHORT might be filled with more capital.
-    // if total > trade.balance.funding {
-    // return Err(Box::new(TransactionValidationError {
-    //     code: TransactionValidationErrorCode::NotEnoughFunds,
-    //     message: format!(
-    //         "Insufficient funding balance. Required: {}, Available: {}, Shortfall: {}",
-    //         total,
-    //         trade.balance.funding,
-    //         total - trade.balance.funding
-    //     ),
-    // }));
-    // }
+    // Re-enable validation with proper funding check
+    let max_possible_fill = match trade.category {
+        TradeCategory::Long => trade.balance.funding,
+        TradeCategory::Short => {
+            // For short trades, the funding is based on stop price,
+            // so we allow fills up to that amount
+            trade.balance.funding
+        }
+    };
+
+    if total > max_possible_fill {
+        return Err(Box::new(TransactionValidationError {
+            code: TransactionValidationErrorCode::NotEnoughFunds,
+            message: format!(
+                "Insufficient funding balance for {} trade. \
+                Required: {}, Maximum allowed: {}",
+                trade.category, total, max_possible_fill
+            ),
+        }));
+    }
+
     Ok(())
 }
 
@@ -152,7 +161,7 @@ impl Error for TransactionValidationError {
 }
 #[cfg(test)]
 mod tests {
-    use model::TradeBalance;
+    use model::{Order, TradeBalance};
 
     use super::*;
 
@@ -195,9 +204,40 @@ mod tests {
             ..Default::default()
         };
         let total = dec!(1500);
-        // BUG: Validation is currently disabled for limit orders in SELL SHORT
-        // This test should be re-enabled when the bug is fixed
-        assert_eq!(can_transfer_fill(&trade, total), Ok(()));
+        // With proper validation re-enabled, this should now fail
+        assert!(can_transfer_fill(&trade, total).is_err());
+    }
+
+    #[test]
+    fn test_validate_fill_short_trade_with_better_entry_price() {
+        // Given: Short trade funded with stop price consideration
+        // Entry at $10, stop at $15, quantity 6 = $90 required funding
+        let trade = Trade {
+            category: TradeCategory::Short,
+            balance: TradeBalance {
+                funding: dec!(90), // Funded based on stop price
+                ..Default::default()
+            },
+            status: Status::Funded,
+            entry: Order {
+                unit_price: dec!(10),
+                quantity: 6,
+                ..Default::default()
+            },
+            safety_stop: Order {
+                unit_price: dec!(15),
+                quantity: 6,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        // When: Entry fills at better price ($11 instead of $10)
+        // Total needed: $11 * 6 = $66
+        let total = dec!(66);
+
+        // Then: Should pass validation (because funded for worst case)
+        assert!(can_transfer_fill(&trade, total).is_ok());
     }
 
     #[test]

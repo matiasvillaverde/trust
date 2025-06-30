@@ -8,7 +8,7 @@ use std::error::Error;
 use uuid::Uuid;
 
 use crate::{
-    calculators_trade::TradeCapitalOutOfMarket,
+    calculators_trade::{TradeCapitalOutOfMarket, TradeCapitalRequired},
     validators::{
         transaction::{self, can_transfer_deposit},
         TransactionValidationErrorCode,
@@ -124,7 +124,10 @@ pub fn transfer_to_fund_trade(
     // 2. Create transaction
     let account = database.account_read().id(trade.account_id)?;
 
-    let trade_total = trade.entry.unit_price * Decimal::from(trade.entry.quantity);
+    // Use the calculator to determine the required capital based on trade type.
+    // For short trades, this uses the stop price (worst case) to ensure we have
+    // enough capital even if the entry executes at a better price.
+    let trade_total = TradeCapitalRequired::calculate(trade);
 
     let transaction = database.transaction_write().create_transaction(
         &account,
