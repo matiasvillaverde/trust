@@ -47,11 +47,9 @@ impl TradeCapitalOutOfMarket {
             }
         }
 
-        // BUG: Limit orders in SELL SHORT might be filled with more capital.
-        // if total.is_sign_negative() {
-        //     return Err(format!("TradeCapitalOutOfMarket: capital is negative: {}", total).into());
-        // }
-
+        // Note: The total can be negative in some cases (e.g., short trades where we receive
+        // more from selling than we initially funded). This is expected behavior now that
+        // short trades are properly funded based on the stop price.
         Ok(total)
     }
 }

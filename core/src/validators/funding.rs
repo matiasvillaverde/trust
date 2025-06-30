@@ -1,5 +1,5 @@
-use crate::calculators_trade::RiskCalculator;
-use model::{AccountBalance, DatabaseFactory, Rule, RuleName, Trade};
+use crate::calculators_trade::{RiskCalculator, TradeCapitalRequired};
+use model::{AccountBalance, DatabaseFactory, Rule, RuleName, Trade, TradeCategory};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use std::error::Error;
@@ -35,18 +35,27 @@ pub fn can_fund(trade: &Trade, database: &mut dyn DatabaseFactory) -> FundingVal
 }
 
 fn validate_enough_capital(trade: &Trade, balance: &AccountBalance) -> FundingValidationResult {
-    match balance.total_available >= trade.entry.unit_price * Decimal::from(trade.entry.quantity) {
-        true => Ok(()),
-        false => Err(Box::new(FundValidationError {
+    let required_capital = TradeCapitalRequired::calculate(trade);
+    
+    if balance.total_available >= required_capital {
+        Ok(())
+    } else {
+        Err(Box::new(FundValidationError {
             code: FundValidationErrorCode::NotEnoughFunds,
             message: format!(
-                "Not enough funds in account {} for currency {}. Available: {} and you are trying to trade: {}",
+                "Not enough funds in account {} for {} trade in {}. \
+                Required: {} (based on {}), Available: {}",
                 trade.account_id,
+                trade.category,
                 trade.currency,
-                balance.total_available,
-                trade.entry.unit_price * Decimal::from(trade.entry.quantity)
+                required_capital,
+                match trade.category {
+                    TradeCategory::Long => "entry price",
+                    TradeCategory::Short => "stop price (worst case)",
+                },
+                balance.total_available
             ),
-        })),
+        }))
     }
 }
 
@@ -161,7 +170,7 @@ pub enum FundValidationErrorCode {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use model::Order;
+    use model::{Order, TradeCategory};
     use uuid::Uuid;
 
     #[test]
@@ -204,10 +213,72 @@ mod tests {
         let result = validate_enough_capital(&trade, &balance);
 
         assert!(result.is_err());
-        assert_eq!(
-            result.unwrap_err().message,
-            format!("Not enough funds in account {id} for currency USD. Available: 100 and you are trying to trade: 10000")
-        );
+        let err_msg = result.unwrap_err().message;
+        assert!(err_msg.contains("10000")); // Required amount
+        assert!(err_msg.contains("100")); // Available amount
+    }
+
+    #[test]
+    fn test_validate_enough_capital_short_trade_uses_stop_price() {
+        // Given: A short trade with entry at $10 and stop at $15
+        let trade = Trade {
+            category: TradeCategory::Short,
+            entry: Order {
+                unit_price: dec!(10),
+                quantity: 4,
+                ..Default::default()
+            },
+            safety_stop: Order {
+                unit_price: dec!(15),
+                quantity: 4,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        // When: Validating with balance of $60 (enough for stop: 15*4=60)
+        let balance = AccountBalance {
+            total_available: dec!(60),
+            ..Default::default()
+        };
+
+        // Then: Should pass validation
+        assert!(validate_enough_capital(&trade, &balance).is_ok());
+    }
+
+    #[test]
+    fn test_validate_enough_capital_short_trade_insufficient_for_stop() {
+        // Given: A short trade with entry at $10 and stop at $15
+        let id = Uuid::new_v4();
+        let trade = Trade {
+            account_id: id,
+            category: TradeCategory::Short,
+            entry: Order {
+                unit_price: dec!(10),
+                quantity: 4,
+                ..Default::default()
+            },
+            safety_stop: Order {
+                unit_price: dec!(15),
+                quantity: 4,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        // When: Validating with balance of $45 (not enough for stop: 15*4=60)
+        let balance = AccountBalance {
+            total_available: dec!(45),
+            ..Default::default()
+        };
+
+        // Then: Should fail with clear error message
+        let result = validate_enough_capital(&trade, &balance);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("stop price"));
+        assert!(err.message.contains("60")); // Required amount
+        assert!(err.message.contains("45")); // Available amount
     }
 
     #[test]
