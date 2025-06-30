@@ -51,7 +51,7 @@ fn validate_enough_capital(trade: &Trade, balance: &AccountBalance) -> FundingVa
                 required_capital,
                 match trade.category {
                     TradeCategory::Long => "entry price",
-                    TradeCategory::Short => "stop price (worst case)",
+                    TradeCategory::Short => "stop price (full amount needed to close)",
                 },
                 balance.total_available
             ),
