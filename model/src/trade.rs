@@ -127,7 +127,7 @@ impl std::fmt::Display for Status {
             Status::ClosedStopLoss => "closed_stop_loss",
             Status::ClosedTarget => "closed_target",
         };
-        write!(f, "{}", status)
+        write!(f, "{status}")
     }
 }
 
