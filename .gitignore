@@ -15,3 +15,6 @@ db-sqlite/*.db
 
 # Ignore all environmental files
 .env
+
+# Act configuration (local GitHub Actions runner)
+.actrc

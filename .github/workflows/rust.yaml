@@ -1,4 +1,4 @@
-name: Rust
+name: Rust CI
 
 on:
   push:
@@ -8,101 +8,142 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  RUSTFLAGS: -D warnings
+  CARGO_INCREMENTAL: 0
 
 jobs:
-  build:
+  # Quick checks run first for fast feedback
+  quick-checks:
+    name: Quick Checks
     runs-on: ubuntu-latest
-
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
-    - name: Install rust
-      uses: dtolnay/rust-toolchain@master
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
       with:
-          toolchain: stable
+        components: rustfmt
 
-    - uses: actions/cache@v3
+    - name: Check formatting
+      run: cargo fmt --all -- --check
+
+    - name: Quick compilation check
+      run: cargo check --locked --workspace --all-features
+
+  # Lint job runs in parallel with tests
+  lint:
+    name: Clippy
+    runs-on: ubuntu-latest
+    needs: quick-checks
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: clippy
+
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-
+
+    - name: Run clippy
+      run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+  # Combined build and test job for efficiency
+  build-and-test:
+    name: Build and Test
+    runs-on: ubuntu-latest
+    needs: quick-checks
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: "Test (all features)"
+            cmd: "cargo test --locked --all-features --workspace"
+          - name: "Test (no features)"
+            cmd: "cargo test --locked --no-default-features --workspace"
+          - name: "Doc tests"
+            cmd: "cargo test --locked --doc"
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-
+
+    - name: Build workspace
+      run: |
+        cargo build --locked --workspace --all-features
+        cargo build --locked --workspace --no-default-features
+
+    - name: ${{ matrix.name }}
+      run: ${{ matrix.cmd }}
+
+  # Release build verification
+  release-build:
+    name: Release Build
+    runs-on: ubuntu-latest
+    needs: quick-checks
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Cache dependencies
+      uses: actions/cache@v3
       with:
         path: |
           ~/.cargo/registry
           ~/.cargo/git
           target
         key: ${{ runner.os }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-release-
+          ${{ runner.os }}-cargo-
 
-    - name: Run cargo build model
-      run: cargo build -p model --locked --release
+    - name: Build all crates in release mode
+      run: |
+        cargo build --locked --release -p model
+        cargo build --locked --release -p core
+        cargo build --locked --release -p cli
+        cargo build --locked --release --all
 
-    - name: Run cargo build trust
-      run: cargo build -p core --locked --release
-
-    - name: Run cargo build cli
-      run: cargo build -p cli --locked --release
-
-    - name: Run cargo build main
-      run: cargo build --all --locked --release
-
-  test:
+  # Security audit (optional, can be removed for speed)
+  audit:
+    name: Security Audit
     runs-on: ubuntu-latest
-
+    continue-on-error: true
     steps:
-    - uses: actions/checkout@v3
-
-    - name: Install rust
-      uses: dtolnay/rust-toolchain@master
+    - uses: actions/checkout@v4
+    - uses: rustsec/audit-check@v1.4.1
       with:
-          toolchain: stable
+        token: ${{ secrets.GITHUB_TOKEN }}
 
-    - uses: actions/cache@v3
-      with:
-        path: |
-          ~/.cargo/registry
-          ~/.cargo/git
-          target
-        key: ${ runner.os }-cargo-debug-${{ hashFiles('**/Cargo.lock') }}
-
-    - name: Run cargo test
-      run: cargo test --all-features --workspace
-
-    - name: Run cargo check (all features)
-      run: cargo check --all-features --workspace
-
-    - name: Run cargo check (no features)
-      run: cargo check --no-default-features --workspace
-
-  clippy:
+  # Summary job to ensure all checks pass
+  ci-success:
+    name: CI Success
     runs-on: ubuntu-latest
-
+    needs: [quick-checks, lint, build-and-test, release-build]
     steps:
-    - uses: actions/checkout@v3
-
-    - name: Install latest rust
-      uses: dtolnay/rust-toolchain@master
-      with:
-          toolchain: stable
-          components: clippy
-
-    - uses: actions/cache@v3
-      with:
-        path: |
-          ~/.cargo/registry
-          ~/.cargo/git
-          target
-        key: ${{ runner.os }}-cargo-debug-${{ hashFiles('**/Cargo.lock') }}
-
-    - name: Run clippy
-      run: cargo clippy -- -D warnings
-
-  format:
-    runs-on: ubuntu-latest
-
-    steps:
-    - uses: actions/checkout@v3
-
-    - name: Install latest rust
-      uses: dtolnay/rust-toolchain@master
-      with:
-          toolchain: stable
-          components: rustfmt
-
-    - name: Format
-      run: cargo fmt -- --check
+    - name: CI Success
+      run: echo "All CI checks passed successfully!"
