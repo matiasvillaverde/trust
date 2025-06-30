@@ -1,5 +1,5 @@
 use crate::keys;
-use apca::api::v2::order::{ChangeReq, Id, Order, Change};
+use apca::api::v2::order::{Change, ChangeReq, Id, Order};
 use apca::Client;
 use model::{Account, Trade};
 use num_decimal::Num;

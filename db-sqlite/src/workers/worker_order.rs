@@ -78,7 +78,7 @@ impl WorkerOrder {
             ))
             .execute(connection)?;
 
-        return WorkerOrder::read(connection, order.id);
+        WorkerOrder::read(connection, order.id)
     }
 
     pub fn update_price(
@@ -97,7 +97,7 @@ impl WorkerOrder {
             ))
             .execute(connection)?;
 
-        return WorkerOrder::read(connection, order.id);
+        WorkerOrder::read(connection, order.id)
     }
 
     pub fn update_submitted_at(
@@ -115,7 +115,7 @@ impl WorkerOrder {
             ))
             .execute(connection)?;
 
-        return WorkerOrder::read(connection, order.id);
+        WorkerOrder::read(connection, order.id)
     }
 
     pub fn update_filled_at(
@@ -128,7 +128,7 @@ impl WorkerOrder {
             .set((orders::filled_at.eq(now), orders::updated_at.eq(now)))
             .execute(connection)?;
 
-        return WorkerOrder::read(connection, order.id);
+        WorkerOrder::read(connection, order.id)
     }
 
     pub fn update_closed_at(
@@ -141,7 +141,7 @@ impl WorkerOrder {
             .set((orders::closed_at.eq(now), orders::updated_at.eq(now)))
             .execute(connection)?;
 
-        return WorkerOrder::read(connection, order.id);
+        WorkerOrder::read(connection, order.id)
     }
 }
 

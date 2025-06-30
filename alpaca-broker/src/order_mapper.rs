@@ -16,7 +16,7 @@ pub fn map_entry(alpaca_order: AlpacaOrder, trade: &Trade) -> Result<Vec<Order>,
     // 2. Target and stop orders
     updated_orders.extend(alpaca_order.legs.iter().filter_map(|order| {
         let order_id_str = order.id.to_string();
-        
+
         // Safely handle target order mapping
         if let Some(target_broker_id) = trade.target.broker_order_id {
             if order_id_str == target_broker_id.to_string() {
@@ -31,7 +31,7 @@ pub fn map_entry(alpaca_order: AlpacaOrder, trade: &Trade) -> Result<Vec<Order>,
                 };
             }
         }
-        
+
         // Safely handle safety stop order mapping
         if let Some(stop_broker_id) = trade.safety_stop.broker_order_id {
             if order_id_str == stop_broker_id.to_string() {
@@ -46,7 +46,7 @@ pub fn map_entry(alpaca_order: AlpacaOrder, trade: &Trade) -> Result<Vec<Order>,
                 };
             }
         }
-        
+
         None
     }));
 
@@ -92,11 +92,11 @@ pub fn map_trade_status(trade: &Trade, updated_orders: &[Order]) -> Status {
     if has_recent_fill(trade.safety_stop.id, updated_orders) {
         return Status::ClosedStopLoss;
     }
-    
+
     if has_recent_fill(trade.target.id, updated_orders) {
         return Status::ClosedTarget;
     }
-    
+
     if has_recent_fill(trade.entry.id, updated_orders) {
         return Status::Filled;
     }

@@ -26,10 +26,10 @@ pub fn create(
 ) -> Result<(Transaction, AccountBalance), Box<dyn Error>> {
     match category {
         TransactionCategory::Deposit => {
-            return deposit(database, amount, currency, account_id);
+            deposit(database, amount, currency, account_id)
         }
         TransactionCategory::Withdrawal => {
-            return withdraw(database, amount, currency, account_id);
+            withdraw(database, amount, currency, account_id)
         }
         TransactionCategory::WithdrawalTax => {
             unimplemented!("WithdrawalTax is not implemented yet")

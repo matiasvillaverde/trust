@@ -35,7 +35,11 @@ pub struct RuleValidationError {
 
 impl std::fmt::Display for RuleValidationError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "RuleValidationError: {}, code: {:?}", self.message, self.code)
+        write!(
+            f,
+            "RuleValidationError: {}, code: {:?}",
+            self.message, self.code
+        )
     }
 }
 

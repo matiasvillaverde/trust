@@ -1,7 +1,7 @@
 use crate::keys;
 use apca::api::v2::order::{
-    Amount, Class, Delete, Id, Order as AlpacaOrder, CreateReq, Create, Side,
-    TimeInForce, Type, CreateReqInit
+    Amount, Class, Create, CreateReq, CreateReqInit, Delete, Id, Order as AlpacaOrder, Side,
+    TimeInForce, Type,
 };
 use apca::Client;
 use model::{Account, BrokerLog, Order, Trade, TradeCategory};

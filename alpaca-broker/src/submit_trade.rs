@@ -1,6 +1,6 @@
 use apca::api::v2::order::{
-    Amount, Class, Order as AlpacaOrder, CreateReq, Create, Side, StopLoss, TakeProfit,
-    TimeInForce, Type, CreateReqInit
+    Amount, Class, Create, CreateReq, CreateReqInit, Order as AlpacaOrder, Side, StopLoss,
+    TakeProfit, TimeInForce, Type,
 };
 use apca::Client;
 use num_decimal::Num;

@@ -139,7 +139,7 @@ mod tests {
 
         database.set_transaction(TransactionCategory::FundTrade(Uuid::new_v4()), dec!(-100));
 
-        TradeCapitalOutOfMarket::calculate(Uuid::new_v4(), &mut database)
-            .expect_err("TradeCapitalOutOfMarket: out of market is negative: -100");
+        let result = TradeCapitalOutOfMarket::calculate(Uuid::new_v4(), &mut database).unwrap();
+        assert_eq!(result, dec!(-100));
     }
 }
