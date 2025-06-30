@@ -106,7 +106,11 @@ pub struct TradeValidationError {
 
 impl std::fmt::Display for TradeValidationError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "TradeValidationError: {}, code: {:?}", self.message, self.code)
+        write!(
+            f,
+            "TradeValidationError: {}, code: {:?}",
+            self.message, self.code
+        )
     }
 }
 

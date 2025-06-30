@@ -15,31 +15,39 @@ pub fn map_entry(alpaca_order: AlpacaOrder, trade: &Trade) -> Result<Vec<Order>,
 
     // 2. Target and stop orders
     updated_orders.extend(alpaca_order.legs.iter().filter_map(|order| {
-        match order.id.to_string().as_str() {
-            id if id == trade.target.broker_order_id.unwrap().to_string() => {
+        let order_id_str = order.id.to_string();
+
+        // Safely handle target order mapping
+        if let Some(target_broker_id) = trade.target.broker_order_id {
+            if order_id_str == target_broker_id.to_string() {
                 // 1. Map target order to our domain model.
-                let order = map(order, trade.target.clone());
+                let mapped_order = map(order, trade.target.clone());
 
                 // 2. If the target is updated, then we add it to the updated orders.
-                if order != trade.target {
-                    Some(order)
+                return if mapped_order != trade.target {
+                    Some(mapped_order)
                 } else {
                     None
-                }
+                };
             }
-            id if id == trade.safety_stop.broker_order_id.unwrap().to_string() => {
+        }
+
+        // Safely handle safety stop order mapping
+        if let Some(stop_broker_id) = trade.safety_stop.broker_order_id {
+            if order_id_str == stop_broker_id.to_string() {
                 // 1. Map stop order to our domain model.
-                let order = map(order, trade.safety_stop.clone());
+                let mapped_order = map(order, trade.safety_stop.clone());
 
                 // 2. If the stop is updated, then we add it to the updated orders.
-                if order != trade.safety_stop {
-                    Some(order)
+                return if mapped_order != trade.safety_stop {
+                    Some(mapped_order)
                 } else {
                     None
-                }
+                };
             }
-            _ => None,
         }
+
+        None
     }));
 
     // 3. Map entry order to our domain model.
@@ -57,25 +65,61 @@ pub fn map_target(alpaca_order: AlpacaOrder, trade: &Trade) -> Result<Vec<Order>
     Ok(vec![map(&alpaca_order, trade.target.clone())])
 }
 
-pub fn map_trade_status(trade: &Trade, updated_orders: &[Order]) -> Status {
-    if updated_orders
-        .iter()
-        .any(|order| order.status == OrderStatus::Filled && order.id == trade.target.id)
-    {
-        return Status::ClosedTarget;
-    }
+// Alternative approach using helper functions for cleaner code
 
-    if updated_orders
+fn apply_updates_to_order(original: &Order, updates: &[Order]) -> Order {
+    if let Some(updated) = updates.iter().find(|o| o.id == original.id) {
+        updated.clone()
+    } else {
+        original.clone()
+    }
+}
+
+fn has_recent_fill(order_id: Uuid, updated_orders: &[Order]) -> bool {
+    updated_orders
         .iter()
-        .any(|order| order.status == OrderStatus::Filled && order.id == trade.safety_stop.id)
-    {
+        .any(|order| order.id == order_id && order.status == OrderStatus::Filled)
+}
+
+fn has_recent_unfill(order_id: Uuid, updated_orders: &[Order]) -> bool {
+    updated_orders
+        .iter()
+        .any(|order| order.id == order_id && order.status != OrderStatus::Filled)
+}
+
+pub fn map_trade_status(trade: &Trade, updated_orders: &[Order]) -> Status {
+    // Priority 1: Recent fills (what became filled in this sync)
+    if has_recent_fill(trade.safety_stop.id, updated_orders) {
         return Status::ClosedStopLoss;
     }
 
-    if updated_orders
-        .iter()
-        .any(|order| order.status == OrderStatus::Filled && order.id == trade.entry.id)
-    {
+    if has_recent_fill(trade.target.id, updated_orders) {
+        return Status::ClosedTarget;
+    }
+
+    if has_recent_fill(trade.entry.id, updated_orders) {
+        return Status::Filled;
+    }
+
+    // Priority 2: Recent unfills (orders that became not filled)
+    if has_recent_unfill(trade.entry.id, updated_orders) {
+        return Status::Submitted;
+    }
+
+    // Priority 3: Overall state (for orders already filled from previous syncs)
+    let current_safety_stop = apply_updates_to_order(&trade.safety_stop, updated_orders);
+    let current_target = apply_updates_to_order(&trade.target, updated_orders);
+    let current_entry = apply_updates_to_order(&trade.entry, updated_orders);
+
+    if current_safety_stop.status == OrderStatus::Filled {
+        return Status::ClosedStopLoss;
+    }
+
+    if current_target.status == OrderStatus::Filled {
+        return Status::ClosedTarget;
+    }
+
+    if current_entry.status == OrderStatus::Filled {
         return Status::Filled;
     }
 

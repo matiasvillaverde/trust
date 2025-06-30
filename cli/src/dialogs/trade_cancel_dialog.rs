@@ -79,7 +79,7 @@ impl CancelDialogBuilder {
 
         let trades = funded_trades
             .into_iter()
-            .chain(submitted_trades.into_iter())
+            .chain(submitted_trades)
             .collect::<Vec<Trade>>();
 
         if trades.is_empty() {

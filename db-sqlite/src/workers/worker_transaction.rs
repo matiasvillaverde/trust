@@ -116,11 +116,11 @@ impl WorkerTransaction {
         )?;
         Ok(tx_deposit
             .into_iter()
-            .chain(tx_withdrawal.into_iter())
-            .chain(tx_fee_open.into_iter())
-            .chain(tx_fee_close.into_iter())
-            .chain(tx_output.into_iter())
-            .chain(tx_input.into_iter())
+            .chain(tx_withdrawal)
+            .chain(tx_fee_open)
+            .chain(tx_fee_close)
+            .chain(tx_output)
+            .chain(tx_input)
             .collect())
     }
 
@@ -167,9 +167,7 @@ impl WorkerTransaction {
             currency,
         )?;
 
-        let in_market_trades = submitted_trades
-            .into_iter()
-            .chain(filled_trades.into_iter());
+        let in_market_trades = submitted_trades.into_iter().chain(filled_trades);
 
         let submitted_trades: Vec<Transaction> = in_market_trades
             .into_iter()
@@ -183,10 +181,7 @@ impl WorkerTransaction {
             .flatten()
             .collect();
 
-        Ok(funded_tx
-            .into_iter()
-            .chain(submitted_trades.into_iter())
-            .collect())
+        Ok(funded_tx.into_iter().chain(submitted_trades).collect())
     }
 
     pub fn read_all_account_transactions_taxes(
@@ -209,7 +204,7 @@ impl WorkerTransaction {
 
         Ok(tx_payments_tax
             .into_iter()
-            .chain(tx_withdrawal_tax.into_iter())
+            .chain(tx_withdrawal_tax)
             .collect())
     }
 
@@ -314,9 +309,9 @@ impl WorkerTransaction {
 
         Ok(tx_deposits
             .into_iter()
-            .chain(tx_withdrawals.into_iter())
-            .chain(tx_outputs.into_iter())
-            .chain(tx_inputs.into_iter())
+            .chain(tx_withdrawals)
+            .chain(tx_outputs)
+            .chain(tx_inputs)
             .collect())
     }
 
