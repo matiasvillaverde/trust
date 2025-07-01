@@ -24,14 +24,14 @@ jobs:
       - name: Get version from Cargo.toml
         id: get_version
         run: |
-          NEW_VERSION=$(grep -E '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+          NEW_VERSION=$(grep '^version = ' Cargo.toml | head -1 | cut -d'"' -f2)
           echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
 
       - name: Get previous version
         id: get_prev_version
         run: |
           git checkout HEAD~1
-          PREV_VERSION=$(grep -E '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/' || echo "0.0.0")
+          PREV_VERSION=$(grep '^version = ' Cargo.toml | head -1 | cut -d'"' -f2 || echo "0.0.0")
           echo "prev_version=$PREV_VERSION" >> $GITHUB_OUTPUT
           git checkout -
 
@@ -52,21 +52,16 @@ jobs:
     needs: check-version
     if: needs.check-version.outputs.version_changed == 'true'
     runs-on: ubuntu-latest
-    outputs:
-      upload_url: ${{ steps.create_release.outputs.upload_url }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: v${{ needs.check-version.outputs.new_version }}
-          release_name: Release v${{ needs.check-version.outputs.new_version }}
-          draft: false
-          prerelease: false
+        run: |
+          gh release create "v${{ needs.check-version.outputs.new_version }}" \
+            --title "Release v${{ needs.check-version.outputs.new_version }}" \
+            --notes "Automated release for version ${{ needs.check-version.outputs.new_version }}"
 
   build-and-upload:
     name: Build and Upload Assets
@@ -121,14 +116,11 @@ jobs:
           cd ../../../
 
       - name: Upload Release Asset
-        uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ./v${{ needs.check-version.outputs.new_version }}-${{ matrix.archive_name }}.tar.gz
-          asset_name: v${{ needs.check-version.outputs.new_version }}-${{ matrix.archive_name }}.tar.gz
-          asset_content_type: application/gzip
+        run: |
+          gh release upload "v${{ needs.check-version.outputs.new_version }}" \
+            "./v${{ needs.check-version.outputs.new_version }}-${{ matrix.archive_name }}.tar.gz"
 
   build-universal-macos:
     name: Build Universal macOS Binary
@@ -176,11 +168,8 @@ jobs:
           tar czf v${{ needs.check-version.outputs.new_version }}-universal-apple-darwin.tar.gz cli-universal
 
       - name: Upload Release Asset
-        uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ./v${{ needs.check-version.outputs.new_version }}-universal-apple-darwin.tar.gz
-          asset_name: v${{ needs.check-version.outputs.new_version }}-universal-apple-darwin.tar.gz
-          asset_content_type: application/gzip
+        run: |
+          gh release upload "v${{ needs.check-version.outputs.new_version }}" \
+            "./v${{ needs.check-version.outputs.new_version }}-universal-apple-darwin.tar.gz"
