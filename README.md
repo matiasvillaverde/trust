@@ -347,6 +347,47 @@ make act
 
 For more details, see [CI.md](./CI.md).
 
+## Releases and Supported Platforms
+
+Trust provides pre-built binaries for multiple platforms, automatically built when versions are bumped in the main branch.
+
+### Supported Platforms
+
+- **macOS**: 
+  - Intel (x86_64): `v{version}-x86_64-apple-darwin.tar.gz`
+  - Apple Silicon (ARM64): `v{version}-aarch64-apple-darwin.tar.gz`
+  - Universal Binary: `v{version}-universal-apple-darwin.tar.gz`
+- **Linux**: 
+  - x86_64: `v{version}-x86_64-unknown-linux-gnu.tar.gz`
+
+### How Releases Work
+
+Trust uses an automated release process that triggers whenever the version is updated in `Cargo.toml`:
+
+1. **Version Bump**: Developer updates the version in the `[workspace.package]` section of `Cargo.toml`
+2. **Automatic Detection**: When merged to main, GitHub Actions detects the version change
+3. **Cross-Platform Build**: The system builds binaries for all supported platforms
+4. **Release Creation**: A new GitHub Release is created with tag `v{version}`
+5. **Asset Upload**: All platform binaries are uploaded as release assets
+
+### Downloading Releases
+
+Visit the [Releases page](https://github.com/matiasvillaverde/trust/releases) to download the latest version for your platform.
+
+### Local Release Testing
+
+You can test the release build process locally:
+
+```bash
+# Check current version format
+make check-version
+
+# Build all release targets locally (macOS only)
+make release-local
+```
+
+**Note**: The `release-local` command works best on macOS as it can build for both architectures. Linux cross-compilation requires additional setup.
+
 ## Disclaimer
 
 This tool is currently in the beta phase and should be used cautiously. You should only proceed if you understand how the underlying code operates. There might be bugs and unexpected behavior on rare occasions.
