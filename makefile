@@ -62,6 +62,10 @@ help:
 	@echo "  make pre-commit     - Run checks before committing"
 	@echo "  make pre-push       - Run full CI before pushing"
 	@echo ""
+	@echo "$(GREEN)Release Commands:$(NC)"
+	@echo "  make release-local  - Build all targets locally for testing"
+	@echo "  make check-version  - Verify version format and changes"
+	@echo ""
 	@echo "$(GREEN)Utility Commands:$(NC)"
 	@echo "  make clean          - Clean build artifacts"
 	@echo "  make install-tools  - Install required development tools"
@@ -188,6 +192,36 @@ install-tools:
 	@echo "  macOS:    brew install act"
 	@echo "  Linux:    curl https://raw.githubusercontent.com/nektos/act/master/install.sh | sudo bash"
 	@echo "  Windows:  choco install act-cli"
+
+# Release Commands
+.PHONY: release-local
+release-local:
+	@echo "$(BLUE)Building all release targets locally...$(NC)"
+	@echo "$(YELLOW)Installing required targets...$(NC)"
+	@rustup target add aarch64-apple-darwin x86_64-apple-darwin x86_64-unknown-linux-gnu || true
+	@echo "$(BLUE)Building for aarch64-apple-darwin...$(NC)"
+	@$(CARGO) build --release --target aarch64-apple-darwin --bin cli
+	@echo "$(BLUE)Building for x86_64-apple-darwin...$(NC)"
+	@$(CARGO) build --release --target x86_64-apple-darwin --bin cli
+	@echo "$(BLUE)Building for x86_64-unknown-linux-gnu...$(NC)"
+	@$(CARGO) build --release --target x86_64-unknown-linux-gnu --bin cli || echo "$(YELLOW)Warning: Linux target may not be available on this platform$(NC)"
+	@echo "$(GREEN)✓ All available targets built successfully!$(NC)"
+
+.PHONY: check-version
+check-version:
+	@echo "$(BLUE)Checking version format and extracting current version...$(NC)"
+	@VERSION=$$(grep -E '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/'); \
+	if [ -z "$$VERSION" ]; then \
+		echo "$(RED)Error: Could not extract version from Cargo.toml$(NC)"; \
+		exit 1; \
+	fi; \
+	echo "$(GREEN)Current version: $$VERSION$(NC)"; \
+	if echo "$$VERSION" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+' > /dev/null; then \
+		echo "$(GREEN)✓ Version format is valid$(NC)"; \
+	else \
+		echo "$(RED)Error: Version format is invalid. Expected format: X.Y.Z$(NC)"; \
+		exit 1; \
+	fi
 
 # Act (GitHub Actions locally)
 .PHONY: act

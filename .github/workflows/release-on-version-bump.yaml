@@ -1,0 +1,186 @@
+name: Release on Version Bump
+
+permissions:
+  contents: write
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Cargo.toml'
+
+jobs:
+  check-version:
+    name: Check Version Change
+    runs-on: ubuntu-latest
+    outputs:
+      version_changed: ${{ steps.check.outputs.version_changed }}
+      new_version: ${{ steps.check.outputs.new_version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Get version from Cargo.toml
+        id: get_version
+        run: |
+          NEW_VERSION=$(grep -E '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Get previous version
+        id: get_prev_version
+        run: |
+          git checkout HEAD~1
+          PREV_VERSION=$(grep -E '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/' || echo "0.0.0")
+          echo "prev_version=$PREV_VERSION" >> $GITHUB_OUTPUT
+          git checkout -
+
+      - name: Check if version changed
+        id: check
+        run: |
+          if [ "${{ steps.get_version.outputs.new_version }}" != "${{ steps.get_prev_version.outputs.prev_version }}" ]; then
+            echo "Version changed from ${{ steps.get_prev_version.outputs.prev_version }} to ${{ steps.get_version.outputs.new_version }}"
+            echo "version_changed=true" >> $GITHUB_OUTPUT
+            echo "new_version=${{ steps.get_version.outputs.new_version }}" >> $GITHUB_OUTPUT
+          else
+            echo "Version unchanged: ${{ steps.get_version.outputs.new_version }}"
+            echo "version_changed=false" >> $GITHUB_OUTPUT
+          fi
+
+  create-release:
+    name: Create Release
+    needs: check-version
+    if: needs.check-version.outputs.version_changed == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ needs.check-version.outputs.new_version }}
+          release_name: Release v${{ needs.check-version.outputs.new_version }}
+          draft: false
+          prerelease: false
+
+  build-and-upload:
+    name: Build and Upload Assets
+    needs: [check-version, create-release]
+    if: needs.check-version.outputs.version_changed == 'true'
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            archive_name: x86_64-unknown-linux-gnu
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            archive_name: aarch64-apple-darwin
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            archive_name: x86_64-apple-darwin
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: ${{ matrix.target }}
+          override: true
+
+      - name: Install cross-compilation tools
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-multilib
+
+      - name: Setup Diesel CLI
+        run: |
+          cargo install diesel_cli --no-default-features --features sqlite
+
+      - name: Setup database
+        run: |
+          mkdir -p ~/.trust
+          diesel setup --config-file ./db-sqlite/diesel.toml --database-url ~/.trust/debug.db
+
+      - name: Build
+        run: |
+          cargo build --release --target ${{ matrix.target }} --bin cli
+
+      - name: Create archive
+        run: |
+          cd target/${{ matrix.target }}/release
+          tar czf ../../../v${{ needs.check-version.outputs.new_version }}-${{ matrix.archive_name }}.tar.gz cli
+          cd ../../../
+
+      - name: Upload Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: ./v${{ needs.check-version.outputs.new_version }}-${{ matrix.archive_name }}.tar.gz
+          asset_name: v${{ needs.check-version.outputs.new_version }}-${{ matrix.archive_name }}.tar.gz
+          asset_content_type: application/gzip
+
+  build-universal-macos:
+    name: Build Universal macOS Binary
+    needs: [check-version, create-release]
+    if: needs.check-version.outputs.version_changed == 'true'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Add targets
+        run: |
+          rustup target add aarch64-apple-darwin
+          rustup target add x86_64-apple-darwin
+
+      - name: Setup Diesel CLI
+        run: |
+          cargo install diesel_cli --no-default-features --features sqlite
+
+      - name: Setup database
+        run: |
+          mkdir -p ~/.trust
+          diesel setup --config-file ./db-sqlite/diesel.toml --database-url ~/.trust/debug.db
+
+      - name: Build for both architectures
+        run: |
+          cargo build --release --target aarch64-apple-darwin --bin cli
+          cargo build --release --target x86_64-apple-darwin --bin cli
+
+      - name: Create universal binary
+        run: |
+          lipo -create \
+            target/aarch64-apple-darwin/release/cli \
+            target/x86_64-apple-darwin/release/cli \
+            -output cli-universal
+          chmod +x cli-universal
+
+      - name: Create archive
+        run: |
+          tar czf v${{ needs.check-version.outputs.new_version }}-universal-apple-darwin.tar.gz cli-universal
+
+      - name: Upload Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: ./v${{ needs.check-version.outputs.new_version }}-universal-apple-darwin.tar.gz
+          asset_name: v${{ needs.check-version.outputs.new_version }}-universal-apple-darwin.tar.gz
+          asset_content_type: application/gzip
