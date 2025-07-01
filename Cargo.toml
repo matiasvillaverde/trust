@@ -3,7 +3,7 @@ members = ["model", "db-sqlite", "core", "cli", "alpaca-broker"]
 resolver = "2"
 
 [workspace.package]
-version = "0.3.1"
+version = "0.3.2"
 authors = ["Matias Villaverde <matiasvillaverde@protonmail.com>"]
 rust-version = "1.68.2"
 license = "MIT"
