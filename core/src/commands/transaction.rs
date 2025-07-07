@@ -150,15 +150,16 @@ pub fn transfer_to_fill_trade(
     let account = database.account_read().id(trade.account_id)?;
 
     // 1. Calculate the total amount of the trade
-    let total = trade
+    let average_price = trade
         .entry
         .average_filled_price
-        .unwrap()
+        .ok_or("Entry order has no average filled price")?;
+    let total = average_price
         .checked_mul(Decimal::from(trade.entry.quantity))
         .ok_or_else(|| {
             format!(
                 "Arithmetic overflow in multiplication: {} * {}",
-                trade.entry.average_filled_price.unwrap(),
+                average_price,
                 trade.entry.quantity
             )
         })?;
@@ -267,15 +268,16 @@ pub fn transfer_to_close_target(
 ) -> Result<(Transaction, TradeBalance), Box<dyn Error>> {
     let account = database.account_read().id(trade.account_id)?;
 
-    let total = trade
+    let average_price = trade
         .target
         .average_filled_price
-        .unwrap()
+        .ok_or("Target order has no average filled price")?;
+    let total = average_price
         .checked_mul(Decimal::from(trade.entry.quantity))
         .ok_or_else(|| {
             format!(
                 "Arithmetic overflow in multiplication: {} * {}",
-                trade.target.average_filled_price.unwrap(),
+                average_price,
                 trade.entry.quantity
             )
         })?;
@@ -305,15 +307,16 @@ pub fn transfer_to_close_stop(
     let account = database.account_read().id(trade.account_id)?;
 
     // 1. Calculate the total amount of the trade
-    let total = trade
+    let average_price = trade
         .safety_stop
         .average_filled_price
-        .unwrap()
+        .ok_or("Safety stop order has no average filled price")?;
+    let total = average_price
         .checked_mul(Decimal::from(trade.entry.quantity))
         .ok_or_else(|| {
             format!(
                 "Arithmetic overflow in multiplication: {} * {}",
-                trade.safety_stop.average_filled_price.unwrap(),
+                average_price,
                 trade.entry.quantity
             )
         })?;

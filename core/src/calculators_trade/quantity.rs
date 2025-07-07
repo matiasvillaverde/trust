@@ -73,38 +73,47 @@ impl QuantityCalculator {
         stop_price: Decimal,
         risk: f32,
     ) -> i64 {
-        assert!(available > dec!(0.0));
-        let price_diff = entry_price
-            .checked_sub(stop_price)
-            .expect("Entry price must be greater than stop price");
-        assert!(price_diff != dec!(0.0));
-        assert!(risk > 0.0);
+        if available <= dec!(0.0) {
+            return 0;
+        }
+        
+        let Some(price_diff) = entry_price.checked_sub(stop_price) else {
+            return 0; // Entry price must be greater than stop price
+        };
+        
+        if price_diff <= dec!(0.0) || risk <= 0.0 {
+            return 0;
+        }
 
-        let max_quantity = available
-            .checked_div(entry_price)
-            .expect("Division overflow");
-        let max_risk = max_quantity
-            .checked_mul(price_diff)
-            .expect("Multiplication overflow");
+        let Some(max_quantity) = available.checked_div(entry_price) else {
+            return 0; // Division overflow
+        };
+        
+        let Some(max_risk) = max_quantity.checked_mul(price_diff) else {
+            return 0; // Multiplication overflow
+        };
 
-        let risk_decimal =
-            Decimal::from_f32_retain(risk).expect("Failed to convert risk to Decimal");
-        let risk_percent = risk_decimal
-            .checked_div(dec!(100.0))
-            .expect("Division overflow");
-        let risk_capital = available
-            .checked_mul(risk_percent)
-            .expect("Multiplication overflow");
+        let Some(risk_decimal) = Decimal::from_f32_retain(risk) else {
+            return 0; // Failed to convert risk to Decimal
+        };
+        
+        let Some(risk_percent) = risk_decimal.checked_div(dec!(100.0)) else {
+            return 0; // Division overflow
+        };
+        
+        let Some(risk_capital) = available.checked_mul(risk_percent) else {
+            return 0; // Multiplication overflow
+        };
 
         if risk_capital >= max_risk {
             // The risk capital is greater than the max risk, so return the max quantity
-            max_quantity.to_i64().expect("Cannot convert to i64")
+            max_quantity.to_i64().unwrap_or(0)
         } else {
             // The risk capital is less than the max risk, so return the max quantity based on the risk capital
-            let risk_per_trade = risk_capital
-                .checked_div(price_diff)
-                .expect("Division overflow");
-            risk_per_trade.to_i64().expect("Cannot convert to i64") // We round down to the nearest integer
+            let Some(risk_per_trade) = risk_capital.checked_div(price_diff) else {
+                return 0; // Division overflow
+            };
+            risk_per_trade.to_i64().unwrap_or(0) // We round down to the nearest integer
         }
     }
 }
