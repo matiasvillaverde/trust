@@ -1,0 +1,137 @@
+# Cargo Deny Configuration for Trust Financial Trading Application
+#
+# This configuration enforces strict security and dependency management
+# policies appropriate for financial applications where supply chain
+# security and license compliance are critical.
+
+# === SECURITY ADVISORIES ===
+#
+# Zero tolerance policy for known security vulnerabilities
+# Financial applications cannot accept any known security risks
+
+[advisories]
+# Path to the local advisory database
+db-path = "~/.cargo/advisory-db"
+
+# Remote advisory database URLs - using official RustSec database
+db-urls = ["https://github.com/rustsec/advisory-db"]
+
+# Vulnerability handling policy
+vulnerability = "deny"    # Block any known vulnerabilities
+unmaintained = "warn"     # Warn on unmaintained crates (review case-by-case)
+unsound = "deny"         # Block unsound crates (memory safety issues)
+notice = "warn"          # Warn on security notices (review case-by-case)
+
+# Ignore specific advisories only with explicit justification
+# Format: { id = "RUSTSEC-YYYY-NNNN", reason = "justification" }
+ignore = [
+    # Add specific ignored advisories here with clear justification
+    # Example:
+    # { id = "RUSTSEC-2020-0001", reason = "False positive - not applicable to our usage" }
+]
+
+# === LICENSE COMPLIANCE ===
+#
+# Strict allowlist of acceptable licenses for financial software
+# Only well-established, business-friendly open source licenses
+
+[licenses]
+# License policy: only explicitly allowed licenses are permitted
+unlicensed = "deny"
+allow-osi-fsf-free = "neither"
+copyleft = "deny"
+
+# Explicitly allowed licenses (business-friendly, well-established)
+allow = [
+    "MIT",                    # MIT License - permissive, widely used
+    "Apache-2.0",            # Apache License 2.0 - permissive, patent grant
+    "Apache-2.0 WITH LLVM-exception",  # LLVM variant for compiler tools
+    "BSD-2-Clause",          # BSD 2-Clause - permissive
+    "BSD-3-Clause",          # BSD 3-Clause - permissive
+    "ISC",                   # ISC License - permissive, simple
+    "Unicode-DFS-2016",      # Unicode Data Files - for text processing
+]
+
+# Explicitly denied licenses (copyleft, problematic, or unclear)
+deny = [
+    "GPL-2.0",              # Strong copyleft
+    "GPL-3.0",              # Strong copyleft
+    "LGPL-2.1",             # Weak copyleft
+    "LGPL-3.0",             # Weak copyleft
+    "AGPL-3.0",             # Network copyleft
+    "CC-BY-SA-4.0",         # ShareAlike requirement
+]
+
+# License confidence threshold (0.0 to 1.0)
+# Higher values require more confidence in license detection
+confidence-threshold = 0.8
+
+# Exceptions for specific crates (use sparingly with justification)
+exceptions = [
+    # Add specific crate exceptions here with clear business justification
+    # Format: { allow = ["license"], name = "crate-name", version = "*" }
+]
+
+# === DEPENDENCY BANS ===
+#
+# Prevent problematic dependencies and enforce best practices
+
+[bans]
+# Multiple versions of the same crate (dependency hell prevention)
+multiple-versions = "warn"        # Warn to encourage consolidation
+wildcards = "deny"               # Never allow wildcard versions
+highlight = "all"                # Show all instances of issues
+
+# Duplicate dependencies detection
+deny = [
+    # Add specific banned crates here with justification
+    # Format: { name = "crate-name", version = "*" }
+    
+    # Example banned crates (uncomment if applicable):
+    # { name = "openssl", version = "*" },      # Prefer rustls for pure Rust
+    # { name = "reqwest", version = "<0.11" },  # Require modern async version
+]
+
+# Allow multiple versions for these crates (if absolutely necessary)
+skip = [
+    # Add crates that legitimately need multiple versions
+    # Use sparingly and with clear justification
+    # Format: { name = "crate-name", version = "*" }
+]
+
+# Skip checking for duplicate dependencies in these trees
+skip-tree = [
+    # Add dependency trees to skip (use very sparingly)
+    # Format: { name = "crate-name", version = "*" }
+]
+
+# === SOURCE CONFIGURATION ===
+#
+# Control which package sources are allowed (supply chain security)
+
+[sources]
+# Allowed package registries
+unknown-registry = "warn"        # Warn on unknown registries
+unknown-git = "warn"             # Warn on unknown git sources
+
+# Allow specific registries
+allow-registry = [
+    "https://github.com/rust-lang/crates.io-index"  # Official crates.io only
+]
+
+# Allow specific git repositories (use sparingly)
+allow-git = [
+    # Add specific allowed git sources with justification
+    # Example: "https://github.com/trusted-org/repo"
+]
+
+# === OUTPUT CONFIGURATION ===
+#
+# Configure how violations are reported
+
+[output]
+# Output format: human (default), json, or sarif
+format = "human"
+
+# Include ANSI color codes in output
+color = "auto"
