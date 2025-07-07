@@ -11,6 +11,8 @@ use std::str::FromStr;
 use tracing::error;
 use uuid::Uuid;
 
+/// Worker for handling order database operations
+#[derive(Debug)]
 pub struct WorkerOrder;
 impl WorkerOrder {
     pub fn create(
@@ -176,27 +178,33 @@ struct OrderSQLite {
 impl OrderSQLite {
     fn domain_model(self, _connection: &mut SqliteConnection) -> Order {
         Order {
-            id: Uuid::parse_str(&self.id).unwrap(),
-            broker_order_id: self.broker_order_id.map(|id| Uuid::parse_str(&id).unwrap()),
+            id: Uuid::parse_str(&self.id).expect("Failed to parse order ID"),
+            broker_order_id: self
+                .broker_order_id
+                .and_then(|id| Uuid::parse_str(&id).ok()),
             created_at: self.created_at,
             updated_at: self.updated_at,
             deleted_at: self.deleted_at,
-            unit_price: Decimal::from_str(self.unit_price.as_str()).unwrap(),
-            currency: Currency::from_str(self.currency.as_str()).unwrap(),
+            unit_price: Decimal::from_str(self.unit_price.as_str())
+                .expect("Failed to parse unit price"),
+            currency: Currency::from_str(self.currency.as_str()).expect("Failed to parse currency"),
             quantity: self.quantity as u64,
-            action: OrderAction::from_str(&self.action).unwrap(),
-            category: OrderCategory::from_str(&self.category).unwrap(),
-            status: OrderStatus::from_str(&self.status).unwrap(),
-            trading_vehicle_id: Uuid::parse_str(&self.trading_vehicle_id).unwrap(),
-            time_in_force: TimeInForce::from_str(&self.time_in_force).unwrap(),
+            action: OrderAction::from_str(&self.action).expect("Failed to parse order action"),
+            category: OrderCategory::from_str(&self.category)
+                .expect("Failed to parse order category"),
+            status: OrderStatus::from_str(&self.status).expect("Failed to parse order status"),
+            trading_vehicle_id: Uuid::parse_str(&self.trading_vehicle_id)
+                .expect("Failed to parse trading vehicle ID"),
+            time_in_force: TimeInForce::from_str(&self.time_in_force)
+                .expect("Failed to parse time in force"),
             trailing_percent: self
                 .trailing_percentage
-                .map(|p| Decimal::from_str(&p).unwrap()),
-            trailing_price: self.trailing_price.map(|p| Decimal::from_str(&p).unwrap()),
+                .and_then(|p| Decimal::from_str(&p).ok()),
+            trailing_price: self.trailing_price.and_then(|p| Decimal::from_str(&p).ok()),
             filled_quantity: self.filled_quantity as u64,
             average_filled_price: self
                 .average_filled_price
-                .map(|p| Decimal::from_str(&p).unwrap()),
+                .and_then(|p| Decimal::from_str(&p).ok()),
             extended_hours: self.extended_hours,
             submitted_at: self.submitted_at,
             filled_at: self.filled_at,

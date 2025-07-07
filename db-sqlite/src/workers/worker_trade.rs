@@ -10,6 +10,9 @@ use tracing::error;
 use uuid::Uuid;
 
 use super::{WorkerOrder, WorkerTradingVehicle};
+
+/// Worker for handling trade database operations
+#[derive(Debug)]
 pub struct WorkerTrade;
 
 impl WorkerTrade {
@@ -244,32 +247,44 @@ impl TradeSQLite {
     fn domain_model(self, connection: &mut SqliteConnection) -> Trade {
         let trading_vehicle = WorkerTradingVehicle::read(
             connection,
-            Uuid::parse_str(&self.trading_vehicle_id).unwrap(),
+            Uuid::parse_str(&self.trading_vehicle_id).expect("Failed to parse trading vehicle ID"),
         )
-        .unwrap();
-        let safety_stop =
-            WorkerOrder::read(connection, Uuid::parse_str(&self.safety_stop_id).unwrap()).unwrap();
-        let entry =
-            WorkerOrder::read(connection, Uuid::parse_str(&self.entry_id).unwrap()).unwrap();
-        let targets =
-            WorkerOrder::read(connection, Uuid::parse_str(&self.target_id).unwrap()).unwrap();
-        let balance =
-            WorkerTrade::read_balance(connection, Uuid::parse_str(&self.balance_id).unwrap())
-                .unwrap();
+        .expect("Failed to read trading vehicle");
+        let safety_stop = WorkerOrder::read(
+            connection,
+            Uuid::parse_str(&self.safety_stop_id).expect("Failed to parse safety stop ID"),
+        )
+        .expect("Failed to read safety stop order");
+        let entry = WorkerOrder::read(
+            connection,
+            Uuid::parse_str(&self.entry_id).expect("Failed to parse entry ID"),
+        )
+        .expect("Failed to read entry order");
+        let targets = WorkerOrder::read(
+            connection,
+            Uuid::parse_str(&self.target_id).expect("Failed to parse target ID"),
+        )
+        .expect("Failed to read target order");
+        let balance = WorkerTrade::read_balance(
+            connection,
+            Uuid::parse_str(&self.balance_id).expect("Failed to parse balance ID"),
+        )
+        .expect("Failed to read trade balance");
 
         Trade {
-            id: Uuid::parse_str(&self.id).unwrap(),
+            id: Uuid::parse_str(&self.id).expect("Failed to parse trade ID"),
             created_at: self.created_at,
             updated_at: self.updated_at,
             deleted_at: self.deleted_at,
             trading_vehicle,
-            category: TradeCategory::from_str(&self.category).unwrap(),
-            status: Status::from_str(&self.status).unwrap(),
-            currency: Currency::from_str(&self.currency).unwrap(),
+            category: TradeCategory::from_str(&self.category)
+                .expect("Failed to parse trade category"),
+            status: Status::from_str(&self.status).expect("Failed to parse trade status"),
+            currency: Currency::from_str(&self.currency).expect("Failed to parse currency"),
             safety_stop,
             entry,
             target: targets,
-            account_id: Uuid::parse_str(&self.account_id).unwrap(),
+            account_id: Uuid::parse_str(&self.account_id).expect("Failed to parse account ID"),
             balance,
         }
     }
@@ -312,16 +327,20 @@ struct AccountBalanceSQLite {
 impl AccountBalanceSQLite {
     fn domain_model(self) -> TradeBalance {
         TradeBalance {
-            id: Uuid::parse_str(&self.id).unwrap(),
+            id: Uuid::parse_str(&self.id).expect("Failed to parse balance ID"),
             created_at: self.created_at,
             updated_at: self.updated_at,
             deleted_at: self.deleted_at,
-            currency: Currency::from_str(&self.currency).unwrap(),
-            funding: Decimal::from_str(self.funding.as_str()).unwrap(),
-            capital_in_market: Decimal::from_str(self.capital_in_market.as_str()).unwrap(),
-            capital_out_market: Decimal::from_str(self.capital_out_market.as_str()).unwrap(),
-            taxed: Decimal::from_str(self.taxed.as_str()).unwrap(),
-            total_performance: Decimal::from_str(self.total_performance.as_str()).unwrap(),
+            currency: Currency::from_str(&self.currency).expect("Failed to parse currency"),
+            funding: Decimal::from_str(self.funding.as_str())
+                .expect("Failed to parse funding amount"),
+            capital_in_market: Decimal::from_str(self.capital_in_market.as_str())
+                .expect("Failed to parse capital in market"),
+            capital_out_market: Decimal::from_str(self.capital_out_market.as_str())
+                .expect("Failed to parse capital out market"),
+            taxed: Decimal::from_str(self.taxed.as_str()).expect("Failed to parse taxed amount"),
+            total_performance: Decimal::from_str(self.total_performance.as_str())
+                .expect("Failed to parse total performance"),
         }
     }
 }

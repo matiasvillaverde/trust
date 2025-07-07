@@ -7,11 +7,15 @@ use uuid::Uuid;
 /// Transaction entity - represents a single transaction
 #[derive(PartialEq, Debug, Clone)]
 pub struct Transaction {
+    /// The unique identifier for the transaction
     pub id: Uuid,
 
     // Entity timestamps
+    /// When the transaction was created
     pub created_at: NaiveDateTime,
+    /// When the transaction was last updated
     pub updated_at: NaiveDateTime,
+    /// When the transaction was deleted (soft delete)
     pub deleted_at: Option<NaiveDateTime>,
 
     // Entity fields
@@ -87,6 +91,7 @@ pub enum TransactionCategory {
 }
 
 impl TransactionCategory {
+    /// Returns the trade ID associated with this transaction category, if applicable
     pub fn trade_id(&self) -> Option<Uuid> {
         match self {
             TransactionCategory::Deposit => None,
@@ -106,6 +111,7 @@ impl TransactionCategory {
         }
     }
 
+    /// Returns the string key representation of this transaction category
     pub fn key(&self) -> &str {
         match self {
             TransactionCategory::Deposit => "deposit",
@@ -129,7 +135,7 @@ impl TransactionCategory {
 // Implementations
 
 impl std::fmt::Display for TransactionCategory {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match *self {
             TransactionCategory::Deposit => write!(f, "deposit"),
             TransactionCategory::Withdrawal => write!(f, "withdrawal"),
@@ -152,6 +158,7 @@ impl std::fmt::Display for TransactionCategory {
 }
 
 impl Transaction {
+    /// Creates a new transaction with the specified parameters
     pub fn new(
         account_id: Uuid,
         category: TransactionCategory,
@@ -171,10 +178,12 @@ impl Transaction {
         }
     }
 }
+/// Error type for transaction category parsing failures
 #[derive(PartialEq, Debug)]
 pub struct TransactionCategoryParseError;
 
 impl TransactionCategory {
+    /// Parses a string into a TransactionCategory, with optional trade ID for categories that require it
     pub fn parse(s: &str, trade_id: Option<Uuid>) -> Result<Self, TransactionCategoryParseError> {
         match s {
             "deposit" => Ok(TransactionCategory::Deposit),

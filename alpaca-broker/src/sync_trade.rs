@@ -17,7 +17,7 @@ pub fn sync(
     let client = Client::new(api_info);
 
     let orders = Runtime::new()
-        .unwrap()
+        .map_err(|e| Box::new(e) as Box<dyn Error>)?
         .block_on(get_closed_orders(&client, trade))?;
 
     let log = BrokerLog {
@@ -58,7 +58,10 @@ async fn get_closed_orders(
         ..Default::default()
     };
 
-    let orders = client.issue::<List>(&request).await.unwrap();
+    let orders = client
+        .issue::<List>(&request)
+        .await
+        .map_err(|e| Box::new(e) as Box<dyn Error>)?;
     Ok(orders)
 }
 
@@ -72,9 +75,14 @@ pub fn find_entry(orders: Vec<AlpacaOrder>, trade: &Trade) -> Result<AlpacaOrder
 
 /// Find the target order that is on the first level of the JSON
 pub fn find_target(orders: Vec<AlpacaOrder>, trade: &Trade) -> Result<AlpacaOrder, Box<dyn Error>> {
+    let target_order_id = trade
+        .target
+        .broker_order_id
+        .ok_or("Target order ID is missing")?;
+
     orders
         .into_iter()
-        .find(|x| x.id.to_string() == trade.target.broker_order_id.unwrap().to_string())
+        .find(|x| x.id.to_string() == target_order_id.to_string())
         .ok_or_else(|| "Target order not found, it can be that is not filled yet".into())
 }
 

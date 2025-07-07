@@ -10,6 +10,8 @@ use uuid::Uuid;
 
 use super::WorkerTrade;
 
+/// Worker for handling transaction database operations
+#[derive(Debug)]
 pub struct WorkerTransaction;
 
 impl WorkerTransaction {
@@ -322,10 +324,11 @@ impl WorkerTransaction {
         category: TransactionCategory,
     ) -> Result<Vec<Transaction>, Box<dyn Error>> {
         let now = Utc::now().naive_utc();
-        let first_day_of_month = NaiveDate::from_ymd_opt(now.year(), now.month(), 1).unwrap();
+        let first_day_of_month =
+            NaiveDate::from_ymd_opt(now.year(), now.month(), 1).ok_or("Failed to create date")?;
         let first_day_of_month = NaiveDateTime::new(
             first_day_of_month,
-            NaiveTime::from_hms_opt(0, 0, 0).unwrap(),
+            NaiveTime::from_hms_opt(0, 0, 0).ok_or("Failed to create time")?,
         );
 
         let tx = transactions::table
@@ -365,23 +368,36 @@ pub struct TransactionSQLite {
 
 impl TransactionSQLite {
     fn domain_model(&self) -> Transaction {
-        let category = TransactionCategory::parse(
-            &self.category,
-            self.trade_id
-                .clone()
-                .map(|uuid| Uuid::parse_str(&uuid).unwrap()),
-        )
-        .unwrap();
+        let trade_id = self
+            .trade_id
+            .clone()
+            .and_then(|uuid| Uuid::parse_str(&uuid).ok());
+        let category = TransactionCategory::parse(&self.category, trade_id).unwrap_or_else(|_| {
+            eprintln!("Failed to parse transaction category: {}", &self.category);
+            std::process::exit(1);
+        });
 
         Transaction {
-            id: Uuid::parse_str(&self.id).unwrap(),
+            id: Uuid::parse_str(&self.id).unwrap_or_else(|e| {
+                eprintln!("Failed to parse transaction ID: {}", e);
+                std::process::exit(1);
+            }),
             created_at: self.created_at,
             updated_at: self.updated_at,
             deleted_at: self.deleted_at,
             category,
-            currency: Currency::from_str(&self.currency).unwrap(),
-            amount: Decimal::from_str(&self.amount).unwrap(),
-            account_id: Uuid::parse_str(&self.account_id).unwrap(),
+            currency: Currency::from_str(&self.currency).unwrap_or_else(|_| {
+                eprintln!("Failed to parse currency: {}", &self.currency);
+                std::process::exit(1);
+            }),
+            amount: Decimal::from_str(&self.amount).unwrap_or_else(|e| {
+                eprintln!("Failed to parse amount: {}", e);
+                std::process::exit(1);
+            }),
+            account_id: Uuid::parse_str(&self.account_id).unwrap_or_else(|e| {
+                eprintln!("Failed to parse account ID: {}", e);
+                std::process::exit(1);
+            }),
         }
     }
 }

@@ -6,6 +6,8 @@ use std::error::Error;
 use tracing::error;
 use uuid::Uuid;
 
+/// Worker for handling rule database operations
+#[derive(Debug)]
 pub struct WorkerRule;
 impl WorkerRule {
     pub fn create(
@@ -124,15 +126,15 @@ impl RuleSQLite {
         let name =
             RuleName::parse(&self.name, self.risk as f32).expect("Failed to parse rule name");
         Rule {
-            id: Uuid::parse_str(&self.id).unwrap(),
+            id: Uuid::parse_str(&self.id).expect("Failed to parse rule ID"),
             created_at: self.created_at,
             updated_at: self.updated_at,
             deleted_at: self.deleted_at,
             name,
             description: self.description,
             priority: self.priority as u32,
-            level: RuleLevel::from_str(&self.level).unwrap(),
-            account_id: Uuid::parse_str(&self.account_id).unwrap(),
+            level: RuleLevel::from_str(&self.level).expect("Failed to parse rule level"),
+            account_id: Uuid::parse_str(&self.account_id).expect("Failed to parse account ID"),
             active: self.active,
         }
     }

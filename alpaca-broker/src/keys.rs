@@ -53,7 +53,9 @@ impl Keys {
     pub fn read(environment: &Environment, account_name: &str) -> keyring::Result<Keys> {
         let entry = Entry::new(account_name, environment.to_string().as_str())?;
         let password = entry.get_password()?;
-        let keys = Keys::from_str(password.as_str()).expect("Failed to parse Keys from string");
+        let keys = Keys::from_str(password.as_str()).map_err(|_| {
+            keyring::Error::PlatformFailure("Failed to parse Keys from string".to_string().into())
+        })?;
         Ok(keys)
     }
 

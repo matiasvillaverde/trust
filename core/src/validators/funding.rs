@@ -35,7 +35,12 @@ pub fn can_fund(trade: &Trade, database: &mut dyn DatabaseFactory) -> FundingVal
 }
 
 fn validate_enough_capital(trade: &Trade, balance: &AccountBalance) -> FundingValidationResult {
-    let required_capital = TradeCapitalRequired::calculate(trade);
+    let required_capital = TradeCapitalRequired::calculate(trade).map_err(|e| {
+        Box::new(FundValidationError {
+            code: FundValidationErrorCode::NotEnoughFunds,
+            message: format!("Error calculating required capital: {}", e),
+        })
+    })?;
 
     if balance.total_available >= required_capital {
         Ok(())
@@ -150,7 +155,7 @@ pub struct FundValidationError {
 }
 
 impl std::fmt::Display for FundValidationError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "FundValidationError: {}", self.message)
     }
 }

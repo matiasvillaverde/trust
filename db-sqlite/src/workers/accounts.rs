@@ -11,8 +11,17 @@ use std::sync::Mutex;
 use tracing::error;
 use uuid::Uuid;
 
+/// Database worker for account operations
 pub struct AccountDB {
     pub connection: Arc<Mutex<SqliteConnection>>,
+}
+
+impl std::fmt::Debug for AccountDB {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AccountDB")
+            .field("connection", &"Arc<Mutex<SqliteConnection>>")
+            .finish()
+    }
 }
 
 impl AccountWrite for AccountDB {
@@ -39,7 +48,10 @@ impl AccountWrite for AccountDB {
             earnings_percentage: earnings_percentage.to_string(),
         };
 
-        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap();
+        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap_or_else(|e| {
+            eprintln!("Failed to acquire connection lock: {}", e);
+            std::process::exit(1);
+        });
 
         let account = diesel::insert_into(accounts::table)
             .values(&new_account)
@@ -55,7 +67,10 @@ impl AccountWrite for AccountDB {
 
 impl AccountRead for AccountDB {
     fn for_name(&mut self, name: &str) -> Result<Account, Box<dyn Error>> {
-        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap();
+        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap_or_else(|e| {
+            eprintln!("Failed to acquire connection lock: {}", e);
+            std::process::exit(1);
+        });
 
         let account = accounts::table
             .filter(accounts::name.eq(name.to_lowercase()))
@@ -69,7 +84,10 @@ impl AccountRead for AccountDB {
     }
 
     fn id(&mut self, id: Uuid) -> Result<Account, Box<dyn Error>> {
-        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap();
+        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap_or_else(|e| {
+            eprintln!("Failed to acquire connection lock: {}", e);
+            std::process::exit(1);
+        });
 
         let account = accounts::table
             .filter(accounts::id.eq(id.to_string()))
@@ -83,7 +101,10 @@ impl AccountRead for AccountDB {
     }
 
     fn all(&mut self) -> Result<Vec<Account>, Box<dyn Error>> {
-        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap();
+        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap_or_else(|e| {
+            eprintln!("Failed to acquire connection lock: {}", e);
+            std::process::exit(1);
+        });
         let accounts = accounts::table
             .filter(accounts::deleted_at.is_null())
             .load::<AccountSQLite>(connection)
@@ -120,15 +141,18 @@ pub struct AccountSQLite {
 impl AccountSQLite {
     fn domain_model(self) -> Account {
         Account {
-            id: Uuid::parse_str(&self.id).unwrap(),
+            id: Uuid::parse_str(&self.id).expect("Failed to parse account ID"),
             created_at: self.created_at,
             updated_at: self.updated_at,
             deleted_at: self.deleted_at,
             name: self.name,
             description: self.description,
-            environment: Environment::from_str(&self.environment).unwrap(),
-            taxes_percentage: Decimal::from_str(&self.taxes_percentage).unwrap(),
-            earnings_percentage: Decimal::from_str(&self.earnings_percentage).unwrap(),
+            environment: Environment::from_str(&self.environment)
+                .expect("Failed to parse environment"),
+            taxes_percentage: Decimal::from_str(&self.taxes_percentage)
+                .expect("Failed to parse taxes percentage"),
+            earnings_percentage: Decimal::from_str(&self.earnings_percentage)
+                .expect("Failed to parse earnings percentage"),
         }
     }
 }

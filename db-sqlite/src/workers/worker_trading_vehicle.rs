@@ -8,6 +8,8 @@ use model::{TradingVehicle, TradingVehicleCategory};
 use tracing::error;
 use uuid::Uuid;
 
+/// Worker for handling trading vehicle database operations
+#[derive(Debug)]
 pub struct WorkerTradingVehicle;
 impl WorkerTradingVehicle {
     pub fn create(
@@ -91,13 +93,14 @@ struct TradingVehicleSQLite {
 impl TradingVehicleSQLite {
     fn domain_model(self) -> TradingVehicle {
         TradingVehicle {
-            id: Uuid::parse_str(&self.id).unwrap(),
+            id: Uuid::parse_str(&self.id).expect("Failed to parse trading vehicle ID"),
             created_at: self.created_at,
             updated_at: self.updated_at,
             deleted_at: self.deleted_at,
             symbol: self.symbol,
             isin: self.isin,
-            category: TradingVehicleCategory::from_str(&self.category).unwrap(),
+            category: TradingVehicleCategory::from_str(&self.category)
+                .expect("Failed to parse trading vehicle category"),
             broker: self.broker,
         }
     }

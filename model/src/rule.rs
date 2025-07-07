@@ -9,14 +9,15 @@ use uuid::Uuid;
 /// For more information about the rules, please check the documentation about rule names.
 #[derive(PartialEq, Debug, Clone)]
 pub struct Rule {
+    /// Unique identifier for the rule
     pub id: Uuid,
 
-    // Entity timestamps
+    /// When the rule was created
     pub created_at: NaiveDateTime,
+    /// When the rule was last updated
     pub updated_at: NaiveDateTime,
+    /// When the rule was deleted, if applicable
     pub deleted_at: Option<NaiveDateTime>,
-
-    // Entity fields
     /// The name of the rule
     pub name: RuleName,
 
@@ -69,13 +70,13 @@ pub enum RuleName {
 // Implementations
 
 impl fmt::Display for Rule {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Name: {}, Description: {}", self.name, self.description)
     }
 }
 
 impl fmt::Display for RuleName {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             RuleName::RiskPerTrade(_) => write!(f, "risk_per_trade"),
             RuleName::RiskPerMonth(_) => write!(f, "risk_per_month"),
@@ -84,12 +85,14 @@ impl fmt::Display for RuleName {
 }
 
 impl RuleName {
+    /// Returns all possible rule name types with default values
     pub fn all() -> Vec<RuleName> {
         vec![RuleName::RiskPerTrade(0.0), RuleName::RiskPerMonth(0.0)]
     }
 }
 
 impl RuleName {
+    /// Returns the risk value associated with this rule
     pub fn risk(&self) -> f32 {
         match self {
             RuleName::RiskPerTrade(value) => *value,
@@ -98,10 +101,12 @@ impl RuleName {
     }
 }
 
+/// Error when parsing rule name from string fails
 #[derive(PartialEq, Debug)]
 pub struct RuleNameParseError;
 
 impl RuleName {
+    /// Parse a rule name from string with a risk value
     pub fn parse(s: &str, risk: f32) -> Result<Self, RuleNameParseError> {
         match s {
             "risk_per_trade" => Ok(RuleName::RiskPerTrade(risk)),
@@ -125,13 +130,14 @@ pub enum RuleLevel {
 }
 
 impl RuleLevel {
+    /// Returns all possible rule level types
     pub fn all() -> Vec<RuleLevel> {
         vec![RuleLevel::Advice, RuleLevel::Warning, RuleLevel::Error]
     }
 }
 
 impl fmt::Display for RuleLevel {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             RuleLevel::Advice => write!(f, "advice"),
             RuleLevel::Warning => write!(f, "warning"),
@@ -140,6 +146,7 @@ impl fmt::Display for RuleLevel {
     }
 }
 
+/// Error when parsing rule level from string fails
 #[derive(Debug)]
 pub struct RuleLevelParseError;
 impl std::str::FromStr for RuleLevel {

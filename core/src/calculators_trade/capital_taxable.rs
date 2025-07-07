@@ -15,11 +15,12 @@ impl TradeCapitalTaxable {
         for tx in database.all_trade_taxes_transactions(trade_id)? {
             match tx.category {
                 TransactionCategory::PaymentTax(_) => {
-                    total += tx.amount
+                    total = total.checked_add(tx.amount)
+                        .ok_or_else(|| format!("Arithmetic overflow in addition: {} + {}", total, tx.amount))?
                 }
-                default => panic!(
+                default => return Err(format!(
                     "TradeCapitalTaxable: does not know how to calculate transaction with category: {default}"
-                ),
+                ).into()),
             }
         }
 

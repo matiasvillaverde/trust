@@ -45,6 +45,8 @@ mod sync_trade;
 pub use keys::Keys;
 
 #[derive(Default)]
+/// Alpaca broker implementation
+#[derive(Debug)]
 pub struct AlpacaBroker;
 
 /// Generic Broker API

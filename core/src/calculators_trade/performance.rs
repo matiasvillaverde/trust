@@ -17,11 +17,22 @@ impl TradePerformance {
                 TransactionCategory::OpenTrade(_)
                 | TransactionCategory::FeeClose(_)
                 | TransactionCategory::FeeOpen(_)
-                | TransactionCategory::PaymentTax(_) => total -= tx.amount,
+                | TransactionCategory::PaymentTax(_) => {
+                    total = total.checked_sub(tx.amount).ok_or_else(|| {
+                        format!(
+                            "Arithmetic overflow in subtraction: {} - {}",
+                            total, tx.amount
+                        )
+                    })?
+                }
 
                 TransactionCategory::CloseTarget(_)
                 | TransactionCategory::CloseSafetyStop(_)
-                | TransactionCategory::CloseSafetyStopSlippage(_) => total += tx.amount,
+                | TransactionCategory::CloseSafetyStopSlippage(_) => {
+                    total = total.checked_add(tx.amount).ok_or_else(|| {
+                        format!("Arithmetic overflow in addition: {} + {}", total, tx.amount)
+                    })?
+                }
                 _ => {} // We don't want to count the transactions paid out of the trade or fund the trade.
             }
         }

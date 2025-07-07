@@ -11,11 +11,15 @@ use uuid::Uuid;
 /// For example, if you want to update the description of the strategy, create a new strategy with the same name and version + 1.
 #[derive(PartialEq, Debug)]
 pub struct Strategy {
+    /// Unique identifier for the strategy
     pub id: Uuid,
 
     // Entity timestamps
+    /// Timestamp when the strategy was created
     pub created_at: NaiveDateTime,
+    /// Timestamp when the strategy was last updated
     pub updated_at: NaiveDateTime,
+    /// Timestamp when the strategy was soft deleted (if applicable)
     pub deleted_at: Option<NaiveDateTime>,
 
     // Entity fields

@@ -14,16 +14,21 @@ impl AccountCapitalTaxable {
         let transactions = database.read_all_account_transactions_taxes(account_id, currency)?;
 
         // Sum all transactions
-        let total: Decimal = transactions
+        let total: Result<Decimal, Box<dyn std::error::Error>> = transactions
             .iter()
-            .map(|transaction| match transaction.category {
-                TransactionCategory::PaymentTax(_) => transaction.amount,
-                TransactionCategory::WithdrawalTax => -transaction.amount,
-                default => panic!(
-                    "capital_taxable: does not know how to calculate transaction with category: {default}"
-                ),
-            })
-            .sum();
+            .try_fold(Decimal::ZERO, |acc, transaction| {
+                match transaction.category {
+                    TransactionCategory::PaymentTax(_) => acc.checked_add(transaction.amount)
+                        .ok_or_else(|| format!("Arithmetic overflow in addition: {} + {}", acc, transaction.amount).into()),
+                    TransactionCategory::WithdrawalTax => acc.checked_sub(transaction.amount)
+                        .ok_or_else(|| format!("Arithmetic overflow in subtraction: {} - {}", acc, transaction.amount).into()),
+                    default => Err(format!(
+                        "capital_taxable: does not know how to calculate transaction with category: {default}"
+                    ).into()),
+                }
+            });
+
+        let total = total?;
 
         Ok(total)
     }

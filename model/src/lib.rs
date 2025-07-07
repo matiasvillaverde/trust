@@ -30,15 +30,25 @@
 // Standard Rust lints for code quality
 #![warn(missing_docs, rust_2018_idioms, missing_debug_implementations)]
 
+/// Account management types and functionality
 pub mod account;
+/// Broker integration traits and types
 pub mod broker;
+/// Currency definitions and operations
 pub mod currency;
+/// Database abstraction layer
 pub mod database;
+/// Order types and order management
 pub mod order;
+/// Risk management rules and enforcement
 pub mod rule;
+/// Trading strategy definitions
 pub mod strategy;
+/// Trade lifecycle and management
 pub mod trade;
+/// Trading vehicle (asset) definitions
 pub mod trading_vehicle;
+/// Transaction tracking and accounting
 pub mod transaction;
 
 // Re-export the types from the model crate.

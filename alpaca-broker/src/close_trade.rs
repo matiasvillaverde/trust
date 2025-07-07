@@ -16,15 +16,19 @@ pub fn close(trade: &Trade, account: &Account) -> Result<(Order, BrokerLog), Box
     let client = Client::new(api_info);
 
     // 1. Cancel the target order.
-    Runtime::new().unwrap().block_on(cancel_target(
-        &client,
-        trade.target.broker_order_id.unwrap(),
-    ))?;
+    let target_order_id = trade
+        .target
+        .broker_order_id
+        .ok_or("Target order ID is missing")?;
+
+    Runtime::new()
+        .map_err(|e| Box::new(e) as Box<dyn Error>)?
+        .block_on(cancel_target(&client, target_order_id))?;
 
     // 2. Submit a market order to close the trade.
     let request = new_request(trade);
     let alpaca_order = Runtime::new()
-        .unwrap()
+        .map_err(|e| Box::new(e) as Box<dyn Error>)?
         .block_on(submit_market_order(client, request))?;
 
     // 3. Log the Alpaca order.
@@ -35,7 +39,7 @@ pub fn close(trade: &Trade, account: &Account) -> Result<(Order, BrokerLog), Box
     };
 
     // 4. Map the Alpaca order to a Trust order.
-    let order: Order = crate::order_mapper::map_close_order(&alpaca_order, trade.target.clone());
+    let order: Order = crate::order_mapper::map_close_order(&alpaca_order, trade.target.clone())?;
 
     Ok((order, log))
 }

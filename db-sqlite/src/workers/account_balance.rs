@@ -10,8 +10,17 @@ use std::sync::Mutex;
 use tracing::error;
 use uuid::Uuid;
 
+/// Database worker for account balance operations
 pub struct AccountBalanceDB {
     pub connection: Arc<Mutex<SqliteConnection>>,
+}
+
+impl std::fmt::Debug for AccountBalanceDB {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AccountBalanceDB")
+            .field("connection", &"Arc<Mutex<SqliteConnection>>")
+            .finish()
+    }
 }
 
 impl AccountBalanceWrite for AccountBalanceDB {
@@ -26,7 +35,10 @@ impl AccountBalanceWrite for AccountBalanceDB {
             ..Default::default()
         };
 
-        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap();
+        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap_or_else(|e| {
+            eprintln!("Failed to acquire connection lock: {}", e);
+            std::process::exit(1);
+        });
 
         let balance = diesel::insert_into(accounts_balances::table)
             .values(&new_account_balance)
@@ -47,7 +59,10 @@ impl AccountBalanceWrite for AccountBalanceDB {
         total_available: Decimal,
         total_taxed: Decimal,
     ) -> Result<AccountBalance, Box<dyn Error>> {
-        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap();
+        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap_or_else(|e| {
+            eprintln!("Failed to acquire connection lock: {}", e);
+            std::process::exit(1);
+        });
         let balance = diesel::update(accounts_balances::table)
             .filter(accounts_balances::id.eq(&balance.id.to_string()))
             .set((
@@ -69,7 +84,10 @@ impl AccountBalanceWrite for AccountBalanceDB {
 
 impl AccountBalanceRead for AccountBalanceDB {
     fn for_account(&mut self, account_id: Uuid) -> Result<Vec<AccountBalance>, Box<dyn Error>> {
-        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap();
+        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap_or_else(|e| {
+            eprintln!("Failed to acquire connection lock: {}", e);
+            std::process::exit(1);
+        });
         let balances = accounts_balances::table
             .filter(accounts_balances::account_id.eq(account_id.to_string()))
             .filter(accounts_balances::deleted_at.is_null())
@@ -92,7 +110,10 @@ impl AccountBalanceRead for AccountBalanceDB {
         account_id: Uuid,
         currency: &Currency,
     ) -> Result<AccountBalance, Box<dyn Error>> {
-        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap();
+        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap_or_else(|e| {
+            eprintln!("Failed to acquire connection lock: {}", e);
+            std::process::exit(1);
+        });
         let balances = accounts_balances::table
             .filter(accounts_balances::account_id.eq(account_id.to_string()))
             .filter(accounts_balances::currency.eq(currency.to_string()))
@@ -128,17 +149,21 @@ impl AccountBalanceSQLite {
     fn domain_model(self) -> AccountBalance {
         use std::str::FromStr;
         AccountBalance {
-            id: Uuid::parse_str(&self.id).unwrap(),
+            id: Uuid::parse_str(&self.id).expect("Failed to parse balance ID"),
             created_at: self.created_at,
             updated_at: self.updated_at,
             deleted_at: self.deleted_at,
-            account_id: Uuid::parse_str(&self.account_id).unwrap(),
-            total_balance: Decimal::from_str(&self.total_balance).unwrap(),
-            total_in_trade: Decimal::from_str(&self.total_in_trade).unwrap(),
-            total_available: Decimal::from_str(&self.total_available).unwrap(),
-            taxed: Decimal::from_str(&self.taxed).unwrap(),
-            currency: Currency::from_str(&self.currency).unwrap(),
-            total_earnings: Decimal::from_str(&self.total_earnings).unwrap(),
+            account_id: Uuid::parse_str(&self.account_id).expect("Failed to parse account ID"),
+            total_balance: Decimal::from_str(&self.total_balance)
+                .expect("Failed to parse total balance"),
+            total_in_trade: Decimal::from_str(&self.total_in_trade)
+                .expect("Failed to parse total in trade"),
+            total_available: Decimal::from_str(&self.total_available)
+                .expect("Failed to parse total available"),
+            taxed: Decimal::from_str(&self.taxed).expect("Failed to parse taxed amount"),
+            currency: Currency::from_str(&self.currency).expect("Failed to parse currency"),
+            total_earnings: Decimal::from_str(&self.total_earnings)
+                .expect("Failed to parse total earnings"),
         }
     }
 }

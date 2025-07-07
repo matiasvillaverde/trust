@@ -8,8 +8,17 @@ use std::sync::Mutex;
 use tracing::error;
 use uuid::Uuid;
 
+/// Database worker for broker log operations
 pub struct BrokerLogDB {
     pub connection: Arc<Mutex<SqliteConnection>>,
+}
+
+impl std::fmt::Debug for BrokerLogDB {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BrokerLogDB")
+            .field("connection", &"Arc<Mutex<SqliteConnection>>")
+            .finish()
+    }
 }
 
 impl WriteBrokerLogsDB for BrokerLogDB {
@@ -26,7 +35,10 @@ impl WriteBrokerLogsDB for BrokerLogDB {
             trade_id: trade.id.to_string(),
         };
 
-        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap();
+        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap_or_else(|e| {
+            eprintln!("Failed to acquire connection lock: {}", e);
+            std::process::exit(1);
+        });
 
         let account = diesel::insert_into(logs::table)
             .values(&new_account)
@@ -45,7 +57,10 @@ impl ReadBrokerLogsDB for BrokerLogDB {
         &mut self,
         trade_id: Uuid,
     ) -> Result<Vec<BrokerLog>, Box<dyn Error>> {
-        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap();
+        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap_or_else(|e| {
+            eprintln!("Failed to acquire connection lock: {}", e);
+            std::process::exit(1);
+        });
 
         let log = logs::table
             .filter(logs::trade_id.eq(trade_id.to_string()))
@@ -73,12 +88,12 @@ pub struct BrokerLogSQLite {
 impl BrokerLogSQLite {
     fn domain_model(self) -> BrokerLog {
         BrokerLog {
-            id: Uuid::parse_str(&self.id).unwrap(),
+            id: Uuid::parse_str(&self.id).expect("Failed to parse log ID"),
             created_at: self.created_at,
             updated_at: self.updated_at,
             deleted_at: self.deleted_at,
             log: self.log,
-            trade_id: Uuid::parse_str(&self.trade_id).unwrap(),
+            trade_id: Uuid::parse_str(&self.trade_id).expect("Failed to parse trade ID"),
         }
     }
 }

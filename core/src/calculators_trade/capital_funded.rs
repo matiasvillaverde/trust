@@ -16,11 +16,12 @@ impl TradeCapitalFunded {
             match tx.category {
                 TransactionCategory::FundTrade(_) => {
                     // This is money that we have used to enter the market.
-                    total += tx.amount
+                    total = total.checked_add(tx.amount)
+                        .ok_or_else(|| format!("Arithmetic overflow in addition: {} + {}", total, tx.amount))?
                 }
-                default => panic!(
+                default => return Err(format!(
                     "TradeCapitalFunded: does not know how to calculate transaction with category: {default}"
-                ),
+                ).into()),
             }
         }
 

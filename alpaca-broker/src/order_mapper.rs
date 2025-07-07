@@ -21,13 +21,19 @@ pub fn map_entry(alpaca_order: AlpacaOrder, trade: &Trade) -> Result<Vec<Order>,
         if let Some(target_broker_id) = trade.target.broker_order_id {
             if order_id_str == target_broker_id.to_string() {
                 // 1. Map target order to our domain model.
-                let mapped_order = map(order, trade.target.clone());
-
-                // 2. If the target is updated, then we add it to the updated orders.
-                return if mapped_order != trade.target {
-                    Some(mapped_order)
-                } else {
-                    None
+                return match map(order, trade.target.clone()) {
+                    Ok(mapped_order) => {
+                        // 2. If the target is updated, then we add it to the updated orders.
+                        if mapped_order != trade.target {
+                            Some(mapped_order)
+                        } else {
+                            None
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Error mapping target order: {}", e);
+                        None
+                    }
                 };
             }
         }
@@ -36,13 +42,19 @@ pub fn map_entry(alpaca_order: AlpacaOrder, trade: &Trade) -> Result<Vec<Order>,
         if let Some(stop_broker_id) = trade.safety_stop.broker_order_id {
             if order_id_str == stop_broker_id.to_string() {
                 // 1. Map stop order to our domain model.
-                let mapped_order = map(order, trade.safety_stop.clone());
-
-                // 2. If the stop is updated, then we add it to the updated orders.
-                return if mapped_order != trade.safety_stop {
-                    Some(mapped_order)
-                } else {
-                    None
+                return match map(order, trade.safety_stop.clone()) {
+                    Ok(mapped_order) => {
+                        // 2. If the stop is updated, then we add it to the updated orders.
+                        if mapped_order != trade.safety_stop {
+                            Some(mapped_order)
+                        } else {
+                            None
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Error mapping safety stop order: {}", e);
+                        None
+                    }
                 };
             }
         }
@@ -51,7 +63,7 @@ pub fn map_entry(alpaca_order: AlpacaOrder, trade: &Trade) -> Result<Vec<Order>,
     }));
 
     // 3. Map entry order to our domain model.
-    let entry_order = map(&alpaca_order, trade.entry.clone());
+    let entry_order = map(&alpaca_order, trade.entry.clone())?;
 
     // 4. If the entry is updated, then we add it to the updated orders.
     if entry_order != trade.entry {
@@ -62,7 +74,7 @@ pub fn map_entry(alpaca_order: AlpacaOrder, trade: &Trade) -> Result<Vec<Order>,
 }
 
 pub fn map_target(alpaca_order: AlpacaOrder, trade: &Trade) -> Result<Vec<Order>, Box<dyn Error>> {
-    Ok(vec![map(&alpaca_order, trade.target.clone())])
+    Ok(vec![map(&alpaca_order, trade.target.clone())?])
 }
 
 // Alternative approach using helper functions for cleaner code
@@ -126,36 +138,43 @@ pub fn map_trade_status(trade: &Trade, updated_orders: &[Order]) -> Status {
     trade.status
 }
 
-fn map(alpaca_order: &AlpacaOrder, order: Order) -> Order {
-    assert_eq!(
-        alpaca_order.id.to_string(),
-        order
-            .broker_order_id
-            .expect("order does not have a broker id. It can not be mapped into an alpaca order")
-            .to_string(),
-        "Order IDs do not match"
-    );
+fn map(alpaca_order: &AlpacaOrder, order: Order) -> Result<Order, Box<dyn Error>> {
+    let broker_order_id = order
+        .broker_order_id
+        .ok_or("order does not have a broker id. It can not be mapped into an alpaca order")?;
+
+    if alpaca_order.id.to_string() != broker_order_id.to_string() {
+        return Err("Order IDs do not match".into());
+    }
 
     let mut order = order;
-    order.filled_quantity = alpaca_order.filled_quantity.to_u64().unwrap();
+    order.filled_quantity = alpaca_order
+        .filled_quantity
+        .to_u64()
+        .ok_or("Failed to convert filled quantity to u64")?;
     order.average_filled_price = alpaca_order
         .average_fill_price
         .clone()
-        .map(|price| Decimal::from_str(price.to_string().as_str()).unwrap());
+        .map(|price| Decimal::from_str(price.to_string().as_str()))
+        .transpose()
+        .map_err(|e| format!("Failed to parse average fill price: {}", e))?;
     order.status = map_from_alpaca(alpaca_order.status);
     order.filled_at = map_date(alpaca_order.filled_at);
     order.expired_at = map_date(alpaca_order.expired_at);
     order.cancelled_at = map_date(alpaca_order.canceled_at);
-    order
+    Ok(order)
 }
 
-pub fn map_close_order(alpaca_order: &AlpacaOrder, target: Order) -> Order {
+pub fn map_close_order(alpaca_order: &AlpacaOrder, target: Order) -> Result<Order, Box<dyn Error>> {
     let mut order = target;
-    order.broker_order_id = Some(Uuid::parse_str(&alpaca_order.id.to_string()).unwrap());
+    order.broker_order_id = Some(
+        Uuid::parse_str(&alpaca_order.id.to_string())
+            .map_err(|e| format!("Failed to parse Alpaca order ID as UUID: {}", e))?,
+    );
     order.status = map_from_alpaca(alpaca_order.status);
     order.submitted_at = map_date(alpaca_order.submitted_at);
     order.category = OrderCategory::Market;
-    order
+    Ok(order)
 }
 
 fn map_date(date: Option<DateTime<Utc>>) -> Option<NaiveDateTime> {
@@ -249,14 +268,16 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(
-        expected = "order does not have a broker id. It can not be mapped into an alpaca order"
-    )]
     fn test_map_orders_entry_id_are_different() {
         // Create a sample AlpacaOrder and Trade
         let alpaca_order = default();
         let trade = Trade::default();
-        _ = map_entry(alpaca_order, &trade);
+        let result = map_entry(alpaca_order, &trade);
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "order does not have a broker id. It can not be mapped into an alpaca order"
+        );
     }
 
     #[test]
@@ -612,7 +633,7 @@ mod tests {
         let mapped_order = map(&alpaca_order, order);
 
         assert_eq!(
-            mapped_order.broker_order_id.unwrap(),
+            mapped_order.unwrap().broker_order_id.unwrap(),
             Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap()
         );
     }
@@ -629,7 +650,7 @@ mod tests {
 
         let mapped_order = map(&alpaca_order, order);
 
-        assert_eq!(mapped_order.filled_quantity, 10);
+        assert_eq!(mapped_order.unwrap().filled_quantity, 10);
     }
 
     #[test]
@@ -644,7 +665,10 @@ mod tests {
 
         let mapped_order = map(&alpaca_order, order);
 
-        assert_eq!(mapped_order.average_filled_price.unwrap(), dec!(2112.1212));
+        assert_eq!(
+            mapped_order.unwrap().average_filled_price.unwrap(),
+            dec!(2112.1212)
+        );
     }
 
     #[test]
@@ -659,7 +683,7 @@ mod tests {
 
         let mapped_order = map(&alpaca_order, order);
 
-        assert_eq!(mapped_order.status, OrderStatus::Filled);
+        assert_eq!(mapped_order.unwrap().status, OrderStatus::Filled);
     }
 
     #[test]
@@ -673,7 +697,7 @@ mod tests {
             ..Default::default()
         };
         let mapped_order = map(&alpaca_order, order);
-        assert_eq!(mapped_order.filled_at, map_date(Some(now)));
+        assert_eq!(mapped_order.unwrap().filled_at, map_date(Some(now)));
     }
 
     #[test]
@@ -687,7 +711,7 @@ mod tests {
             ..Default::default()
         };
 
-        let mapped_order = map(&alpaca_order, order);
+        let mapped_order = map(&alpaca_order, order).unwrap();
 
         assert_eq!(mapped_order.expired_at, map_date(Some(now)));
     }
@@ -703,7 +727,7 @@ mod tests {
             ..Default::default()
         };
 
-        let mapped_order = map(&alpaca_order, order);
+        let mapped_order = map(&alpaca_order, order).unwrap();
 
         assert_eq!(mapped_order.cancelled_at, map_date(Some(now)));
     }

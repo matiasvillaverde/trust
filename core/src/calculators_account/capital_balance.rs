@@ -14,19 +14,37 @@ impl AccountCapitalBalance {
         let total = database
             .all_transactions(account_id, currency)?
             .into_iter()
-            .fold(dec!(0), |acc, tx| match tx.category {
-                TransactionCategory::Withdrawal
-                | TransactionCategory::WithdrawalTax
-                | TransactionCategory::WithdrawalEarnings
-                | TransactionCategory::FeeOpen(_)
-                | TransactionCategory::FeeClose(_)
-                | TransactionCategory::OpenTrade(_) => acc - tx.amount,
-                TransactionCategory::Deposit
-                | TransactionCategory::CloseSafetyStop(_)
-                | TransactionCategory::CloseTarget(_)
-                | TransactionCategory::CloseSafetyStopSlippage(_) => acc + tx.amount,
-                _ => acc,
-            });
+            .try_fold(
+                dec!(0),
+                |acc, tx| -> Result<Decimal, Box<dyn std::error::Error>> {
+                    match tx.category {
+                        TransactionCategory::Withdrawal
+                        | TransactionCategory::WithdrawalTax
+                        | TransactionCategory::WithdrawalEarnings
+                        | TransactionCategory::FeeOpen(_)
+                        | TransactionCategory::FeeClose(_)
+                        | TransactionCategory::OpenTrade(_) => {
+                            acc.checked_sub(tx.amount).ok_or_else(|| {
+                                format!(
+                                    "Arithmetic overflow in subtraction: {} - {}",
+                                    acc, tx.amount
+                                )
+                                .into()
+                            })
+                        }
+                        TransactionCategory::Deposit
+                        | TransactionCategory::CloseSafetyStop(_)
+                        | TransactionCategory::CloseTarget(_)
+                        | TransactionCategory::CloseSafetyStopSlippage(_) => {
+                            acc.checked_add(tx.amount).ok_or_else(|| {
+                                format!("Arithmetic overflow in addition: {} + {}", acc, tx.amount)
+                                    .into()
+                            })
+                        }
+                        _ => Ok(acc),
+                    }
+                },
+            )?;
 
         Ok(total)
     }

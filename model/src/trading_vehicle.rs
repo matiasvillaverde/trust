@@ -5,11 +5,15 @@ use uuid::Uuid;
 /// TradingVehicle entity. Like a Stock, Crypto, Fiat, Future, etc.
 #[derive(PartialEq, Debug, Clone)]
 pub struct TradingVehicle {
+    /// Unique identifier for the trading vehicle
     pub id: Uuid,
 
     // Entity timestamps
+    /// Timestamp when the trading vehicle was created
     pub created_at: NaiveDateTime,
+    /// Timestamp when the trading vehicle was last updated
     pub updated_at: NaiveDateTime,
+    /// Optional timestamp when the trading vehicle was soft-deleted
     pub deleted_at: Option<NaiveDateTime>,
 
     // Entity fields
@@ -41,6 +45,7 @@ pub enum TradingVehicleCategory {
 }
 
 impl TradingVehicleCategory {
+    /// Returns all available trading vehicle categories
     pub fn all() -> Vec<TradingVehicleCategory> {
         vec![
             TradingVehicleCategory::Crypto,
@@ -52,6 +57,7 @@ impl TradingVehicleCategory {
 
 // Implementations
 
+/// Error type for parsing trading vehicle category from string
 #[derive(PartialEq, Debug)]
 pub struct TradingVehicleCategoryParseError;
 
@@ -68,7 +74,7 @@ impl std::str::FromStr for TradingVehicleCategory {
 }
 
 impl std::fmt::Display for TradingVehicleCategory {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match *self {
             TradingVehicleCategory::Crypto => write!(f, "crypto"),
             TradingVehicleCategory::Fiat => write!(f, "fiat"),
@@ -78,7 +84,7 @@ impl std::fmt::Display for TradingVehicleCategory {
 }
 
 impl std::fmt::Display for TradingVehicle {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
             "{}: {} traded in {} with ISIN: {}",
