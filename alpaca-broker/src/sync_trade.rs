@@ -128,6 +128,7 @@ mod tests {
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     fn manually_closed_target() -> Vec<AlpacaOrder> {
         let data = r#"
         [
@@ -244,6 +245,7 @@ mod tests {
         serde_json::from_str(data).unwrap()
     }
 
+    #[allow(clippy::too_many_lines)]
     fn default_from_json() -> Vec<AlpacaOrder> {
         let data = r#"
         [

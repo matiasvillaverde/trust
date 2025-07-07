@@ -176,7 +176,7 @@ impl IntoDomainModel<AccountBalance> for AccountBalanceSQLite {
     }
 }
 
-#[derive(Insertable)]
+#[derive(Debug, Insertable)]
 #[diesel(table_name = accounts_balances)]
 pub struct NewAccountBalance {
     id: String,
@@ -293,7 +293,7 @@ mod tests {
 
         assert_eq!(balances.len(), 2);
         assert_eq!(
-            balances.get(0).expect("Expected first balance"),
+            balances.first().expect("Expected first balance"),
             &balance_btc
         );
         assert_eq!(

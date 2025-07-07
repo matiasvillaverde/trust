@@ -114,7 +114,7 @@ impl AccountRead for AccountDB {
     }
 }
 
-#[derive(Queryable, Identifiable, AsChangeset, Insertable)]
+#[derive(Debug, Queryable, Identifiable, AsChangeset, Insertable)]
 #[diesel(table_name = accounts)]
 #[diesel(primary_key(id))]
 #[diesel(treat_none_as_null = true)]

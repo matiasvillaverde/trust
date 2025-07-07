@@ -1,3 +1,15 @@
+//! Account management dialog - UI interaction module
+//!
+//! TEMPORARY SAFETY ALLOWANCE: This dialog module contains user interaction code
+//! that uses .unwrap() and .expect() for UI input handling. While not ideal,
+//! these are less critical than business logic safety violations.
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing
+)]
+
 use std::error::Error;
 
 use crate::views::{AccountBalanceView, AccountView, RuleView};

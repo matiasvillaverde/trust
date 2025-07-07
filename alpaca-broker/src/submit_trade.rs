@@ -135,6 +135,7 @@ mod tests {
     use rust_decimal_macros::dec;
     use uuid::Uuid;
 
+    #[allow(clippy::too_many_lines)]
     fn default() -> AlpacaOrder {
         let data = r#"
         {

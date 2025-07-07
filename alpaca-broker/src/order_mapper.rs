@@ -743,6 +743,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::cognitive_complexity)]
     fn test_map_from_alpaca() {
         assert_eq!(map_from_alpaca(AlpacaStatus::New), OrderStatus::New);
         assert_eq!(

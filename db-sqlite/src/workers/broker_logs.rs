@@ -1,3 +1,4 @@
+use crate::error::{ConversionError, IntoDomainModel, IntoDomainModels};
 use crate::schema::logs;
 use chrono::{NaiveDateTime, Utc};
 use diesel::prelude::*;
@@ -40,15 +41,14 @@ impl WriteBrokerLogsDB for BrokerLogDB {
             std::process::exit(1);
         });
 
-        let account = diesel::insert_into(logs::table)
+        diesel::insert_into(logs::table)
             .values(&new_account)
             .get_result::<BrokerLogSQLite>(connection)
-            .map(|log| log.domain_model())
             .map_err(|error| {
                 error!("Error creating broker log: {:?}", error);
                 error
-            })?;
-        Ok(account)
+            })?
+            .into_domain_model()
     }
 }
 
@@ -62,19 +62,18 @@ impl ReadBrokerLogsDB for BrokerLogDB {
             std::process::exit(1);
         });
 
-        let log = logs::table
+        logs::table
             .filter(logs::trade_id.eq(trade_id.to_string()))
             .load::<BrokerLogSQLite>(connection)
-            .map(|logs| logs.into_iter().map(|log| log.domain_model()).collect())
             .map_err(|error| {
                 error!("Error reading broker logs for trade: {:?}", error);
                 error
-            })?;
-        Ok(log)
+            })?
+            .into_domain_models()
     }
 }
 
-#[derive(Queryable, Identifiable, AsChangeset, Insertable)]
+#[derive(Debug, Queryable, Identifiable, AsChangeset, Insertable)]
 #[diesel(table_name = logs)]
 pub struct BrokerLogSQLite {
     pub id: String,
@@ -85,16 +84,26 @@ pub struct BrokerLogSQLite {
     pub trade_id: String,
 }
 
-impl BrokerLogSQLite {
-    fn domain_model(self) -> BrokerLog {
-        BrokerLog {
-            id: Uuid::parse_str(&self.id).expect("Failed to parse log ID"),
-            created_at: self.created_at,
-            updated_at: self.updated_at,
-            deleted_at: self.deleted_at,
-            log: self.log,
-            trade_id: Uuid::parse_str(&self.trade_id).expect("Failed to parse trade ID"),
-        }
+impl TryFrom<BrokerLogSQLite> for BrokerLog {
+    type Error = ConversionError;
+
+    fn try_from(value: BrokerLogSQLite) -> Result<Self, Self::Error> {
+        Ok(BrokerLog {
+            id: Uuid::parse_str(&value.id)
+                .map_err(|_| ConversionError::new("id", "Failed to parse log ID"))?,
+            created_at: value.created_at,
+            updated_at: value.updated_at,
+            deleted_at: value.deleted_at,
+            log: value.log,
+            trade_id: Uuid::parse_str(&value.trade_id)
+                .map_err(|_| ConversionError::new("trade_id", "Failed to parse trade ID"))?,
+        })
+    }
+}
+
+impl IntoDomainModel<BrokerLog> for BrokerLogSQLite {
+    fn into_domain_model(self) -> Result<BrokerLog, Box<dyn Error>> {
+        self.try_into().map_err(Into::into)
     }
 }
 
@@ -160,8 +169,17 @@ mod tests {
             .expect("Error reading log");
 
         assert_eq!(read_log.len(), 1);
-        assert_eq!(log.log, read_log.first().unwrap().log);
-        assert_eq!(read_log.first().unwrap().trade_id, trade.id);
+        assert_eq!(
+            log.log,
+            read_log.first().expect("Expected at least one log").log
+        );
+        assert_eq!(
+            read_log
+                .first()
+                .expect("Expected at least one log")
+                .trade_id,
+            trade.id
+        );
         assert_eq!(log.deleted_at, None);
     }
 }

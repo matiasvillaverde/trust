@@ -1,3 +1,4 @@
+use crate::error::{ConversionError, IntoDomainModel};
 use crate::schema::orders::{self};
 use chrono::{NaiveDateTime, Utc};
 use diesel::prelude::*;
@@ -37,11 +38,11 @@ impl WorkerOrder {
         let order = diesel::insert_into(orders::table)
             .values(&new_order)
             .get_result::<OrderSQLite>(connection)
-            .map(|order| order.domain_model(connection))
             .map_err(|error| {
                 error!("Error creating order: {:?}", error);
                 error
-            })?;
+            })?
+            .into_domain_model()?;
         Ok(order)
     }
 
@@ -49,11 +50,11 @@ impl WorkerOrder {
         let order = orders::table
             .filter(orders::id.eq(id.to_string()))
             .first::<OrderSQLite>(connection)
-            .map(|order| order.domain_model(connection))
             .map_err(|error| {
                 error!("Error reading account: {:?}", error);
                 error
-            })?;
+            })?
+            .into_domain_model()?;
         Ok(order)
     }
 
@@ -147,7 +148,7 @@ impl WorkerOrder {
     }
 }
 
-#[derive(Queryable, Identifiable, AsChangeset, Insertable)]
+#[derive(Debug, Queryable, Identifiable, AsChangeset, Insertable)]
 #[diesel(table_name = orders)]
 struct OrderSQLite {
     id: String,
@@ -175,43 +176,61 @@ struct OrderSQLite {
     closed_at: Option<NaiveDateTime>,
 }
 
-impl OrderSQLite {
-    fn domain_model(self, _connection: &mut SqliteConnection) -> Order {
-        Order {
-            id: Uuid::parse_str(&self.id).expect("Failed to parse order ID"),
-            broker_order_id: self
+impl TryFrom<OrderSQLite> for Order {
+    type Error = ConversionError;
+
+    fn try_from(value: OrderSQLite) -> Result<Self, Self::Error> {
+        Ok(Order {
+            id: Uuid::parse_str(&value.id)
+                .map_err(|_| ConversionError::new("id", "Failed to parse order ID"))?,
+            broker_order_id: value
                 .broker_order_id
                 .and_then(|id| Uuid::parse_str(&id).ok()),
-            created_at: self.created_at,
-            updated_at: self.updated_at,
-            deleted_at: self.deleted_at,
-            unit_price: Decimal::from_str(self.unit_price.as_str())
-                .expect("Failed to parse unit price"),
-            currency: Currency::from_str(self.currency.as_str()).expect("Failed to parse currency"),
-            quantity: self.quantity as u64,
-            action: OrderAction::from_str(&self.action).expect("Failed to parse order action"),
-            category: OrderCategory::from_str(&self.category)
-                .expect("Failed to parse order category"),
-            status: OrderStatus::from_str(&self.status).expect("Failed to parse order status"),
-            trading_vehicle_id: Uuid::parse_str(&self.trading_vehicle_id)
-                .expect("Failed to parse trading vehicle ID"),
-            time_in_force: TimeInForce::from_str(&self.time_in_force)
-                .expect("Failed to parse time in force"),
-            trailing_percent: self
+            created_at: value.created_at,
+            updated_at: value.updated_at,
+            deleted_at: value.deleted_at,
+            unit_price: Decimal::from_str(&value.unit_price)
+                .map_err(|_| ConversionError::new("unit_price", "Failed to parse unit price"))?,
+            currency: Currency::from_str(&value.currency)
+                .map_err(|_| ConversionError::new("currency", "Failed to parse currency"))?,
+            #[allow(clippy::cast_sign_loss)]
+            quantity: value.quantity.max(0) as u64,
+            action: OrderAction::from_str(&value.action)
+                .map_err(|_| ConversionError::new("action", "Failed to parse order action"))?,
+            category: OrderCategory::from_str(&value.category)
+                .map_err(|_| ConversionError::new("category", "Failed to parse order category"))?,
+            status: OrderStatus::from_str(&value.status)
+                .map_err(|_| ConversionError::new("status", "Failed to parse order status"))?,
+            trading_vehicle_id: Uuid::parse_str(&value.trading_vehicle_id).map_err(|_| {
+                ConversionError::new("trading_vehicle_id", "Failed to parse trading vehicle ID")
+            })?,
+            time_in_force: TimeInForce::from_str(&value.time_in_force).map_err(|_| {
+                ConversionError::new("time_in_force", "Failed to parse time in force")
+            })?,
+            trailing_percent: value
                 .trailing_percentage
                 .and_then(|p| Decimal::from_str(&p).ok()),
-            trailing_price: self.trailing_price.and_then(|p| Decimal::from_str(&p).ok()),
-            filled_quantity: self.filled_quantity as u64,
-            average_filled_price: self
+            trailing_price: value
+                .trailing_price
+                .and_then(|p| Decimal::from_str(&p).ok()),
+            #[allow(clippy::cast_sign_loss)]
+            filled_quantity: value.filled_quantity.max(0) as u64,
+            average_filled_price: value
                 .average_filled_price
                 .and_then(|p| Decimal::from_str(&p).ok()),
-            extended_hours: self.extended_hours,
-            submitted_at: self.submitted_at,
-            filled_at: self.filled_at,
-            expired_at: self.expired_at,
-            cancelled_at: self.cancelled_at,
-            closed_at: self.closed_at,
-        }
+            extended_hours: value.extended_hours,
+            submitted_at: value.submitted_at,
+            filled_at: value.filled_at,
+            expired_at: value.expired_at,
+            cancelled_at: value.cancelled_at,
+            closed_at: value.closed_at,
+        })
+    }
+}
+
+impl IntoDomainModel<Order> for OrderSQLite {
+    fn into_domain_model(self) -> Result<Order, Box<dyn Error>> {
+        self.try_into().map_err(Into::into)
     }
 }
 

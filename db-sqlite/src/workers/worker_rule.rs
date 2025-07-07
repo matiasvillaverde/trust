@@ -29,6 +29,7 @@ impl WorkerRule {
             updated_at: now,
             deleted_at: None,
             name: name.to_string(),
+            #[allow(clippy::cast_possible_truncation)]
             risk: name.risk() as i32,
             description: description.to_string(),
             priority: priority as i32,
@@ -117,6 +118,7 @@ impl TryFrom<RuleSQLite> for Rule {
     type Error = ConversionError;
 
     fn try_from(value: RuleSQLite) -> Result<Self, Self::Error> {
+        #[allow(clippy::cast_precision_loss)]
         let name = RuleName::parse(&value.name, value.risk as f32)
             .map_err(|_| ConversionError::new("name", "Failed to parse rule name"))?;
         Ok(Rule {
@@ -127,7 +129,8 @@ impl TryFrom<RuleSQLite> for Rule {
             deleted_at: value.deleted_at,
             name,
             description: value.description,
-            priority: value.priority as u32,
+            #[allow(clippy::cast_sign_loss)]
+            priority: value.priority.max(0) as u32,
             level: RuleLevel::from_str(&value.level)
                 .map_err(|_| ConversionError::new("level", "Failed to parse rule level"))?,
             account_id: Uuid::parse_str(&value.account_id)
