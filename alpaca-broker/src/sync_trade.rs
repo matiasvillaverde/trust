@@ -488,7 +488,13 @@ mod tests {
         // Assert that the orders has been updated
         assert_eq!(status, Status::ClosedTarget);
         assert_eq!(updated_orders.len(), 1);
-        assert_eq!(updated_orders[0].broker_order_id, Some(target_id));
+        assert_eq!(
+            updated_orders
+                .first()
+                .expect("Expected at least one order")
+                .broker_order_id,
+            Some(target_id)
+        );
     }
 
     #[test]

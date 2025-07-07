@@ -31,6 +31,7 @@
 #![warn(missing_docs, rust_2018_idioms, missing_debug_implementations)]
 
 mod database;
+mod error;
 mod schema;
 mod workers;
 

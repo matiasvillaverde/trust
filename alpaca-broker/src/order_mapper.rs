@@ -305,7 +305,7 @@ mod tests {
         let result = map_entry(alpaca_order, &trade).unwrap();
 
         assert_eq!(result.len(), 1);
-        let order = result.get(0).expect("Expected at least one order");
+        let order = result.first().expect("Expected at least one order");
         assert_eq!(order.status, OrderStatus::Filled);
         assert!(order.filled_at.is_some());
         assert_eq!(order.filled_quantity, 100);
@@ -356,7 +356,7 @@ mod tests {
         assert_eq!(result.len(), 2);
 
         // Entry
-        let entry_order = result.get(0).expect("Expected entry order");
+        let entry_order = result.first().expect("Expected entry order");
         assert_eq!(entry_order.status, OrderStatus::Filled);
         assert!(entry_order.filled_at.is_some());
         assert_eq!(entry_order.filled_quantity, 100);
@@ -414,7 +414,7 @@ mod tests {
         assert_eq!(result.len(), 2);
 
         // Entry
-        let entry_order = result.get(0).expect("Expected entry order");
+        let entry_order = result.first().expect("Expected entry order");
         assert_eq!(entry_order.status, OrderStatus::Filled);
         assert!(entry_order.filled_at.is_some());
         assert_eq!(entry_order.filled_quantity, 100);

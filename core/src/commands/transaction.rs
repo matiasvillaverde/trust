@@ -159,8 +159,7 @@ pub fn transfer_to_fill_trade(
         .ok_or_else(|| {
             format!(
                 "Arithmetic overflow in multiplication: {} * {}",
-                average_price,
-                trade.entry.quantity
+                average_price, trade.entry.quantity
             )
         })?;
 
@@ -277,8 +276,7 @@ pub fn transfer_to_close_target(
         .ok_or_else(|| {
             format!(
                 "Arithmetic overflow in multiplication: {} * {}",
-                average_price,
-                trade.entry.quantity
+                average_price, trade.entry.quantity
             )
         })?;
 
@@ -316,8 +314,7 @@ pub fn transfer_to_close_stop(
         .ok_or_else(|| {
             format!(
                 "Arithmetic overflow in multiplication: {} * {}",
-                average_price,
-                trade.entry.quantity
+                average_price, trade.entry.quantity
             )
         })?;
 

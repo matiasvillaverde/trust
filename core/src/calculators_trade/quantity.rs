@@ -76,11 +76,11 @@ impl QuantityCalculator {
         if available <= dec!(0.0) {
             return 0;
         }
-        
+
         let Some(price_diff) = entry_price.checked_sub(stop_price) else {
             return 0; // Entry price must be greater than stop price
         };
-        
+
         if price_diff <= dec!(0.0) || risk <= 0.0 {
             return 0;
         }
@@ -88,7 +88,7 @@ impl QuantityCalculator {
         let Some(max_quantity) = available.checked_div(entry_price) else {
             return 0; // Division overflow
         };
-        
+
         let Some(max_risk) = max_quantity.checked_mul(price_diff) else {
             return 0; // Multiplication overflow
         };
@@ -96,11 +96,11 @@ impl QuantityCalculator {
         let Some(risk_decimal) = Decimal::from_f32_retain(risk) else {
             return 0; // Failed to convert risk to Decimal
         };
-        
+
         let Some(risk_percent) = risk_decimal.checked_div(dec!(100.0)) else {
             return 0; // Division overflow
         };
-        
+
         let Some(risk_capital) = available.checked_mul(risk_percent) else {
             return 0; // Multiplication overflow
         };
