@@ -36,9 +36,9 @@ jobs:
     - name: Quick compilation check
       run: cargo check --locked --workspace --all-features
 
-  # Lint job runs in parallel with tests
+  # Enhanced lint job with security tools
   lint:
-    name: Clippy
+    name: Enhanced Clippy & Security
     runs-on: ubuntu-latest
     needs: quick-checks
     steps:
@@ -61,12 +61,24 @@ jobs:
           ~/.cargo/registry
           ~/.cargo/git
           target
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        key: ${{ runner.os }}-cargo-enhanced-${{ hashFiles('**/Cargo.lock') }}
         restore-keys: |
+          ${{ runner.os }}-cargo-enhanced-
           ${{ runner.os }}-cargo-
 
-    - name: Run clippy
+    - name: Install enhanced security tools
+      run: |
+        cargo install cargo-deny --locked
+        cargo install cargo-udeps --locked
+
+    - name: Run enhanced clippy with complexity analysis
       run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+    - name: Run dependency security and license checks
+      run: cargo deny check advisories licenses
+
+    - name: Check for unused dependencies
+      run: cargo udeps --all-targets
 
   # Combined build and test job for efficiency
   build-and-test:
