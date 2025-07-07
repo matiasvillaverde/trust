@@ -305,10 +305,11 @@ mod tests {
         let result = map_entry(alpaca_order, &trade).unwrap();
 
         assert_eq!(result.len(), 1);
-        assert_eq!(result[0].status, OrderStatus::Filled);
-        assert!(result[0].filled_at.is_some());
-        assert_eq!(result[0].filled_quantity, 100);
-        assert_eq!(result[0].average_filled_price, Some(dec!(10)));
+        let order = result.get(0).expect("Expected at least one order");
+        assert_eq!(order.status, OrderStatus::Filled);
+        assert!(order.filled_at.is_some());
+        assert_eq!(order.filled_quantity, 100);
+        assert_eq!(order.average_filled_price, Some(dec!(10)));
     }
 
     #[test]
@@ -355,16 +356,18 @@ mod tests {
         assert_eq!(result.len(), 2);
 
         // Entry
-        assert_eq!(result[0].status, OrderStatus::Filled);
-        assert!(result[0].filled_at.is_some());
-        assert_eq!(result[0].filled_quantity, 100);
-        assert_eq!(result[0].average_filled_price, Some(dec!(11)));
+        let entry_order = result.get(0).expect("Expected entry order");
+        assert_eq!(entry_order.status, OrderStatus::Filled);
+        assert!(entry_order.filled_at.is_some());
+        assert_eq!(entry_order.filled_quantity, 100);
+        assert_eq!(entry_order.average_filled_price, Some(dec!(11)));
 
         // Target
-        assert_eq!(result[1].status, OrderStatus::Filled);
-        assert!(result[1].filled_at.is_some());
-        assert_eq!(result[1].filled_quantity, 100);
-        assert_eq!(result[1].average_filled_price, Some(dec!(10)));
+        let target_order = result.get(1).expect("Expected target order");
+        assert_eq!(target_order.status, OrderStatus::Filled);
+        assert!(target_order.filled_at.is_some());
+        assert_eq!(target_order.filled_quantity, 100);
+        assert_eq!(target_order.average_filled_price, Some(dec!(10)));
     }
 
     #[test]
@@ -411,16 +414,18 @@ mod tests {
         assert_eq!(result.len(), 2);
 
         // Entry
-        assert_eq!(result[0].status, OrderStatus::Filled);
-        assert!(result[0].filled_at.is_some());
-        assert_eq!(result[0].filled_quantity, 100);
-        assert_eq!(result[0].average_filled_price, Some(dec!(9)));
+        let entry_order = result.get(0).expect("Expected entry order");
+        assert_eq!(entry_order.status, OrderStatus::Filled);
+        assert!(entry_order.filled_at.is_some());
+        assert_eq!(entry_order.filled_quantity, 100);
+        assert_eq!(entry_order.average_filled_price, Some(dec!(9)));
 
         // Stop
-        assert_eq!(result[1].status, OrderStatus::Filled);
-        assert!(result[1].filled_at.is_some());
-        assert_eq!(result[1].filled_quantity, 100);
-        assert_eq!(result[1].average_filled_price, Some(dec!(10)));
+        let stop_order = result.get(1).expect("Expected stop order");
+        assert_eq!(stop_order.status, OrderStatus::Filled);
+        assert!(stop_order.filled_at.is_some());
+        assert_eq!(stop_order.filled_quantity, 100);
+        assert_eq!(stop_order.average_filled_price, Some(dec!(10)));
     }
 
     #[test]

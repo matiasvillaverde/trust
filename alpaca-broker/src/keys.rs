@@ -13,13 +13,19 @@ pub fn read_api_key(env: &Environment, account: &Account) -> Result<ApiInfo, Box
     Ok(info)
 }
 
+/// API keys for connecting to Alpaca broker
+#[derive(Debug)]
 pub struct Keys {
+    /// The API key ID
     pub key_id: String,
+    /// The API secret key
     pub secret: String,
+    /// The base URL for the API
     pub url: String,
 }
 
 impl Keys {
+    /// Create new API keys
     pub fn new(key_id: &str, secret: &str, url: &str) -> Keys {
         Keys {
             key_id: key_id.to_string(),
@@ -50,6 +56,7 @@ impl FromStr for Keys {
 }
 
 impl Keys {
+    /// Read API keys from keychain
     pub fn read(environment: &Environment, account_name: &str) -> keyring::Result<Keys> {
         let entry = Entry::new(account_name, environment.to_string().as_str())?;
         let password = entry.get_password()?;
@@ -59,12 +66,14 @@ impl Keys {
         Ok(keys)
     }
 
+    /// Store API keys in keychain
     pub fn store(self, environment: &Environment, account_name: &str) -> keyring::Result<Keys> {
         let entry = Entry::new(account_name, environment.to_string().as_str())?;
         entry.set_password(self.to_string().as_str())?;
         Ok(self)
     }
 
+    /// Delete API keys from keychain
     pub fn delete(environment: &Environment, account_name: &str) -> keyring::Result<()> {
         let entry = Entry::new(account_name, environment.to_string().as_str())?;
         entry.get_credential();

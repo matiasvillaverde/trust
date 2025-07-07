@@ -101,6 +101,7 @@ impl Broker for AlpacaBroker {
 
 /// Alpaca-specific Broker API
 impl AlpacaBroker {
+    /// Setup and store API keys for Alpaca broker
     pub fn setup_keys(
         key_id: &str,
         secret: &str,
@@ -113,11 +114,13 @@ impl AlpacaBroker {
         Ok(keys)
     }
 
+    /// Read API keys from keychain for Alpaca broker
     pub fn read_keys(environment: &Environment, account: &Account) -> Result<Keys, Box<dyn Error>> {
         let keys = Keys::read(environment, &account.name)?;
         Ok(keys)
     }
 
+    /// Delete API keys from keychain for Alpaca broker
     pub fn delete_keys(environment: &Environment, account: &Account) -> Result<(), Box<dyn Error>> {
         Keys::delete(environment, &account.name)?;
         Ok(())
