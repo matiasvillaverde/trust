@@ -16,6 +16,8 @@ env:
   RUST_BACKTRACE: 1
   RUSTFLAGS: -D warnings
   CARGO_INCREMENTAL: 0
+  CARGO_DENY_VERSION: "0.14.3"
+  CARGO_UDEPS_VERSION: "0.1.45"
 
 jobs:
   # Quick checks run first for fast feedback
@@ -79,17 +81,32 @@ jobs:
           ${{ runner.os }}-cargo-enhanced-
           ${{ runner.os }}-cargo-
 
-    - name: Cache cargo-deny and cargo-udeps
+    - name: Cache cargo tools binaries
       uses: actions/cache@v3
       id: tools-cache
       with:
-        path: ~/.cargo/bin
-        key: ${{ runner.os }}-cargo-tools-${{ hashFiles('.github/workflows/rust.yaml') }}
+        path: |
+          ~/.cargo/bin/cargo-deny
+          ~/.cargo/bin/cargo-udeps
+        key: ${{ runner.os }}-cargo-tools-deny-${{ env.CARGO_DENY_VERSION }}-udeps-${{ env.CARGO_UDEPS_VERSION }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-tools-deny-
+          ${{ runner.os }}-cargo-tools-
 
-    - name: Install enhanced security tools
+    - name: Install cargo-deny
       if: steps.tools-cache.outputs.cache-hit != 'true'
       run: |
-        cargo install cargo-deny --locked
+        # Use pre-compiled binary for faster installation
+        mkdir -p ~/.cargo/bin
+        wget -q https://github.com/EmbarkStudios/cargo-deny/releases/download/${{ env.CARGO_DENY_VERSION }}/cargo-deny-${{ env.CARGO_DENY_VERSION }}-x86_64-unknown-linux-musl.tar.gz
+        tar -xzf cargo-deny-${{ env.CARGO_DENY_VERSION }}-x86_64-unknown-linux-musl.tar.gz
+        mv cargo-deny-${{ env.CARGO_DENY_VERSION }}-x86_64-unknown-linux-musl/cargo-deny ~/.cargo/bin/
+        chmod +x ~/.cargo/bin/cargo-deny
+
+    - name: Install cargo-udeps
+      if: steps.tools-cache.outputs.cache-hit != 'true'
+      run: |
+        mkdir -p ~/.cargo/bin
         cargo +nightly install cargo-udeps --locked
 
     - name: Run enhanced clippy with complexity analysis
