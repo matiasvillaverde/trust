@@ -16,8 +16,6 @@ env:
   RUST_BACKTRACE: 1
   RUSTFLAGS: -D warnings
   CARGO_INCREMENTAL: 0
-  SCCACHE_GHA_ENABLED: "true"
-  RUSTC_WRAPPER: "sccache"
 
 jobs:
   # Quick checks run first for fast feedback
@@ -36,9 +34,6 @@ jobs:
       uses: dtolnay/rust-toolchain@stable
       with:
         components: rustfmt
-
-    - name: Setup sccache
-      uses: mozilla-actions/sccache-action@v0.0.5
 
     - name: Check formatting
       run: cargo fmt --all -- --check
@@ -63,9 +58,6 @@ jobs:
       uses: dtolnay/rust-toolchain@stable
       with:
         components: clippy
-
-    - name: Setup sccache
-      uses: mozilla-actions/sccache-action@v0.0.5
 
     - name: Cache dependencies
       uses: actions/cache@v3
@@ -128,9 +120,6 @@ jobs:
     - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
 
-    - name: Setup sccache
-      uses: mozilla-actions/sccache-action@v0.0.5
-
     - name: Cache dependencies
       uses: actions/cache@v3
       with:
@@ -166,9 +155,6 @@ jobs:
 
     - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
-
-    - name: Setup sccache
-      uses: mozilla-actions/sccache-action@v0.0.5
 
     - name: Cache dependencies
       uses: actions/cache@v3
