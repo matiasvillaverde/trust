@@ -77,21 +77,21 @@ fn extract_ids(order: &AlpacaOrder, trade: &Trade) -> Result<OrderIds, Box<dyn E
 
     Ok(OrderIds {
         stop: Uuid::from_str(&stop_id.to_string())
-            .map_err(|e| format!("Failed to parse stop UUID: {}", e))?,
+            .map_err(|e| format!("Failed to parse stop UUID: {e}"))?,
         entry: Uuid::from_str(&order.id.to_string())
-            .map_err(|e| format!("Failed to parse entry UUID: {}", e))?,
+            .map_err(|e| format!("Failed to parse entry UUID: {e}"))?,
         target: Uuid::from_str(&target_id.to_string())
-            .map_err(|e| format!("Failed to parse target UUID: {}", e))?,
+            .map_err(|e| format!("Failed to parse target UUID: {e}"))?,
     })
 }
 
 fn new_request(trade: &Trade) -> Result<CreateReq, Box<dyn Error>> {
     let entry = Num::from_str(&trade.entry.unit_price.to_string())
-        .map_err(|e| format!("Failed to parse entry price: {:?}", e))?;
+        .map_err(|e| format!("Failed to parse entry price: {e:?}"))?;
     let stop = Num::from_str(&trade.safety_stop.unit_price.to_string())
-        .map_err(|e| format!("Failed to parse stop price: {:?}", e))?;
+        .map_err(|e| format!("Failed to parse stop price: {e:?}"))?;
     let target = Num::from_str(&trade.target.unit_price.to_string())
-        .map_err(|e| format!("Failed to parse target price: {:?}", e))?;
+        .map_err(|e| format!("Failed to parse target price: {e:?}"))?;
 
     Ok(CreateReqInit {
         class: Class::Bracket,

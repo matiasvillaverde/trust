@@ -33,7 +33,7 @@ async fn submit(client: &Client, order_id: Uuid, price: Decimal) -> Result<Order
     let request = ChangeReq {
         stop_price: Some(
             Num::from_str(&price.to_string())
-                .map_err(|e| format!("Failed to parse stop price: {:?}", e))?,
+                .map_err(|e| format!("Failed to parse stop price: {e:?}"))?,
         ),
         ..Default::default()
     };

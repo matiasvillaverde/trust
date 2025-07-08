@@ -31,7 +31,7 @@ pub fn map_entry(alpaca_order: AlpacaOrder, trade: &Trade) -> Result<Vec<Order>,
                         }
                     }
                     Err(e) => {
-                        eprintln!("Error mapping target order: {}", e);
+                        eprintln!("Error mapping target order: {e}");
                         None
                     }
                 };
@@ -52,7 +52,7 @@ pub fn map_entry(alpaca_order: AlpacaOrder, trade: &Trade) -> Result<Vec<Order>,
                         }
                     }
                     Err(e) => {
-                        eprintln!("Error mapping safety stop order: {}", e);
+                        eprintln!("Error mapping safety stop order: {e}");
                         None
                     }
                 };
@@ -157,7 +157,7 @@ fn map(alpaca_order: &AlpacaOrder, order: Order) -> Result<Order, Box<dyn Error>
         .clone()
         .map(|price| Decimal::from_str(price.to_string().as_str()))
         .transpose()
-        .map_err(|e| format!("Failed to parse average fill price: {}", e))?;
+        .map_err(|e| format!("Failed to parse average fill price: {e}"))?;
     order.status = map_from_alpaca(alpaca_order.status);
     order.filled_at = map_date(alpaca_order.filled_at);
     order.expired_at = map_date(alpaca_order.expired_at);
@@ -169,7 +169,7 @@ pub fn map_close_order(alpaca_order: &AlpacaOrder, target: Order) -> Result<Orde
     let mut order = target;
     order.broker_order_id = Some(
         Uuid::parse_str(&alpaca_order.id.to_string())
-            .map_err(|e| format!("Failed to parse Alpaca order ID as UUID: {}", e))?,
+            .map_err(|e| format!("Failed to parse Alpaca order ID as UUID: {e}"))?,
     );
     order.status = map_from_alpaca(alpaca_order.status);
     order.submitted_at = map_date(alpaca_order.submitted_at);
