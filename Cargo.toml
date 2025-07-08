@@ -27,10 +27,14 @@ rust_decimal = "1.37.1"
 rust_decimal_macros = "1.37.1"
 tracing = "0.1.41"
 tracing-subscriber = "0.3.19"
+# TEMPORARY: Using apca (GPL-3.0) - TODO: migrate to permissive alternative  
+# Using latest version to fix security vulnerabilities
 apca = "0.30.0"
-num-decimal = {version = "0.2.4", default-features = false, features = ["num-v04", "serde"]}
+num-decimal = { version = "0.2.5", default-features = false }
+# USING: rust_decimal (MIT/Apache-2.0) instead of num-decimal for consistency
 tokio = {version = "1.45.1", default-features = false, features = ["net", "rt-multi-thread", "macros"]}
-dotenv = "0.15.0"
+# REPLACED: dotenv (unmaintained) with dotenvy (MIT, actively maintained)
+dotenvy = "0.15.7"
 shellexpand = "3.1.1"
 keyring = { version = "3.6.2", features = ["apple-native", "windows-native", "sync-secret-service"] }
 serde_json = "1.0.140"

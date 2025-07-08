@@ -86,12 +86,12 @@ fn extract_ids(order: &AlpacaOrder, trade: &Trade) -> Result<OrderIds, Box<dyn E
 }
 
 fn new_request(trade: &Trade) -> Result<CreateReq, Box<dyn Error>> {
-    let entry = Num::from_str(trade.entry.unit_price.to_string().as_str())
-        .map_err(|e| format!("Failed to parse entry price: {}", e))?;
-    let stop = Num::from_str(trade.safety_stop.unit_price.to_string().as_str())
-        .map_err(|e| format!("Failed to parse stop price: {}", e))?;
-    let target = Num::from_str(trade.target.unit_price.to_string().as_str())
-        .map_err(|e| format!("Failed to parse target price: {}", e))?;
+    let entry = Num::from_str(&trade.entry.unit_price.to_string())
+        .map_err(|e| format!("Failed to parse entry price: {:?}", e))?;
+    let stop = Num::from_str(&trade.safety_stop.unit_price.to_string())
+        .map_err(|e| format!("Failed to parse stop price: {:?}", e))?;
+    let target = Num::from_str(&trade.target.unit_price.to_string())
+        .map_err(|e| format!("Failed to parse target price: {:?}", e))?;
 
     Ok(CreateReqInit {
         class: Class::Bracket,
@@ -131,7 +131,6 @@ pub fn side(trade: &Trade) -> Side {
 mod tests {
     use super::*;
     use apca::api::v2::order::{Amount, Class, Side, Type};
-    use num_decimal::Num;
     use rust_decimal_macros::dec;
     use uuid::Uuid;
 

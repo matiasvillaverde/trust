@@ -30,11 +30,11 @@ pub fn modify(trade: &Trade, account: &Account, price: Decimal) -> Result<Uuid, 
 }
 
 async fn submit(client: &Client, order_id: Uuid, price: Decimal) -> Result<Order, Box<dyn Error>> {
-    let stop_price = Num::from_str(price.to_string().as_str())
-        .map_err(|e| format!("Failed to parse price {}: {}", price, e))?;
-
     let request = ChangeReq {
-        stop_price: Some(stop_price),
+        stop_price: Some(
+            Num::from_str(&price.to_string())
+                .map_err(|e| format!("Failed to parse stop price: {:?}", e))?,
+        ),
         ..Default::default()
     };
 

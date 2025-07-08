@@ -1,6 +1,6 @@
 MIT License
 
-Copyright (c) 2024 Mati
+Copyright (c) 2024 Matias Villaverde
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -19,3 +19,38 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+===============================================================================
+ADDITIONAL DISCLAIMERS FOR FINANCIAL TRADING SOFTWARE
+===============================================================================
+
+TRADING RISK DISCLAIMER:
+- Trading financial instruments involves substantial risk of loss
+- Past performance is not indicative of future results
+- Users are solely responsible for their trading decisions and outcomes
+- The author provides no investment advice or recommendations
+
+REGULATORY COMPLIANCE DISCLAIMER:
+- Users are solely responsible for compliance with all applicable laws
+- Financial regulations vary by jurisdiction
+- Users must ensure compliance with local trading regulations
+- The author accepts no responsibility for regulatory violations
+
+NO WARRANTY FOR FINANCIAL USE:
+- This software is provided for educational and research purposes
+- No guarantee of accuracy, reliability, or fitness for trading
+- Users assume all risks associated with financial trading
+- The author disclaims all liability for financial losses
+
+THIRD-PARTY SERVICES DISCLAIMER:
+- This software may interact with third-party trading platforms
+- The author is not affiliated with or responsible for third-party services
+- Users are responsible for their own API keys and account security
+- Third-party service terms and conditions apply independently
+
+BY USING THIS SOFTWARE, YOU ACKNOWLEDGE AND AGREE THAT:
+1. You use this software entirely at your own risk
+2. You are solely responsible for all trading decisions and outcomes
+3. You will comply with all applicable laws and regulations
+4. The author has no liability for your use of this software
+5. This software is provided without any warranties whatsoever
