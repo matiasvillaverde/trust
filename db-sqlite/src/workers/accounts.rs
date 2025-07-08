@@ -50,7 +50,7 @@ impl AccountWrite for AccountDB {
         };
 
         let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap_or_else(|e| {
-            eprintln!("Failed to acquire connection lock: {}", e);
+            eprintln!("Failed to acquire connection lock: {e}");
             std::process::exit(1);
         });
 
@@ -68,7 +68,7 @@ impl AccountWrite for AccountDB {
 impl AccountRead for AccountDB {
     fn for_name(&mut self, name: &str) -> Result<Account, Box<dyn Error>> {
         let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap_or_else(|e| {
-            eprintln!("Failed to acquire connection lock: {}", e);
+            eprintln!("Failed to acquire connection lock: {e}");
             std::process::exit(1);
         });
 
@@ -84,7 +84,7 @@ impl AccountRead for AccountDB {
 
     fn id(&mut self, id: Uuid) -> Result<Account, Box<dyn Error>> {
         let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap_or_else(|e| {
-            eprintln!("Failed to acquire connection lock: {}", e);
+            eprintln!("Failed to acquire connection lock: {e}");
             std::process::exit(1);
         });
 
@@ -100,7 +100,7 @@ impl AccountRead for AccountDB {
 
     fn all(&mut self) -> Result<Vec<Account>, Box<dyn Error>> {
         let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap_or_else(|e| {
-            eprintln!("Failed to acquire connection lock: {}", e);
+            eprintln!("Failed to acquire connection lock: {e}");
             std::process::exit(1);
         });
         accounts::table

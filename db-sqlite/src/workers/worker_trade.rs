@@ -254,7 +254,7 @@ impl TradeSQLite {
             WorkerTradingVehicle::read(connection, trading_vehicle_id).map_err(|e| {
                 ConversionError::new(
                     "trading_vehicle",
-                    format!("Failed to read trading vehicle: {}", e),
+                    format!("Failed to read trading vehicle: {e}"),
                 )
             })?;
 
@@ -264,26 +264,26 @@ impl TradeSQLite {
         let safety_stop = WorkerOrder::read(connection, safety_stop_id).map_err(|e| {
             ConversionError::new(
                 "safety_stop",
-                format!("Failed to read safety stop order: {}", e),
+                format!("Failed to read safety stop order: {e}"),
             )
         })?;
 
         let entry_id = Uuid::parse_str(&self.entry_id)
             .map_err(|_| ConversionError::new("entry_id", "Failed to parse entry ID"))?;
         let entry = WorkerOrder::read(connection, entry_id).map_err(|e| {
-            ConversionError::new("entry", format!("Failed to read entry order: {}", e))
+            ConversionError::new("entry", format!("Failed to read entry order: {e}"))
         })?;
 
         let target_id = Uuid::parse_str(&self.target_id)
             .map_err(|_| ConversionError::new("target_id", "Failed to parse target ID"))?;
         let targets = WorkerOrder::read(connection, target_id).map_err(|e| {
-            ConversionError::new("target", format!("Failed to read target order: {}", e))
+            ConversionError::new("target", format!("Failed to read target order: {e}"))
         })?;
 
         let balance_id = Uuid::parse_str(&self.balance_id)
             .map_err(|_| ConversionError::new("balance_id", "Failed to parse balance ID"))?;
         let balance = WorkerTrade::read_balance(connection, balance_id).map_err(|e| {
-            ConversionError::new("balance", format!("Failed to read trade balance: {}", e))
+            ConversionError::new("balance", format!("Failed to read trade balance: {e}"))
         })?;
 
         Ok(Trade {

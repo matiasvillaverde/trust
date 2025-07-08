@@ -37,7 +37,7 @@ impl WriteBrokerLogsDB for BrokerLogDB {
         };
 
         let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap_or_else(|e| {
-            eprintln!("Failed to acquire connection lock: {}", e);
+            eprintln!("Failed to acquire connection lock: {e}");
             std::process::exit(1);
         });
 
@@ -58,7 +58,7 @@ impl ReadBrokerLogsDB for BrokerLogDB {
         trade_id: Uuid,
     ) -> Result<Vec<BrokerLog>, Box<dyn Error>> {
         let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap_or_else(|e| {
-            eprintln!("Failed to acquire connection lock: {}", e);
+            eprintln!("Failed to acquire connection lock: {e}");
             std::process::exit(1);
         });
 

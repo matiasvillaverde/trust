@@ -37,7 +37,7 @@ impl AccountBalanceWrite for AccountBalanceDB {
         };
 
         let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap_or_else(|e| {
-            eprintln!("Failed to acquire connection lock: {}", e);
+            eprintln!("Failed to acquire connection lock: {e}");
             std::process::exit(1);
         });
 
@@ -60,7 +60,7 @@ impl AccountBalanceWrite for AccountBalanceDB {
         total_taxed: Decimal,
     ) -> Result<AccountBalance, Box<dyn Error>> {
         let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap_or_else(|e| {
-            eprintln!("Failed to acquire connection lock: {}", e);
+            eprintln!("Failed to acquire connection lock: {e}");
             std::process::exit(1);
         });
         diesel::update(accounts_balances::table)
@@ -84,7 +84,7 @@ impl AccountBalanceWrite for AccountBalanceDB {
 impl AccountBalanceRead for AccountBalanceDB {
     fn for_account(&mut self, account_id: Uuid) -> Result<Vec<AccountBalance>, Box<dyn Error>> {
         let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap_or_else(|e| {
-            eprintln!("Failed to acquire connection lock: {}", e);
+            eprintln!("Failed to acquire connection lock: {e}");
             std::process::exit(1);
         });
         accounts_balances::table
@@ -104,7 +104,7 @@ impl AccountBalanceRead for AccountBalanceDB {
         currency: &Currency,
     ) -> Result<AccountBalance, Box<dyn Error>> {
         let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap_or_else(|e| {
-            eprintln!("Failed to acquire connection lock: {}", e);
+            eprintln!("Failed to acquire connection lock: {e}");
             std::process::exit(1);
         });
         accounts_balances::table
