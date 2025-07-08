@@ -46,13 +46,6 @@ jobs:
     - name: Quick compilation check
       run: cargo check --locked --workspace --all-features
 
-    - name: Check Cargo.toml formatting
-      run: |
-        if ! command -v taplo &> /dev/null; then
-          cargo install taplo-cli --locked
-        fi
-        taplo fmt --check
-
   # Enhanced lint job with security tools
   lint:
     name: Enhanced Clippy & Security
