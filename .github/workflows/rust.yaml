@@ -61,6 +61,11 @@ jobs:
 
     - name: Install Rust nightly (for cargo-udeps)
       uses: dtolnay/rust-toolchain@nightly
+      with:
+        components: clippy
+
+    - name: Set stable as default toolchain
+      run: rustup default stable
 
     - name: Cache dependencies
       uses: actions/cache@v3
@@ -88,10 +93,10 @@ jobs:
         cargo +nightly install cargo-udeps --locked
 
     - name: Run enhanced clippy with complexity analysis
-      run: cargo +stable clippy --workspace --all-targets --all-features -- -D warnings
+      run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
     - name: Run dependency security and license checks
-      run: cargo +stable deny check advisories licenses
+      run: cargo deny check advisories licenses
 
     - name: Check for unused dependencies
       run: |
