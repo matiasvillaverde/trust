@@ -41,7 +41,13 @@ impl RiskCalculator {
         );
 
         // Calculate the percentage of the total available this month
-        Ok((available_to_risk * dec!(100.0)) / total_available)
+        let temp = available_to_risk
+            .checked_mul(dec!(100.0))
+            .ok_or("Multiplication overflow in risk calculation")?;
+        let percentage = temp
+            .checked_div(total_available)
+            .ok_or("Division by zero or overflow in risk calculation")?;
+        Ok(percentage)
     }
 
     fn calculate_capital_allowed_to_risk(
@@ -50,10 +56,25 @@ impl RiskCalculator {
         total_capital_not_at_risk: Decimal,
         risk: f32,
     ) -> Decimal {
-        let available_to_risk =
-            total_beginning_of_month * Decimal::from_f32_retain(risk).unwrap() / dec!(100.0);
-        let total_performance =
-            total_beginning_of_month - total_balance_current_month - total_capital_not_at_risk;
+        let Some(risk_decimal) = Decimal::from_f32_retain(risk) else {
+            return dec!(0.0); // Failed to convert risk to Decimal
+        };
+
+        let Some(temp) = total_beginning_of_month.checked_mul(risk_decimal) else {
+            return dec!(0.0); // Multiplication overflow
+        };
+
+        let Some(available_to_risk) = temp.checked_div(dec!(100.0)) else {
+            return dec!(0.0); // Division overflow
+        };
+
+        let Some(temp1) = total_beginning_of_month.checked_sub(total_balance_current_month) else {
+            return dec!(0.0); // Subtraction overflow
+        };
+
+        let Some(total_performance) = temp1.checked_sub(total_capital_not_at_risk) else {
+            return dec!(0.0); // Subtraction overflow
+        };
 
         // If there is no change in performance, return the available amount to be risked.
         if total_performance == dec!(0.0) {
@@ -64,13 +85,23 @@ impl RiskCalculator {
 
         // If there is no change in performance, return the available amount to be risked.
         if total_performance < dec!(0.0) {
-            let total_available = total_balance_current_month + total_capital_not_at_risk;
-            risked_capital =
-                total_available * Decimal::from_f32_retain(risk).unwrap() / dec!(100.0);
+            let Some(total_available) =
+                total_balance_current_month.checked_add(total_capital_not_at_risk)
+            else {
+                return dec!(0.0); // Addition overflow
+            };
+
+            let Some(temp2) = total_available.checked_mul(risk_decimal) else {
+                return dec!(0.0); // Multiplication overflow
+            };
+
+            risked_capital = temp2.checked_div(dec!(100.0)).unwrap_or(dec!(0.0));
         } else if total_performance <= available_to_risk {
             // If there is an increase in performance,
             // calculate the difference between available capital and risked capital.
-            risked_capital = available_to_risk - total_performance;
+            risked_capital = available_to_risk
+                .checked_sub(total_performance)
+                .unwrap_or(dec!(0.0));
         }
 
         // Return the maximum value of the risked capital or zero.

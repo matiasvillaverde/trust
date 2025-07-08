@@ -44,6 +44,9 @@ help:
 	@echo "  make fmt            - Format code"
 	@echo "  make fmt-check      - Check code formatting"
 	@echo "  make lint           - Run clippy linter"
+	@echo "  make lint-strict    - Run enhanced clippy with complexity analysis"
+	@echo "  make security-check - Run comprehensive security and dependency checks"
+	@echo "  make quality-gate   - Run all quality checks (strict)"
 	@echo "  make audit          - Check for security vulnerabilities"
 	@echo ""
 	@echo "$(GREEN)CI Commands:$(NC)"
@@ -140,6 +143,26 @@ audit:
 	@echo "$(BLUE)Checking for security vulnerabilities...$(NC)"
 	@$(CARGO) audit
 
+# Enhanced Quality Commands for Financial Application Standards
+.PHONY: lint-strict
+lint-strict:
+	@echo "$(BLUE)Running strict clippy with complexity analysis...$(NC)"
+	@$(CARGO) clippy --workspace --all-targets --all-features -- -D warnings
+
+.PHONY: security-check
+security-check:
+	@echo "$(BLUE)Running comprehensive security and dependency checks...$(NC)"
+	@echo "$(YELLOW)Checking dependency security and licenses...$(NC)"
+	@$(CARGO) deny check advisories licenses
+	@echo "$(YELLOW)Checking for security vulnerabilities...$(NC)"
+	@$(CARGO) audit
+	@echo "$(YELLOW)Checking for unused dependencies...$(NC)"
+	@$(CARGO) udeps --all-targets || echo "$(YELLOW)Warning: cargo-udeps not installed or failed$(NC)"
+
+.PHONY: quality-gate
+quality-gate: fmt-check lint-strict security-check
+	@echo "$(GREEN)✓ All quality gates passed! Ready for financial application deployment.$(NC)"
+
 # CI Pipeline Commands
 .PHONY: ci
 ci: ci-fast ci-build ci-test
@@ -167,11 +190,11 @@ ci-build: setup
 
 # Git Workflow Commands
 .PHONY: pre-commit
-pre-commit: fmt-check lint test-single
+pre-commit: fmt-check lint-strict test-single
 	@echo "$(GREEN)✓ Pre-commit checks passed!$(NC)"
 
 .PHONY: pre-push
-pre-push: ci
+pre-push: quality-gate ci-build ci-test
 	@echo "$(GREEN)✓ Pre-push checks passed! Safe to push.$(NC)"
 
 # Utility Commands
@@ -187,11 +210,20 @@ install-tools:
 	@$(CARGO) install cargo-audit
 	@echo "Installing cargo-nextest..."
 	@$(CARGO) install cargo-nextest
+	@echo "Installing cargo-deny..."
+	@$(CARGO) install cargo-deny
+	@echo "Installing cargo-udeps..."
+	@$(CARGO) install cargo-udeps
 	@echo ""
 	@echo "$(YELLOW)To install 'act' for running GitHub Actions locally:$(NC)"
 	@echo "  macOS:    brew install act"
 	@echo "  Linux:    curl https://raw.githubusercontent.com/nektos/act/master/install.sh | sudo bash"
 	@echo "  Windows:  choco install act-cli"
+	@echo ""
+	@echo "$(YELLOW)To install 'pre-commit' for enhanced git hooks:$(NC)"
+	@echo "  pip install pre-commit"
+	@echo "  pre-commit install      # Install git hooks"
+	@echo "  pre-commit install --hook-type pre-push  # Install pre-push hooks"
 
 # Release Commands
 .PHONY: release-local

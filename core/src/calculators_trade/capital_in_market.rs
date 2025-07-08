@@ -19,7 +19,8 @@ impl TradeCapitalInMarket {
                 }
                 TransactionCategory::OpenTrade(_) => {
                     // This is money that we have used to enter the market.
-                    total += tx.amount
+                    total = total.checked_add(tx.amount)
+                        .ok_or_else(|| format!("Arithmetic overflow in addition: {} + {}", total, tx.amount))?
                 }
                 TransactionCategory::CloseTarget(_)
                 | TransactionCategory::CloseSafetyStop(_)
@@ -29,9 +30,9 @@ impl TradeCapitalInMarket {
                 TransactionCategory::FeeOpen(_) | TransactionCategory::FeeClose(_) | TransactionCategory::PaymentTax(_) | TransactionCategory::PaymentEarnings(_)  => {
                     // We ignore the fees because they are charged from the account and not from the trade.
                 }
-                default => panic!(
+                default => return Err(format!(
                     "TradeCapitalInMarket: does not know how to calculate transaction with category: {default}"
-                ),
+                ).into()),
             }
         }
 

@@ -1,3 +1,4 @@
+use crate::error::{ConversionError, IntoDomainModel, IntoDomainModels};
 use crate::schema::accounts_balances;
 use chrono::{NaiveDateTime, Utc};
 use diesel::prelude::*;
@@ -10,8 +11,17 @@ use std::sync::Mutex;
 use tracing::error;
 use uuid::Uuid;
 
+/// Database worker for account balance operations
 pub struct AccountBalanceDB {
     pub connection: Arc<Mutex<SqliteConnection>>,
+}
+
+impl std::fmt::Debug for AccountBalanceDB {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AccountBalanceDB")
+            .field("connection", &"Arc<Mutex<SqliteConnection>>")
+            .finish()
+    }
 }
 
 impl AccountBalanceWrite for AccountBalanceDB {
@@ -26,17 +36,19 @@ impl AccountBalanceWrite for AccountBalanceDB {
             ..Default::default()
         };
 
-        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap();
+        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap_or_else(|e| {
+            eprintln!("Failed to acquire connection lock: {e}");
+            std::process::exit(1);
+        });
 
-        let balance = diesel::insert_into(accounts_balances::table)
+        diesel::insert_into(accounts_balances::table)
             .values(&new_account_balance)
             .get_result::<AccountBalanceSQLite>(connection)
-            .map(|balance| balance.domain_model())
             .map_err(|error| {
                 error!("Error creating balance: {:?}", error);
                 error
-            })?;
-        Ok(balance)
+            })?
+            .into_domain_model()
     }
 
     fn update(
@@ -47,8 +59,11 @@ impl AccountBalanceWrite for AccountBalanceDB {
         total_available: Decimal,
         total_taxed: Decimal,
     ) -> Result<AccountBalance, Box<dyn Error>> {
-        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap();
-        let balance = diesel::update(accounts_balances::table)
+        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap_or_else(|e| {
+            eprintln!("Failed to acquire connection lock: {e}");
+            std::process::exit(1);
+        });
+        diesel::update(accounts_balances::table)
             .filter(accounts_balances::id.eq(&balance.id.to_string()))
             .set((
                 accounts_balances::updated_at.eq(Utc::now().naive_utc()),
@@ -58,33 +73,29 @@ impl AccountBalanceWrite for AccountBalanceDB {
                 accounts_balances::taxed.eq(total_taxed.to_string()),
             ))
             .get_result::<AccountBalanceSQLite>(connection)
-            .map(|o| o.domain_model())
             .map_err(|error| {
                 error!("Error updating balance: {:?}", error);
                 error
-            })?;
-        Ok(balance)
+            })?
+            .into_domain_model()
     }
 }
 
 impl AccountBalanceRead for AccountBalanceDB {
     fn for_account(&mut self, account_id: Uuid) -> Result<Vec<AccountBalance>, Box<dyn Error>> {
-        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap();
-        let balances = accounts_balances::table
+        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap_or_else(|e| {
+            eprintln!("Failed to acquire connection lock: {e}");
+            std::process::exit(1);
+        });
+        accounts_balances::table
             .filter(accounts_balances::account_id.eq(account_id.to_string()))
             .filter(accounts_balances::deleted_at.is_null())
             .load::<AccountBalanceSQLite>(connection)
-            .map(|balances| {
-                balances
-                    .into_iter()
-                    .map(|balance| balance.domain_model())
-                    .collect()
-            })
             .map_err(|error| {
                 error!("Error reading balances: {:?}", error);
                 error
-            })?;
-        Ok(balances)
+            })?
+            .into_domain_models()
     }
 
     fn for_currency(
@@ -92,18 +103,20 @@ impl AccountBalanceRead for AccountBalanceDB {
         account_id: Uuid,
         currency: &Currency,
     ) -> Result<AccountBalance, Box<dyn Error>> {
-        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap();
-        let balances = accounts_balances::table
+        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap_or_else(|e| {
+            eprintln!("Failed to acquire connection lock: {e}");
+            std::process::exit(1);
+        });
+        accounts_balances::table
             .filter(accounts_balances::account_id.eq(account_id.to_string()))
             .filter(accounts_balances::currency.eq(currency.to_string()))
             .filter(accounts_balances::deleted_at.is_null())
             .first::<AccountBalanceSQLite>(connection)
-            .map(|balance| balance.domain_model())
             .map_err(|error| {
-                error!("Error creating balance: {:?}", error);
+                error!("Error reading balance: {:?}", error);
                 error
-            })?;
-        Ok(balances)
+            })?
+            .into_domain_model()
     }
 }
 
@@ -124,26 +137,46 @@ struct AccountBalanceSQLite {
     total_earnings: String,
 }
 
-impl AccountBalanceSQLite {
-    fn domain_model(self) -> AccountBalance {
+impl TryFrom<AccountBalanceSQLite> for AccountBalance {
+    type Error = ConversionError;
+
+    fn try_from(value: AccountBalanceSQLite) -> Result<Self, Self::Error> {
         use std::str::FromStr;
-        AccountBalance {
-            id: Uuid::parse_str(&self.id).unwrap(),
-            created_at: self.created_at,
-            updated_at: self.updated_at,
-            deleted_at: self.deleted_at,
-            account_id: Uuid::parse_str(&self.account_id).unwrap(),
-            total_balance: Decimal::from_str(&self.total_balance).unwrap(),
-            total_in_trade: Decimal::from_str(&self.total_in_trade).unwrap(),
-            total_available: Decimal::from_str(&self.total_available).unwrap(),
-            taxed: Decimal::from_str(&self.taxed).unwrap(),
-            currency: Currency::from_str(&self.currency).unwrap(),
-            total_earnings: Decimal::from_str(&self.total_earnings).unwrap(),
-        }
+        Ok(AccountBalance {
+            id: Uuid::parse_str(&value.id)
+                .map_err(|_| ConversionError::new("id", "Failed to parse balance ID"))?,
+            created_at: value.created_at,
+            updated_at: value.updated_at,
+            deleted_at: value.deleted_at,
+            account_id: Uuid::parse_str(&value.account_id)
+                .map_err(|_| ConversionError::new("account_id", "Failed to parse account ID"))?,
+            total_balance: Decimal::from_str(&value.total_balance).map_err(|_| {
+                ConversionError::new("total_balance", "Failed to parse total balance")
+            })?,
+            total_in_trade: Decimal::from_str(&value.total_in_trade).map_err(|_| {
+                ConversionError::new("total_in_trade", "Failed to parse total in trade")
+            })?,
+            total_available: Decimal::from_str(&value.total_available).map_err(|_| {
+                ConversionError::new("total_available", "Failed to parse total available")
+            })?,
+            taxed: Decimal::from_str(&value.taxed)
+                .map_err(|_| ConversionError::new("taxed", "Failed to parse taxed amount"))?,
+            currency: Currency::from_str(&value.currency)
+                .map_err(|_| ConversionError::new("currency", "Failed to parse currency"))?,
+            total_earnings: Decimal::from_str(&value.total_earnings).map_err(|_| {
+                ConversionError::new("total_earnings", "Failed to parse total earnings")
+            })?,
+        })
     }
 }
 
-#[derive(Insertable)]
+impl IntoDomainModel<AccountBalance> for AccountBalanceSQLite {
+    fn into_domain_model(self) -> Result<AccountBalance, Box<dyn Error>> {
+        self.try_into().map_err(Into::into)
+    }
+}
+
+#[derive(Debug, Insertable)]
 #[diesel(table_name = accounts_balances)]
 pub struct NewAccountBalance {
     id: String,
@@ -259,8 +292,14 @@ mod tests {
         let balances = db.for_account(account.id).expect("Failed to read balances");
 
         assert_eq!(balances.len(), 2);
-        assert_eq!(balances[0], balance_btc);
-        assert_eq!(balances[1], balance_usd);
+        assert_eq!(
+            balances.first().expect("Expected first balance"),
+            &balance_btc
+        );
+        assert_eq!(
+            balances.get(1).expect("Expected second balance"),
+            &balance_usd
+        );
     }
 
     #[test]

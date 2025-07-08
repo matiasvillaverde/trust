@@ -23,15 +23,17 @@ pub fn submit_sync(
     let api_info = keys::read_api_key(&account.environment, account)?;
     let client = Client::new(api_info);
 
-    let request = new_request(trade);
-    let order = Runtime::new().unwrap().block_on(submit(client, request))?;
+    let request = new_request(trade)?;
+    let order = Runtime::new()
+        .map_err(|e| Box::new(e) as Box<dyn Error>)?
+        .block_on(submit(client, request))?;
 
     let log = BrokerLog {
         trade_id: trade.id,
         log: serde_json::to_string(&order)?,
         ..Default::default()
     };
-    let ids = extract_ids(&order, trade);
+    let ids = extract_ids(&order, trade)?;
     Ok((log, ids))
 }
 
@@ -50,7 +52,7 @@ async fn submit(
     }
 }
 
-fn extract_ids(order: &AlpacaOrder, trade: &Trade) -> OrderIds {
+fn extract_ids(order: &AlpacaOrder, trade: &Trade) -> Result<OrderIds, Box<dyn Error>> {
     let mut stop_id = None;
     let mut target_id = None;
 
@@ -58,7 +60,7 @@ fn extract_ids(order: &AlpacaOrder, trade: &Trade) -> OrderIds {
         let leg_price = match (leg.limit_price.clone(), leg.stop_price.clone()) {
             (Some(limit_price), None) => limit_price,
             (None, Some(stop_price)) => stop_price,
-            _ => panic!("No price found for leg: {:?}", leg.id),
+            _ => return Err(format!("No price found for leg: {:?}", leg.id).into()),
         };
 
         if leg_price.to_string() == trade.target.unit_price.to_string() {
@@ -70,22 +72,28 @@ fn extract_ids(order: &AlpacaOrder, trade: &Trade) -> OrderIds {
         }
     }
 
-    let stop_id = stop_id.expect("Stop ID not found");
-    let target_id = target_id.expect("Target ID not found");
+    let stop_id = stop_id.ok_or("Stop ID not found")?;
+    let target_id = target_id.ok_or("Target ID not found")?;
 
-    OrderIds {
-        stop: Uuid::from_str(&stop_id.to_string()).unwrap(),
-        entry: Uuid::from_str(&order.id.to_string()).unwrap(),
-        target: Uuid::from_str(&target_id.to_string()).unwrap(),
-    }
+    Ok(OrderIds {
+        stop: Uuid::from_str(&stop_id.to_string())
+            .map_err(|e| format!("Failed to parse stop UUID: {e}"))?,
+        entry: Uuid::from_str(&order.id.to_string())
+            .map_err(|e| format!("Failed to parse entry UUID: {e}"))?,
+        target: Uuid::from_str(&target_id.to_string())
+            .map_err(|e| format!("Failed to parse target UUID: {e}"))?,
+    })
 }
 
-fn new_request(trade: &Trade) -> CreateReq {
-    let entry = Num::from_str(trade.entry.unit_price.to_string().as_str()).unwrap();
-    let stop = Num::from_str(trade.safety_stop.unit_price.to_string().as_str()).unwrap();
-    let target = Num::from_str(trade.target.unit_price.to_string().as_str()).unwrap();
+fn new_request(trade: &Trade) -> Result<CreateReq, Box<dyn Error>> {
+    let entry = Num::from_str(&trade.entry.unit_price.to_string())
+        .map_err(|e| format!("Failed to parse entry price: {e:?}"))?;
+    let stop = Num::from_str(&trade.safety_stop.unit_price.to_string())
+        .map_err(|e| format!("Failed to parse stop price: {e:?}"))?;
+    let target = Num::from_str(&trade.target.unit_price.to_string())
+        .map_err(|e| format!("Failed to parse target price: {e:?}"))?;
 
-    CreateReqInit {
+    Ok(CreateReqInit {
         class: Class::Bracket,
         type_: Type::Limit,
         limit_price: Some(entry),
@@ -100,7 +108,7 @@ fn new_request(trade: &Trade) -> CreateReq {
         trade.trading_vehicle.symbol.to_uppercase(),
         side(trade),
         Amount::quantity(trade.entry.quantity),
-    )
+    ))
 }
 
 fn time_in_force(entry: &Order) -> TimeInForce {
@@ -123,10 +131,10 @@ pub fn side(trade: &Trade) -> Side {
 mod tests {
     use super::*;
     use apca::api::v2::order::{Amount, Class, Side, Type};
-    use num_decimal::Num;
     use rust_decimal_macros::dec;
     use uuid::Uuid;
 
+    #[allow(clippy::too_many_lines)]
     fn default() -> AlpacaOrder {
         let data = r#"
         {
@@ -235,7 +243,7 @@ mod tests {
         };
 
         // Call the new_request function with the sample trade object
-        let order_req = new_request(&trade);
+        let order_req = new_request(&trade).unwrap();
 
         // Check if the returned OrderReq object has the correct values
         assert_eq!(order_req.client_order_id, Some(trade.entry.id.to_string())); // The client_order_id should be the same as the entry order id.
@@ -286,7 +294,7 @@ mod tests {
         };
 
         // Call the extract_ids function
-        let result = extract_ids(&entry, &trade);
+        let result = extract_ids(&entry, &trade).unwrap();
 
         // Check that the stop ID is correct and the target ID is a new UUID
         assert_eq!(

@@ -31,13 +31,33 @@ use rust_decimal::Decimal;
 pub struct TradeCapitalRequired;
 
 impl TradeCapitalRequired {
-    pub fn calculate(trade: &Trade) -> Decimal {
+    pub fn calculate(trade: &Trade) -> Result<Decimal, Box<dyn std::error::Error>> {
         match trade.category {
-            TradeCategory::Long => trade.entry.unit_price * Decimal::from(trade.entry.quantity),
+            TradeCategory::Long => trade
+                .entry
+                .unit_price
+                .checked_mul(Decimal::from(trade.entry.quantity))
+                .ok_or_else(|| {
+                    format!(
+                        "Arithmetic overflow in multiplication: {} * {}",
+                        trade.entry.unit_price, trade.entry.quantity
+                    )
+                    .into()
+                }),
             TradeCategory::Short => {
                 // For short trades, we need to ensure we have enough capital
                 // to buy back at the stop price (worst case scenario)
-                trade.safety_stop.unit_price * Decimal::from(trade.safety_stop.quantity)
+                trade
+                    .safety_stop
+                    .unit_price
+                    .checked_mul(Decimal::from(trade.safety_stop.quantity))
+                    .ok_or_else(|| {
+                        format!(
+                            "Arithmetic overflow in multiplication: {} * {}",
+                            trade.safety_stop.unit_price, trade.safety_stop.quantity
+                        )
+                        .into()
+                    })
             }
         }
     }
@@ -63,7 +83,7 @@ mod tests {
         };
 
         // When: Calculating required capital
-        let required = TradeCapitalRequired::calculate(&trade);
+        let required = TradeCapitalRequired::calculate(&trade).unwrap();
 
         // Then: Should return $50 (entry * quantity)
         assert_eq!(required, dec!(50));
@@ -88,7 +108,7 @@ mod tests {
         };
 
         // When: Calculating required capital
-        let required = TradeCapitalRequired::calculate(&trade);
+        let required = TradeCapitalRequired::calculate(&trade).unwrap();
 
         // Then: Should return $75 (stop * quantity)
         assert_eq!(required, dec!(75));
@@ -113,7 +133,7 @@ mod tests {
         };
 
         // When: Calculating required capital
-        let required = TradeCapitalRequired::calculate(&trade);
+        let required = TradeCapitalRequired::calculate(&trade).unwrap();
 
         // Then: Should return $250 (stop price * stop quantity)
         assert_eq!(required, dec!(250));

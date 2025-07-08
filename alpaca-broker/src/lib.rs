@@ -1,3 +1,35 @@
+//! Trust Alpaca Broker Implementation
+//!
+//! This crate provides the Alpaca broker API integration for the Trust
+//! financial trading application.
+
+// === FINANCIAL APPLICATION SAFETY LINTS ===
+// These lint rules are critical for financial applications where precision,
+// safety, and reliability are paramount. Violations can lead to financial losses.
+
+#![deny(
+    // Error handling safety - force proper error handling
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::panic,
+
+    // Financial precision safety - prevent calculation errors
+    clippy::float_arithmetic,
+    clippy::arithmetic_side_effects,
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+
+    // Code quality enforcement
+    clippy::cognitive_complexity,
+    clippy::too_many_lines,
+)]
+// Allow unwrap and expect in test code only
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
+// Standard Rust lints for code quality
+#![warn(missing_docs, rust_2018_idioms, missing_debug_implementations)]
+
 use model::{Account, Broker, BrokerLog, Environment, Order, OrderIds, Status, Trade};
 use std::error::Error;
 use uuid::Uuid;
@@ -13,6 +45,8 @@ mod sync_trade;
 pub use keys::Keys;
 
 #[derive(Default)]
+/// Alpaca broker implementation
+#[derive(Debug)]
 pub struct AlpacaBroker;
 
 /// Generic Broker API
@@ -67,6 +101,7 @@ impl Broker for AlpacaBroker {
 
 /// Alpaca-specific Broker API
 impl AlpacaBroker {
+    /// Setup and store API keys for Alpaca broker
     pub fn setup_keys(
         key_id: &str,
         secret: &str,
@@ -79,11 +114,13 @@ impl AlpacaBroker {
         Ok(keys)
     }
 
+    /// Read API keys from keychain for Alpaca broker
     pub fn read_keys(environment: &Environment, account: &Account) -> Result<Keys, Box<dyn Error>> {
         let keys = Keys::read(environment, &account.name)?;
         Ok(keys)
     }
 
+    /// Delete API keys from keychain for Alpaca broker
     pub fn delete_keys(environment: &Environment, account: &Account) -> Result<(), Box<dyn Error>> {
         Keys::delete(environment, &account.name)?;
         Ok(())

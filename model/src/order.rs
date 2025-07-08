@@ -12,14 +12,17 @@ use crate::Currency;
 /// Orders are part of a trade entries and exits.
 #[derive(PartialEq, Debug, Clone)]
 pub struct Order {
+    /// Unique identifier for the order
     pub id: Uuid,
 
     /// The id of the order in the broker
     pub broker_order_id: Option<Uuid>,
 
-    // Entity timestamps
+    /// When the order was created
     pub created_at: NaiveDateTime,
+    /// When the order was last updated
     pub updated_at: NaiveDateTime,
+    /// When the order was deleted, if applicable
     pub deleted_at: Option<NaiveDateTime>,
 
     /// The unit price of the order
@@ -52,7 +55,7 @@ pub struct Order {
     /// For Trailing Orders - the trailing price
     pub trailing_price: Option<Decimal>,
 
-    /// The quantity of the order
+    /// The quantity of the order that has been filled
     pub filled_quantity: u64,
 
     /// The average filled price of the order
@@ -62,7 +65,6 @@ pub struct Order {
     /// trading hours.
     pub extended_hours: bool,
 
-    // Lifecycle fields
     /// When the order was submitted to the broker
     pub submitted_at: Option<NaiveDateTime>,
 
@@ -101,6 +103,7 @@ pub enum OrderAction {
     Short,
 }
 
+/// The time in force of the order - determines how long an order remains active
 #[derive(PartialEq, Debug, Clone, Copy, Default)]
 pub enum TimeInForce {
     /// The order is good for the day, and it will be canceled
@@ -182,7 +185,7 @@ pub enum OrderStatus {
 }
 
 impl std::fmt::Display for OrderStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             OrderStatus::New => write!(f, "new"),
             OrderStatus::Replaced => write!(f, "replaced"),
@@ -206,6 +209,7 @@ impl std::fmt::Display for OrderStatus {
     }
 }
 
+/// Error when parsing order status from string fails
 #[derive(PartialEq, Debug)]
 pub struct OrderStatusParseError;
 impl FromStr for OrderStatus {
@@ -237,7 +241,7 @@ impl FromStr for OrderStatus {
 }
 
 impl std::fmt::Display for OrderCategory {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             OrderCategory::Market => write!(f, "market"),
             OrderCategory::Limit => write!(f, "limit"),
@@ -247,7 +251,7 @@ impl std::fmt::Display for OrderCategory {
 }
 
 impl std::fmt::Display for TimeInForce {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             TimeInForce::Day => write!(f, "day"),
             TimeInForce::UntilCanceled => write!(f, "until_canceled"),
@@ -256,6 +260,7 @@ impl std::fmt::Display for TimeInForce {
         }
     }
 }
+/// Error when parsing time in force from string fails
 #[derive(PartialEq, Debug)]
 pub struct TimeInForceParseError;
 impl std::str::FromStr for TimeInForce {
@@ -272,6 +277,7 @@ impl std::str::FromStr for TimeInForce {
     }
 }
 
+/// Error when parsing order category from string fails
 #[derive(PartialEq, Debug)]
 pub struct OrderCategoryParseError;
 impl std::str::FromStr for OrderCategory {
@@ -289,7 +295,7 @@ impl std::str::FromStr for OrderCategory {
 
 // Implementations
 impl std::fmt::Display for OrderAction {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             OrderAction::Sell => write!(f, "sell"),
             OrderAction::Buy => write!(f, "buy"),
@@ -298,6 +304,7 @@ impl std::fmt::Display for OrderAction {
     }
 }
 
+/// Error when parsing order action from string fails
 #[derive(PartialEq, Debug)]
 pub struct OrderActionParseError;
 impl std::str::FromStr for OrderAction {

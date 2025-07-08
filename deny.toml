@@ -1,0 +1,61 @@
+# Cargo Deny Configuration for Trust Financial Trading Application
+# 
+# DISCLAIMER: This software is provided "AS IS" without warranty of any kind.
+# Users are solely responsible for compliance with applicable laws and regulations.
+# The author accepts no liability for any use of this software.
+
+[advisories]
+db-path = "~/.cargo/advisory-db"
+db-urls = ["https://github.com/rustsec/advisory-db"]
+
+[licenses]
+# TEMPORARY: Allow GPL licenses for apca broker dependency
+# TODO: Replace apca (GPL-3.0) with a permissive alternative to maintain maximum compatibility
+# Currently allowing for financial system stability - migration planned
+allow = [
+    # MIT License family (most permissive)
+    "MIT",
+    "Apache-2.0 WITH LLVM-exception",
+    
+    # Apache License family (permissive with patent protection)
+    "Apache-2.0",
+    
+    # BSD License family (permissive)
+    "BSD-2-Clause",
+    "BSD-3-Clause", 
+    "BSD-2-Clause-Patent",
+    
+    # Other permissive licenses
+    "ISC",
+    "CC0-1.0",          # Public domain equivalent
+    "Unlicense",        # Public domain
+    "0BSD",             # Zero-clause BSD (public domain equivalent)
+    
+    # Unicode licenses (required for text processing)  
+    "Unicode-DFS-2016",
+    "Unicode-3.0",
+    
+    # Common utility licenses
+    "Zlib",
+    "BSL-1.0",          # Boost Software License
+    
+    # Deprecated but still valid permissive licenses
+    "MIT-0",            # MIT No Attribution
+    
+    # Project license
+    "GPL-3.0",          # Trust project license
+    
+    # Mozilla Public License (required by option-ext dependency)
+    "MPL-2.0",          # Required by option-ext (used by dirs-sys)
+]
+
+confidence-threshold = 0.8
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "warn"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

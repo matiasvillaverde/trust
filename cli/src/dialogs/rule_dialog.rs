@@ -1,3 +1,15 @@
+//! UI Dialog Module - User Interaction Code
+//!
+//! TEMPORARY SAFETY ALLOWANCE: This dialog module contains user interaction code
+//! that uses .unwrap() and .expect() for UI input handling. While not ideal,
+//! these are less critical than business logic safety violations.
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing
+)]
+
 use std::error::Error;
 
 use crate::{dialogs::AccountSearchDialog, views::RuleView};

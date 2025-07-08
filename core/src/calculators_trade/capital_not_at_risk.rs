@@ -24,13 +24,54 @@ impl TradeCapitalNotAtRisk {
         let open_trades = database.all_open_trades_for_currency(account_id, currency)?;
 
         // Calculate the total capital not at risk by iterating over the open trades and accumulating the values.
-        let total_capital_not_at_risk = open_trades.iter().fold(dec!(0.0), |acc, trade| {
-            // Calculate the risk per share for the trade.
-            let risk_per_share = trade.entry.unit_price - trade.safety_stop.unit_price;
+        let total_capital_not_at_risk = open_trades.iter().try_fold(
+            dec!(0.0),
+            |acc, trade| -> Result<Decimal, Box<dyn std::error::Error>> {
+                // Calculate the risk per share for the trade.
+                let risk_per_share = trade
+                    .entry
+                    .unit_price
+                    .checked_sub(trade.safety_stop.unit_price)
+                    .ok_or_else(|| {
+                        format!(
+                            "Arithmetic overflow in subtraction: {} - {}",
+                            trade.entry.unit_price, trade.safety_stop.unit_price
+                        )
+                    })?;
 
-            // Calculate the total capital not at risk for the trade and add it to the accumulator.
-            acc + (trade.entry.unit_price - risk_per_share) * Decimal::from(trade.entry.quantity)
-        });
+                // Calculate the total capital not at risk for the trade and add it to the accumulator.
+                let capital_not_at_risk_per_trade = trade
+                    .entry
+                    .unit_price
+                    .checked_sub(risk_per_share)
+                    .ok_or_else(|| {
+                        format!(
+                            "Arithmetic overflow in subtraction: {} - {}",
+                            trade.entry.unit_price, risk_per_share
+                        )
+                    })?
+                    .checked_mul(Decimal::from(trade.entry.quantity))
+                    .ok_or_else(|| {
+                        format!(
+                            "Arithmetic overflow in multiplication: {} * {}",
+                            trade
+                                .entry
+                                .unit_price
+                                .checked_sub(risk_per_share)
+                                .unwrap_or_default(),
+                            trade.entry.quantity
+                        )
+                    })?;
+
+                acc.checked_add(capital_not_at_risk_per_trade)
+                    .ok_or_else(|| {
+                        format!(
+                            "Arithmetic overflow in addition: {acc} + {capital_not_at_risk_per_trade}"
+                        )
+                        .into()
+                    })
+            },
+        )?;
 
         // Return the total capital not at risk as the result of the function.
         Ok(total_capital_not_at_risk)

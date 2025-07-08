@@ -1,3 +1,4 @@
+use crate::error::{ConversionError, IntoDomainModel};
 use crate::schema::{trades, trades_balances};
 use chrono::{NaiveDateTime, Utc};
 use diesel::prelude::*;
@@ -10,6 +11,9 @@ use tracing::error;
 use uuid::Uuid;
 
 use super::{WorkerOrder, WorkerTradingVehicle};
+
+/// Worker for handling trade database operations
+#[derive(Debug)]
 pub struct WorkerTrade;
 
 impl WorkerTrade {
@@ -44,22 +48,23 @@ impl WorkerTrade {
         let trade = diesel::insert_into(trades::table)
             .values(&new_trade)
             .get_result::<TradeSQLite>(connection)
-            .map(|trade| trade.domain_model(connection))
             .map_err(|error| {
                 error!("Error creating trade: {:?}", error);
                 error
-            })?;
+            })?
+            .try_into_domain_model(connection)?;
         Ok(trade)
     }
 
     pub fn read_balance(
         connection: &mut SqliteConnection,
         id: Uuid,
-    ) -> Result<TradeBalance, diesel::result::Error> {
+    ) -> Result<TradeBalance, Box<dyn Error>> {
         trades_balances::table
             .filter(trades_balances::id.eq(&id.to_string()))
-            .first(connection)
-            .map(|balance: AccountBalanceSQLite| balance.domain_model())
+            .first::<AccountBalanceSQLite>(connection)
+            .map_err(|e| Box::new(e) as Box<dyn Error>)?
+            .into_domain_model()
     }
 
     pub fn read_trade(
@@ -69,11 +74,11 @@ impl WorkerTrade {
         let trade = trades::table
             .filter(trades::id.eq(id.to_string()))
             .first::<TradeSQLite>(connection)
-            .map(|account| account.domain_model(connection))
             .map_err(|error| {
                 error!("Error reading trade: {:?}", error);
                 error
-            })?;
+            })?
+            .try_into_domain_model(connection)?;
         Ok(trade)
     }
 
@@ -82,22 +87,21 @@ impl WorkerTrade {
         account_id: Uuid,
         currency: &Currency,
     ) -> Result<Vec<Trade>, Box<dyn Error>> {
-        let trades: Vec<Trade> = trades::table
+        let trades_sqlite = trades::table
             .filter(trades::deleted_at.is_null())
             .filter(trades::account_id.eq(account_id.to_string()))
             .filter(trades::currency.eq(currency.to_string()))
             .filter(trades::status.eq(Status::Funded.to_string()))
             .load::<TradeSQLite>(connection)
-            .map(|trades: Vec<TradeSQLite>| {
-                trades
-                    .into_iter()
-                    .map(|trade| trade.domain_model(connection))
-                    .collect()
-            })
             .map_err(|error| {
                 error!("Error reading trades: {:?}", error);
                 error
             })?;
+
+        let mut trades = Vec::new();
+        for trade_sqlite in trades_sqlite {
+            trades.push(trade_sqlite.try_into_domain_model(connection)?);
+        }
         Ok(trades)
     }
 
@@ -106,21 +110,20 @@ impl WorkerTrade {
         account_id: Uuid,
         status: Status,
     ) -> Result<Vec<Trade>, Box<dyn Error>> {
-        let trades: Vec<Trade> = trades::table
+        let trades_sqlite = trades::table
             .filter(trades::deleted_at.is_null())
             .filter(trades::account_id.eq(account_id.to_string()))
             .filter(trades::status.eq(status.to_string()))
             .load::<TradeSQLite>(connection)
-            .map(|trades: Vec<TradeSQLite>| {
-                trades
-                    .into_iter()
-                    .map(|trade| trade.domain_model(connection))
-                    .collect()
-            })
             .map_err(|error| {
                 error!("Error reading trades: {:?}", error);
                 error
             })?;
+
+        let mut trades = Vec::new();
+        for trade_sqlite in trades_sqlite {
+            trades.push(trade_sqlite.try_into_domain_model(connection)?);
+        }
         Ok(trades)
     }
 
@@ -130,22 +133,21 @@ impl WorkerTrade {
         status: Status,
         currency: &Currency,
     ) -> Result<Vec<Trade>, Box<dyn Error>> {
-        let trades: Vec<Trade> = trades::table
+        let trades_sqlite = trades::table
             .filter(trades::deleted_at.is_null())
             .filter(trades::account_id.eq(account_id.to_string()))
             .filter(trades::status.eq(status.to_string()))
             .filter(trades::currency.eq(currency.to_string()))
             .load::<TradeSQLite>(connection)
-            .map(|trades: Vec<TradeSQLite>| {
-                trades
-                    .into_iter()
-                    .map(|trade| trade.domain_model(connection))
-                    .collect()
-            })
             .map_err(|error| {
                 error!("Error reading trades: {:?}", error);
                 error
             })?;
+
+        let mut trades = Vec::new();
+        for trade_sqlite in trades_sqlite {
+            trades.push(trade_sqlite.try_into_domain_model(connection)?);
+        }
         Ok(trades)
     }
 
@@ -162,11 +164,11 @@ impl WorkerTrade {
         let balance = diesel::insert_into(trades_balances::table)
             .values(&new_trade_balance)
             .get_result::<AccountBalanceSQLite>(connection)
-            .map(|balance| balance.domain_model())
             .map_err(|error| {
                 error!("Error creating trade balance: {:?}", error);
                 error
-            })?;
+            })?
+            .into_domain_model()?;
         Ok(balance)
     }
 
@@ -190,11 +192,11 @@ impl WorkerTrade {
                 trades_balances::total_performance.eq(total_performance.to_string()),
             ))
             .get_result::<AccountBalanceSQLite>(connection)
-            .map(|o| o.domain_model())
             .map_err(|error| {
                 error!("Error updating balance: {:?}", error);
                 error
-            })?;
+            })?
+            .into_domain_model()?;
         Ok(balance)
     }
 
@@ -211,18 +213,18 @@ impl WorkerTrade {
                 trades::status.eq(status.to_string()),
             ))
             .get_result::<TradeSQLite>(connection)
-            .map(|trade| trade.domain_model(connection))
             .map_err(|error| {
                 error!("Error executing trade: {:?}", error);
                 error
-            })?;
+            })?
+            .try_into_domain_model(connection)?;
         Ok(trade)
     }
 }
 
 // Trade
 
-#[derive(Queryable, Identifiable, AsChangeset, Insertable)]
+#[derive(Debug, Queryable, Identifiable, AsChangeset, Insertable)]
 #[diesel(table_name = trades)]
 struct TradeSQLite {
     id: String,
@@ -241,37 +243,69 @@ struct TradeSQLite {
 }
 
 impl TradeSQLite {
-    fn domain_model(self, connection: &mut SqliteConnection) -> Trade {
-        let trading_vehicle = WorkerTradingVehicle::read(
-            connection,
-            Uuid::parse_str(&self.trading_vehicle_id).unwrap(),
-        )
-        .unwrap();
-        let safety_stop =
-            WorkerOrder::read(connection, Uuid::parse_str(&self.safety_stop_id).unwrap()).unwrap();
-        let entry =
-            WorkerOrder::read(connection, Uuid::parse_str(&self.entry_id).unwrap()).unwrap();
-        let targets =
-            WorkerOrder::read(connection, Uuid::parse_str(&self.target_id).unwrap()).unwrap();
-        let balance =
-            WorkerTrade::read_balance(connection, Uuid::parse_str(&self.balance_id).unwrap())
-                .unwrap();
+    fn try_into_domain_model(
+        self,
+        connection: &mut SqliteConnection,
+    ) -> Result<Trade, Box<dyn Error>> {
+        let trading_vehicle_id = Uuid::parse_str(&self.trading_vehicle_id).map_err(|_| {
+            ConversionError::new("trading_vehicle_id", "Failed to parse trading vehicle ID")
+        })?;
+        let trading_vehicle =
+            WorkerTradingVehicle::read(connection, trading_vehicle_id).map_err(|e| {
+                ConversionError::new(
+                    "trading_vehicle",
+                    format!("Failed to read trading vehicle: {e}"),
+                )
+            })?;
 
-        Trade {
-            id: Uuid::parse_str(&self.id).unwrap(),
+        let safety_stop_id = Uuid::parse_str(&self.safety_stop_id).map_err(|_| {
+            ConversionError::new("safety_stop_id", "Failed to parse safety stop ID")
+        })?;
+        let safety_stop = WorkerOrder::read(connection, safety_stop_id).map_err(|e| {
+            ConversionError::new(
+                "safety_stop",
+                format!("Failed to read safety stop order: {e}"),
+            )
+        })?;
+
+        let entry_id = Uuid::parse_str(&self.entry_id)
+            .map_err(|_| ConversionError::new("entry_id", "Failed to parse entry ID"))?;
+        let entry = WorkerOrder::read(connection, entry_id).map_err(|e| {
+            ConversionError::new("entry", format!("Failed to read entry order: {e}"))
+        })?;
+
+        let target_id = Uuid::parse_str(&self.target_id)
+            .map_err(|_| ConversionError::new("target_id", "Failed to parse target ID"))?;
+        let targets = WorkerOrder::read(connection, target_id).map_err(|e| {
+            ConversionError::new("target", format!("Failed to read target order: {e}"))
+        })?;
+
+        let balance_id = Uuid::parse_str(&self.balance_id)
+            .map_err(|_| ConversionError::new("balance_id", "Failed to parse balance ID"))?;
+        let balance = WorkerTrade::read_balance(connection, balance_id).map_err(|e| {
+            ConversionError::new("balance", format!("Failed to read trade balance: {e}"))
+        })?;
+
+        Ok(Trade {
+            id: Uuid::parse_str(&self.id)
+                .map_err(|_| ConversionError::new("id", "Failed to parse trade ID"))?,
             created_at: self.created_at,
             updated_at: self.updated_at,
             deleted_at: self.deleted_at,
             trading_vehicle,
-            category: TradeCategory::from_str(&self.category).unwrap(),
-            status: Status::from_str(&self.status).unwrap(),
-            currency: Currency::from_str(&self.currency).unwrap(),
+            category: TradeCategory::from_str(&self.category)
+                .map_err(|_| ConversionError::new("category", "Failed to parse trade category"))?,
+            status: Status::from_str(&self.status)
+                .map_err(|_| ConversionError::new("status", "Failed to parse trade status"))?,
+            currency: Currency::from_str(&self.currency)
+                .map_err(|_| ConversionError::new("currency", "Failed to parse currency"))?,
             safety_stop,
             entry,
             target: targets,
-            account_id: Uuid::parse_str(&self.account_id).unwrap(),
+            account_id: Uuid::parse_str(&self.account_id)
+                .map_err(|_| ConversionError::new("account_id", "Failed to parse account ID"))?,
             balance,
-        }
+        })
     }
 }
 
@@ -294,7 +328,7 @@ struct NewTrade {
     balance_id: String,
 }
 
-#[derive(Queryable, Identifiable, AsChangeset, Insertable)]
+#[derive(Debug, Queryable, Identifiable, AsChangeset, Insertable)]
 #[diesel(table_name = trades_balances)]
 struct AccountBalanceSQLite {
     id: String,
@@ -309,20 +343,38 @@ struct AccountBalanceSQLite {
     total_performance: String,
 }
 
-impl AccountBalanceSQLite {
-    fn domain_model(self) -> TradeBalance {
-        TradeBalance {
-            id: Uuid::parse_str(&self.id).unwrap(),
-            created_at: self.created_at,
-            updated_at: self.updated_at,
-            deleted_at: self.deleted_at,
-            currency: Currency::from_str(&self.currency).unwrap(),
-            funding: Decimal::from_str(self.funding.as_str()).unwrap(),
-            capital_in_market: Decimal::from_str(self.capital_in_market.as_str()).unwrap(),
-            capital_out_market: Decimal::from_str(self.capital_out_market.as_str()).unwrap(),
-            taxed: Decimal::from_str(self.taxed.as_str()).unwrap(),
-            total_performance: Decimal::from_str(self.total_performance.as_str()).unwrap(),
-        }
+impl TryFrom<AccountBalanceSQLite> for TradeBalance {
+    type Error = ConversionError;
+
+    fn try_from(value: AccountBalanceSQLite) -> Result<Self, Self::Error> {
+        Ok(TradeBalance {
+            id: Uuid::parse_str(&value.id)
+                .map_err(|_| ConversionError::new("id", "Failed to parse balance ID"))?,
+            created_at: value.created_at,
+            updated_at: value.updated_at,
+            deleted_at: value.deleted_at,
+            currency: Currency::from_str(&value.currency)
+                .map_err(|_| ConversionError::new("currency", "Failed to parse currency"))?,
+            funding: Decimal::from_str(&value.funding)
+                .map_err(|_| ConversionError::new("funding", "Failed to parse funding amount"))?,
+            capital_in_market: Decimal::from_str(&value.capital_in_market).map_err(|_| {
+                ConversionError::new("capital_in_market", "Failed to parse capital in market")
+            })?,
+            capital_out_market: Decimal::from_str(&value.capital_out_market).map_err(|_| {
+                ConversionError::new("capital_out_market", "Failed to parse capital out market")
+            })?,
+            taxed: Decimal::from_str(&value.taxed)
+                .map_err(|_| ConversionError::new("taxed", "Failed to parse taxed amount"))?,
+            total_performance: Decimal::from_str(&value.total_performance).map_err(|_| {
+                ConversionError::new("total_performance", "Failed to parse total performance")
+            })?,
+        })
+    }
+}
+
+impl IntoDomainModel<TradeBalance> for AccountBalanceSQLite {
+    fn into_domain_model(self) -> Result<TradeBalance, Box<dyn Error>> {
+        self.try_into().map_err(Into::into)
     }
 }
 

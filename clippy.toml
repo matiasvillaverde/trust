@@ -1,0 +1,70 @@
+# Clippy Configuration for Trust Financial Trading Application
+# 
+# These settings enforce extremely high code quality standards
+# appropriate for financial applications where bugs can be catastrophic.
+# 
+# Complexity thresholds are set to encourage readable, maintainable code
+# while allowing justified exceptions for complex financial calculations.
+
+# === COMPLEXITY THRESHOLDS ===
+# 
+# Cognitive complexity measures how difficult code is to understand
+# Financial trading logic can be inherently complex, but should be decomposed
+cognitive-complexity-threshold = 15
+
+# Note: Cyclomatic complexity is now handled by cognitive complexity threshold
+# which provides better measurement of code comprehension difficulty
+
+# Function length threshold encourages decomposition of large functions
+# Shorter functions are easier to test, debug, and maintain
+too-many-lines-threshold = 75
+
+# Type complexity threshold prevents overly complex type definitions
+# Important for financial data structures that must remain comprehensible
+type-complexity-threshold = 250
+
+# === FINANCIAL DOMAIN SETTINGS ===
+#
+# These settings are specifically tuned for financial applications
+# where precision, safety, and auditability are critical
+
+# Allow breaking exported API for financial safety improvements
+# When financial accuracy requires API changes, safety takes precedence
+avoid-breaking-exported-api = false
+
+# Minimum Supported Rust Version - matches project requirement
+# Ensures clippy suggestions are compatible with our toolchain
+msrv = "1.68.2"
+
+# === PERFORMANCE SETTINGS ===
+#
+# Optimize clippy for development workflow performance
+
+# Performance settings are handled via clippy command-line flags
+# rather than configuration file options
+
+# === DOCUMENTATION STANDARDS ===
+#
+# Financial applications require comprehensive documentation
+
+# Documentation enforcement is handled via #![warn(missing_docs)]
+# in crate roots rather than clippy configuration
+
+# === STRICTNESS LEVELS ===
+#
+# These will be enforced via #![deny(...)] attributes in crate roots
+# during Phase 2 implementation. Configuration here provides baseline.
+
+# Allow certain lints that will be explicitly denied in code:
+# - unwrap_used: Will be denied to force proper error handling
+# - expect_used: Will be denied to force proper error handling  
+# - indexing_slicing: Will be denied to prevent panics
+# - panic: Will be denied completely
+# - float_arithmetic: Will be denied for financial precision
+# - integer_arithmetic: Will be denied for overflow safety
+# - cast_precision_loss: Will be denied for financial accuracy
+# - cast_possible_truncation: Will be denied for data safety
+# - cast_sign_loss: Will be denied for correctness
+
+# These lints will be managed via source code attributes for better
+# visibility and explicit exception handling in financial calculations.

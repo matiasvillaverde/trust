@@ -15,11 +15,14 @@ pub fn modify(trade: &Trade, account: &Account, price: Decimal) -> Result<Uuid, 
     let client = Client::new(api_info);
 
     // Modify the stop order.
-    let alpaca_order = Runtime::new().unwrap().block_on(submit(
-        &client,
-        trade.target.broker_order_id.unwrap(),
-        price,
-    ))?;
+    let target_order_id = trade
+        .target
+        .broker_order_id
+        .ok_or("Target order ID is missing")?;
+
+    let alpaca_order = Runtime::new()
+        .map_err(|e| Box::new(e) as Box<dyn Error>)?
+        .block_on(submit(&client, target_order_id, price))?;
 
     // TODO LOG
 
@@ -28,7 +31,10 @@ pub fn modify(trade: &Trade, account: &Account, price: Decimal) -> Result<Uuid, 
 
 async fn submit(client: &Client, order_id: Uuid, price: Decimal) -> Result<Order, Box<dyn Error>> {
     let request = ChangeReq {
-        limit_price: Some(Num::from_str(price.to_string().as_str()).unwrap()),
+        limit_price: Some(
+            Num::from_str(&price.to_string())
+                .map_err(|e| format!("Failed to parse limit price: {e:?}"))?,
+        ),
         ..Default::default()
     };
 

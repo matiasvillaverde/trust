@@ -1,3 +1,4 @@
+use crate::error::{ConversionError, IntoDomainModel, IntoDomainModels};
 use crate::schema::accounts;
 use chrono::{NaiveDateTime, Utc};
 use diesel::prelude::*;
@@ -11,8 +12,17 @@ use std::sync::Mutex;
 use tracing::error;
 use uuid::Uuid;
 
+/// Database worker for account operations
 pub struct AccountDB {
     pub connection: Arc<Mutex<SqliteConnection>>,
+}
+
+impl std::fmt::Debug for AccountDB {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AccountDB")
+            .field("connection", &"Arc<Mutex<SqliteConnection>>")
+            .finish()
+    }
 }
 
 impl AccountWrite for AccountDB {
@@ -39,69 +49,72 @@ impl AccountWrite for AccountDB {
             earnings_percentage: earnings_percentage.to_string(),
         };
 
-        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap();
+        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap_or_else(|e| {
+            eprintln!("Failed to acquire connection lock: {e}");
+            std::process::exit(1);
+        });
 
-        let account = diesel::insert_into(accounts::table)
+        diesel::insert_into(accounts::table)
             .values(&new_account)
             .get_result::<AccountSQLite>(connection)
-            .map(|account| account.domain_model())
             .map_err(|error| {
                 error!("Error creating account: {:?}", error);
                 error
-            })?;
-        Ok(account)
+            })?
+            .into_domain_model()
     }
 }
 
 impl AccountRead for AccountDB {
     fn for_name(&mut self, name: &str) -> Result<Account, Box<dyn Error>> {
-        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap();
+        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap_or_else(|e| {
+            eprintln!("Failed to acquire connection lock: {e}");
+            std::process::exit(1);
+        });
 
-        let account = accounts::table
+        accounts::table
             .filter(accounts::name.eq(name.to_lowercase()))
             .first::<AccountSQLite>(connection)
-            .map(|account| account.domain_model())
             .map_err(|error| {
                 error!("Error reading account: {:?}", error);
                 error
-            })?;
-        Ok(account)
+            })?
+            .into_domain_model()
     }
 
     fn id(&mut self, id: Uuid) -> Result<Account, Box<dyn Error>> {
-        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap();
+        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap_or_else(|e| {
+            eprintln!("Failed to acquire connection lock: {e}");
+            std::process::exit(1);
+        });
 
-        let account = accounts::table
+        accounts::table
             .filter(accounts::id.eq(id.to_string()))
             .first::<AccountSQLite>(connection)
-            .map(|account| account.domain_model())
             .map_err(|error| {
                 error!("Error reading account: {:?}", error);
                 error
-            })?;
-        Ok(account)
+            })?
+            .into_domain_model()
     }
 
     fn all(&mut self) -> Result<Vec<Account>, Box<dyn Error>> {
-        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap();
-        let accounts = accounts::table
+        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap_or_else(|e| {
+            eprintln!("Failed to acquire connection lock: {e}");
+            std::process::exit(1);
+        });
+        accounts::table
             .filter(accounts::deleted_at.is_null())
             .load::<AccountSQLite>(connection)
-            .map(|accounts| {
-                accounts
-                    .into_iter()
-                    .map(|account| account.domain_model())
-                    .collect()
-            })
             .map_err(|error| {
                 error!("Error reading all accounts: {:?}", error);
                 error
-            })?;
-        Ok(accounts)
+            })?
+            .into_domain_models()
     }
 }
 
-#[derive(Queryable, Identifiable, AsChangeset, Insertable)]
+#[derive(Debug, Queryable, Identifiable, AsChangeset, Insertable)]
 #[diesel(table_name = accounts)]
 #[diesel(primary_key(id))]
 #[diesel(treat_none_as_null = true)]
@@ -117,19 +130,33 @@ pub struct AccountSQLite {
     pub earnings_percentage: String,
 }
 
-impl AccountSQLite {
-    fn domain_model(self) -> Account {
-        Account {
-            id: Uuid::parse_str(&self.id).unwrap(),
-            created_at: self.created_at,
-            updated_at: self.updated_at,
-            deleted_at: self.deleted_at,
-            name: self.name,
-            description: self.description,
-            environment: Environment::from_str(&self.environment).unwrap(),
-            taxes_percentage: Decimal::from_str(&self.taxes_percentage).unwrap(),
-            earnings_percentage: Decimal::from_str(&self.earnings_percentage).unwrap(),
-        }
+impl TryFrom<AccountSQLite> for Account {
+    type Error = ConversionError;
+
+    fn try_from(value: AccountSQLite) -> Result<Self, Self::Error> {
+        Ok(Account {
+            id: Uuid::parse_str(&value.id)
+                .map_err(|_| ConversionError::new("id", "Failed to parse account ID"))?,
+            created_at: value.created_at,
+            updated_at: value.updated_at,
+            deleted_at: value.deleted_at,
+            name: value.name,
+            description: value.description,
+            environment: Environment::from_str(&value.environment)
+                .map_err(|_| ConversionError::new("environment", "Failed to parse environment"))?,
+            taxes_percentage: Decimal::from_str(&value.taxes_percentage).map_err(|_| {
+                ConversionError::new("taxes_percentage", "Failed to parse taxes percentage")
+            })?,
+            earnings_percentage: Decimal::from_str(&value.earnings_percentage).map_err(|_| {
+                ConversionError::new("earnings_percentage", "Failed to parse earnings percentage")
+            })?,
+        })
+    }
+}
+
+impl IntoDomainModel<Account> for AccountSQLite {
+    fn into_domain_model(self) -> Result<Account, Box<dyn Error>> {
+        self.try_into().map_err(Into::into)
     }
 }
 

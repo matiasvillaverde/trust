@@ -1,3 +1,4 @@
+use crate::error::{ConversionError, IntoDomainModel, IntoDomainModels};
 use crate::schema::logs;
 use chrono::{NaiveDateTime, Utc};
 use diesel::prelude::*;
@@ -8,8 +9,17 @@ use std::sync::Mutex;
 use tracing::error;
 use uuid::Uuid;
 
+/// Database worker for broker log operations
 pub struct BrokerLogDB {
     pub connection: Arc<Mutex<SqliteConnection>>,
+}
+
+impl std::fmt::Debug for BrokerLogDB {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BrokerLogDB")
+            .field("connection", &"Arc<Mutex<SqliteConnection>>")
+            .finish()
+    }
 }
 
 impl WriteBrokerLogsDB for BrokerLogDB {
@@ -26,17 +36,19 @@ impl WriteBrokerLogsDB for BrokerLogDB {
             trade_id: trade.id.to_string(),
         };
 
-        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap();
+        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap_or_else(|e| {
+            eprintln!("Failed to acquire connection lock: {e}");
+            std::process::exit(1);
+        });
 
-        let account = diesel::insert_into(logs::table)
+        diesel::insert_into(logs::table)
             .values(&new_account)
             .get_result::<BrokerLogSQLite>(connection)
-            .map(|log| log.domain_model())
             .map_err(|error| {
                 error!("Error creating broker log: {:?}", error);
                 error
-            })?;
-        Ok(account)
+            })?
+            .into_domain_model()
     }
 }
 
@@ -45,21 +57,23 @@ impl ReadBrokerLogsDB for BrokerLogDB {
         &mut self,
         trade_id: Uuid,
     ) -> Result<Vec<BrokerLog>, Box<dyn Error>> {
-        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap();
+        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap_or_else(|e| {
+            eprintln!("Failed to acquire connection lock: {e}");
+            std::process::exit(1);
+        });
 
-        let log = logs::table
+        logs::table
             .filter(logs::trade_id.eq(trade_id.to_string()))
             .load::<BrokerLogSQLite>(connection)
-            .map(|logs| logs.into_iter().map(|log| log.domain_model()).collect())
             .map_err(|error| {
                 error!("Error reading broker logs for trade: {:?}", error);
                 error
-            })?;
-        Ok(log)
+            })?
+            .into_domain_models()
     }
 }
 
-#[derive(Queryable, Identifiable, AsChangeset, Insertable)]
+#[derive(Debug, Queryable, Identifiable, AsChangeset, Insertable)]
 #[diesel(table_name = logs)]
 pub struct BrokerLogSQLite {
     pub id: String,
@@ -70,16 +84,26 @@ pub struct BrokerLogSQLite {
     pub trade_id: String,
 }
 
-impl BrokerLogSQLite {
-    fn domain_model(self) -> BrokerLog {
-        BrokerLog {
-            id: Uuid::parse_str(&self.id).unwrap(),
-            created_at: self.created_at,
-            updated_at: self.updated_at,
-            deleted_at: self.deleted_at,
-            log: self.log,
-            trade_id: Uuid::parse_str(&self.trade_id).unwrap(),
-        }
+impl TryFrom<BrokerLogSQLite> for BrokerLog {
+    type Error = ConversionError;
+
+    fn try_from(value: BrokerLogSQLite) -> Result<Self, Self::Error> {
+        Ok(BrokerLog {
+            id: Uuid::parse_str(&value.id)
+                .map_err(|_| ConversionError::new("id", "Failed to parse log ID"))?,
+            created_at: value.created_at,
+            updated_at: value.updated_at,
+            deleted_at: value.deleted_at,
+            log: value.log,
+            trade_id: Uuid::parse_str(&value.trade_id)
+                .map_err(|_| ConversionError::new("trade_id", "Failed to parse trade ID"))?,
+        })
+    }
+}
+
+impl IntoDomainModel<BrokerLog> for BrokerLogSQLite {
+    fn into_domain_model(self) -> Result<BrokerLog, Box<dyn Error>> {
+        self.try_into().map_err(Into::into)
     }
 }
 
@@ -145,8 +169,17 @@ mod tests {
             .expect("Error reading log");
 
         assert_eq!(read_log.len(), 1);
-        assert_eq!(log.log, read_log.first().unwrap().log);
-        assert_eq!(read_log.first().unwrap().trade_id, trade.id);
+        assert_eq!(
+            log.log,
+            read_log.first().expect("Expected at least one log").log
+        );
+        assert_eq!(
+            read_log
+                .first()
+                .expect("Expected at least one log")
+                .trade_id,
+            trade.id
+        );
         assert_eq!(log.deleted_at, None);
     }
 }

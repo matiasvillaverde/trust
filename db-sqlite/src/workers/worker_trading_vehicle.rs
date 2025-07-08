@@ -1,13 +1,15 @@
-use std::error::Error;
-use std::str::FromStr;
-
+use crate::error::{ConversionError, IntoDomainModel, IntoDomainModels};
 use crate::schema::trading_vehicles;
 use chrono::{NaiveDateTime, Utc};
 use diesel::prelude::*;
 use model::{TradingVehicle, TradingVehicleCategory};
+use std::error::Error;
+use std::str::FromStr;
 use tracing::error;
 use uuid::Uuid;
 
+/// Worker for handling trading vehicle database operations
+#[derive(Debug)]
 pub struct WorkerTradingVehicle;
 impl WorkerTradingVehicle {
     pub fn create(
@@ -34,11 +36,11 @@ impl WorkerTradingVehicle {
         let tv = diesel::insert_into(trading_vehicles::table)
             .values(&new_trading_vehicle)
             .get_result::<TradingVehicleSQLite>(connection)
-            .map(|tv| tv.domain_model())
             .map_err(|error| {
                 error!("Error creating price: {:?}", error);
                 error
-            })?;
+            })?
+            .into_domain_model()?;
         Ok(tv)
     }
 
@@ -48,13 +50,11 @@ impl WorkerTradingVehicle {
         let tvs = trading_vehicles::table
             .filter(trading_vehicles::deleted_at.is_null())
             .load::<TradingVehicleSQLite>(connection)
-            .map(|tv: Vec<TradingVehicleSQLite>| {
-                tv.into_iter().map(|tv| tv.domain_model()).collect()
-            })
             .map_err(|error| {
                 error!("Error creating price: {:?}", error);
                 error
-            })?;
+            })?
+            .into_domain_models()?;
         Ok(tvs)
     }
 
@@ -66,16 +66,16 @@ impl WorkerTradingVehicle {
             .filter(trading_vehicles::id.eq(id.to_string()))
             .filter(trading_vehicles::deleted_at.is_null())
             .first::<TradingVehicleSQLite>(connection)
-            .map(|tv| tv.domain_model())
             .map_err(|error| {
                 error!("Error reading trading vehicle: {:?}", error);
                 error
-            })?;
+            })?
+            .into_domain_model()?;
         Ok(tv)
     }
 }
 
-#[derive(Queryable, Identifiable, AsChangeset, Insertable)]
+#[derive(Debug, Queryable, Identifiable, AsChangeset, Insertable)]
 #[diesel(table_name = trading_vehicles)]
 struct TradingVehicleSQLite {
     id: String,
@@ -88,22 +88,33 @@ struct TradingVehicleSQLite {
     broker: String,
 }
 
-impl TradingVehicleSQLite {
-    fn domain_model(self) -> TradingVehicle {
-        TradingVehicle {
-            id: Uuid::parse_str(&self.id).unwrap(),
-            created_at: self.created_at,
-            updated_at: self.updated_at,
-            deleted_at: self.deleted_at,
-            symbol: self.symbol,
-            isin: self.isin,
-            category: TradingVehicleCategory::from_str(&self.category).unwrap(),
-            broker: self.broker,
-        }
+impl TryFrom<TradingVehicleSQLite> for TradingVehicle {
+    type Error = ConversionError;
+
+    fn try_from(value: TradingVehicleSQLite) -> Result<Self, Self::Error> {
+        Ok(TradingVehicle {
+            id: Uuid::parse_str(&value.id)
+                .map_err(|_| ConversionError::new("id", "Failed to parse trading vehicle ID"))?,
+            created_at: value.created_at,
+            updated_at: value.updated_at,
+            deleted_at: value.deleted_at,
+            symbol: value.symbol,
+            isin: value.isin,
+            category: TradingVehicleCategory::from_str(&value.category).map_err(|_| {
+                ConversionError::new("category", "Failed to parse trading vehicle category")
+            })?,
+            broker: value.broker,
+        })
     }
 }
 
-#[derive(Insertable)]
+impl IntoDomainModel<TradingVehicle> for TradingVehicleSQLite {
+    fn into_domain_model(self) -> Result<TradingVehicle, Box<dyn Error>> {
+        self.try_into().map_err(Into::into)
+    }
+}
+
+#[derive(Debug, Insertable)]
 #[diesel(table_name = trading_vehicles)]
 pub struct NewTradingVehicle {
     id: String,

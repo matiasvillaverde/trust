@@ -1,11 +1,15 @@
+use crate::error::{ConversionError, IntoDomainModel, IntoDomainModels};
 use crate::schema::rules;
 use chrono::{NaiveDateTime, Utc};
 use diesel::prelude::*;
 use model::{Account, Rule, RuleLevel, RuleName};
 use std::error::Error;
+use std::str::FromStr;
 use tracing::error;
 use uuid::Uuid;
 
+/// Worker for handling rule database operations
+#[derive(Debug)]
 pub struct WorkerRule;
 impl WorkerRule {
     pub fn create(
@@ -25,6 +29,7 @@ impl WorkerRule {
             updated_at: now,
             deleted_at: None,
             name: name.to_string(),
+            #[allow(clippy::cast_possible_truncation)]
             risk: name.risk() as i32,
             description: description.to_string(),
             priority: priority as i32,
@@ -33,53 +38,45 @@ impl WorkerRule {
             active: true,
         };
 
-        let inserted_rule = diesel::insert_into(rules::table)
+        diesel::insert_into(rules::table)
             .values(&new_rule)
             .get_result::<RuleSQLite>(connection)
-            .map(|rule| rule.domain_model())
             .map_err(|error| {
                 error!("Error creating rule: {:?}", error);
                 error
-            })?;
-        Ok(inserted_rule)
+            })?
+            .into_domain_model()
     }
 
     pub fn read_all(
         connection: &mut SqliteConnection,
         account_id: Uuid,
     ) -> Result<Vec<Rule>, Box<dyn Error>> {
-        let rules = rules::table
+        rules::table
             .filter(rules::account_id.eq(account_id.to_string()))
             .filter(rules::deleted_at.is_null())
             .filter(rules::active.eq(true))
             .load::<RuleSQLite>(connection)
-            .map(|rules| {
-                rules
-                    .into_iter()
-                    .map(|rule| rule.domain_model())
-                    .collect::<Vec<Rule>>()
-            })
             .map_err(|error| {
                 error!("Error reading rules: {:?}", error);
                 error
-            })?;
-        Ok(rules)
+            })?
+            .into_domain_models()
     }
 
     pub fn make_inactive(
         connection: &mut SqliteConnection,
         rule: &Rule,
     ) -> Result<Rule, Box<dyn Error>> {
-        let rule = diesel::update(rules::table)
+        diesel::update(rules::table)
             .filter(rules::id.eq(rule.id.to_string()))
             .set(rules::active.eq(false))
             .get_result::<RuleSQLite>(connection)
-            .map(|rule| rule.domain_model())
             .map_err(|error| {
                 error!("Error making rule inactive: {:?}", error);
                 error
-            })?;
-        Ok(rule)
+            })?
+            .into_domain_model()
     }
 
     pub fn read_for_account_with_name(
@@ -87,7 +84,7 @@ impl WorkerRule {
         account_id: Uuid,
         name: &RuleName,
     ) -> Result<Rule, Box<dyn Error>> {
-        let rule = rules::table
+        rules::table
             .filter(rules::account_id.eq(account_id.to_string()))
             .filter(rules::deleted_at.is_null())
             .filter(rules::active.eq(true))
@@ -96,9 +93,8 @@ impl WorkerRule {
             .map_err(|error| {
                 error!("Error reading rule: {:?}", error);
                 error
-            })
-            .map(|rule| rule.domain_model())?;
-        Ok(rule)
+            })?
+            .into_domain_model()
     }
 }
 
@@ -118,23 +114,35 @@ struct RuleSQLite {
     active: bool,
 }
 
-impl RuleSQLite {
-    fn domain_model(self) -> Rule {
-        use std::str::FromStr;
-        let name =
-            RuleName::parse(&self.name, self.risk as f32).expect("Failed to parse rule name");
-        Rule {
-            id: Uuid::parse_str(&self.id).unwrap(),
-            created_at: self.created_at,
-            updated_at: self.updated_at,
-            deleted_at: self.deleted_at,
+impl TryFrom<RuleSQLite> for Rule {
+    type Error = ConversionError;
+
+    fn try_from(value: RuleSQLite) -> Result<Self, Self::Error> {
+        #[allow(clippy::cast_precision_loss)]
+        let name = RuleName::parse(&value.name, value.risk as f32)
+            .map_err(|_| ConversionError::new("name", "Failed to parse rule name"))?;
+        Ok(Rule {
+            id: Uuid::parse_str(&value.id)
+                .map_err(|_| ConversionError::new("id", "Failed to parse rule ID"))?,
+            created_at: value.created_at,
+            updated_at: value.updated_at,
+            deleted_at: value.deleted_at,
             name,
-            description: self.description,
-            priority: self.priority as u32,
-            level: RuleLevel::from_str(&self.level).unwrap(),
-            account_id: Uuid::parse_str(&self.account_id).unwrap(),
-            active: self.active,
-        }
+            description: value.description,
+            #[allow(clippy::cast_sign_loss)]
+            priority: value.priority.max(0) as u32,
+            level: RuleLevel::from_str(&value.level)
+                .map_err(|_| ConversionError::new("level", "Failed to parse rule level"))?,
+            account_id: Uuid::parse_str(&value.account_id)
+                .map_err(|_| ConversionError::new("account_id", "Failed to parse account ID"))?,
+            active: value.active,
+        })
+    }
+}
+
+impl IntoDomainModel<Rule> for RuleSQLite {
+    fn into_domain_model(self) -> Result<Rule, Box<dyn Error>> {
+        self.try_into().map_err(Into::into)
     }
 }
 #[derive(Insertable)]

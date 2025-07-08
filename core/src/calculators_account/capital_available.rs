@@ -15,20 +15,27 @@ impl AccountCapitalAvailable {
             database.all_account_transactions_excluding_taxes(account_id, currency)?;
 
         // Sum all transactions based on their category
-        let total: Decimal = transactions.iter().map(|transaction| {
+        let total: Result<Decimal, Box<dyn std::error::Error>> = transactions.iter().try_fold(
+            Decimal::ZERO,
+            |acc, transaction| {
                 match transaction.category {
                     TransactionCategory::FundTrade(_) |
                     TransactionCategory::Withdrawal |
                     TransactionCategory::FeeOpen(_) |
-                    TransactionCategory::FeeClose(_) => -transaction.amount,
+                    TransactionCategory::FeeClose(_) => acc.checked_sub(transaction.amount)
+                        .ok_or_else(|| format!("Arithmetic overflow in subtraction: {} - {}", acc, transaction.amount).into()),
                     TransactionCategory::PaymentFromTrade(_) |
-                    TransactionCategory::Deposit => transaction.amount,
-                    _ => panic!(
+                    TransactionCategory::Deposit => acc.checked_add(transaction.amount)
+                        .ok_or_else(|| format!("Arithmetic overflow in addition: {} + {}", acc, transaction.amount).into()),
+                    _ => Err(format!(
                         "capital_available: does not know how to calculate transaction with category: {}",
                         transaction.category
-                    ),
+                    ).into()),
                 }
-            }).sum();
+            }
+        );
+
+        let total = total?;
 
         // Check if the total is negative, if it is then return an error
         if total.is_sign_negative() {

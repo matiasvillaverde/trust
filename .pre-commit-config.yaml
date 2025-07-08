@@ -1,0 +1,56 @@
+# Pre-commit Configuration for Trust
+# Enhanced code quality hooks for financial trading application
+# 
+# This configuration implements a hybrid approach:
+# - Fast pre-commit checks for immediate feedback
+# - Comprehensive pre-push validation
+# - Integration with existing Makefile targets for consistency
+
+repos:
+-   repo: local
+    hooks:
+    # Fast pre-commit checks (sub-second)
+    -   id: rust-fmt-check
+        name: Check Rust formatting
+        description: Verify code formatting with rustfmt
+        entry: cargo fmt --all -- --check
+        language: rust
+        types: [rust]
+        stages: [pre-commit]
+        pass_filenames: false
+
+    # Comprehensive pre-push validation (minutes)
+    -   id: rust-lint-strict
+        name: Strict Rust linting
+        description: Run enhanced clippy with financial domain rules
+        entry: make lint-strict
+        language: system
+        types: [rust]
+        stages: [pre-push]
+        always_run: true
+        pass_filenames: false
+
+    -   id: rust-security-check
+        name: Security and dependency check
+        description: Run cargo-deny and cargo-audit security scanning
+        entry: make security-check
+        language: system
+        types: [rust]
+        stages: [pre-push]
+        always_run: true
+        pass_filenames: false
+
+    -   id: rust-test-single
+        name: Run tests (single-threaded)
+        description: Execute test suite for database compatibility
+        entry: make test-single
+        language: system
+        types: [rust]
+        stages: [pre-push]
+        always_run: true
+        pass_filenames: false
+
+# Configuration for pre-commit framework
+default_stages: [pre-commit, pre-push]
+fail_fast: false
+minimum_pre_commit_version: "2.15.0"

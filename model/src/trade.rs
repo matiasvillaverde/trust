@@ -10,11 +10,15 @@ use uuid::Uuid;
 /// Trade is the most important entity of the trust model.
 #[derive(PartialEq, Debug, Clone)]
 pub struct Trade {
+    /// Unique identifier for the trade
     pub id: Uuid,
 
     // Entity timestamps
+    /// Timestamp when the trade was created
     pub created_at: NaiveDateTime,
+    /// Timestamp when the trade was last updated
     pub updated_at: NaiveDateTime,
+    /// Timestamp when the trade was deleted (soft delete)
     pub deleted_at: Option<NaiveDateTime>,
 
     // Entity fields
@@ -97,6 +101,7 @@ pub enum Status {
 }
 
 impl Status {
+    /// Returns all possible trade status variants
     pub fn all() -> Vec<Status> {
         vec![
             Status::New,
@@ -131,6 +136,7 @@ impl std::fmt::Display for Status {
     }
 }
 
+/// Error returned when parsing an invalid trade status string
 #[derive(Debug)]
 pub struct TradeStatusParseError;
 impl std::str::FromStr for Status {
@@ -163,6 +169,7 @@ pub enum TradeCategory {
 }
 
 impl TradeCategory {
+    /// Returns all possible trade category variants
     pub fn all() -> Vec<TradeCategory> {
         vec![TradeCategory::Long, TradeCategory::Short]
     }
@@ -176,6 +183,7 @@ impl std::fmt::Display for TradeCategory {
         }
     }
 }
+/// Error returned when parsing an invalid trade category string
 #[derive(Debug)]
 pub struct TradeCategoryParseError;
 impl std::str::FromStr for TradeCategory {
@@ -189,13 +197,18 @@ impl std::str::FromStr for TradeCategory {
     }
 }
 
+/// Trade balance entity - represents the financial snapshot of a trade
 #[derive(PartialEq, Debug, Clone)]
 pub struct TradeBalance {
+    /// Unique identifier for the trade balance
     pub id: Uuid,
 
     // Entity timestamps
+    /// Timestamp when the trade balance was created
     pub created_at: NaiveDateTime,
+    /// Timestamp when the trade balance was last updated
     pub updated_at: NaiveDateTime,
+    /// Timestamp when the trade balance was deleted (soft delete)
     pub deleted_at: Option<NaiveDateTime>,
 
     /// The currency of the trade

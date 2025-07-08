@@ -21,17 +21,20 @@ impl AccountCapitalBeginningOfMonth {
                 | TransactionCategory::Withdrawal
                 | TransactionCategory::FeeOpen(_)
                 | TransactionCategory::FeeClose(_) => {
-                    total -= transaction.amount
+                    total = total.checked_sub(transaction.amount)
+                        .ok_or_else(|| format!("Arithmetic overflow in subtraction: {} - {}", total, transaction.amount))?
                 }
                 TransactionCategory::PaymentFromTrade(_) => {
-                    total += transaction.amount
+                    total = total.checked_add(transaction.amount)
+                        .ok_or_else(|| format!("Arithmetic overflow in addition: {} + {}", total, transaction.amount))?
                 }
                 TransactionCategory::Deposit => {
-                    total += transaction.amount
+                    total = total.checked_add(transaction.amount)
+                        .ok_or_else(|| format!("Arithmetic overflow in addition: {} + {}", total, transaction.amount))?
                 }
-                default => panic!(
+                default => return Err(format!(
                     "capital_at_beginning_of_month: does not know how to calculate transaction with category: {default}. Transaction: {transaction:?}"
-                ),
+                ).into()),
             }
         }
 

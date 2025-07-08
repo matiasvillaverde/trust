@@ -18,9 +18,14 @@ pub fn cancel(trade: &Trade, account: &Account) -> Result<(), Box<dyn Error>> {
     );
 
     // Cancel the entry order.
+    let broker_order_id = trade
+        .entry
+        .broker_order_id
+        .ok_or("Entry order ID is missing")?;
+
     Runtime::new()
-        .unwrap()
-        .block_on(cancel_entry(&client, trade.entry.broker_order_id.unwrap()))?;
+        .map_err(|e| Box::new(e) as Box<dyn Error>)?
+        .block_on(cancel_entry(&client, broker_order_id))?;
 
     Ok(())
 }

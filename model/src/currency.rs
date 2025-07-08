@@ -4,14 +4,19 @@ use std::fmt;
 #[derive(PartialEq, Debug, Hash, Eq, Clone, Copy)]
 #[non_exhaustive] // This enum may be extended in the future
 #[derive(Default)]
+#[allow(clippy::upper_case_acronyms)] // Currency codes are standardized as uppercase
 pub enum Currency {
+    /// United States Dollar
     #[default]
     USD,
+    /// Euro
     EUR,
+    /// Bitcoin
     BTC,
 }
 
 impl Currency {
+    /// Returns all supported currency types
     pub fn all() -> Vec<Currency> {
         vec![Currency::USD, Currency::EUR, Currency::BTC]
     }
@@ -19,6 +24,7 @@ impl Currency {
 
 // Implementations
 
+/// Error when parsing currency from string fails
 #[derive(PartialEq, Debug)]
 pub struct CurrencyError;
 
@@ -36,7 +42,7 @@ impl std::str::FromStr for Currency {
 }
 
 impl fmt::Display for Currency {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             Currency::USD => write!(f, "USD"),
             Currency::EUR => write!(f, "EUR"),

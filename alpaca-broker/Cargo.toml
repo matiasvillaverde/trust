@@ -2,6 +2,7 @@
 name = "alpaca-broker"
 version = "0.3.0"
 edition = "2021"
+license = "GPL-3.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -12,8 +13,8 @@ rust_decimal_macros = {workspace = true}
 uuid = {workspace = true}
 chrono = {workspace = true}
 apca = {workspace = true}
-num-decimal = {workspace = true}
 tokio = {workspace = true}
-dotenv = {workspace = true}
+dotenvy = {workspace = true}
 keyring = {workspace = true}
 serde_json = {workspace = true}
+num-decimal = {workspace = true}

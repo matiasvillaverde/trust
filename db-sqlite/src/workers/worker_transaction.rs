@@ -1,3 +1,4 @@
+use crate::error::{ConversionError, IntoDomainModel, IntoDomainModels};
 use crate::schema::transactions;
 use chrono::{Datelike, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use diesel::prelude::*;
@@ -10,6 +11,8 @@ use uuid::Uuid;
 
 use super::WorkerTrade;
 
+/// Worker for handling transaction database operations
+#[derive(Debug)]
 pub struct WorkerTransaction;
 
 impl WorkerTransaction {
@@ -37,11 +40,11 @@ impl WorkerTransaction {
         let transaction = diesel::insert_into(transactions::table)
             .values(&new_transaction)
             .get_result::<TransactionSQLite>(connection)
-            .map(|tx| tx.domain_model())
             .map_err(|error| {
                 error!("Error creating transaction: {:?}", error);
                 error
-            })?;
+            })?
+            .into_domain_model()?;
         Ok(transaction)
     }
 
@@ -55,16 +58,11 @@ impl WorkerTransaction {
             .filter(transactions::account_id.eq(account_id.to_string()))
             .filter(transactions::currency.eq(currency.to_string()))
             .load::<TransactionSQLite>(connection)
-            .map(|transactions: Vec<TransactionSQLite>| {
-                transactions
-                    .into_iter()
-                    .map(|tx| tx.domain_model())
-                    .collect()
-            })
             .map_err(|error| {
                 error!("Error reading all transactions: {:?}", error);
                 error
-            })?;
+            })?
+            .into_domain_models()?;
         Ok(transactions)
     }
 
@@ -220,16 +218,11 @@ impl WorkerTransaction {
             .filter(transactions::currency.eq(currency.to_string()))
             .filter(transactions::category.eq(category.key()))
             .load::<TransactionSQLite>(connection)
-            .map(|transactions: Vec<TransactionSQLite>| {
-                transactions
-                    .into_iter()
-                    .map(|tx| tx.domain_model())
-                    .collect()
-            })
             .map_err(|error| {
                 error!("Error reading transactions: {:?}", error);
                 error
-            })?;
+            })?
+            .into_domain_models()?;
         Ok(transactions)
     }
 
@@ -243,16 +236,11 @@ impl WorkerTransaction {
             .filter(transactions::trade_id.eq(trade_id.to_string()))
             .filter(transactions::category.eq(category.key()))
             .load::<TransactionSQLite>(connection)
-            .map(|transactions: Vec<TransactionSQLite>| {
-                transactions
-                    .into_iter()
-                    .map(|tx| tx.domain_model())
-                    .collect()
-            })
             .map_err(|error| {
                 error!("Error creating price: {:?}", error);
                 error
-            })?;
+            })?
+            .into_domain_models()?;
         Ok(transactions)
     }
 
@@ -264,16 +252,11 @@ impl WorkerTransaction {
             .filter(transactions::deleted_at.is_null())
             .filter(transactions::trade_id.eq(trade.to_string()))
             .load::<TransactionSQLite>(connection)
-            .map(|transactions: Vec<TransactionSQLite>| {
-                transactions
-                    .into_iter()
-                    .map(|tx| tx.domain_model())
-                    .collect()
-            })
             .map_err(|error| {
                 error!("Error reading trade transactions: {:?}", error);
                 error
-            })?;
+            })?
+            .into_domain_models()?;
         Ok(transactions)
     }
 
@@ -322,10 +305,11 @@ impl WorkerTransaction {
         category: TransactionCategory,
     ) -> Result<Vec<Transaction>, Box<dyn Error>> {
         let now = Utc::now().naive_utc();
-        let first_day_of_month = NaiveDate::from_ymd_opt(now.year(), now.month(), 1).unwrap();
+        let first_day_of_month =
+            NaiveDate::from_ymd_opt(now.year(), now.month(), 1).ok_or("Failed to create date")?;
         let first_day_of_month = NaiveDateTime::new(
             first_day_of_month,
-            NaiveTime::from_hms_opt(0, 0, 0).unwrap(),
+            NaiveTime::from_hms_opt(0, 0, 0).ok_or("Failed to create time")?,
         );
 
         let tx = transactions::table
@@ -335,21 +319,16 @@ impl WorkerTransaction {
             .filter(transactions::currency.eq(currency.to_string()))
             .filter(transactions::category.eq(category.key()))
             .load::<TransactionSQLite>(connection)
-            .map(|transactions: Vec<TransactionSQLite>| {
-                transactions
-                    .into_iter()
-                    .map(|tx| tx.domain_model())
-                    .collect()
-            })
             .map_err(|error| {
                 error!("Error creating price: {:?}", error);
                 error
-            })?;
+            })?
+            .into_domain_models()?;
         Ok(tx)
     }
 }
 
-#[derive(Queryable, Identifiable, AsChangeset, Insertable)]
+#[derive(Debug, Queryable, Identifiable, AsChangeset, Insertable)]
 #[diesel(table_name = transactions)]
 pub struct TransactionSQLite {
     pub id: String,
@@ -363,29 +342,43 @@ pub struct TransactionSQLite {
     pub trade_id: Option<String>,
 }
 
-impl TransactionSQLite {
-    fn domain_model(&self) -> Transaction {
-        let category = TransactionCategory::parse(
-            &self.category,
-            self.trade_id
-                .clone()
-                .map(|uuid| Uuid::parse_str(&uuid).unwrap()),
-        )
-        .unwrap();
+impl TryFrom<TransactionSQLite> for Transaction {
+    type Error = ConversionError;
 
-        Transaction {
-            id: Uuid::parse_str(&self.id).unwrap(),
-            created_at: self.created_at,
-            updated_at: self.updated_at,
-            deleted_at: self.deleted_at,
+    fn try_from(value: TransactionSQLite) -> Result<Self, Self::Error> {
+        let trade_id = value
+            .trade_id
+            .clone()
+            .and_then(|uuid| Uuid::parse_str(&uuid).ok());
+
+        let category = TransactionCategory::parse(&value.category, trade_id).map_err(|_| {
+            ConversionError::new("category", "Failed to parse transaction category")
+        })?;
+
+        Ok(Transaction {
+            id: Uuid::parse_str(&value.id)
+                .map_err(|_| ConversionError::new("id", "Failed to parse transaction ID"))?,
+            created_at: value.created_at,
+            updated_at: value.updated_at,
+            deleted_at: value.deleted_at,
             category,
-            currency: Currency::from_str(&self.currency).unwrap(),
-            amount: Decimal::from_str(&self.amount).unwrap(),
-            account_id: Uuid::parse_str(&self.account_id).unwrap(),
-        }
+            currency: Currency::from_str(&value.currency)
+                .map_err(|_| ConversionError::new("currency", "Failed to parse currency"))?,
+            amount: Decimal::from_str(&value.amount)
+                .map_err(|_| ConversionError::new("amount", "Failed to parse amount"))?,
+            account_id: Uuid::parse_str(&value.account_id)
+                .map_err(|_| ConversionError::new("account_id", "Failed to parse account ID"))?,
+        })
     }
 }
-#[derive(Insertable)]
+
+impl IntoDomainModel<Transaction> for TransactionSQLite {
+    fn into_domain_model(self) -> Result<Transaction, Box<dyn Error>> {
+        self.try_into().map_err(Into::into)
+    }
+}
+
+#[derive(Debug, Insertable)]
 #[diesel(table_name = transactions)]
 #[diesel(treat_none_as_null = true)]
 pub struct NewTransaction {

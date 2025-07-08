@@ -127,7 +127,7 @@ pub fn transfer_to_fund_trade(
     // Use the calculator to determine the required capital based on trade type.
     // For short trades, this uses the stop price (worst case) to ensure we have
     // enough capital even if the entry executes at a better price.
-    let trade_total = TradeCapitalRequired::calculate(trade);
+    let trade_total = TradeCapitalRequired::calculate(trade)?;
 
     let transaction = database.transaction_write().create_transaction(
         &account,
@@ -150,7 +150,18 @@ pub fn transfer_to_fill_trade(
     let account = database.account_read().id(trade.account_id)?;
 
     // 1. Calculate the total amount of the trade
-    let total = trade.entry.average_filled_price.unwrap() * Decimal::from(trade.entry.quantity);
+    let average_price = trade
+        .entry
+        .average_filled_price
+        .ok_or("Entry order has no average filled price")?;
+    let total = average_price
+        .checked_mul(Decimal::from(trade.entry.quantity))
+        .ok_or_else(|| {
+            format!(
+                "Arithmetic overflow in multiplication: {} * {}",
+                average_price, trade.entry.quantity
+            )
+        })?;
 
     // 2. Validate that the trade has enough funds to fill the trade
     transaction::can_transfer_fill(trade, total)?;
@@ -165,7 +176,20 @@ pub fn transfer_to_fill_trade(
 
     // 4. If there is a difference between the unit_price and the average_filled_price
     // then we should create a transaction to transfer the difference to the account.
-    let mut total_difference = total - trade.entry.unit_price * Decimal::from(trade.entry.quantity);
+    let entry_total = trade
+        .entry
+        .unit_price
+        .checked_mul(Decimal::from(trade.entry.quantity))
+        .ok_or_else(|| {
+            format!(
+                "Arithmetic overflow in multiplication: {} * {}",
+                trade.entry.unit_price, trade.entry.quantity
+            )
+        })?;
+
+    let mut total_difference = total
+        .checked_sub(entry_total)
+        .ok_or_else(|| format!("Arithmetic overflow in subtraction: {total} - {entry_total}"))?;
     total_difference.set_sign_positive(true);
 
     if total_difference > dec!(0) {
@@ -240,7 +264,18 @@ pub fn transfer_to_close_target(
 ) -> Result<(Transaction, TradeBalance), Box<dyn Error>> {
     let account = database.account_read().id(trade.account_id)?;
 
-    let total = trade.target.average_filled_price.unwrap() * Decimal::from(trade.entry.quantity);
+    let average_price = trade
+        .target
+        .average_filled_price
+        .ok_or("Target order has no average filled price")?;
+    let total = average_price
+        .checked_mul(Decimal::from(trade.entry.quantity))
+        .ok_or_else(|| {
+            format!(
+                "Arithmetic overflow in multiplication: {} * {}",
+                average_price, trade.entry.quantity
+            )
+        })?;
 
     // 1. Validate that the closing is possible
     transaction::can_transfer_close(total)?;
@@ -267,15 +302,36 @@ pub fn transfer_to_close_stop(
     let account = database.account_read().id(trade.account_id)?;
 
     // 1. Calculate the total amount of the trade
-    let total =
-        trade.safety_stop.average_filled_price.unwrap() * Decimal::from(trade.entry.quantity);
+    let average_price = trade
+        .safety_stop
+        .average_filled_price
+        .ok_or("Safety stop order has no average filled price")?;
+    let total = average_price
+        .checked_mul(Decimal::from(trade.entry.quantity))
+        .ok_or_else(|| {
+            format!(
+                "Arithmetic overflow in multiplication: {} * {}",
+                average_price, trade.entry.quantity
+            )
+        })?;
 
     // 2. Validate that the closing is possible
     transaction::can_transfer_close(total)?;
 
     // 3. If the stop was lower than the planned price, then we should create a transaction
     // with category slippage. For more information see: https://www.investopedia.com/terms/s/slippage.asp
-    let category = if total > trade.safety_stop.unit_price * Decimal::from(trade.entry.quantity) {
+    let planned_total = trade
+        .safety_stop
+        .unit_price
+        .checked_mul(Decimal::from(trade.entry.quantity))
+        .ok_or_else(|| {
+            format!(
+                "Arithmetic overflow in multiplication: {} * {}",
+                trade.safety_stop.unit_price, trade.entry.quantity
+            )
+        })?;
+
+    let category = if total > planned_total {
         TransactionCategory::CloseSafetyStopSlippage(trade.id)
     } else {
         TransactionCategory::CloseSafetyStop(trade.id)
