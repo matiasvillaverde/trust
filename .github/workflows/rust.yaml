@@ -30,7 +30,7 @@ jobs:
     - name: Install system dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y libdbus-1-dev pkg-config
+        sudo apt-get install -y libdbus-1-dev pkg-config libssl-dev build-essential
 
     - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
@@ -57,7 +57,7 @@ jobs:
     - name: Install system dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y libdbus-1-dev pkg-config
+        sudo apt-get install -y libdbus-1-dev pkg-config libssl-dev build-essential
 
     - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
@@ -123,7 +123,7 @@ jobs:
     - name: Install system dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y libdbus-1-dev pkg-config
+        sudo apt-get install -y libdbus-1-dev pkg-config libssl-dev build-essential
 
     - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
@@ -162,7 +162,7 @@ jobs:
     - name: Install system dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y libdbus-1-dev pkg-config
+        sudo apt-get install -y libdbus-1-dev pkg-config libssl-dev build-essential
 
     - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
