@@ -85,7 +85,7 @@ jobs:
       if: steps.tools-cache.outputs.cache-hit != 'true'
       run: |
         cargo install cargo-deny --locked
-        cargo install cargo-udeps --locked
+        cargo +nightly install cargo-udeps --locked
 
     - name: Run enhanced clippy with complexity analysis
       run: cargo clippy --workspace --all-targets --all-features -- -D warnings
