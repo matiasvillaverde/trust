@@ -63,10 +63,10 @@ proptest! {
         let mut state = initial_state;
         for transition in transitions {
             // Allow both valid and invalid transitions, but they shouldn't panic
-            match state.clone().transition(transition) {
-                Ok(new_state) => state = new_state,
-                Err(_) => {} // Invalid transitions are fine, just ignore
+            if let Ok(new_state) = state.clone().transition(transition) {
+                state = new_state;
             }
+            // Invalid transitions are fine, just ignore
         }
         // If we got here, no panic occurred
         prop_assert!(true);
