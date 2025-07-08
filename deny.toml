@@ -31,7 +31,7 @@ allow = [
     "Unlicense",        # Public domain
     "0BSD",             # Zero-clause BSD (public domain equivalent)
     
-    # Unicode licenses (required for text processing)
+    # Unicode licenses (required for text processing)  
     "Unicode-DFS-2016",
     "Unicode-3.0",
     
