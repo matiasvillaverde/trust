@@ -3,7 +3,6 @@
 
 use broker_sync::{BrokerCommand, BrokerEvent, OrderUpdate, ReconciliationStatus};
 use rust_decimal_macros::dec;
-use serde_json;
 use std::time::Duration;
 use uuid::Uuid;
 
@@ -91,7 +90,7 @@ fn test_broker_event_variants_exist() {
 fn test_broker_event_implements_debug() {
     let event = BrokerEvent::GetStatus;
     let debug_str = format!("{:?}", event);
-    assert!(debug_str.len() > 0);
+    assert!(!debug_str.is_empty());
 }
 
 #[test]
