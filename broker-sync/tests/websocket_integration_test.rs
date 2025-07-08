@@ -27,7 +27,7 @@ async fn test_websocket_connection_flow() {
 
     // Create WebSocket sync client
     let state = Arc::new(Mutex::new(BrokerState::Disconnected));
-    let websocket_url = format!("ws://127.0.0.1:{}", server_port);
+    let websocket_url = format!("ws://127.0.0.1:{server_port}");
     let sync_client = WebSocketSync::new(websocket_url, state.clone());
 
     // Start sync with timeout - run directly without spawning to avoid Send issues
@@ -65,7 +65,7 @@ async fn test_order_fill_processing() {
 
     // Create sync client
     let state = Arc::new(Mutex::new(BrokerState::Disconnected));
-    let websocket_url = format!("ws://127.0.0.1:{}", server_port);
+    let websocket_url = format!("ws://127.0.0.1:{server_port}");
     let sync_client = WebSocketSync::new(websocket_url, state.clone());
 
     // Start sync with timeout to avoid Send issues
@@ -115,7 +115,7 @@ async fn test_multiple_order_events() {
     sleep(Duration::from_millis(100)).await;
 
     let state = Arc::new(Mutex::new(BrokerState::Disconnected));
-    let websocket_url = format!("ws://127.0.0.1:{}", server_port);
+    let websocket_url = format!("ws://127.0.0.1:{server_port}");
     let sync_client = WebSocketSync::new(websocket_url, state.clone());
 
     // Start sync with timeout to avoid Send issues
@@ -180,7 +180,7 @@ async fn test_bracket_order_scenario() {
     sleep(Duration::from_millis(100)).await;
 
     let state = Arc::new(Mutex::new(BrokerState::Disconnected));
-    let websocket_url = format!("ws://127.0.0.1:{}", server_port);
+    let websocket_url = format!("ws://127.0.0.1:{server_port}");
     let sync_client = WebSocketSync::new(websocket_url, state.clone());
 
     // Start sync with timeout to avoid Send issues

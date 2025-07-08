@@ -246,7 +246,7 @@ impl ConnectionHandler {
                 let uptime_secs = self.start_time.elapsed().as_secs();
 
                 Ok(DaemonResponse::Status {
-                    state: format!("{:?}", *state),
+                    state: format!("{state:?}"),
                     is_connected: state.is_connected(),
                     uptime_secs,
                     active_accounts: 0, // TODO: Track active accounts
