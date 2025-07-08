@@ -125,17 +125,17 @@ impl SqliteDatabase {
         pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
         // This is only used for tests, so we use a simpler error handling approach
         let mut connection = SqliteConnection::establish(":memory:").unwrap_or_else(|e| {
-            eprintln!("Failed to establish in-memory database connection: {}", e);
+            eprintln!("Failed to establish in-memory database connection: {e}");
             std::process::exit(1);
         });
         connection
             .run_pending_migrations(MIGRATIONS)
             .unwrap_or_else(|e| {
-                eprintln!("Failed to run migrations on in-memory database: {}", e);
+                eprintln!("Failed to run migrations on in-memory database: {e}");
                 std::process::exit(1);
             });
         connection.begin_test_transaction().unwrap_or_else(|e| {
-            eprintln!("Failed to begin test transaction: {}", e);
+            eprintln!("Failed to begin test transaction: {e}");
             std::process::exit(1);
         });
         SqliteDatabase {
@@ -148,7 +148,7 @@ impl SqliteDatabase {
         let db_exists = std::path::Path::new(database_url).exists();
         // Use the database URL to establish a connection to the SQLite database
         let mut connection = SqliteConnection::establish(database_url).unwrap_or_else(|e| {
-            eprintln!("Error connecting to {}: {}", database_url, e);
+            eprintln!("Error connecting to {database_url}: {e}");
             std::process::exit(1);
         });
 
@@ -159,7 +159,7 @@ impl SqliteDatabase {
             connection
                 .run_pending_migrations(MIGRATIONS)
                 .unwrap_or_else(|e| {
-                    eprintln!("Failed to run migrations on new database: {}", e);
+                    eprintln!("Failed to run migrations on new database: {e}");
                     std::process::exit(1);
                 });
         }
@@ -180,7 +180,7 @@ impl OrderWrite for SqliteDatabase {
     ) -> Result<Order, Box<dyn Error>> {
         WorkerOrder::create(
             &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {}", e);
+                eprintln!("Failed to acquire connection lock: {e}");
                 std::process::exit(1);
             }),
             price,
@@ -195,7 +195,7 @@ impl OrderWrite for SqliteDatabase {
     fn update(&mut self, order: &Order) -> Result<Order, Box<dyn Error>> {
         WorkerOrder::update(
             &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {}", e);
+                eprintln!("Failed to acquire connection lock: {e}");
                 std::process::exit(1);
             }),
             order,
@@ -205,7 +205,7 @@ impl OrderWrite for SqliteDatabase {
     fn submit_of(&mut self, order: &Order, broker_order_id: Uuid) -> Result<Order, Box<dyn Error>> {
         WorkerOrder::update_submitted_at(
             &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {}", e);
+                eprintln!("Failed to acquire connection lock: {e}");
                 std::process::exit(1);
             }),
             order,
@@ -216,7 +216,7 @@ impl OrderWrite for SqliteDatabase {
     fn filling_of(&mut self, order: &Order) -> Result<Order, Box<dyn Error>> {
         WorkerOrder::update_filled_at(
             &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {}", e);
+                eprintln!("Failed to acquire connection lock: {e}");
                 std::process::exit(1);
             }),
             order,
@@ -226,7 +226,7 @@ impl OrderWrite for SqliteDatabase {
     fn closing_of(&mut self, order: &Order) -> Result<Order, Box<dyn Error>> {
         WorkerOrder::update_closed_at(
             &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {}", e);
+                eprintln!("Failed to acquire connection lock: {e}");
                 std::process::exit(1);
             }),
             order,
@@ -240,7 +240,7 @@ impl OrderWrite for SqliteDatabase {
     ) -> Result<Order, Box<dyn Error>> {
         WorkerOrder::update_price(
             &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {}", e);
+                eprintln!("Failed to acquire connection lock: {e}");
                 std::process::exit(1);
             }),
             order,
@@ -260,7 +260,7 @@ impl WriteTransactionDB for SqliteDatabase {
     ) -> Result<Transaction, Box<dyn Error>> {
         WorkerTransaction::create_transaction(
             &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {}", e);
+                eprintln!("Failed to acquire connection lock: {e}");
                 std::process::exit(1);
             }),
             account.id,
@@ -279,7 +279,7 @@ impl ReadTransactionDB for SqliteDatabase {
     ) -> Result<Vec<Transaction>, Box<dyn Error>> {
         WorkerTransaction::read_all_trade_transactions_excluding_taxes(
             &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {}", e);
+                eprintln!("Failed to acquire connection lock: {e}");
                 std::process::exit(1);
             }),
             account_id,
@@ -294,7 +294,7 @@ impl ReadTransactionDB for SqliteDatabase {
     ) -> Result<Vec<Transaction>, Box<dyn Error>> {
         WorkerTransaction::all_account_transactions_in_trade(
             &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {}", e);
+                eprintln!("Failed to acquire connection lock: {e}");
                 std::process::exit(1);
             }),
             account_id,
@@ -309,7 +309,7 @@ impl ReadTransactionDB for SqliteDatabase {
     ) -> Result<Vec<Transaction>, Box<dyn Error>> {
         WorkerTransaction::read_all_account_transactions_taxes(
             &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {}", e);
+                eprintln!("Failed to acquire connection lock: {e}");
                 std::process::exit(1);
             }),
             account_id,
@@ -323,7 +323,7 @@ impl ReadTransactionDB for SqliteDatabase {
     ) -> Result<Vec<Transaction>, Box<dyn Error>> {
         WorkerTransaction::read_all_trade_transactions(
             &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {}", e);
+                eprintln!("Failed to acquire connection lock: {e}");
                 std::process::exit(1);
             }),
             trade_id,
@@ -336,7 +336,7 @@ impl ReadTransactionDB for SqliteDatabase {
     ) -> Result<Vec<Transaction>, Box<dyn Error>> {
         WorkerTransaction::read_all_trade_transactions_for_category(
             &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {}", e);
+                eprintln!("Failed to acquire connection lock: {e}");
                 std::process::exit(1);
             }),
             trade_id,
@@ -350,7 +350,7 @@ impl ReadTransactionDB for SqliteDatabase {
     ) -> Result<Vec<Transaction>, Box<dyn Error>> {
         WorkerTransaction::read_all_trade_transactions_for_category(
             &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {}", e);
+                eprintln!("Failed to acquire connection lock: {e}");
                 std::process::exit(1);
             }),
             trade_id,
@@ -365,7 +365,7 @@ impl ReadTransactionDB for SqliteDatabase {
     ) -> Result<Vec<Transaction>, Box<dyn Error>> {
         WorkerTransaction::read_all_transaction_excluding_current_month_and_taxes(
             &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {}", e);
+                eprintln!("Failed to acquire connection lock: {e}");
                 std::process::exit(1);
             }),
             account_id,
@@ -380,7 +380,7 @@ impl ReadTransactionDB for SqliteDatabase {
     ) -> Result<Vec<Transaction>, Box<dyn Error>> {
         WorkerTransaction::read_all_transactions(
             &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {}", e);
+                eprintln!("Failed to acquire connection lock: {e}");
                 std::process::exit(1);
             }),
             account_id,
@@ -393,7 +393,7 @@ impl ReadRuleDB for SqliteDatabase {
     fn read_all_rules(&mut self, account_id: Uuid) -> Result<Vec<Rule>, Box<dyn Error>> {
         WorkerRule::read_all(
             &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {}", e);
+                eprintln!("Failed to acquire connection lock: {e}");
                 std::process::exit(1);
             }),
             account_id,
@@ -407,7 +407,7 @@ impl ReadRuleDB for SqliteDatabase {
     ) -> Result<Rule, Box<dyn Error>> {
         WorkerRule::read_for_account_with_name(
             &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {}", e);
+                eprintln!("Failed to acquire connection lock: {e}");
                 std::process::exit(1);
             }),
             account_id,
@@ -427,7 +427,7 @@ impl WriteRuleDB for SqliteDatabase {
     ) -> Result<model::Rule, Box<dyn Error>> {
         WorkerRule::create(
             &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {}", e);
+                eprintln!("Failed to acquire connection lock: {e}");
                 std::process::exit(1);
             }),
             name,
@@ -441,7 +441,7 @@ impl WriteRuleDB for SqliteDatabase {
     fn make_rule_inactive(&mut self, rule: &Rule) -> Result<Rule, Box<dyn Error>> {
         WorkerRule::make_inactive(
             &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {}", e);
+                eprintln!("Failed to acquire connection lock: {e}");
                 std::process::exit(1);
             }),
             rule,
@@ -459,7 +459,7 @@ impl WriteTradingVehicleDB for SqliteDatabase {
     ) -> Result<TradingVehicle, Box<dyn Error>> {
         WorkerTradingVehicle::create(
             &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {}", e);
+                eprintln!("Failed to acquire connection lock: {e}");
                 std::process::exit(1);
             }),
             symbol,
@@ -473,7 +473,7 @@ impl WriteTradingVehicleDB for SqliteDatabase {
 impl ReadTradingVehicleDB for SqliteDatabase {
     fn read_all_trading_vehicles(&mut self) -> Result<Vec<TradingVehicle>, Box<dyn Error>> {
         WorkerTradingVehicle::read_all(&mut self.connection.lock().unwrap_or_else(|e| {
-            eprintln!("Failed to acquire connection lock: {}", e);
+            eprintln!("Failed to acquire connection lock: {e}");
             std::process::exit(1);
         }))
     }
@@ -481,7 +481,7 @@ impl ReadTradingVehicleDB for SqliteDatabase {
     fn read_trading_vehicle(&mut self, id: Uuid) -> Result<TradingVehicle, Box<dyn Error>> {
         WorkerTradingVehicle::read(
             &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {}", e);
+                eprintln!("Failed to acquire connection lock: {e}");
                 std::process::exit(1);
             }),
             id,
@@ -499,7 +499,7 @@ impl WriteTradeDB for SqliteDatabase {
     ) -> Result<Trade, Box<dyn Error>> {
         WorkerTrade::create(
             &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {}", e);
+                eprintln!("Failed to acquire connection lock: {e}");
                 std::process::exit(1);
             }),
             draft,
@@ -516,7 +516,7 @@ impl WriteTradeDB for SqliteDatabase {
     ) -> Result<Trade, Box<dyn Error>> {
         WorkerTrade::update_trade_status(
             &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {}", e);
+                eprintln!("Failed to acquire connection lock: {e}");
                 std::process::exit(1);
             }),
             status,
@@ -529,7 +529,7 @@ impl ReadTradeDB for SqliteDatabase {
     fn read_trade(&mut self, id: Uuid) -> Result<Trade, Box<dyn Error>> {
         WorkerTrade::read_trade(
             &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {}", e);
+                eprintln!("Failed to acquire connection lock: {e}");
                 std::process::exit(1);
             }),
             id,
@@ -543,7 +543,7 @@ impl ReadTradeDB for SqliteDatabase {
     ) -> Result<Vec<Trade>, Box<dyn Error>> {
         WorkerTrade::read_all_funded_trades_for_currency(
             &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {}", e);
+                eprintln!("Failed to acquire connection lock: {e}");
                 std::process::exit(1);
             }),
             account_id,
@@ -558,7 +558,7 @@ impl ReadTradeDB for SqliteDatabase {
     ) -> Result<Vec<Trade>, Box<dyn Error>> {
         WorkerTrade::read_all_trades_with_status(
             &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {}", e);
+                eprintln!("Failed to acquire connection lock: {e}");
                 std::process::exit(1);
             }),
             account_id,
@@ -579,7 +579,7 @@ impl WriteAccountBalanceDB for SqliteDatabase {
     ) -> Result<TradeBalance, Box<dyn Error>> {
         WorkerTrade::update_trade_balance(
             &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {}", e);
+                eprintln!("Failed to acquire connection lock: {e}");
                 std::process::exit(1);
             }),
             trade,
@@ -596,7 +596,7 @@ impl OrderRead for SqliteDatabase {
     fn for_id(&mut self, id: Uuid) -> Result<Order, Box<dyn Error>> {
         WorkerOrder::read(
             &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {}", e);
+                eprintln!("Failed to acquire connection lock: {e}");
                 std::process::exit(1);
             }),
             id,
