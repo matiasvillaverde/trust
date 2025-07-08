@@ -39,7 +39,7 @@ impl QuantityCalculator {
                 }
                 RuleName::RiskPerTrade(risk) => {
                     let risk_decimal = Decimal::from_f32_retain(risk)
-                        .ok_or_else(|| format!("Failed to convert risk {} to Decimal", risk))?;
+                        .ok_or_else(|| format!("Failed to convert risk {risk} to Decimal"))?;
                     if risk_per_month < risk_decimal {
                         return Ok(0); // No capital to risk this month, so quantity is 0. AKA: No trade.
                     } else {
@@ -57,14 +57,11 @@ impl QuantityCalculator {
 
         // If there are no rules, return the maximum quantity based on available funds
         let max_quantity = total_available.checked_div(entry_price).ok_or_else(|| {
-            format!(
-                "Division by zero or overflow: {} / {}",
-                total_available, entry_price
-            )
+            format!("Division by zero or overflow: {total_available} / {entry_price}")
         })?;
         max_quantity
             .to_i64()
-            .ok_or_else(|| format!("Cannot convert {} to i64", max_quantity).into())
+            .ok_or_else(|| format!("Cannot convert {max_quantity} to i64").into())
     }
 
     fn max_quantity_per_trade(

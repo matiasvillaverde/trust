@@ -42,8 +42,8 @@ allow = [
     # Deprecated but still valid permissive licenses
     "MIT-0",            # MIT No Attribution
     
-    # TEMPORARY GPL ALLOWANCES (financial system stability)
-    "GPL-3.0",          # TEMPORARY: apca broker dependency
+    # Project license
+    "GPL-3.0",          # Trust project license
     
     # Mozilla Public License (required by option-ext dependency)
     "MPL-2.0",          # Required by option-ext (used by dirs-sys)

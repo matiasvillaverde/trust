@@ -187,12 +187,9 @@ pub fn transfer_to_fill_trade(
             )
         })?;
 
-    let mut total_difference = total.checked_sub(entry_total).ok_or_else(|| {
-        format!(
-            "Arithmetic overflow in subtraction: {} - {}",
-            total, entry_total
-        )
-    })?;
+    let mut total_difference = total
+        .checked_sub(entry_total)
+        .ok_or_else(|| format!("Arithmetic overflow in subtraction: {total} - {entry_total}"))?;
     total_difference.set_sign_positive(true);
 
     if total_difference > dec!(0) {

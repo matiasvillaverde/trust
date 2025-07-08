@@ -66,8 +66,7 @@ impl TradeCapitalNotAtRisk {
                 acc.checked_add(capital_not_at_risk_per_trade)
                     .ok_or_else(|| {
                         format!(
-                            "Arithmetic overflow in addition: {} + {}",
-                            acc, capital_not_at_risk_per_trade
+                            "Arithmetic overflow in addition: {acc} + {capital_not_at_risk_per_trade}"
                         )
                         .into()
                     })

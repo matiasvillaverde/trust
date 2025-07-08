@@ -43,7 +43,7 @@ fn validate_enough_capital(trade: &Trade, balance: &AccountBalance) -> FundingVa
     let required_capital = TradeCapitalRequired::calculate(trade).map_err(|e| {
         Box::new(FundValidationError {
             code: FundValidationErrorCode::NotEnoughFunds,
-            message: format!("Error calculating required capital: {}", e),
+            message: format!("Error calculating required capital: {e}"),
         })
     })?;
 
@@ -100,7 +100,7 @@ fn validate_rules(
                 .map_err(|e| {
                     Box::new(FundValidationError {
                         code: FundValidationErrorCode::NotEnoughFunds,
-                        message: format!("Error calculating risk per month: {}", e),
+                        message: format!("Error calculating risk per month: {e}"),
                     })
                 })?;
             }
@@ -108,7 +108,7 @@ fn validate_rules(
                 let risk_decimal = Decimal::from_f32_retain(risk).ok_or_else(|| {
                     Box::new(FundValidationError {
                         code: FundValidationErrorCode::NotEnoughFunds,
-                        message: format!("Failed to convert risk {} to decimal", risk),
+                        message: format!("Failed to convert risk {risk} to decimal"),
                     })
                 })?;
                 validate_risk_per_trade(trade, account_balance, risk_decimal, risk_per_month)?;

@@ -6,11 +6,18 @@ on:
   pull_request:
     branches: [ main ]
 
+# Cancel redundant builds on the same branch
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
   RUSTFLAGS: -D warnings
   CARGO_INCREMENTAL: 0
+  SCCACHE_GHA_ENABLED: "true"
+  RUSTC_WRAPPER: "sccache"
 
 jobs:
   # Quick checks run first for fast feedback
@@ -30,11 +37,21 @@ jobs:
       with:
         components: rustfmt
 
+    - name: Setup sccache
+      uses: mozilla-actions/sccache-action@v0.0.5
+
     - name: Check formatting
       run: cargo fmt --all -- --check
 
     - name: Quick compilation check
       run: cargo check --locked --workspace --all-features
+
+    - name: Check Cargo.toml formatting
+      run: |
+        if ! command -v taplo &> /dev/null; then
+          cargo install taplo-cli --locked
+        fi
+        taplo fmt --check
 
   # Enhanced lint job with security tools
   lint:
@@ -54,6 +71,9 @@ jobs:
       with:
         components: clippy
 
+    - name: Setup sccache
+      uses: mozilla-actions/sccache-action@v0.0.5
+
     - name: Cache dependencies
       uses: actions/cache@v3
       with:
@@ -66,7 +86,15 @@ jobs:
           ${{ runner.os }}-cargo-enhanced-
           ${{ runner.os }}-cargo-
 
+    - name: Cache cargo-deny and cargo-udeps
+      uses: actions/cache@v3
+      id: tools-cache
+      with:
+        path: ~/.cargo/bin
+        key: ${{ runner.os }}-cargo-tools-${{ hashFiles('.github/workflows/rust.yaml') }}
+
     - name: Install enhanced security tools
+      if: steps.tools-cache.outputs.cache-hit != 'true'
       run: |
         cargo install cargo-deny --locked
         cargo install cargo-udeps --locked
@@ -84,6 +112,7 @@ jobs:
   build-and-test:
     name: Build and Test
     runs-on: ubuntu-latest
+    # Run in parallel with lint job
     needs: quick-checks
     strategy:
       fail-fast: false
@@ -105,6 +134,9 @@ jobs:
 
     - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
+
+    - name: Setup sccache
+      uses: mozilla-actions/sccache-action@v0.0.5
 
     - name: Cache dependencies
       uses: actions/cache@v3
@@ -129,6 +161,7 @@ jobs:
   release-build:
     name: Release Build
     runs-on: ubuntu-latest
+    # Run in parallel with other jobs
     needs: quick-checks
     steps:
     - uses: actions/checkout@v4
@@ -140,6 +173,9 @@ jobs:
 
     - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
+
+    - name: Setup sccache
+      uses: mozilla-actions/sccache-action@v0.0.5
 
     - name: Cache dependencies
       uses: actions/cache@v3
@@ -155,10 +191,8 @@ jobs:
 
     - name: Build all crates in release mode
       run: |
-        cargo build --locked --release -p model
-        cargo build --locked --release -p core
-        cargo build --locked --release -p cli
-        cargo build --locked --release --all
+        # Build all at once for better parallelism
+        cargo build --locked --release --workspace
 
   # Security audit (optional, can be removed for speed)
   audit:
