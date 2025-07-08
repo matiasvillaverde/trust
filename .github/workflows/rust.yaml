@@ -88,10 +88,10 @@ jobs:
         cargo +nightly install cargo-udeps --locked
 
     - name: Run enhanced clippy with complexity analysis
-      run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      run: cargo +stable clippy --workspace --all-targets --all-features -- -D warnings
 
     - name: Run dependency security and license checks
-      run: cargo deny check advisories licenses
+      run: cargo +stable deny check advisories licenses
 
     - name: Check for unused dependencies
       run: |
