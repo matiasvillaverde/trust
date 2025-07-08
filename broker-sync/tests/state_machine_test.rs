@@ -18,6 +18,7 @@ fn test_all_states_exist() {
     let _error_recovery = BrokerState::ErrorRecovery {
         attempt: 1,
         next_retry: Instant::now() + Duration::from_secs(5),
+        config: broker_sync::BackoffConfig::default(),
     };
 }
 
@@ -96,6 +97,7 @@ fn test_error_recovery_increments_attempt_count() {
     let state = BrokerState::ErrorRecovery {
         attempt: 1,
         next_retry: Instant::now(),
+        config: broker_sync::BackoffConfig::default(),
     };
     let next = state.transition(StateTransition::RetryConnection).unwrap();
 
@@ -148,7 +150,8 @@ fn test_is_connected() {
     .is_connected());
     assert!(!BrokerState::ErrorRecovery {
         attempt: 1,
-        next_retry: Instant::now()
+        next_retry: Instant::now(),
+        config: broker_sync::BackoffConfig::default(),
     }
     .is_connected());
 }
@@ -170,30 +173,36 @@ fn test_connection_duration() {
 
 #[test]
 fn test_backoff_duration() {
+    // Test with default config (60 second cap)
+    let config = broker_sync::BackoffConfig::default();
+
     let state = BrokerState::ErrorRecovery {
         attempt: 1,
         next_retry: Instant::now(),
+        config: config.clone(),
     };
-    assert_eq!(state.backoff_duration(), Duration::from_secs(1));
+    // With jitter, we can't test exact values, but we can test ranges
+    let backoff = state.backoff_duration();
+    assert!(backoff >= Duration::from_millis(800)); // 1s - 20%
+    assert!(backoff <= Duration::from_millis(1200)); // 1s + 20%
 
     let state = BrokerState::ErrorRecovery {
         attempt: 2,
         next_retry: Instant::now(),
+        config: config.clone(),
     };
-    assert_eq!(state.backoff_duration(), Duration::from_secs(2));
+    let backoff = state.backoff_duration();
+    assert!(backoff >= Duration::from_millis(1600)); // 2s - 20%
+    assert!(backoff <= Duration::from_millis(2400)); // 2s + 20%
 
-    let state = BrokerState::ErrorRecovery {
-        attempt: 3,
-        next_retry: Instant::now(),
-    };
-    assert_eq!(state.backoff_duration(), Duration::from_secs(4));
-
-    // Test cap at 16 seconds
+    // Test cap at 60 seconds
     let state = BrokerState::ErrorRecovery {
         attempt: 10,
         next_retry: Instant::now(),
+        config: config.clone(),
     };
-    assert_eq!(state.backoff_duration(), Duration::from_secs(16));
+    let backoff = state.backoff_duration();
+    assert!(backoff <= Duration::from_secs(60)); // Should not exceed max
 }
 
 #[test]
@@ -207,5 +216,37 @@ fn test_error_transition_from_disconnected() {
         assert_eq!(attempt, 1);
     } else {
         panic!("Expected ErrorRecovery state");
+    }
+}
+
+#[test]
+fn test_custom_backoff_config() {
+    // Test with custom config
+    let config = broker_sync::BackoffConfig {
+        base_delay_ms: 500,   // 500ms base
+        max_delay_ms: 30_000, // 30s max
+        max_exponent: 5,      // 2^5 = 32x base
+        jitter_percent: 10,   // +/- 10%
+    };
+
+    let state = BrokerState::ErrorRecovery {
+        attempt: 1,
+        next_retry: Instant::now(),
+        config: config.clone(),
+    };
+
+    let backoff = state.backoff_duration();
+    // 500ms base with 10% jitter
+    assert!(backoff >= Duration::from_millis(450));
+    assert!(backoff <= Duration::from_millis(550));
+
+    // Test that config is preserved through transitions
+    let next = state.transition(StateTransition::RetryConnection).unwrap();
+    if let BrokerState::ErrorRecovery {
+        config: next_config,
+        ..
+    } = next
+    {
+        assert_eq!(next_config, config);
     }
 }

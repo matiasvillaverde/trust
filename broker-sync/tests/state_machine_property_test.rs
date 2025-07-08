@@ -35,6 +35,7 @@ prop_compose! {
             _ => BrokerState::ErrorRecovery {
                 attempt: 1,
                 next_retry: Instant::now() + Duration::from_secs(5),
+                config: broker_sync::BackoffConfig::default(),
             },
         }
     }
@@ -79,6 +80,7 @@ proptest! {
         let state = BrokerState::ErrorRecovery {
             attempt: attempt_count,
             next_retry: Instant::now(),
+            config: broker_sync::BackoffConfig::default(),
         };
 
         if let Ok(BrokerState::ErrorRecovery { attempt, .. }) =
@@ -127,13 +129,23 @@ proptest! {
         attempts in 1u32..10
     ) {
         // Backoff should follow exponential pattern (with cap)
+        let config = broker_sync::BackoffConfig {
+            base_delay_ms: 1000,
+            max_delay_ms: 60_000,
+            max_exponent: 6,
+            jitter_percent: 0, // Disable jitter for testing
+        };
+
         let state = BrokerState::ErrorRecovery {
             attempt: attempts,
             next_retry: Instant::now(),
+            config: config.clone(),
         };
 
         let backoff = state.backoff_duration();
-        let expected = Duration::from_secs(2u64.pow(attempts.saturating_sub(1).min(4)));
+        let exponent = (attempts - 1).min(6);
+        let expected_ms = 1000u64.saturating_mul(2u64.pow(exponent)).min(60_000);
+        let expected = Duration::from_millis(expected_ms);
         prop_assert_eq!(backoff, expected);
     }
 

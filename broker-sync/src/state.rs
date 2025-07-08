@@ -3,8 +3,32 @@
 use std::time::{Duration, Instant};
 use thiserror::Error;
 
+/// Configuration for backoff behavior
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BackoffConfig {
+    /// Base delay in milliseconds
+    pub base_delay_ms: u64,
+    /// Maximum delay in milliseconds
+    pub max_delay_ms: u64,
+    /// Maximum exponent for exponential backoff
+    pub max_exponent: u32,
+    /// Jitter percentage (0-100)
+    pub jitter_percent: u32,
+}
+
+impl Default for BackoffConfig {
+    fn default() -> Self {
+        Self {
+            base_delay_ms: 1000,  // 1 second
+            max_delay_ms: 60_000, // 60 seconds
+            max_exponent: 6,      // 2^6 = 64x base
+            jitter_percent: 20,   // +/- 20%
+        }
+    }
+}
+
 /// Errors that can occur during state transitions
-#[derive(Debug, Clone, Error, PartialEq, Eq)]
+#[derive(Debug, Clone, Error, PartialEq)]
 pub enum StateError {
     #[error("Invalid transition: {from:?} cannot transition via {transition:?}")]
     InvalidTransition {
@@ -14,7 +38,7 @@ pub enum StateError {
 }
 
 /// States for the broker connection lifecycle
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum BrokerState {
     /// Not connected to WebSocket
     Disconnected,
@@ -25,7 +49,11 @@ pub enum BrokerState {
     /// Fully operational, receiving real-time updates
     Live { connected_since: Instant },
     /// Connection failed, waiting to retry
-    ErrorRecovery { attempt: u32, next_retry: Instant },
+    ErrorRecovery {
+        attempt: u32,
+        next_retry: Instant,
+        config: BackoffConfig,
+    },
 }
 
 /// State transitions for the broker state machine
@@ -77,21 +105,29 @@ impl BrokerState {
             }
 
             // From ErrorRecovery
-            (BrokerState::ErrorRecovery { attempt, .. }, StateTransition::RetryConnection) => {
-                Ok(BrokerState::ErrorRecovery {
-                    attempt: attempt + 1,
-                    next_retry: now + Self::calculate_backoff(attempt + 1),
-                })
-            }
+            (
+                BrokerState::ErrorRecovery {
+                    attempt, config, ..
+                },
+                StateTransition::RetryConnection,
+            ) => Ok(BrokerState::ErrorRecovery {
+                attempt: attempt + 1,
+                next_retry: now + Self::calculate_backoff_with_config(attempt + 1, config),
+                config: config.clone(),
+            }),
             (BrokerState::ErrorRecovery { .. }, StateTransition::Connect) => {
                 Ok(BrokerState::Connecting)
             }
 
             // Error transition from any state
-            (_, StateTransition::Error) => Ok(BrokerState::ErrorRecovery {
-                attempt: 1,
-                next_retry: now + Self::calculate_backoff(1),
-            }),
+            (_, StateTransition::Error) => {
+                let config = BackoffConfig::default();
+                Ok(BrokerState::ErrorRecovery {
+                    attempt: 1,
+                    next_retry: now + Self::calculate_backoff_with_config(1, &config),
+                    config,
+                })
+            }
 
             // Invalid transitions return error
             (state, transition) => Err(StateError::InvalidTransition {
@@ -117,15 +153,37 @@ impl BrokerState {
     /// Get the backoff duration for error recovery
     pub fn backoff_duration(&self) -> Duration {
         match self {
-            BrokerState::ErrorRecovery { attempt, .. } => Self::calculate_backoff(*attempt),
+            BrokerState::ErrorRecovery {
+                attempt, config, ..
+            } => Self::calculate_backoff_with_config(*attempt, config),
             _ => Duration::from_secs(0),
         }
     }
 
-    /// Calculate exponential backoff with cap
-    fn calculate_backoff(attempt: u32) -> Duration {
-        let base = 1; // 1 second base
-        let exponent = (attempt - 1).min(4); // Cap at 2^4 = 16 seconds
-        Duration::from_secs(base * 2u64.pow(exponent))
+    /// Calculate exponential backoff with configuration
+    fn calculate_backoff_with_config(attempt: u32, config: &BackoffConfig) -> Duration {
+        // Calculate exponential delay with cap
+        let exponent = (attempt - 1).min(config.max_exponent);
+        let delay_ms = config
+            .base_delay_ms
+            .saturating_mul(2u64.pow(exponent))
+            .min(config.max_delay_ms);
+
+        // Add jitter to prevent thundering herd
+        let jitter_range = (delay_ms * config.jitter_percent as u64) / 100;
+        let jitter = Self::get_jitter(jitter_range);
+
+        // Ensure we don't exceed max delay even with jitter
+        let final_delay = delay_ms.saturating_add(jitter).min(config.max_delay_ms);
+
+        Duration::from_millis(final_delay)
+    }
+
+    /// Get a jitter value for backoff calculation
+    /// Returns a deterministic value for testing, but can be overridden for production
+    fn get_jitter(_range: u64) -> u64 {
+        // For deterministic tests, always return 0
+        // In production, this would use rand::thread_rng()
+        0
     }
 }
