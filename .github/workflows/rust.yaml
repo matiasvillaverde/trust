@@ -94,7 +94,8 @@ jobs:
       run: cargo deny check advisories licenses
 
     - name: Check for unused dependencies
-      run: cargo +nightly udeps --all-targets || echo "Warning: cargo-udeps check failed or not available"
+      run: |
+        cargo +nightly udeps --all-targets || echo "Warning: cargo-udeps check failed or not available"
       continue-on-error: true
 
   # Combined build and test job for efficiency
