@@ -61,7 +61,11 @@ proptest! {
         // No sequence of transitions should cause a panic
         let mut state = initial_state;
         for transition in transitions {
-            state = state.transition(transition);
+            // Allow both valid and invalid transitions, but they shouldn't panic
+            match state.clone().transition(transition) {
+                Ok(new_state) => state = new_state,
+                Err(_) => {} // Invalid transitions are fine, just ignore
+            }
         }
         // If we got here, no panic occurred
         prop_assert!(true);
@@ -77,7 +81,7 @@ proptest! {
             next_retry: Instant::now(),
         };
 
-        if let BrokerState::ErrorRecovery { attempt, .. } =
+        if let Ok(BrokerState::ErrorRecovery { attempt, .. }) =
             state.clone().transition(StateTransition::RetryConnection) {
             prop_assert!(attempt > attempt_count);
         }
@@ -109,9 +113,12 @@ proptest! {
     ) {
         // Error state should be reachable from any state
         let error_state = initial_state.transition(StateTransition::Error);
-        match error_state {
-            BrokerState::ErrorRecovery { .. } => prop_assert!(true),
-            _ => prop_assert!(false, "Expected ErrorRecovery state"),
+        prop_assert!(error_state.is_ok());
+
+        if let Ok(BrokerState::ErrorRecovery { .. }) = error_state {
+            prop_assert!(true);
+        } else {
+            prop_assert!(false, "Expected ErrorRecovery state");
         }
     }
 
@@ -140,10 +147,12 @@ proptest! {
 
         let transition_count = transitions.len();
         for transition in transitions {
-            state = state.transition(transition);
-            if matches!(state, BrokerState::Live { .. }) {
-                reached_live = true;
-                break;
+            if let Ok(new_state) = state.clone().transition(transition) {
+                state = new_state;
+                if matches!(state, BrokerState::Live { .. }) {
+                    reached_live = true;
+                    break;
+                }
             }
         }
 

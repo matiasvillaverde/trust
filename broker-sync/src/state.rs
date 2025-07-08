@@ -1,6 +1,17 @@
 //! State machine for BrokerSync actor
 
 use std::time::{Duration, Instant};
+use thiserror::Error;
+
+/// Errors that can occur during state transitions
+#[derive(Debug, Clone, Error, PartialEq, Eq)]
+pub enum StateError {
+    #[error("Invalid transition: {from:?} cannot transition via {transition:?}")]
+    InvalidTransition {
+        from: BrokerState,
+        transition: StateTransition,
+    },
+}
 
 /// States for the broker connection lifecycle
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,52 +49,55 @@ pub enum StateTransition {
 
 impl BrokerState {
     /// Transition to a new state based on the given event
-    pub fn transition(self, event: StateTransition) -> Self {
+    pub fn transition(self, event: StateTransition) -> Result<Self, StateError> {
         self.transition_at(event, Instant::now())
     }
 
     /// Transition to a new state with a specific timestamp (for testing)
-    pub fn transition_at(self, event: StateTransition, now: Instant) -> Self {
-        match (self, event) {
+    pub fn transition_at(self, event: StateTransition, now: Instant) -> Result<Self, StateError> {
+        match (&self, &event) {
             // From Disconnected
-            (BrokerState::Disconnected, StateTransition::Connect) => BrokerState::Connecting,
+            (BrokerState::Disconnected, StateTransition::Connect) => Ok(BrokerState::Connecting),
 
             // From Connecting
             (BrokerState::Connecting, StateTransition::ConnectionEstablished) => {
-                BrokerState::Reconciling { start_time: now }
+                Ok(BrokerState::Reconciling { start_time: now })
             }
 
             // From Reconciling
             (BrokerState::Reconciling { .. }, StateTransition::ReconciliationComplete) => {
-                BrokerState::Live {
+                Ok(BrokerState::Live {
                     connected_since: now,
-                }
+                })
             }
 
             // From Live
             (BrokerState::Live { .. }, StateTransition::StartReconciliation) => {
-                BrokerState::Reconciling { start_time: now }
+                Ok(BrokerState::Reconciling { start_time: now })
             }
 
             // From ErrorRecovery
             (BrokerState::ErrorRecovery { attempt, .. }, StateTransition::RetryConnection) => {
-                BrokerState::ErrorRecovery {
+                Ok(BrokerState::ErrorRecovery {
                     attempt: attempt + 1,
                     next_retry: now + Self::calculate_backoff(attempt + 1),
-                }
+                })
             }
             (BrokerState::ErrorRecovery { .. }, StateTransition::Connect) => {
-                BrokerState::Connecting
+                Ok(BrokerState::Connecting)
             }
 
             // Error transition from any state
-            (_, StateTransition::Error) => BrokerState::ErrorRecovery {
+            (_, StateTransition::Error) => Ok(BrokerState::ErrorRecovery {
                 attempt: 1,
                 next_retry: now + Self::calculate_backoff(1),
-            },
+            }),
 
-            // Invalid transitions return the same state
-            (state, _) => state,
+            // Invalid transitions return error
+            (state, transition) => Err(StateError::InvalidTransition {
+                from: state.clone(),
+                transition: transition.clone(),
+            }),
         }
     }
 

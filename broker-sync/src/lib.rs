@@ -8,7 +8,7 @@ mod state;
 
 // Re-export public types
 pub use messages::{BrokerCommand, BrokerEvent, OrderUpdate, ReconciliationStatus};
-pub use state::{BrokerState, StateTransition};
+pub use state::{BrokerState, StateError, StateTransition};
 
 /// The main BrokerSync actor struct
 pub struct BrokerSync;
