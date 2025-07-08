@@ -30,7 +30,7 @@ fn test_broker_command_variants_exist() {
 #[test]
 fn test_broker_command_implements_debug() {
     let cmd = BrokerCommand::GetStatus;
-    let debug_str = format!("{:?}", cmd);
+    let debug_str = format!("{cmd:?}");
     assert!(debug_str.contains("GetStatus"));
 }
 
@@ -89,7 +89,7 @@ fn test_broker_event_variants_exist() {
 #[test]
 fn test_broker_event_implements_debug() {
     let event = BrokerEvent::GetStatus;
-    let debug_str = format!("{:?}", event);
+    let debug_str = format!("{event:?}");
     assert!(!debug_str.is_empty());
 }
 

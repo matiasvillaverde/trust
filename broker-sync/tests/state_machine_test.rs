@@ -25,7 +25,7 @@ fn test_all_states_exist() {
 fn test_state_implements_debug() {
     // States should be debuggable
     let state = BrokerState::Disconnected;
-    let debug_str = format!("{:?}", state);
+    let debug_str = format!("{state:?}");
     assert!(debug_str.contains("Disconnected"));
 }
 
