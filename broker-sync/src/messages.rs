@@ -31,6 +31,7 @@ pub enum BrokerEvent {
     /// WebSocket connected
     Connected {
         account_id: Uuid,
+        /// Sanitized URL (sensitive parts redacted)
         websocket_url: String,
     },
     /// WebSocket disconnected
@@ -75,6 +76,37 @@ pub struct ReconciliationStatus {
     pub errors: Vec<String>,
     #[serde(with = "serde_duration")]
     pub duration: Duration,
+}
+
+impl BrokerEvent {
+    /// Create a Connected event with sanitized URL
+    pub fn connected(account_id: Uuid, raw_url: &str) -> Self {
+        BrokerEvent::Connected {
+            account_id,
+            websocket_url: sanitize_url(raw_url),
+        }
+    }
+}
+
+/// Sanitize WebSocket URL to remove sensitive information
+fn sanitize_url(url: &str) -> String {
+    if let Ok(mut parsed) = url.parse::<url::Url>() {
+        // Remove query parameters that might contain tokens
+        parsed.set_query(None);
+
+        // Remove password from URL if present
+        let _ = parsed.set_password(None);
+
+        // If username exists, replace with "****"
+        if parsed.username() != "" {
+            let _ = parsed.set_username("****");
+        }
+
+        parsed.to_string()
+    } else {
+        // If parsing fails, return a generic placeholder
+        "wss://[redacted]".to_string()
+    }
 }
 
 /// Custom serialization for Duration

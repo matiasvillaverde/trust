@@ -188,3 +188,34 @@ fn test_reconciliation_status_serialization() {
     assert_eq!(deserialized.orders_updated, 5);
     assert_eq!(deserialized.errors.len(), 2);
 }
+
+#[test]
+fn test_websocket_url_sanitization() {
+    // Test URL with sensitive query parameters
+    let event = BrokerEvent::connected(
+        Uuid::new_v4(),
+        "wss://api.example.com/stream?token=secret123&key=abc",
+    );
+
+    if let BrokerEvent::Connected { websocket_url, .. } = &event {
+        assert!(!websocket_url.contains("token="));
+        assert!(!websocket_url.contains("secret123"));
+        assert!(websocket_url.starts_with("wss://api.example.com/stream"));
+    }
+
+    // Test URL with credentials
+    let event2 =
+        BrokerEvent::connected(Uuid::new_v4(), "wss://user:password@api.example.com/stream");
+
+    if let BrokerEvent::Connected { websocket_url, .. } = &event2 {
+        assert!(!websocket_url.contains("password"));
+        assert!(websocket_url.contains("****"));
+    }
+
+    // Test invalid URL
+    let event3 = BrokerEvent::connected(Uuid::new_v4(), "not a valid url");
+
+    if let BrokerEvent::Connected { websocket_url, .. } = &event3 {
+        assert_eq!(websocket_url, "wss://[redacted]");
+    }
+}
