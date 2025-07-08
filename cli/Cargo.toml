@@ -11,6 +11,7 @@ model = { path = "../model", version = "0.3.0" }
 core = { path = "../core", version = "0.3.0" }
 alpaca-broker = { path = "../alpaca-broker", version = "0.3.0" }
 db-sqlite = { path = "../db-sqlite", version = "0.3.0" }
+broker-sync = { path = "../broker-sync", version = "0.1.0" }
 
 clap = {workspace = true}
 dialoguer = {workspace = true}
@@ -20,3 +21,8 @@ rust_decimal = {workspace = true}
 shellexpand = {workspace = true}
 uuid = {workspace = true}
 chrono = {workspace = true}
+anyhow = "1"
+tokio = {workspace = true}
+daemonize = "0.5"
+tracing = {workspace = true}
+tracing-subscriber = {workspace = true}

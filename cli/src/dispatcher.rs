@@ -82,6 +82,13 @@ impl ArgDispatcher {
                 Some(("modify-target", _)) => self.modify_target(),
                 _ => unreachable!("No subcommand provided"),
             },
+            Some(("daemon", sub_matches)) => match sub_matches.subcommand() {
+                Some(("start", _)) => self.daemon_start(),
+                Some(("stop", _)) => self.daemon_stop(),
+                Some(("status", _)) => self.daemon_status(),
+                Some(("restart", _)) => self.daemon_restart(),
+                _ => unreachable!("No subcommand provided"),
+            },
             Some((ext, sub_matches)) => {
                 let args = sub_matches
                     .get_many::<OsString>("")
@@ -315,6 +322,179 @@ impl ArgDispatcher {
             .build()
             .display();
     }
+}
+
+// Daemon commands
+impl ArgDispatcher {
+    fn daemon_start(&mut self) {
+        tokio::runtime::Runtime::new()
+            .map_err(|e| anyhow::anyhow!("Failed to create tokio runtime: {}", e))
+            .and_then(|rt| rt.block_on(daemon_start_impl()))
+            .unwrap_or_else(|e| eprintln!("Error starting daemon: {}", e));
+    }
+
+    fn daemon_stop(&mut self) {
+        tokio::runtime::Runtime::new()
+            .map_err(|e| anyhow::anyhow!("Failed to create tokio runtime: {}", e))
+            .and_then(|rt| rt.block_on(daemon_stop_impl()))
+            .unwrap_or_else(|e| eprintln!("Error stopping daemon: {}", e));
+    }
+
+    fn daemon_status(&mut self) {
+        tokio::runtime::Runtime::new()
+            .map_err(|e| anyhow::anyhow!("Failed to create tokio runtime: {}", e))
+            .and_then(|rt| rt.block_on(daemon_status_impl()))
+            .unwrap_or_else(|e| eprintln!("Error getting daemon status: {}", e));
+    }
+
+    fn daemon_restart(&mut self) {
+        tokio::runtime::Runtime::new()
+            .map_err(|e| anyhow::anyhow!("Failed to create tokio runtime: {}", e))
+            .and_then(|rt| rt.block_on(daemon_restart_impl()))
+            .unwrap_or_else(|e| eprintln!("Error restarting daemon: {}", e));
+    }
+}
+
+// Daemon implementations
+async fn daemon_start_impl() -> anyhow::Result<()> {
+    use broker_sync::{is_daemon_running, BrokerSyncDaemon, DaemonConfig};
+    use daemonize::Daemonize;
+    use std::fs::File;
+
+    let config = DaemonConfig::new()?;
+    config.ensure_directories()?;
+
+    // Check if daemon is already running
+    if is_daemon_running(&config) {
+        println!("BrokerSync daemon is already running");
+        return Ok(());
+    }
+
+    println!("Starting BrokerSync daemon...");
+
+    // Set up logging for the daemon
+    let log_file = File::create(&config.log_path)?;
+
+    // Configure daemonize
+    let daemonize = Daemonize::new()
+        .pid_file(&config.pid_path)
+        .chown_pid_file(true)
+        .working_directory("/tmp")
+        .stdout(log_file.try_clone()?)
+        .stderr(log_file);
+
+    match daemonize.start() {
+        Ok(_) => {
+            // This code runs in the daemon process
+            setup_daemon_logging(&config.log_path)?;
+
+            let daemon = BrokerSyncDaemon::new(config)?;
+            daemon.run().await?;
+        }
+        Err(e) => {
+            eprintln!("Error starting daemon: {}", e);
+            return Err(anyhow::anyhow!("Failed to daemonize: {}", e));
+        }
+    }
+
+    Ok(())
+}
+
+async fn daemon_stop_impl() -> anyhow::Result<()> {
+    use broker_sync::{is_daemon_running, DaemonClient, DaemonCommand, DaemonConfig};
+
+    let config = DaemonConfig::new()?;
+
+    if !is_daemon_running(&config) {
+        println!("BrokerSync daemon is not running");
+        return Ok(());
+    }
+
+    println!("Stopping BrokerSync daemon...");
+
+    let client = DaemonClient::new(config);
+    client.send_command(DaemonCommand::Shutdown).await?;
+
+    println!("BrokerSync daemon stopped");
+    Ok(())
+}
+
+async fn daemon_status_impl() -> anyhow::Result<()> {
+    use broker_sync::{
+        is_daemon_running, DaemonClient, DaemonCommand, DaemonConfig, DaemonResponse,
+    };
+
+    let config = DaemonConfig::new()?;
+
+    if !is_daemon_running(&config) {
+        println!("BrokerSync daemon is not running");
+        return Ok(());
+    }
+
+    let client = DaemonClient::new(config);
+    match client.send_command(DaemonCommand::GetStatus).await? {
+        DaemonResponse::Status {
+            state,
+            is_connected,
+            uptime_secs,
+            active_accounts,
+            last_sync,
+        } => {
+            println!("BrokerSync Daemon Status");
+            println!("========================");
+            println!("State: {}", state);
+            println!("Connected: {}", if is_connected { "Yes" } else { "No" });
+            println!("Uptime: {}s", uptime_secs);
+            println!("Active accounts: {}", active_accounts);
+            if let Some(last_sync) = last_sync {
+                println!("Last sync: {}", last_sync);
+            } else {
+                println!("Last sync: Never");
+            }
+        }
+        DaemonResponse::Error(err) => {
+            eprintln!("Error getting status: {}", err);
+        }
+        _ => {
+            eprintln!("Unexpected response from daemon");
+        }
+    }
+
+    Ok(())
+}
+
+async fn daemon_restart_impl() -> anyhow::Result<()> {
+    // Stop the daemon if it's running
+    if let Err(e) = daemon_stop_impl().await {
+        eprintln!("Warning: Error stopping daemon: {}", e);
+    }
+
+    // Wait a moment for cleanup
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+
+    // Start the daemon
+    daemon_start_impl().await
+}
+
+fn setup_daemon_logging(log_path: &str) -> anyhow::Result<()> {
+    use std::fs::OpenOptions;
+    use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+
+    let log_file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_path)?;
+
+    let file_layer = tracing_subscriber::fmt::layer()
+        .with_writer(log_file)
+        .with_ansi(false);
+
+    tracing_subscriber::registry()
+        .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
+        .with(file_layer)
+        .init();
+
+    Ok(())
 }
 
 // Utils

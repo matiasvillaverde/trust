@@ -31,8 +31,8 @@
 #![warn(missing_docs, rust_2018_idioms, missing_debug_implementations)]
 
 use crate::commands::{
-    AccountCommandBuilder, KeysCommandBuilder, TradeCommandBuilder, TradingVehicleCommandBuilder,
-    TransactionCommandBuilder,
+    AccountCommandBuilder, DaemonCommandBuilder, KeysCommandBuilder, TradeCommandBuilder,
+    TradingVehicleCommandBuilder, TransactionCommandBuilder,
 };
 use crate::dispatcher::ArgDispatcher;
 use clap::Command;
@@ -93,6 +93,14 @@ fn main() {
                 .manually_close()
                 .modify_stop()
                 .modify_target()
+                .build(),
+        )
+        .subcommand(
+            DaemonCommandBuilder::new()
+                .start()
+                .stop()
+                .status()
+                .restart()
                 .build(),
         )
         .get_matches();
