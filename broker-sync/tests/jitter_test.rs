@@ -40,13 +40,11 @@ fn test_jitter_produces_different_values() {
     for delay in &delays {
         assert!(
             *delay >= 800,
-            "Delay {} is below minimum expected 800ms",
-            delay
+            "Delay {delay} is below minimum expected 800ms"
         );
         assert!(
             *delay <= 1200,
-            "Delay {} is above maximum expected 1200ms",
-            delay
+            "Delay {delay} is above maximum expected 1200ms"
         );
     }
 }
@@ -87,8 +85,7 @@ fn test_jitter_distribution() {
     for count in buckets.values() {
         assert!(
             *count < 250,
-            "Bucket has {} values, distribution seems skewed",
-            count
+            "Bucket has {count} values, distribution seems skewed"
         );
     }
 }
@@ -214,17 +211,11 @@ fn test_jitter_percentage_accuracy() {
         // Allow some tolerance for randomness (might not hit exact boundaries)
         assert!(
             min_seen <= min_expected + 50,
-            "{}% jitter: minimum {} should be close to {}",
-            jitter_percent,
-            min_seen,
-            min_expected
+            "{jitter_percent}% jitter: minimum {min_seen} should be close to {min_expected}"
         );
         assert!(
             max_seen >= max_expected - 50,
-            "{}% jitter: maximum {} should be close to {}",
-            jitter_percent,
-            max_seen,
-            max_expected
+            "{jitter_percent}% jitter: maximum {max_seen} should be close to {max_expected}"
         );
     }
 }
