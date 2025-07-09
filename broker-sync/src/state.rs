@@ -171,19 +171,37 @@ impl BrokerState {
 
         // Add jitter to prevent thundering herd
         let jitter_range = (delay_ms * config.jitter_percent as u64) / 100;
-        let jitter = Self::get_jitter(jitter_range);
-
-        // Ensure we don't exceed max delay even with jitter
-        let final_delay = delay_ms.saturating_add(jitter).min(config.max_delay_ms);
+        let final_delay = Self::apply_jitter(delay_ms, jitter_range, config.max_delay_ms);
 
         Duration::from_millis(final_delay)
     }
 
-    /// Get a jitter value for backoff calculation
-    /// Returns a deterministic value for testing, but can be overridden for production
-    fn get_jitter(_range: u64) -> u64 {
-        // For deterministic tests, always return 0
-        // In production, this would use rand::thread_rng()
-        0
+    /// Apply jitter to delay value
+    /// Returns a value with random jitter applied, clamped to [0, max_delay]
+    fn apply_jitter(delay_ms: u64, jitter_range: u64, max_delay_ms: u64) -> u64 {
+        if jitter_range == 0 {
+            return delay_ms.min(max_delay_ms);
+        }
+
+        // For deterministic testing, use a simpler approach when jitter is disabled
+        #[cfg(test)]
+        if std::env::var("BROKER_SYNC_DETERMINISTIC").is_ok() {
+            return delay_ms.min(max_delay_ms);
+        }
+
+        // Generate random jitter in range [-jitter_range, +jitter_range]
+        use rand::Rng;
+        let mut rng = rand::thread_rng();
+        let jitter_i64 = rng.gen_range(-(jitter_range as i64)..=(jitter_range as i64));
+
+        // Apply jitter and clamp to valid range
+        let jittered_delay = if jitter_i64 < 0 {
+            delay_ms.saturating_sub((-jitter_i64) as u64)
+        } else {
+            delay_ms.saturating_add(jitter_i64 as u64)
+        };
+
+        // Ensure we don't exceed max delay and have minimum of 100ms
+        jittered_delay.max(100).min(max_delay_ms)
     }
 }

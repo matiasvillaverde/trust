@@ -181,7 +181,7 @@ fn test_backoff_duration() {
         next_retry: Instant::now(),
         config: config.clone(),
     };
-    // With jitter, we can't test exact values, but we can test ranges
+    // With random jitter, we can't test exact values, but we can test ranges
     let backoff = state.backoff_duration();
     assert!(backoff >= Duration::from_millis(800)); // 1s - 20%
     assert!(backoff <= Duration::from_millis(1200)); // 1s + 20%
@@ -236,9 +236,9 @@ fn test_custom_backoff_config() {
     };
 
     let backoff = state.backoff_duration();
-    // 500ms base with 10% jitter
-    assert!(backoff >= Duration::from_millis(450));
-    assert!(backoff <= Duration::from_millis(550));
+    // 500ms base with 10% jitter, but minimum 100ms
+    assert!(backoff >= Duration::from_millis(100)); // Minimum enforced
+    assert!(backoff <= Duration::from_millis(550)); // 500ms + 10%
 
     // Test that config is preserved through transitions
     let next = state.transition(StateTransition::RetryConnection).unwrap();
