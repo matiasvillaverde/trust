@@ -84,7 +84,7 @@ fn test_jitter_distribution() {
     );
 
     // No bucket should have more than 25% of values (rough uniformity check)
-    for (_, count) in &buckets {
+    for count in buckets.values() {
         assert!(
             *count < 250,
             "Bucket has {} values, distribution seems skewed",
