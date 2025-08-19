@@ -51,6 +51,10 @@ pub fn create_trade(
         quantity: trade.quantity,
         currency: trade.currency,
         category: trade.category,
+        thesis: trade.thesis,
+        sector: trade.sector,
+        asset_class: trade.asset_class,
+        context: trade.context,
     };
 
     database

@@ -54,6 +54,19 @@ pub struct Trade {
     /// It is a snapshot of the trade. It should be updated every time the trade is updated.
     /// WARNING: It is read-only and it can be out of sync if the trade is open.
     pub balance: TradeBalance,
+
+    // Metadata fields for trade hypothesis and analytics
+    /// Trade thesis - reasoning behind the trade (max 200 chars)
+    pub thesis: Option<String>,
+
+    /// Market sector (e.g., technology, healthcare, finance)
+    pub sector: Option<String>,
+
+    /// Asset class (e.g., stocks, options, futures, crypto)
+    pub asset_class: Option<String>,
+
+    /// Trading context (e.g., Elliott Wave count, S/R levels, indicators)
+    pub context: Option<String>,
 }
 
 impl std::fmt::Display for Trade {
@@ -247,6 +260,10 @@ impl Default for Trade {
             target: Order::default(),
             account_id: Uuid::new_v4(),
             balance: TradeBalance::default(),
+            thesis: None,
+            sector: None,
+            asset_class: None,
+            context: None,
         }
     }
 }

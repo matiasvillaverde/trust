@@ -251,6 +251,14 @@ pub struct DraftTrade {
     pub currency: Currency,
     /// The category of the trade
     pub category: TradeCategory,
+    /// Trade thesis - reasoning behind the trade (max 200 chars)
+    pub thesis: Option<String>,
+    /// Market sector (e.g., technology, healthcare, finance)
+    pub sector: Option<String>,
+    /// Asset class (e.g., stocks, options, futures, crypto)
+    pub asset_class: Option<String>,
+    /// Trading context (e.g., Elliott Wave count, S/R levels, indicators)
+    pub context: Option<String>,
 }
 
 /// Trait for writing trade data to the database

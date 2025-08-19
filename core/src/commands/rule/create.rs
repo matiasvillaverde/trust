@@ -29,7 +29,7 @@ pub fn create(
 /// If the risk per month rule was applied first, it would limit the risk per trade rule.
 /// The risk per trade rule would then be applied to the remaining funds, which would be less than the total funds.
 /// This would result in a lower risk per trade than expected.
-fn priority_for(name: &RuleName) -> u32 {
+pub fn priority_for(name: &RuleName) -> u32 {
     match name {
         RuleName::RiskPerMonth(_) => 1,
         RuleName::RiskPerTrade(_) => 2,

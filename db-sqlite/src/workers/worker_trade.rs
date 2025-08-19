@@ -43,6 +43,10 @@ impl WorkerTrade {
             target_id: target.id.to_string(),
             account_id: draft.account.id.to_string(),
             balance_id: balance.id.to_string(),
+            thesis: draft.thesis.clone(),
+            sector: draft.sector.clone(),
+            asset_class: draft.asset_class.clone(),
+            context: draft.context.clone(),
         };
 
         let trade = diesel::insert_into(trades::table)
@@ -240,6 +244,10 @@ struct TradeSQLite {
     target_id: String,
     account_id: String,
     balance_id: String,
+    thesis: Option<String>,
+    sector: Option<String>,
+    asset_class: Option<String>,
+    context: Option<String>,
 }
 
 impl TradeSQLite {
@@ -305,6 +313,10 @@ impl TradeSQLite {
             account_id: Uuid::parse_str(&self.account_id)
                 .map_err(|_| ConversionError::new("account_id", "Failed to parse account ID"))?,
             balance,
+            thesis: self.thesis,
+            sector: self.sector,
+            asset_class: self.asset_class,
+            context: self.context,
         })
     }
 }
@@ -326,6 +338,10 @@ struct NewTrade {
     entry_id: String,
     account_id: String,
     balance_id: String,
+    thesis: Option<String>,
+    sector: Option<String>,
+    asset_class: Option<String>,
+    context: Option<String>,
 }
 
 #[derive(Debug, Queryable, Identifiable, AsChangeset, Insertable)]
