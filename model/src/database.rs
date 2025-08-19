@@ -56,7 +56,7 @@ pub trait DatabaseFactory {
     /// Returns a writer for broker log data operations
     fn log_write(&self) -> Box<dyn WriteBrokerLogsDB>;
 }
-// TODO: Rename
+
 /// Trait for reading account data from the database
 pub trait AccountRead {
     /// Retrieves an account by its name

@@ -24,8 +24,6 @@ pub fn modify(trade: &Trade, account: &Account, price: Decimal) -> Result<Uuid, 
         .map_err(|e| Box::new(e) as Box<dyn Error>)?
         .block_on(submit(&client, stop_order_id, price))?;
 
-    // TODO LOG
-
     Ok(alpaca_order.id.0)
 }
 
