@@ -114,6 +114,10 @@ diesel::table! {
         target_id -> Text,
         account_id -> Text,
         balance_id -> Text,
+        thesis -> Nullable<Text>,
+        sector -> Nullable<Text>,
+        asset_class -> Nullable<Text>,
+        context -> Nullable<Text>,
     }
 }
 

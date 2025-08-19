@@ -58,6 +58,10 @@ fn test_cancel_of_funded_trade() {
         quantity: 500,
         currency: Currency::USD,
         category: TradeCategory::Long,
+        thesis: None,
+        sector: None,
+        asset_class: None,
+        context: None,
     };
 
     trust

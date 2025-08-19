@@ -68,6 +68,10 @@ pub mod read_transaction_db_mocks {
                 category: TradeCategory::Long,
                 account_id: self.account_id,
                 balance: TradeBalance::default(),
+                thesis: None,
+                sector: None,
+                asset_class: None,
+                context: None,
             };
 
             self.trades.push(trade);

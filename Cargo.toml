@@ -27,8 +27,7 @@ rust_decimal = "1.37.1"
 rust_decimal_macros = "1.37.1"
 tracing = "0.1.41"
 tracing-subscriber = "0.3.19"
-# TEMPORARY: Using apca (GPL-3.0) - TODO: migrate to permissive alternative  
-# Using latest version to fix security vulnerabilities
+# NOTE: apca uses GPL-3.0 license. Consider alternatives if license compatibility becomes an issue.
 apca = "0.30.0"
 num-decimal = { version = "0.2.5", default-features = false }
 # USING: rust_decimal (MIT/Apache-2.0) instead of num-decimal for consistency

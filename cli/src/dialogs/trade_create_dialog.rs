@@ -30,6 +30,10 @@ pub struct TradeDialogBuilder {
     currency: Option<Currency>,
     quantity: Option<i64>,
     target_price: Option<Decimal>,
+    thesis: Option<String>,
+    sector: Option<String>,
+    asset_class: Option<String>,
+    context: Option<String>,
     result: Option<Result<Trade, Box<dyn Error>>>,
 }
 
@@ -44,6 +48,10 @@ impl TradeDialogBuilder {
             currency: None,
             quantity: None,
             target_price: None,
+            thesis: None,
+            sector: None,
+            asset_class: None,
+            context: None,
             result: None,
         }
     }
@@ -60,6 +68,10 @@ impl TradeDialogBuilder {
             quantity: self.quantity.unwrap(),
             currency: self.currency.unwrap(),
             category: self.category.unwrap(),
+            thesis: self.thesis.clone(),
+            sector: self.sector.clone(),
+            asset_class: self.asset_class.clone(),
+            context: self.context.clone(),
         };
 
         self.result = Some(trust.create_trade(
@@ -195,6 +207,73 @@ impl TradeDialogBuilder {
     pub fn target_price(mut self) -> Self {
         let target_price = Input::new().with_prompt("Target price").interact().unwrap();
         self.target_price = Some(target_price);
+        self
+    }
+
+    pub fn thesis(mut self) -> Self {
+        let thesis: String = Input::new()
+            .with_prompt("Trade thesis (optional, max 200 chars)")
+            .allow_empty(true)
+            .validate_with(|input: &String| -> Result<(), &str> {
+                if input.len() > 200 {
+                    Err("Thesis must be 200 characters or less")
+                } else {
+                    Ok(())
+                }
+            })
+            .interact()
+            .unwrap();
+
+        self.thesis = if thesis.is_empty() {
+            None
+        } else {
+            Some(thesis)
+        };
+        self
+    }
+
+    pub fn sector(mut self) -> Self {
+        let sector: String = Input::new()
+            .with_prompt("Sector (optional, e.g., technology, healthcare)")
+            .allow_empty(true)
+            .interact()
+            .unwrap();
+
+        self.sector = if sector.is_empty() {
+            None
+        } else {
+            Some(sector)
+        };
+        self
+    }
+
+    pub fn asset_class(mut self) -> Self {
+        let asset_class: String = Input::new()
+            .with_prompt("Asset class (optional, e.g., stocks, options, crypto)")
+            .allow_empty(true)
+            .interact()
+            .unwrap();
+
+        self.asset_class = if asset_class.is_empty() {
+            None
+        } else {
+            Some(asset_class)
+        };
+        self
+    }
+
+    pub fn context(mut self) -> Self {
+        let context: String = Input::new()
+            .with_prompt("Trading context (optional, e.g., Elliott Wave, S/R levels)")
+            .allow_empty(true)
+            .interact()
+            .unwrap();
+
+        self.context = if context.is_empty() {
+            None
+        } else {
+            Some(context)
+        };
         self
     }
 }

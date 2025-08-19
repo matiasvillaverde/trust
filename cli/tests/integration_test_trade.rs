@@ -74,6 +74,10 @@ fn create_trade(
         quantity: 500,
         currency: Currency::USD,
         category: TradeCategory::Long,
+        thesis: None,
+        sector: None,
+        asset_class: None,
+        context: None,
     };
 
     trust
@@ -914,6 +918,10 @@ fn test_short_trade_funding_with_better_entry_execution() {
         quantity: 6,
         currency: Currency::USD,
         category: TradeCategory::Short,
+        thesis: None,
+        sector: None,
+        asset_class: None,
+        context: None,
     };
 
     trust

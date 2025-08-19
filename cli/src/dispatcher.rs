@@ -189,6 +189,10 @@ impl ArgDispatcher {
             .currency(&mut self.trust)
             .quantity(&mut self.trust)
             .target_price()
+            .thesis()
+            .sector()
+            .asset_class()
+            .context()
             .build(&mut self.trust)
             .display();
     }
