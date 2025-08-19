@@ -343,11 +343,8 @@ impl ArgDispatcher {
             None
         };
 
-        // Get days filter if provided
-        let _days_filter = sub_matches.get_one::<u32>("days");
-
-        // For now, we'll get all closed trades for all accounts if no account specified
-        // In the future, we could add date filtering here
+        // Note: Days filtering is supported in the CLI but not yet implemented
+        // Future enhancement: Filter trades by date range based on --days parameter
         let mut all_trades = Vec::new();
 
         if let Some(account_id) = account_id {

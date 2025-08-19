@@ -49,10 +49,12 @@ impl PerformanceCalculator {
         let winning_decimal = Decimal::from(winning_trades);
         let total_decimal = Decimal::from(closed_trades.len());
 
+        const HUNDRED_PERCENT: Decimal = dec!(100);
+
         winning_decimal
             .checked_div(total_decimal)
             .unwrap_or(dec!(0))
-            .checked_mul(dec!(100))
+            .checked_mul(HUNDRED_PERCENT)
             .unwrap_or(dec!(0))
     }
 

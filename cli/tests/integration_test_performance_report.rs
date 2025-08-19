@@ -6,10 +6,7 @@ use uuid::Uuid;
 
 #[test]
 fn test_performance_report_no_trades() {
-    let database_url = format!(
-        "file:perf_test_no_trades_{}.db",
-        Uuid::new_v4().to_string().replace('-', "")
-    );
+    let database_url = format!("file:perf_test_no_trades_{}.db", Uuid::new_v4().simple());
     let database = SqliteDatabase::new(&database_url);
     let mut trust = TrustFacade::new(Box::new(database), Box::new(alpaca_broker::AlpacaBroker));
 
@@ -38,10 +35,7 @@ fn test_performance_report_no_trades() {
 
 #[test]
 fn test_performance_report_with_trades() {
-    let database_url = format!(
-        "file:perf_test_with_trades_{}.db",
-        Uuid::new_v4().to_string().replace('-', "")
-    );
+    let database_url = format!("file:perf_test_with_trades_{}.db", Uuid::new_v4().simple());
     let database = SqliteDatabase::new(&database_url);
     let mut trust = TrustFacade::new(Box::new(database), Box::new(alpaca_broker::AlpacaBroker));
 
@@ -72,7 +66,7 @@ fn test_performance_report_with_trades() {
             "AAPL",
             "US0378331005",
             &TradingVehicleCategory::Stock,
-            "test_broker",
+            "TestBroker",
         )
         .unwrap();
 

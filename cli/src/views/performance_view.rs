@@ -32,7 +32,10 @@ impl PerformanceView {
             "Winning Trades: {} ({:.1}%)",
             stats.winning_trades, stats.win_rate
         );
-        let losing_percentage = dec!(100).checked_sub(stats.win_rate).unwrap_or(dec!(0));
+        const HUNDRED_PERCENT: Decimal = dec!(100);
+        let losing_percentage = HUNDRED_PERCENT
+            .checked_sub(stats.win_rate)
+            .unwrap_or(dec!(0));
         println!(
             "Losing Trades: {} ({:.1}%)",
             stats.losing_trades, losing_percentage
