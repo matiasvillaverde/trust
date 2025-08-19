@@ -82,6 +82,10 @@ impl ArgDispatcher {
                 Some(("modify-target", _)) => self.modify_target(),
                 _ => unreachable!("No subcommand provided"),
             },
+            Some(("report", sub_matches)) => match sub_matches.subcommand() {
+                Some(("performance", sub_sub_matches)) => self.performance_report(sub_sub_matches),
+                _ => unreachable!("No subcommand provided"),
+            },
             Some((ext, sub_matches)) => {
                 let args = sub_matches
                     .get_many::<OsString>("")
@@ -318,6 +322,76 @@ impl ArgDispatcher {
             .environment()
             .build()
             .display();
+    }
+
+    fn performance_report(&mut self, sub_matches: &ArgMatches) {
+        use crate::views::PerformanceView;
+        use model::trade::Status;
+        use std::str::FromStr;
+        use uuid::Uuid;
+
+        // Get account ID if provided
+        let account_id = if let Some(account_arg) = sub_matches.get_one::<String>("account") {
+            match Uuid::from_str(account_arg) {
+                Ok(id) => Some(id),
+                Err(_) => {
+                    eprintln!("Error: Invalid account ID format");
+                    return;
+                }
+            }
+        } else {
+            None
+        };
+
+        // Get days filter if provided
+        let _days_filter = sub_matches.get_one::<u32>("days");
+
+        // For now, we'll get all closed trades for all accounts if no account specified
+        // In the future, we could add date filtering here
+        let mut all_trades = Vec::new();
+
+        if let Some(account_id) = account_id {
+            // Get trades for specific account
+            match self.trust.search_trades(account_id, Status::ClosedTarget) {
+                Ok(mut trades) => all_trades.append(&mut trades),
+                Err(e) => {
+                    eprintln!("Error retrieving closed target trades: {e}");
+                    return;
+                }
+            }
+
+            match self.trust.search_trades(account_id, Status::ClosedStopLoss) {
+                Ok(mut trades) => all_trades.append(&mut trades),
+                Err(e) => {
+                    eprintln!("Error retrieving closed stop loss trades: {e}");
+                    return;
+                }
+            }
+        } else {
+            // Get all accounts first, then get their trades
+            let accounts = match self.trust.search_all_accounts() {
+                Ok(accounts) => accounts,
+                Err(e) => {
+                    eprintln!("Error retrieving accounts: {e}");
+                    return;
+                }
+            };
+
+            for account in accounts {
+                // Get closed target trades
+                if let Ok(mut trades) = self.trust.search_trades(account.id, Status::ClosedTarget) {
+                    all_trades.append(&mut trades);
+                }
+
+                // Get closed stop loss trades
+                if let Ok(mut trades) = self.trust.search_trades(account.id, Status::ClosedStopLoss)
+                {
+                    all_trades.append(&mut trades);
+                }
+            }
+        }
+
+        PerformanceView::display(all_trades);
     }
 }
 
