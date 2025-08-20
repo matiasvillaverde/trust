@@ -95,7 +95,13 @@ fn main() {
                 .modify_target()
                 .build(),
         )
-        .subcommand(ReportCommandBuilder::new().performance().drawdown().build())
+        .subcommand(
+            ReportCommandBuilder::new()
+                .performance()
+                .drawdown()
+                .risk()
+                .build(),
+        )
         .get_matches();
 
     let dispatcher = ArgDispatcher::new_sqlite();

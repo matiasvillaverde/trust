@@ -85,6 +85,7 @@ impl ArgDispatcher {
             Some(("report", sub_matches)) => match sub_matches.subcommand() {
                 Some(("performance", sub_sub_matches)) => self.performance_report(sub_sub_matches),
                 Some(("drawdown", sub_sub_matches)) => self.drawdown_report(sub_sub_matches),
+                Some(("risk", sub_sub_matches)) => self.risk_report(sub_sub_matches),
                 _ => unreachable!("No subcommand provided"),
             },
             Some((ext, sub_matches)) => {
@@ -423,6 +424,68 @@ impl ArgDispatcher {
         }
 
         PerformanceView::display(all_trades);
+    }
+
+    fn risk_report(&mut self, sub_matches: &ArgMatches) {
+        use crate::views::RiskView;
+        use core::calculators_risk::CapitalAtRiskCalculator;
+        use model::Currency;
+        use std::str::FromStr;
+        use uuid::Uuid;
+
+        // Get account ID if provided
+        let account_id = if let Some(account_arg) = sub_matches.get_one::<String>("account") {
+            match Uuid::from_str(account_arg) {
+                Ok(id) => Some(id),
+                Err(_) => {
+                    eprintln!("Error: Invalid account ID format");
+                    return;
+                }
+            }
+        } else {
+            None
+        };
+
+        // If no account specified, require it for now (since we can't query all accounts easily)
+        if account_id.is_none() {
+            eprintln!("Error: Please specify an account ID using --account");
+            return;
+        }
+
+        // Calculate open positions
+        let positions = match self.trust.calculate_open_positions(account_id) {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("Error calculating open positions: {e}");
+                return;
+            }
+        };
+
+        // Calculate total capital at risk
+        let total_capital_at_risk =
+            match CapitalAtRiskCalculator::calculate_total_capital_at_risk(&positions) {
+                Ok(total) => total,
+                Err(e) => {
+                    eprintln!("Error calculating total capital at risk: {e}");
+                    return;
+                }
+            };
+
+        // Get account balance for equity calculation
+        let account_balance = if let Some(id) = account_id {
+            match self.trust.search_balance(id, &Currency::USD) {
+                Ok(balance) => balance.total_balance,
+                Err(_) => {
+                    eprintln!("Unable to retrieve account balance");
+                    return;
+                }
+            }
+        } else {
+            rust_decimal_macros::dec!(0)
+        };
+
+        // Display the results
+        RiskView::display(positions, total_capital_at_risk, account_balance);
     }
 }
 
