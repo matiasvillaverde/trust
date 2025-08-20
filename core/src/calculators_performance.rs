@@ -7,6 +7,17 @@ use model::trade::{Status, Trade};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 
+/// Error types for performance calculations
+#[derive(Debug, PartialEq)]
+pub enum PerformanceError {
+    /// Trade is not in a closed state
+    TradeNotClosed,
+    /// Zero risk detected (entry price equals stop price)
+    ZeroRisk,
+    /// Arithmetic overflow in calculation
+    ArithmeticOverflow,
+}
+
 /// Performance statistics for a collection of trades
 #[derive(Debug, PartialEq)]
 pub struct PerformanceStats {
@@ -132,27 +143,53 @@ impl PerformanceCalculator {
     }
 
     /// Calculate R-Multiple for a single trade
-    /// R-Multiple = (Exit Price - Entry Price) / (Entry Price - Stop Price)
+    /// For Long trades: R-Multiple = (Exit Price - Entry Price) / (Entry Price - Stop Price)
+    /// For Short trades: R-Multiple = (Entry Price - Exit Price) / (Stop Price - Entry Price)
     fn calculate_r_multiple(trade: &Trade) -> Option<Decimal> {
+        Self::calculate_r_multiple_with_context(trade).ok()
+    }
+
+    /// Calculate R-Multiple with detailed error context
+    /// For Long trades: R-Multiple = (Exit Price - Entry Price) / (Entry Price - Stop Price)
+    /// For Short trades: R-Multiple = (Entry Price - Exit Price) / (Stop Price - Entry Price)
+    fn calculate_r_multiple_with_context(trade: &Trade) -> Result<Decimal, PerformanceError> {
+        use model::TradeCategory;
+
         let entry_price = trade.entry.unit_price;
         let stop_price = trade.safety_stop.unit_price;
         let exit_price = match trade.status {
             Status::ClosedTarget => trade.target.unit_price,
             Status::ClosedStopLoss => stop_price,
-            _ => return None, // Not a closed trade
+            _ => return Err(PerformanceError::TradeNotClosed),
         };
 
-        // Calculate risk per share
-        let risk = entry_price.checked_sub(stop_price)?;
+        // Calculate risk per share based on trade direction
+        let risk = match trade.category {
+            TradeCategory::Long => entry_price
+                .checked_sub(stop_price)
+                .ok_or(PerformanceError::ArithmeticOverflow)?,
+            TradeCategory::Short => stop_price
+                .checked_sub(entry_price)
+                .ok_or(PerformanceError::ArithmeticOverflow)?,
+        };
+
         if risk == dec!(0) {
-            return None; // Avoid division by zero
+            return Err(PerformanceError::ZeroRisk);
         }
 
-        // Calculate profit/loss per share
-        let pnl = exit_price.checked_sub(entry_price)?;
+        // Calculate profit/loss per share based on trade direction
+        let pnl = match trade.category {
+            TradeCategory::Long => exit_price
+                .checked_sub(entry_price)
+                .ok_or(PerformanceError::ArithmeticOverflow)?,
+            TradeCategory::Short => entry_price
+                .checked_sub(exit_price)
+                .ok_or(PerformanceError::ArithmeticOverflow)?,
+        };
 
         // R-Multiple = PnL / Risk
         pnl.checked_div(risk)
+            .ok_or(PerformanceError::ArithmeticOverflow)
     }
 
     /// Filter trades to only include closed ones
@@ -160,6 +197,21 @@ impl PerformanceCalculator {
         trades
             .iter()
             .filter(|trade| matches!(trade.status, Status::ClosedTarget | Status::ClosedStopLoss))
+            .cloned()
+            .collect()
+    }
+
+    /// Filter trades by date range - only include trades updated within the last N days
+    pub fn filter_trades_by_days(trades: &[Trade], days: u32) -> Vec<Trade> {
+        use chrono::{Duration, Utc};
+
+        let now = Utc::now().naive_utc();
+        let duration = Duration::days(i64::from(days));
+        let cutoff_date = now.checked_sub_signed(duration).unwrap_or(now);
+
+        trades
+            .iter()
+            .filter(|trade| trade.updated_at >= cutoff_date)
             .cloned()
             .collect()
     }
@@ -204,12 +256,33 @@ mod tests {
         status: Status,
         performance: Decimal,
     ) -> Trade {
+        use model::TradeCategory;
+
         let mut trade = Trade::default();
         trade.entry.unit_price = entry_price;
         trade.safety_stop.unit_price = stop_price;
         trade.target.unit_price = target_price;
         trade.status = status;
         trade.balance.total_performance = performance;
+        trade.category = TradeCategory::Long; // Default to Long
+        trade
+    }
+
+    fn create_test_trade_with_category(
+        entry_price: Decimal,
+        stop_price: Decimal,
+        target_price: Decimal,
+        status: Status,
+        performance: Decimal,
+        category: model::TradeCategory,
+    ) -> Trade {
+        let mut trade = Trade::default();
+        trade.entry.unit_price = entry_price;
+        trade.safety_stop.unit_price = stop_price;
+        trade.target.unit_price = target_price;
+        trade.status = status;
+        trade.balance.total_performance = performance;
+        trade.category = category;
         trade
     }
 
@@ -344,6 +417,82 @@ mod tests {
     }
 
     #[test]
+    fn test_calculate_r_multiple_short_target_hit() {
+        use model::TradeCategory;
+
+        // Short trade: Entry at 100, Stop at 105, Target at 90
+        let trade = create_test_trade_with_category(
+            dec!(100), // entry
+            dec!(105), // stop (higher for short)
+            dec!(90),  // target (lower for short)
+            Status::ClosedTarget,
+            dec!(0),
+            TradeCategory::Short,
+        );
+        let r_multiple = PerformanceCalculator::calculate_r_multiple(&trade);
+        // Risk = 105 - 100 = 5
+        // PnL = 100 - 90 = 10 (profit on short)
+        // R-Multiple = 10 / 5 = 2.0
+        assert_eq!(r_multiple, Some(dec!(2)));
+    }
+
+    #[test]
+    fn test_calculate_r_multiple_short_stop_hit() {
+        use model::TradeCategory;
+
+        // Short trade: Entry at 100, Stop at 105, exits at stop
+        let trade = create_test_trade_with_category(
+            dec!(100), // entry
+            dec!(105), // stop (higher for short)
+            dec!(90),  // target (not reached)
+            Status::ClosedStopLoss,
+            dec!(0),
+            TradeCategory::Short,
+        );
+        let r_multiple = PerformanceCalculator::calculate_r_multiple(&trade);
+        // Risk = 105 - 100 = 5
+        // PnL = 100 - 105 = -5 (loss on short)
+        // R-Multiple = -5 / 5 = -1.0
+        assert_eq!(r_multiple, Some(dec!(-1)));
+    }
+
+    #[test]
+    fn test_calculate_r_multiple_zero_risk() {
+        // Edge case: entry equals stop (zero risk)
+        let trade = create_test_trade(
+            dec!(100),
+            dec!(100), // stop equals entry
+            dec!(110),
+            Status::ClosedTarget,
+            dec!(0),
+        );
+        let r_multiple = PerformanceCalculator::calculate_r_multiple(&trade);
+        assert_eq!(r_multiple, None); // Should return None for zero risk
+    }
+
+    #[test]
+    fn test_calculate_r_multiple_with_result_zero_risk_error() {
+        // Test the new Result-based method
+        let trade = create_test_trade(
+            dec!(100),
+            dec!(100), // stop equals entry
+            dec!(110),
+            Status::ClosedTarget,
+            dec!(0),
+        );
+        let result = PerformanceCalculator::calculate_r_multiple_with_context(&trade);
+        assert_eq!(result, Err(PerformanceError::ZeroRisk));
+    }
+
+    #[test]
+    fn test_calculate_r_multiple_with_result_not_closed_error() {
+        // Test the new Result-based method for non-closed trade
+        let trade = create_test_trade(dec!(100), dec!(95), dec!(110), Status::Filled, dec!(0));
+        let result = PerformanceCalculator::calculate_r_multiple_with_context(&trade);
+        assert_eq!(result, Err(PerformanceError::TradeNotClosed));
+    }
+
+    #[test]
     fn test_filter_closed_trades() {
         let trades = vec![
             create_test_trade(
@@ -372,6 +521,60 @@ mod tests {
             closed.get(1).unwrap().status,
             Status::ClosedStopLoss
         ));
+    }
+
+    #[test]
+    fn test_filter_trades_by_days() {
+        use chrono::{Duration, Utc};
+
+        let now = Utc::now().naive_utc();
+
+        // Create trades with different updated_at dates
+        let mut recent_trade = create_test_trade(
+            dec!(100),
+            dec!(95),
+            dec!(110),
+            Status::ClosedTarget,
+            dec!(100),
+        );
+        recent_trade.updated_at = now - Duration::days(5);
+
+        let mut old_trade = create_test_trade(
+            dec!(200),
+            dec!(190),
+            dec!(220),
+            Status::ClosedTarget,
+            dec!(200),
+        );
+        old_trade.updated_at = now - Duration::days(15);
+
+        let mut very_old_trade = create_test_trade(
+            dec!(300),
+            dec!(290),
+            dec!(320),
+            Status::ClosedTarget,
+            dec!(300),
+        );
+        very_old_trade.updated_at = now - Duration::days(40);
+
+        let trades = vec![
+            recent_trade.clone(),
+            old_trade.clone(),
+            very_old_trade.clone(),
+        ];
+
+        // Filter last 7 days - should get only recent_trade
+        let filtered_7 = PerformanceCalculator::filter_trades_by_days(&trades, 7);
+        assert_eq!(filtered_7.len(), 1);
+        assert_eq!(filtered_7.first().unwrap().id, recent_trade.id);
+
+        // Filter last 30 days - should get recent_trade and old_trade
+        let filtered_30 = PerformanceCalculator::filter_trades_by_days(&trades, 30);
+        assert_eq!(filtered_30.len(), 2);
+
+        // Filter last 60 days - should get all trades
+        let filtered_60 = PerformanceCalculator::filter_trades_by_days(&trades, 60);
+        assert_eq!(filtered_60.len(), 3);
     }
 
     #[test]

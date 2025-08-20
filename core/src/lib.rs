@@ -345,6 +345,45 @@ impl TrustFacade {
             .read_trades_with_status(account_id, status)
     }
 
+    /// Search for all closed trades (both target and stop loss) for an account.
+    ///
+    /// # Arguments
+    ///
+    /// * `account_id` - The UUID of the account, or None to get all accounts
+    ///
+    /// # Returns
+    ///
+    /// Returns a vector of all closed trades (ClosedTarget and ClosedStopLoss).
+    pub fn search_closed_trades(
+        &mut self,
+        account_id: Option<Uuid>,
+    ) -> Result<Vec<Trade>, Box<dyn std::error::Error>> {
+        let mut all_trades = Vec::new();
+
+        if let Some(id) = account_id {
+            // Get trades for specific account
+            if let Ok(mut trades) = self.search_trades(id, Status::ClosedTarget) {
+                all_trades.append(&mut trades);
+            }
+            if let Ok(mut trades) = self.search_trades(id, Status::ClosedStopLoss) {
+                all_trades.append(&mut trades);
+            }
+        } else {
+            // Get all accounts first, then get their trades
+            let accounts = self.search_all_accounts()?;
+            for account in accounts {
+                if let Ok(mut trades) = self.search_trades(account.id, Status::ClosedTarget) {
+                    all_trades.append(&mut trades);
+                }
+                if let Ok(mut trades) = self.search_trades(account.id, Status::ClosedStopLoss) {
+                    all_trades.append(&mut trades);
+                }
+            }
+        }
+
+        Ok(all_trades)
+    }
+
     // Trade Steps
 
     /// Fund a trade by transferring capital from the account.

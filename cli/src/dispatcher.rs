@@ -326,7 +326,7 @@ impl ArgDispatcher {
 
     fn performance_report(&mut self, sub_matches: &ArgMatches) {
         use crate::views::PerformanceView;
-        use model::trade::Status;
+        use core::calculators_performance::PerformanceCalculator;
         use std::str::FromStr;
         use uuid::Uuid;
 
@@ -343,49 +343,21 @@ impl ArgDispatcher {
             None
         };
 
-        // Note: Days filtering is supported in the CLI but not yet implemented
-        // Future enhancement: Filter trades by date range based on --days parameter
-        let mut all_trades = Vec::new();
+        // Get days filter if provided
+        let days_filter = sub_matches.get_one::<u32>("days").copied();
 
-        if let Some(account_id) = account_id {
-            // Get trades for specific account
-            match self.trust.search_trades(account_id, Status::ClosedTarget) {
-                Ok(mut trades) => all_trades.append(&mut trades),
-                Err(e) => {
-                    eprintln!("Error retrieving closed target trades: {e}");
-                    return;
-                }
+        // Use the new helper method to get all closed trades
+        let mut all_trades = match self.trust.search_closed_trades(account_id) {
+            Ok(trades) => trades,
+            Err(e) => {
+                eprintln!("Error retrieving closed trades: {e}");
+                return;
             }
+        };
 
-            match self.trust.search_trades(account_id, Status::ClosedStopLoss) {
-                Ok(mut trades) => all_trades.append(&mut trades),
-                Err(e) => {
-                    eprintln!("Error retrieving closed stop loss trades: {e}");
-                    return;
-                }
-            }
-        } else {
-            // Get all accounts first, then get their trades
-            let accounts = match self.trust.search_all_accounts() {
-                Ok(accounts) => accounts,
-                Err(e) => {
-                    eprintln!("Error retrieving accounts: {e}");
-                    return;
-                }
-            };
-
-            for account in accounts {
-                // Get closed target trades
-                if let Ok(mut trades) = self.trust.search_trades(account.id, Status::ClosedTarget) {
-                    all_trades.append(&mut trades);
-                }
-
-                // Get closed stop loss trades
-                if let Ok(mut trades) = self.trust.search_trades(account.id, Status::ClosedStopLoss)
-                {
-                    all_trades.append(&mut trades);
-                }
-            }
+        // Apply days filter if specified
+        if let Some(days) = days_filter {
+            all_trades = PerformanceCalculator::filter_trades_by_days(&all_trades, days);
         }
 
         PerformanceView::display(all_trades);
