@@ -595,6 +595,7 @@ impl TrustFacade {
 }
 
 mod calculators_account;
+pub mod calculators_drawdown;
 pub mod calculators_performance;
 mod calculators_trade;
 mod commands;
