@@ -31,8 +31,8 @@
 #![warn(missing_docs, rust_2018_idioms, missing_debug_implementations)]
 
 use crate::commands::{
-    AccountCommandBuilder, KeysCommandBuilder, TradeCommandBuilder, TradingVehicleCommandBuilder,
-    TransactionCommandBuilder,
+    AccountCommandBuilder, KeysCommandBuilder, ReportCommandBuilder, TradeCommandBuilder,
+    TradingVehicleCommandBuilder, TransactionCommandBuilder,
 };
 use crate::dispatcher::ArgDispatcher;
 use clap::Command;
@@ -95,6 +95,7 @@ fn main() {
                 .modify_target()
                 .build(),
         )
+        .subcommand(ReportCommandBuilder::new().performance().build())
         .get_matches();
 
     let dispatcher = ArgDispatcher::new_sqlite();
