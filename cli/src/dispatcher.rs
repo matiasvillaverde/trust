@@ -349,8 +349,8 @@ impl ArgDispatcher {
         // Use the new helper method to get all closed trades
         let mut all_trades = match self.trust.search_closed_trades(account_id) {
             Ok(trades) => trades,
-            Err(e) => {
-                eprintln!("Error retrieving closed trades: {e}");
+            Err(_) => {
+                eprintln!("Unable to retrieve trading data. Please check your account settings and try again.");
                 return;
             }
         };
