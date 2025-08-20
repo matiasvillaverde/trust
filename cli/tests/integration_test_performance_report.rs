@@ -2,11 +2,71 @@ use core::TrustFacade;
 use db_sqlite::SqliteDatabase;
 use model::{Currency, Environment, TradeCategory, TradingVehicleCategory};
 use rust_decimal_macros::dec;
+use std::fs;
+use std::path::Path;
 use uuid::Uuid;
+
+/// RAII helper to cleanup test databases
+struct TestDatabaseCleanup {
+    database_path: String,
+}
+
+impl TestDatabaseCleanup {
+    fn new(database_url: &str) -> Self {
+        Self {
+            database_path: database_url.replace("file:", ""),
+        }
+    }
+}
+
+impl Drop for TestDatabaseCleanup {
+    fn drop(&mut self) {
+        if Path::new(&self.database_path).exists() {
+            let _ = fs::remove_file(&self.database_path);
+        }
+    }
+}
+
+#[test]
+fn test_database_cleanup_works() {
+    let database_url = format!("file:test_cleanup_{}.db", Uuid::new_v4().simple());
+    let cleanup_path = database_url.replace("file:", "");
+
+    // Create database file to simulate test
+    let database = SqliteDatabase::new(&database_url);
+    let mut trust = TrustFacade::new(Box::new(database), Box::new(alpaca_broker::AlpacaBroker));
+
+    // Create an account to ensure DB file exists
+    let _account = trust
+        .create_account(
+            "Test Account",
+            "Test",
+            Environment::Paper,
+            dec!(25.0),
+            dec!(10.0),
+        )
+        .unwrap();
+
+    // File should exist now
+    assert!(Path::new(&cleanup_path).exists());
+
+    // Create cleanup helper
+    let _cleanup = TestDatabaseCleanup::new(&database_url);
+
+    // File still exists during test
+    assert!(Path::new(&cleanup_path).exists());
+
+    // Drop the cleanup helper manually to test it works
+    drop(_cleanup);
+
+    // File should be cleaned up
+    assert!(!Path::new(&cleanup_path).exists());
+}
 
 #[test]
 fn test_performance_report_no_trades() {
     let database_url = format!("file:perf_test_no_trades_{}.db", Uuid::new_v4().simple());
+    let _cleanup = TestDatabaseCleanup::new(&database_url);
     let database = SqliteDatabase::new(&database_url);
     let mut trust = TrustFacade::new(Box::new(database), Box::new(alpaca_broker::AlpacaBroker));
 
@@ -36,6 +96,7 @@ fn test_performance_report_no_trades() {
 #[test]
 fn test_performance_report_with_trades() {
     let database_url = format!("file:perf_test_with_trades_{}.db", Uuid::new_v4().simple());
+    let _cleanup = TestDatabaseCleanup::new(&database_url);
     let database = SqliteDatabase::new(&database_url);
     let mut trust = TrustFacade::new(Box::new(database), Box::new(alpaca_broker::AlpacaBroker));
 
