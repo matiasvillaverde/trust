@@ -92,7 +92,9 @@ fn test_concentration_report_with_trades() {
     // Fetch the funded trade
     let funded_trades = trust.search_trades(account.id, Status::Funded).unwrap();
     assert_eq!(funded_trades.len(), 1);
-    let funded_trade = &funded_trades[0];
+    let funded_trade = funded_trades
+        .first()
+        .expect("Should have at least one funded trade");
 
     // Create another trade in Healthcare
     let draft_trade2 = DraftTrade {

@@ -206,10 +206,12 @@ mod tests {
         asset_class: Option<String>,
         status: Status,
     ) -> Trade {
-        let mut trade = Trade::default();
-        trade.sector = sector;
-        trade.asset_class = asset_class;
-        trade.status = status;
+        let mut trade = Trade {
+            sector,
+            asset_class,
+            status,
+            ..Default::default()
+        };
         // Set some basic financial data for testing
         trade.entry.unit_price = dec!(100);
         trade.safety_stop.unit_price = dec!(95);
@@ -314,9 +316,10 @@ mod tests {
         let warnings = ConcentrationCalculator::calculate_warnings(&groups, total_risk);
 
         assert_eq!(warnings.len(), 1);
-        assert_eq!(warnings[0].group_name, "Technology");
-        assert_eq!(warnings[0].level, WarningLevel::Moderate);
-        assert_eq!(warnings[0].risk_percentage, dec!(55));
+        let warning = warnings.first().expect("Should have at least one warning");
+        assert_eq!(warning.group_name, "Technology");
+        assert_eq!(warning.level, WarningLevel::Moderate);
+        assert_eq!(warning.risk_percentage, dec!(55));
     }
 
     #[test]
@@ -342,9 +345,10 @@ mod tests {
         let warnings = ConcentrationCalculator::calculate_warnings(&groups, total_risk);
 
         assert_eq!(warnings.len(), 1);
-        assert_eq!(warnings[0].group_name, "Technology");
-        assert_eq!(warnings[0].level, WarningLevel::High);
-        assert_eq!(warnings[0].risk_percentage, dec!(65));
+        let warning = warnings.first().expect("Should have at least one warning");
+        assert_eq!(warning.group_name, "Technology");
+        assert_eq!(warning.level, WarningLevel::High);
+        assert_eq!(warning.risk_percentage, dec!(65));
     }
 
     #[test]
