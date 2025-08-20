@@ -84,6 +84,7 @@ impl ArgDispatcher {
             },
             Some(("report", sub_matches)) => match sub_matches.subcommand() {
                 Some(("performance", sub_sub_matches)) => self.performance_report(sub_sub_matches),
+                Some(("drawdown", sub_sub_matches)) => self.drawdown_report(sub_sub_matches),
                 _ => unreachable!("No subcommand provided"),
             },
             Some((ext, sub_matches)) => {
@@ -322,6 +323,67 @@ impl ArgDispatcher {
             .environment()
             .build()
             .display();
+    }
+
+    fn drawdown_report(&mut self, sub_matches: &ArgMatches) {
+        use crate::views::DrawdownView;
+        use core::calculators_drawdown::RealizedDrawdownCalculator;
+        use std::str::FromStr;
+        use uuid::Uuid;
+
+        // Get account ID if provided
+        let account_id = if let Some(account_arg) = sub_matches.get_one::<String>("account") {
+            match Uuid::from_str(account_arg) {
+                Ok(id) => Some(id),
+                Err(_) => {
+                    eprintln!("Error: Invalid account ID format");
+                    return;
+                }
+            }
+        } else {
+            None
+        };
+
+        // Fetch transactions for the account
+        let transactions = if let Some(account_id) = account_id {
+            match self.trust.get_account_transactions(account_id) {
+                Ok(txns) => txns,
+                Err(_) => {
+                    eprintln!("Unable to retrieve transaction data. Please check your account settings and try again.");
+                    return;
+                }
+            }
+        } else {
+            // If no account specified, get all transactions for all accounts
+            match self.trust.get_all_transactions() {
+                Ok(txns) => txns,
+                Err(_) => {
+                    eprintln!("Unable to retrieve transaction data. Please check your settings and try again.");
+                    return;
+                }
+            }
+        };
+
+        // Calculate equity curve
+        let curve = match RealizedDrawdownCalculator::calculate_equity_curve(&transactions) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("Error calculating equity curve: {e}");
+                return;
+            }
+        };
+
+        // Calculate drawdown metrics
+        let metrics = match RealizedDrawdownCalculator::calculate_drawdown_metrics(&curve) {
+            Ok(m) => m,
+            Err(e) => {
+                eprintln!("Error calculating drawdown metrics: {e}");
+                return;
+            }
+        };
+
+        // Display the results
+        DrawdownView::display(metrics);
     }
 
     fn performance_report(&mut self, sub_matches: &ArgMatches) {
