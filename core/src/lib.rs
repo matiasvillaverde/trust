@@ -345,6 +345,40 @@ impl TrustFacade {
             .read_trades_with_status(account_id, status)
     }
 
+    /// Get all transactions for a specific account
+    ///
+    /// # Arguments
+    /// * `account_id` - The account ID to get transactions for
+    ///
+    /// # Returns
+    /// Returns all transactions for the account, excluding taxes
+    pub fn get_account_transactions(
+        &mut self,
+        account_id: Uuid,
+    ) -> Result<Vec<Transaction>, Box<dyn std::error::Error>> {
+        // Use USD as default currency for now
+        self.factory
+            .transaction_read()
+            .all_account_transactions_excluding_taxes(account_id, &Currency::USD)
+    }
+
+    /// Get all transactions across all accounts
+    ///
+    /// # Returns
+    /// Returns all transactions for all accounts
+    pub fn get_all_transactions(&mut self) -> Result<Vec<Transaction>, Box<dyn std::error::Error>> {
+        let accounts = self.search_all_accounts()?;
+        let mut all_transactions = Vec::new();
+
+        for account in accounts {
+            if let Ok(txns) = self.get_account_transactions(account.id) {
+                all_transactions.extend(txns);
+            }
+        }
+
+        Ok(all_transactions)
+    }
+
     /// Search for all closed trades (both target and stop loss) for an account.
     ///
     /// # Arguments

@@ -41,6 +41,21 @@ impl ReportCommandBuilder {
         );
         self
     }
+
+    pub fn drawdown(mut self) -> Self {
+        self.subcommands.push(
+            Command::new("drawdown")
+                .about("Display realized P&L drawdown analysis based on closed trades")
+                .arg(
+                    Arg::new("account")
+                        .long("account")
+                        .value_name("ACCOUNT_ID")
+                        .help("Filter by specific account ID")
+                        .required(false),
+                ),
+        );
+        self
+    }
 }
 
 impl Default for ReportCommandBuilder {
