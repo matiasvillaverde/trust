@@ -56,6 +56,21 @@ impl ReportCommandBuilder {
         );
         self
     }
+
+    pub fn risk(mut self) -> Self {
+        self.subcommands.push(
+            Command::new("risk")
+                .about("Display current capital at risk from open positions")
+                .arg(
+                    Arg::new("account")
+                        .long("account")
+                        .value_name("ACCOUNT_ID")
+                        .help("Filter by specific account ID")
+                        .required(false),
+                ),
+        );
+        self
+    }
 }
 
 impl Default for ReportCommandBuilder {

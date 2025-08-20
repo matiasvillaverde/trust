@@ -626,11 +626,29 @@ impl TrustFacade {
             &mut *self.factory,
         )
     }
+
+    /// Calculate open positions for capital at risk reporting
+    ///
+    /// # Arguments
+    /// * `account_id` - Optional account ID to filter by
+    ///
+    /// # Returns
+    /// Returns a vector of open positions with their capital at risk
+    pub fn calculate_open_positions(
+        &mut self,
+        account_id: Option<Uuid>,
+    ) -> Result<Vec<calculators_risk::OpenPosition>, Box<dyn std::error::Error>> {
+        calculators_risk::CapitalAtRiskCalculator::calculate_open_positions(
+            account_id,
+            &mut *self.factory,
+        )
+    }
 }
 
 mod calculators_account;
 pub mod calculators_drawdown;
 pub mod calculators_performance;
+pub mod calculators_risk;
 mod calculators_trade;
 mod commands;
 mod mocks;
