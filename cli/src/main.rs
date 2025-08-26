@@ -31,8 +31,8 @@
 #![warn(missing_docs, rust_2018_idioms, missing_debug_implementations)]
 
 use crate::commands::{
-    AccountCommandBuilder, KeysCommandBuilder, ReportCommandBuilder, TradeCommandBuilder,
-    TradingVehicleCommandBuilder, TransactionCommandBuilder,
+    AccountCommandBuilder, DistributionCommandBuilder, KeysCommandBuilder, ReportCommandBuilder,
+    TradeCommandBuilder, TradingVehicleCommandBuilder, TransactionCommandBuilder,
 };
 use crate::dispatcher::ArgDispatcher;
 use clap::Command;
@@ -40,6 +40,7 @@ use commands::RuleCommandBuilder;
 mod commands;
 mod dialogs;
 mod dispatcher;
+mod output;
 mod views;
 
 fn main() {
@@ -59,6 +60,7 @@ fn main() {
             AccountCommandBuilder::new()
                 .create_account()
                 .read_account()
+                .transfer_account()
                 .build(),
         )
         .subcommand(
@@ -93,6 +95,12 @@ fn main() {
                 .manually_close()
                 .modify_stop()
                 .modify_target()
+                .build(),
+        )
+        .subcommand(
+            DistributionCommandBuilder::new()
+                .configure_distribution()
+                .execute_distribution()
                 .build(),
         )
         .subcommand(
