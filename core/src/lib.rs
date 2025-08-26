@@ -51,7 +51,7 @@ pub struct TradingSummary {
     /// Capital at risk data
     pub capital_at_risk: Vec<calculators_risk::OpenPosition>,
     /// Concentration data
-    pub concentration: Vec<calculators_concentration::ConcentrationData>,
+    pub concentration: Vec<calculators_concentration::ConcentrationGroup>,
 }
 
 /// The main facade for interacting with the Trust financial trading system.
@@ -675,11 +675,42 @@ impl TrustFacade {
     pub fn calculate_portfolio_concentration(
         &mut self,
         account_id: Option<Uuid>,
-    ) -> Result<Vec<calculators_concentration::ConcentrationData>, Box<dyn std::error::Error>> {
-        calculators_concentration::ConcentrationCalculator::calculate_concentration(
-            account_id,
-            &mut *self.factory,
-        )
+    ) -> Result<Vec<calculators_concentration::ConcentrationGroup>, Box<dyn std::error::Error>> {
+        // Get all trades for the account
+        let all_trades = if let Some(id) = account_id {
+            // Get trades for specific account - need to get all statuses
+            let mut trades = Vec::new();
+            for status in model::Status::all() {
+                if let Ok(mut status_trades) = self.search_trades(id, status) {
+                    trades.append(&mut status_trades);
+                }
+            }
+            trades
+        } else {
+            // Get trades for all accounts
+            match self.search_all_accounts() {
+                Ok(accounts) => {
+                    let mut all_trades = Vec::new();
+                    for account in accounts {
+                        for status in model::Status::all() {
+                            if let Ok(mut trades) = self.search_trades(account.id, status) {
+                                all_trades.append(&mut trades);
+                            }
+                        }
+                    }
+                    all_trades
+                }
+                Err(e) => return Err(e),
+            }
+        };
+
+        // Analyze concentration by asset class (primary analysis)
+        let analysis = calculators_concentration::ConcentrationCalculator::analyze_by_metadata(
+            &all_trades,
+            calculators_concentration::MetadataField::AssetClass,
+        );
+
+        Ok(analysis.groups)
     }
 
     /// Get comprehensive trading summary combining all metrics

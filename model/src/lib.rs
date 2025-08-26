@@ -38,8 +38,6 @@ pub mod broker;
 pub mod currency;
 /// Database abstraction layer
 pub mod database;
-/// Trade grading and quality evaluation
-pub mod grade;
 /// Account level system and risk multipliers
 pub mod level;
 /// Order types and order management
@@ -65,7 +63,6 @@ pub use database::{
     ReadTradingVehicleDB, ReadTransactionDB, WriteBrokerLogsDB, WriteLevelDB, WriteRuleDB,
     WriteTradeDB, WriteTradingVehicleDB, WriteTransactionDB,
 };
-pub use grade::{Grade, GradingWeights, TradeGrade};
 pub use level::{Level, LevelChange, LevelStatus, LEVEL_MULTIPLIERS};
 pub use order::{Order, OrderAction, OrderCategory, OrderStatus, TimeInForce};
 pub use rule::{Rule, RuleLevel, RuleName};
