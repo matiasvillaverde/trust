@@ -40,12 +40,12 @@ pub mod currency;
 pub mod database;
 /// Execution (fill) primitives for execution-level accounting and auditability
 pub mod execution;
+/// Distribution rules and profit allocation
+pub mod distribution;
 /// Trading level management and risk multipliers
 pub mod level;
 /// Market data types
 pub mod market_data;
-/// Distribution rules and profit allocation
-pub mod distribution;
 /// Order types and order management
 pub mod order;
 /// Risk management rules and enforcement
@@ -76,15 +76,15 @@ pub use database::{
 pub use execution::{
     Execution, ExecutionSide, ExecutionSideParseError, ExecutionSource, ExecutionSourceParseError,
 };
+pub use distribution::{
+    DistributionError, DistributionExecutionLeg, DistributionExecutionPlan, DistributionHistory,
+    DistributionResult, DistributionRules, DistributionRulesNotFound,
+};
 pub use level::{
     Level, LevelAdjustmentRules, LevelChange, LevelDirection, LevelError, LevelRulesError,
     LevelStatus, LevelStatusParseError, LevelTrigger, LevelTriggerParseError,
 };
 pub use market_data::{BarTimeframe, MarketBar};
-pub use distribution::{
-    DistributionError, DistributionExecutionLeg, DistributionExecutionPlan, DistributionHistory,
-    DistributionResult, DistributionRules, DistributionRulesNotFound,
-};
 pub use order::{Order, OrderAction, OrderCategory, OrderStatus, TimeInForce};
 pub use rule::{Rule, RuleLevel, RuleName};
 pub use strategy::Strategy;

@@ -30,6 +30,11 @@
 // Standard Rust lints for code quality
 #![warn(missing_docs, rust_2018_idioms, missing_debug_implementations)]
 
+use crate::services::{EventDistributionService, FundTransferService, ProfitDistributionService};
+use argon2::{
+    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
+    Argon2,
+};
 use calculators_trade::{LevelAdjustedQuantity, QuantityCalculator};
 use events::trade::{CloseReason, TradeClosed};
 use model::database::TradingVehicleUpsert;
@@ -39,11 +44,6 @@ use model::{
     Level, LevelAdjustmentRules, LevelChange, LevelTrigger, Order, Rule, RuleLevel, RuleName,
     Status, Trade, TradeBalance, TradingVehicle, TradingVehicleCategory, Transaction,
     TransactionCategory,
-};
-use crate::services::{EventDistributionService, FundTransferService, ProfitDistributionService};
-use argon2::{
-    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
-    Argon2,
 };
 use rand_core::OsRng;
 use rust_decimal::Decimal;
@@ -1240,7 +1240,10 @@ impl TrustFacade {
         currency: Currency,
     ) -> Result<DistributionResult, Box<dyn std::error::Error>> {
         let source_account = self.factory.account_read().id(source_account_id)?;
-        let rules = self.factory.distribution_read().for_account(source_account_id)?;
+        let rules = self
+            .factory
+            .distribution_read()
+            .for_account(source_account_id)?;
         let (earnings_account, tax_account, reinvestment_account) =
             self.resolve_distribution_accounts(source_account_id)?;
 
@@ -1262,7 +1265,9 @@ impl TrustFacade {
         &mut self,
         source_account_id: Uuid,
     ) -> Result<Vec<DistributionHistory>, Box<dyn std::error::Error>> {
-        self.factory.distribution_read().history_for_account(source_account_id)
+        self.factory
+            .distribution_read()
+            .history_for_account(source_account_id)
     }
 
     /// Transfer funds between accounts within the same hierarchy.

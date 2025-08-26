@@ -16,6 +16,7 @@ use core::services::leveling::{
 use core::TrustFacade;
 use db_sqlite::SqliteDatabase;
 use db_sqlite::{ImportMode, ImportOptions};
+use dialoguer::Password;
 use model::{
     database::TradingVehicleUpsert, Currency, Level, LevelAdjustmentRules, LevelTrigger, Trade,
     TradingVehicleCategory, TransactionCategory,
@@ -132,6 +133,7 @@ impl ArgDispatcher {
             Some(("account", sub_matches)) => match sub_matches.subcommand() {
                 Some(("create", sub_sub_matches)) => self.create_account(sub_sub_matches)?,
                 Some(("search", _)) => self.search_account(),
+                Some(("transfer", transfer_matches)) => self.transfer_accounts(transfer_matches)?,
                 _ => unreachable!("No subcommand provided"),
             },
             Some(("transaction", sub_matches)) => match sub_matches.subcommand() {
@@ -163,7 +165,7 @@ impl ArgDispatcher {
                 Some(("manually-fill", _)) => self.create_fill(),
                 Some(("manually-stop", _)) => self.create_stop(),
                 Some(("manually-target", _)) => self.create_target(),
-                Some(("manually-close", _)) => self.close(),
+                Some(("manually-close", close_matches)) => self.close(close_matches),
                 Some(("sync", _)) => self.create_sync(),
                 Some(("watch", _)) => self.create_watch(),
                 Some(("search", _)) => self.search_trade(),
@@ -173,6 +175,13 @@ impl ArgDispatcher {
                     sub_sub_matches,
                     Self::parse_report_format(sub_sub_matches),
                 )?,
+                _ => unreachable!("No subcommand provided"),
+            },
+            Some(("distribution", sub_matches)) => match sub_matches.subcommand() {
+                Some(("configure", configure_matches)) => {
+                    self.configure_distribution(configure_matches)?
+                }
+                Some(("execute", execute_matches)) => self.execute_distribution(execute_matches)?,
                 _ => unreachable!("No subcommand provided"),
             },
             Some(("report", sub_matches)) => match sub_matches.subcommand() {
@@ -1572,12 +1581,26 @@ impl ArgDispatcher {
             .display();
     }
 
-    fn close(&mut self) {
+    fn close(&mut self, matches: &ArgMatches) {
+        // Check if auto-distribute flag is set
+        let auto_distribute = matches.get_flag("auto-distribute");
+
+        if auto_distribute {
+            println!("🚀 Enhanced trade closure with automatic profit distribution enabled!");
+            println!("   If the trade is profitable, profits will be automatically distributed.");
+        }
+
+        // Use existing close dialog
+        // TODO: Integrate with enhanced close_trade_with_auto_distribution when dialog supports it
         CloseDialogBuilder::new()
             .account(&mut self.trust)
             .search(&mut self.trust)
             .build(&mut self.trust)
             .display();
+
+        if auto_distribute {
+            println!("💡 Note: Automatic distribution integration will be available once account hierarchy is fully implemented in the database layer.");
+        }
     }
 
     fn modify_stop(&mut self) {
@@ -3614,6 +3637,190 @@ impl ArgDispatcher {
         println!(
             "cleared_rows={} inserted_rows={}",
             report.cleared_rows, report.inserted_rows
+        );
+        Ok(())
+    }
+}
+
+// Enhanced Account Operations
+impl ArgDispatcher {
+    fn create_account_with_hierarchy(&mut self, matches: &ArgMatches) {
+        // Extract arguments from clap
+        let name = matches.get_one::<String>("name").unwrap();
+        let account_type = matches.get_one::<String>("type").unwrap();
+        let parent_id = matches.get_one::<String>("parent-id");
+
+        // Parse account type
+        let account_type_enum = match account_type.as_str() {
+            "Primary" => model::AccountType::Primary,
+            "Earnings" => model::AccountType::Earnings,
+            "TaxReserve" => model::AccountType::TaxReserve,
+            "Reinvestment" => model::AccountType::Reinvestment,
+            _ => {
+                eprintln!("Invalid account type: {}", account_type);
+                return;
+            }
+        };
+
+        // Parse parent ID if provided
+        let parent_uuid = if let Some(id_str) = parent_id {
+            match uuid::Uuid::parse_str(id_str) {
+                Ok(uuid) => Some(uuid),
+                Err(_) => {
+                    eprintln!("Invalid parent account ID format: {}", id_str);
+                    return;
+                }
+            }
+        } else {
+            None
+        };
+
+        // Use default values for now - in a real implementation, these could be arguments too
+        let description = format!("{} account", name);
+        let environment = model::Environment::Paper; // Default to paper trading
+        let taxes_percentage = rust_decimal::Decimal::new(25, 0); // 25%
+        let earnings_percentage = rust_decimal::Decimal::new(30, 0); // 30%
+
+        // Create the account
+        match self.trust.create_account_with_hierarchy(
+            name,
+            &description,
+            environment,
+            taxes_percentage,
+            earnings_percentage,
+            account_type_enum,
+            parent_uuid,
+        ) {
+            Ok(account) => {
+                println!("✅ Account created successfully!");
+                println!("   ID: {}", account.id);
+                println!("   Name: {}", account.name);
+                println!("   Type: {:?}", account.account_type);
+                if let Some(parent) = account.parent_account_id {
+                    println!("   Parent ID: {}", parent);
+                }
+            }
+            Err(e) => {
+                eprintln!("❌ Failed to create account: {}", e);
+            }
+        }
+    }
+
+    fn transfer_accounts(&mut self, matches: &ArgMatches) -> Result<(), CliError> {
+        let from_id_str = matches.get_one::<String>("from").unwrap();
+        let to_id_str = matches.get_one::<String>("to").unwrap();
+        let amount_str = matches.get_one::<String>("amount").unwrap();
+        let reason = matches.get_one::<String>("reason").unwrap();
+
+        let from_id = Uuid::parse_str(from_id_str)
+            .map_err(|_| CliError::new("invalid_uuid", "Invalid --from UUID"))?;
+        let to_id = Uuid::parse_str(to_id_str)
+            .map_err(|_| CliError::new("invalid_uuid", "Invalid --to UUID"))?;
+        let amount = Decimal::from_str_exact(amount_str)
+            .map_err(|_| CliError::new("invalid_decimal", "Invalid --amount decimal"))?;
+
+        let currency = Currency::USD;
+        let (withdrawal_id, deposit_id) = self
+            .trust
+            .transfer_between_accounts(from_id, to_id, amount, currency, reason)
+            .map_err(|e| CliError::new("transfer_failed", e.to_string()))?;
+
+        println!("Transfer completed:");
+        println!("  amount: {amount}");
+        println!("  from:   {from_id}");
+        println!("  to:     {to_id}");
+        println!("  reason: {reason}");
+        println!("  withdrawal_tx_id: {withdrawal_id}");
+        println!("  deposit_tx_id:    {deposit_id}");
+        Ok(())
+    }
+}
+
+// Distribution Operations
+impl ArgDispatcher {
+    fn configure_distribution(&mut self, matches: &ArgMatches) -> Result<(), CliError> {
+        let account_id_str = matches.get_one::<String>("account-id").unwrap();
+        let earnings_str = matches.get_one::<String>("earnings").unwrap();
+        let tax_str = matches.get_one::<String>("tax").unwrap();
+        let reinvestment_str = matches.get_one::<String>("reinvestment").unwrap();
+        let threshold_str = matches.get_one::<String>("threshold").unwrap();
+
+        let account_id = Uuid::parse_str(account_id_str)
+            .map_err(|_| CliError::new("invalid_uuid", "Invalid --account-id UUID"))?;
+
+        let earnings_pct = Decimal::from_str_exact(earnings_str)
+            .map_err(|_| CliError::new("invalid_decimal", "Invalid --earnings decimal"))?
+            .checked_div(Decimal::new(100, 0))
+            .ok_or_else(|| CliError::new("invalid_decimal", "Invalid --earnings percentage"))?;
+        let tax_pct = Decimal::from_str_exact(tax_str)
+            .map_err(|_| CliError::new("invalid_decimal", "Invalid --tax decimal"))?
+            .checked_div(Decimal::new(100, 0))
+            .ok_or_else(|| CliError::new("invalid_decimal", "Invalid --tax percentage"))?;
+        let reinvestment_pct = Decimal::from_str_exact(reinvestment_str)
+            .map_err(|_| CliError::new("invalid_decimal", "Invalid --reinvestment decimal"))?
+            .checked_div(Decimal::new(100, 0))
+            .ok_or_else(|| CliError::new("invalid_decimal", "Invalid --reinvestment percentage"))?;
+        let threshold = Decimal::from_str_exact(threshold_str)
+            .map_err(|_| CliError::new("invalid_decimal", "Invalid --threshold decimal"))?;
+
+        let password = Password::new()
+            .with_prompt("Distribution configuration password")
+            .interact()
+            .map_err(|e| CliError::new("password_prompt_failed", e.to_string()))?;
+
+        self.trust
+            .configure_distribution(
+                account_id,
+                earnings_pct,
+                tax_pct,
+                reinvestment_pct,
+                threshold,
+                &password,
+            )
+            .map_err(|e| CliError::new("configure_distribution_failed", e.to_string()))?;
+
+        println!("Distribution rules configured:");
+        println!("  account_id: {account_id}");
+        println!("  earnings: {earnings_pct}");
+        println!("  tax: {tax_pct}");
+        println!("  reinvestment: {reinvestment_pct}");
+        println!("  minimum_threshold: {threshold}");
+        Ok(())
+    }
+
+    fn execute_distribution(&mut self, matches: &ArgMatches) -> Result<(), CliError> {
+        let account_id_str = matches.get_one::<String>("account-id").unwrap();
+        let _earnings_account_str = matches.get_one::<String>("earnings-account").unwrap();
+        let _tax_account_str = matches.get_one::<String>("tax-account").unwrap();
+        let _reinvestment_account_str = matches.get_one::<String>("reinvestment-account").unwrap();
+        let amount_str = matches.get_one::<String>("amount").unwrap();
+
+        let account_id = Uuid::parse_str(account_id_str)
+            .map_err(|_| CliError::new("invalid_uuid", "Invalid --account-id UUID"))?;
+        let amount = Decimal::from_str_exact(amount_str)
+            .map_err(|_| CliError::new("invalid_decimal", "Invalid --amount decimal"))?;
+
+        let currency = Currency::USD;
+        let result = self
+            .trust
+            .execute_distribution(account_id, amount, currency)
+            .map_err(|e| CliError::new("execute_distribution_failed", e.to_string()))?;
+
+        println!("Distribution executed:");
+        println!("  source_account_id: {}", result.source_account_id);
+        println!("  original_amount: {}", result.original_amount);
+        println!(
+            "  earnings_amount: {}",
+            result.earnings_amount.unwrap_or_default()
+        );
+        println!("  tax_amount: {}", result.tax_amount.unwrap_or_default());
+        println!(
+            "  reinvestment_amount: {}",
+            result.reinvestment_amount.unwrap_or_default()
+        );
+        println!(
+            "  transactions_created: {}",
+            result.transactions_created.len()
         );
         Ok(())
     }

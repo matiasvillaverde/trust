@@ -31,7 +31,8 @@
 #![warn(missing_docs, rust_2018_idioms, missing_debug_implementations)]
 
 use crate::commands::{
-    AccountCommandBuilder, DbCommandBuilder, GradeCommandBuilder, KeysCommandBuilder,
+    AccountCommandBuilder, DbCommandBuilder, DistributionCommandBuilder, GradeCommandBuilder,
+    KeysCommandBuilder,
     LevelCommandBuilder, MetricsCommandBuilder, OnboardingCommandBuilder, PolicyCommandBuilder,
     ReportCommandBuilder, TradeCommandBuilder, TradingVehicleCommandBuilder,
     TransactionCommandBuilder,
@@ -77,6 +78,7 @@ fn build_cli() -> Command {
             AccountCommandBuilder::new()
                 .create_account()
                 .read_account()
+                .transfer_account()
                 .build(),
         )
         .subcommand(
@@ -113,6 +115,12 @@ fn build_cli() -> Command {
                 .modify_stop()
                 .modify_target()
                 .size_preview()
+                .build(),
+        )
+        .subcommand(
+            DistributionCommandBuilder::new()
+                .configure_distribution()
+                .execute_distribution()
                 .build(),
         )
         .subcommand(
