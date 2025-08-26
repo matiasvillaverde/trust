@@ -1,7 +1,7 @@
 use crate::{
-    Account, AccountBalance, BrokerLog, Currency, Environment, Level, LevelChange, Order,
-    OrderAction, OrderCategory, Rule, RuleLevel, RuleName, Status, Trade, TradeBalance,
-    TradeCategory, TradingVehicle, TradingVehicleCategory, Transaction, TransactionCategory,
+    Account, AccountBalance, BrokerLog, Currency, Environment, Order, OrderAction, OrderCategory,
+    Rule, RuleLevel, RuleName, Status, Trade, TradeBalance, TradeCategory, TradingVehicle,
+    TradingVehicleCategory, Transaction, TransactionCategory,
 };
 use rust_decimal::Decimal;
 use uuid::Uuid;
@@ -55,10 +55,6 @@ pub trait DatabaseFactory {
     fn log_read(&self) -> Box<dyn ReadBrokerLogsDB>;
     /// Returns a writer for broker log data operations
     fn log_write(&self) -> Box<dyn WriteBrokerLogsDB>;
-    /// Returns a reader for level data operations
-    fn level_read(&self) -> Box<dyn ReadLevelDB>;
-    /// Returns a writer for level data operations
-    fn level_write(&self) -> Box<dyn WriteLevelDB>;
 }
 
 /// Trait for reading account data from the database
@@ -359,34 +355,4 @@ pub trait ReadBrokerLogsDB {
     /// Retrieves all logs associated with a specific trade
     fn read_all_logs_for_trade(&mut self, trade_id: Uuid)
         -> Result<Vec<BrokerLog>, Box<dyn Error>>;
-}
-
-/// Trait for reading level data from the database
-pub trait ReadLevelDB {
-    /// Retrieves the current level for an account
-    fn level_for_account(&mut self, account_id: Uuid) -> Result<Level, Box<dyn Error>>;
-    /// Retrieves all level changes for an account
-    fn level_changes_for_account(
-        &mut self,
-        account_id: Uuid,
-    ) -> Result<Vec<LevelChange>, Box<dyn Error>>;
-    /// Retrieves recent level changes for an account within specified days
-    fn recent_level_changes(
-        &mut self,
-        account_id: Uuid,
-        days: u32,
-    ) -> Result<Vec<LevelChange>, Box<dyn Error>>;
-}
-
-/// Trait for writing level data to the database
-pub trait WriteLevelDB {
-    /// Creates an initial level for an account (Level 3 default)
-    fn create_default_level(&mut self, account: &Account) -> Result<Level, Box<dyn Error>>;
-    /// Updates an existing level
-    fn update_level(&mut self, level: &Level) -> Result<Level, Box<dyn Error>>;
-    /// Creates a level change record
-    fn create_level_change(
-        &mut self,
-        level_change: &LevelChange,
-    ) -> Result<LevelChange, Box<dyn Error>>;
 }

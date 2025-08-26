@@ -100,9 +100,6 @@ impl TrustFacade {
             earnings_percentage,
         )?;
 
-        // Create default Level 3 for the account
-        self.factory.level_write().create_default_level(&account)?;
-
         Ok(account)
     }
 
@@ -769,44 +766,6 @@ impl TrustFacade {
             capital_at_risk,
             concentration,
         })
-    }
-
-    /// Get level information for an account
-    ///
-    /// # Arguments
-    /// * `account_id` - The account ID to get level for
-    ///
-    /// # Returns
-    /// Returns the current level for the account
-    pub fn get_account_level(
-        &mut self,
-        account_id: Uuid,
-    ) -> Result<model::Level, Box<dyn std::error::Error>> {
-        self.factory.level_read().level_for_account(account_id)
-    }
-
-    /// Get level change history for an account
-    ///
-    /// # Arguments
-    /// * `account_id` - The account ID to get history for
-    /// * `days` - Number of days to look back (optional, defaults to 90)
-    ///
-    /// # Returns
-    /// Returns recent level changes for the account
-    pub fn get_level_history(
-        &mut self,
-        account_id: Uuid,
-        days: Option<u32>,
-    ) -> Result<Vec<model::LevelChange>, Box<dyn std::error::Error>> {
-        if let Some(days) = days {
-            self.factory
-                .level_read()
-                .recent_level_changes(account_id, days)
-        } else {
-            self.factory
-                .level_read()
-                .level_changes_for_account(account_id)
-        }
     }
 }
 
