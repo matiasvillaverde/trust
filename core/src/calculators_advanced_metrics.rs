@@ -5,6 +5,7 @@
 //! sophisticated financial metrics using precise decimal arithmetic.
 
 use model::trade::Trade;
+use rust_decimal::prelude::*;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 
@@ -163,7 +164,7 @@ impl AdvancedMetricsCalculator {
         }
 
         let mut total_r = dec!(0);
-        let mut valid_trades = 0;
+        let mut valid_trades: u32 = 0;
 
         for trade in closed_trades {
             // Calculate risk per trade based on entry-stop difference
@@ -185,7 +186,7 @@ impl AdvancedMetricsCalculator {
                         .unwrap_or(dec!(0));
 
                     total_r = total_r.checked_add(r_multiple).unwrap_or(total_r);
-                    valid_trades += 1;
+                    valid_trades = valid_trades.checked_add(1u32).unwrap_or(valid_trades);
                 }
             }
         }
@@ -435,7 +436,11 @@ impl AdvancedMetricsCalculator {
                         x = next_x;
 
                         // Check for convergence
-                        let diff = if x > prev_x { x - prev_x } else { prev_x - x };
+                        let diff = if x > prev_x {
+                            x.checked_sub(prev_x).unwrap_or(dec!(0))
+                        } else {
+                            prev_x.checked_sub(x).unwrap_or(dec!(0))
+                        };
                         if diff < dec!(0.0000001) {
                             return Some(x);
                         }
@@ -451,6 +456,242 @@ impl AdvancedMetricsCalculator {
         }
 
         Some(x)
+    }
+
+    /// Calculate Value at Risk (VaR): Potential loss at a given confidence level
+    ///
+    /// VaR represents the maximum potential loss over a specific time period
+    /// at a given confidence level (e.g., 95% confidence means 5% chance of exceeding this loss)
+    ///
+    /// # Arguments
+    /// * `closed_trades` - Vector of closed trades to analyze
+    /// * `confidence_level` - Confidence level (e.g., 0.95 for 95%)
+    ///
+    /// # Returns
+    /// * `Option<Decimal>` - VaR value if calculable (negative indicates loss)
+    pub fn calculate_value_at_risk(
+        closed_trades: &[Trade],
+        confidence_level: Decimal,
+    ) -> Option<Decimal> {
+        if closed_trades.is_empty() {
+            return None;
+        }
+
+        // Extract returns as percentages
+        let mut returns: Vec<Decimal> = closed_trades
+            .iter()
+            .filter_map(|trade| {
+                let entry_price = trade.entry.unit_price;
+                let stop_price = trade.safety_stop.unit_price;
+
+                let risk_per_share = entry_price.checked_sub(stop_price).unwrap_or(dec!(0)).abs();
+                let total_risk = risk_per_share
+                    .checked_mul(Decimal::from(trade.entry.quantity))
+                    .unwrap_or(dec!(0));
+
+                if total_risk > dec!(0) {
+                    trade
+                        .balance
+                        .total_performance
+                        .checked_div(total_risk)
+                        .map(|r| r.checked_mul(dec!(100)).unwrap_or(dec!(0)))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        if returns.len() < 2 {
+            return None;
+        }
+
+        // Sort returns in ascending order (worst to best)
+        returns.sort();
+
+        // Calculate VaR using historical simulation method
+        let percentile_index = (dec!(1) - confidence_level)
+            .checked_mul(Decimal::from(returns.len()))
+            .and_then(|idx| idx.to_usize())
+            .unwrap_or(0);
+
+        if percentile_index < returns.len() {
+            Some(returns[percentile_index])
+        } else {
+            returns.first().copied()
+        }
+    }
+
+    /// Calculate Kelly Criterion: Optimal position sizing formula
+    ///
+    /// Kelly Criterion = (bp - q) / b
+    /// Where: b = odds (average win / average loss), p = win probability, q = loss probability
+    ///
+    /// # Arguments
+    /// * `closed_trades` - Vector of closed trades to analyze
+    ///
+    /// # Returns
+    /// * `Option<Decimal>` - Kelly percentage (0-1 range, where 0.25 = 25%)
+    pub fn calculate_kelly_criterion(closed_trades: &[Trade]) -> Option<Decimal> {
+        if closed_trades.is_empty() {
+            return None;
+        }
+
+        let wins: Vec<Decimal> = closed_trades
+            .iter()
+            .filter(|trade| trade.balance.total_performance > dec!(0))
+            .map(|trade| trade.balance.total_performance)
+            .collect();
+
+        let losses: Vec<Decimal> = closed_trades
+            .iter()
+            .filter(|trade| trade.balance.total_performance < dec!(0))
+            .map(|trade| trade.balance.total_performance.abs())
+            .collect();
+
+        if wins.is_empty() || losses.is_empty() {
+            return None; // Need both wins and losses for Kelly calculation
+        }
+
+        let avg_win = wins
+            .iter()
+            .sum::<Decimal>()
+            .checked_div(Decimal::from(wins.len()))
+            .unwrap_or(dec!(0));
+
+        let avg_loss = losses
+            .iter()
+            .sum::<Decimal>()
+            .checked_div(Decimal::from(losses.len()))
+            .unwrap_or(dec!(0));
+
+        if avg_loss == dec!(0) {
+            return None; // Avoid division by zero
+        }
+
+        let win_prob = Decimal::from(wins.len())
+            .checked_div(Decimal::from(closed_trades.len()))
+            .unwrap_or(dec!(0));
+
+        let loss_prob = dec!(1).checked_sub(win_prob).unwrap_or(dec!(0));
+
+        // b = average win / average loss (odds)
+        let odds = avg_win.checked_div(avg_loss).unwrap_or(dec!(0));
+
+        // Kelly = (bp - q) / b = p - q/b
+        let kelly = win_prob
+            .checked_sub(loss_prob.checked_div(odds).unwrap_or(dec!(0)))
+            .unwrap_or(dec!(0));
+
+        Some(kelly.max(dec!(0))) // Ensure non-negative result
+    }
+
+    /// Calculate maximum consecutive losses for risk assessment
+    ///
+    /// # Arguments
+    /// * `closed_trades` - Vector of closed trades to analyze (should be chronologically ordered)
+    ///
+    /// # Returns
+    /// * `u32` - Maximum number of consecutive losing trades
+    pub fn calculate_max_consecutive_losses(closed_trades: &[Trade]) -> u32 {
+        if closed_trades.is_empty() {
+            return 0;
+        }
+
+        let mut max_consecutive = 0;
+        let mut current_consecutive = 0;
+
+        for trade in closed_trades {
+            if trade.balance.total_performance < dec!(0) {
+                current_consecutive += 1;
+                max_consecutive = max_consecutive.max(current_consecutive);
+            } else {
+                current_consecutive = 0;
+            }
+        }
+
+        max_consecutive
+    }
+
+    /// Calculate maximum consecutive wins for system robustness analysis
+    ///
+    /// # Arguments
+    /// * `closed_trades` - Vector of closed trades to analyze (should be chronologically ordered)
+    ///
+    /// # Returns
+    /// * `u32` - Maximum number of consecutive winning trades
+    pub fn calculate_max_consecutive_wins(closed_trades: &[Trade]) -> u32 {
+        if closed_trades.is_empty() {
+            return 0;
+        }
+
+        let mut max_consecutive = 0;
+        let mut current_consecutive = 0;
+
+        for trade in closed_trades {
+            if trade.balance.total_performance > dec!(0) {
+                current_consecutive += 1;
+                max_consecutive = max_consecutive.max(current_consecutive);
+            } else {
+                current_consecutive = 0;
+            }
+        }
+
+        max_consecutive
+    }
+
+    /// Calculate Ulcer Index: Downside volatility measure based on drawdowns
+    ///
+    /// Ulcer Index measures the depth and duration of drawdowns
+    ///
+    /// # Arguments
+    /// * `closed_trades` - Vector of closed trades to analyze
+    ///
+    /// # Returns
+    /// * `Option<Decimal>` - Ulcer Index as percentage
+    pub fn calculate_ulcer_index(closed_trades: &[Trade]) -> Option<Decimal> {
+        if closed_trades.len() < 2 {
+            return None;
+        }
+
+        let mut running_total = dec!(0);
+        let mut peak = dec!(0);
+        let mut squared_drawdowns = Vec::new();
+
+        for trade in closed_trades {
+            running_total = running_total
+                .checked_add(trade.balance.total_performance)
+                .unwrap_or(running_total);
+
+            if running_total > peak {
+                peak = running_total;
+            }
+
+            let drawdown_percent = if peak > dec!(0) {
+                peak.checked_sub(running_total)
+                    .and_then(|dd| dd.checked_div(peak))
+                    .map(|pct| pct.checked_mul(dec!(100)).unwrap_or(dec!(0)))
+                    .unwrap_or(dec!(0))
+            } else {
+                dec!(0)
+            };
+
+            let squared_dd = drawdown_percent
+                .checked_mul(drawdown_percent)
+                .unwrap_or(dec!(0));
+            squared_drawdowns.push(squared_dd);
+        }
+
+        if squared_drawdowns.is_empty() {
+            return None;
+        }
+
+        let mean_squared_dd = squared_drawdowns
+            .iter()
+            .sum::<Decimal>()
+            .checked_div(Decimal::from(squared_drawdowns.len()))
+            .unwrap_or(dec!(0));
+
+        Self::decimal_sqrt(mean_squared_dd)
     }
 }
 

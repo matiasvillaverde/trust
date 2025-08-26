@@ -20,6 +20,8 @@ impl AdvancedMetricsView {
         Self::display_trade_quality_metrics(&closed_trades);
         println!();
         Self::display_risk_adjusted_metrics(&closed_trades);
+        println!();
+        Self::display_statistical_analysis(&closed_trades);
 
         println!();
     }
@@ -105,6 +107,55 @@ impl AdvancedMetricsView {
         }
     }
 
+    fn display_statistical_analysis(trades: &[Trade]) {
+        println!("Statistical Analysis:");
+
+        // Value at Risk (95% confidence)
+        if let Some(var) = AdvancedMetricsCalculator::calculate_value_at_risk(trades, dec!(0.95)) {
+            let var_rating = if var > dec!(-5.0) {
+                "Low Risk"
+            } else if var > dec!(-15.0) {
+                "Moderate Risk"
+            } else {
+                "High Risk"
+            };
+            println!("├─ Value at Risk (95%): {:.2}% ({})", var, var_rating);
+        } else {
+            println!("├─ Value at Risk (95%): N/A (insufficient data)");
+        }
+
+        // Kelly Criterion
+        if let Some(kelly) = AdvancedMetricsCalculator::calculate_kelly_criterion(trades) {
+            let kelly_pct = kelly.checked_mul(dec!(100)).unwrap_or(dec!(0));
+            let kelly_rating = Self::rate_kelly_criterion(kelly);
+            println!("├─ Kelly Criterion: {:.1}% ({})", kelly_pct, kelly_rating);
+        } else {
+            println!("├─ Kelly Criterion: N/A (need both wins and losses)");
+        }
+
+        // Maximum consecutive losses/wins
+        let max_losses = AdvancedMetricsCalculator::calculate_max_consecutive_losses(trades);
+        let max_wins = AdvancedMetricsCalculator::calculate_max_consecutive_wins(trades);
+        println!("├─ Max Consecutive Losses: {}", max_losses);
+        println!("├─ Max Consecutive Wins: {}", max_wins);
+
+        // Ulcer Index
+        if let Some(ulcer) = AdvancedMetricsCalculator::calculate_ulcer_index(trades) {
+            let ulcer_rating = if ulcer < dec!(5.0) {
+                "Excellent"
+            } else if ulcer < dec!(10.0) {
+                "Good"
+            } else if ulcer < dec!(20.0) {
+                "Acceptable"
+            } else {
+                "Poor"
+            };
+            println!("└─ Ulcer Index: {:.2}% ({})", ulcer, ulcer_rating);
+        } else {
+            println!("└─ Ulcer Index: N/A (insufficient data)");
+        }
+    }
+
     fn rate_profit_factor(factor: Decimal) -> &'static str {
         if factor >= dec!(3.0) {
             "Excellent"
@@ -178,6 +229,22 @@ impl AdvancedMetricsView {
             "Poor"
         } else {
             "Very Poor"
+        }
+    }
+
+    fn rate_kelly_criterion(kelly: Decimal) -> &'static str {
+        if kelly >= dec!(0.25) {
+            "Aggressive (>25%)"
+        } else if kelly >= dec!(0.15) {
+            "Moderate (15-25%)"
+        } else if kelly >= dec!(0.10) {
+            "Conservative (10-15%)"
+        } else if kelly >= dec!(0.05) {
+            "Very Conservative (5-10%)"
+        } else if kelly > dec!(0.0) {
+            "Minimal (<5%)"
+        } else {
+            "Negative (avoid)"
         }
     }
 }
