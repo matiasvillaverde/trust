@@ -1,5 +1,5 @@
 use crate::workers::{
-    AccountBalanceDB, AccountDB, BrokerLogDB, WorkerOrder, WorkerRule, WorkerTrade,
+    AccountBalanceDB, AccountDB, BrokerLogDB, LevelDB, WorkerOrder, WorkerRule, WorkerTrade,
     WorkerTradingVehicle, WorkerTransaction,
 };
 use diesel::prelude::*;
@@ -8,9 +8,9 @@ use model::Status;
 use model::{
     database::{AccountWrite, WriteAccountBalanceDB},
     Account, AccountBalanceRead, AccountBalanceWrite, AccountRead, Currency, DatabaseFactory,
-    Order, OrderAction, OrderCategory, OrderRead, OrderWrite, ReadRuleDB, ReadTradeDB,
+    Order, OrderAction, OrderCategory, OrderRead, OrderWrite, ReadLevelDB, ReadRuleDB, ReadTradeDB,
     ReadTradingVehicleDB, ReadTransactionDB, Rule, RuleName, Trade, TradeBalance, TradingVehicle,
-    TradingVehicleCategory, Transaction, TransactionCategory, WriteRuleDB, WriteTradeDB,
+    TradingVehicleCategory, Transaction, TransactionCategory, WriteLevelDB, WriteRuleDB, WriteTradeDB,
     WriteTradingVehicleDB, WriteTransactionDB,
 };
 use rust_decimal::Decimal;
@@ -102,6 +102,16 @@ impl DatabaseFactory for SqliteDatabase {
     }
     fn trading_vehicle_write(&self) -> Box<dyn WriteTradingVehicleDB> {
         Box::new(SqliteDatabase::new_from(self.connection.clone()))
+    }
+    fn level_read(&self) -> Box<dyn ReadLevelDB> {
+        Box::new(LevelDB {
+            connection: self.connection.clone(),
+        })
+    }
+    fn level_write(&self) -> Box<dyn WriteLevelDB> {
+        Box::new(LevelDB {
+            connection: self.connection.clone(),
+        })
     }
 }
 
