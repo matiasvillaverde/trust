@@ -81,7 +81,13 @@ impl ReadLevelDB for LevelDB {
             std::process::exit(1);
         });
 
-        let cutoff_date = Utc::now().naive_utc() - chrono::Duration::days(days as i64);
+        let cutoff_date = Utc::now()
+            .naive_utc()
+            .checked_sub_signed(chrono::Duration::days(days as i64))
+            .unwrap_or_else(|| {
+                error!("Error calculating cutoff date for {} days", days);
+                Utc::now().naive_utc()
+            });
 
         level_changes::table
             .filter(level_changes::account_id.eq(account_id.to_string()))
@@ -238,13 +244,15 @@ impl TryFrom<LevelSQLite> for Level {
             deleted_at: value.deleted_at,
             account_id: Uuid::parse_str(&value.account_id)
                 .map_err(|_| ConversionError::new("account_id", "Failed to parse account ID"))?,
-            current_level: value.current_level as u8,
+            current_level: u8::try_from(value.current_level)
+                .map_err(|_| ConversionError::new("current_level", "Invalid level value"))?,
             risk_multiplier: Decimal::from_str(&value.risk_multiplier).map_err(|_| {
                 ConversionError::new("risk_multiplier", "Failed to parse risk multiplier")
             })?,
             status: LevelStatus::from_str(&value.status)
                 .map_err(|_| ConversionError::new("status", "Failed to parse level status"))?,
-            trades_at_level: value.trades_at_level as u32,
+            trades_at_level: u32::try_from(value.trades_at_level)
+                .map_err(|_| ConversionError::new("trades_at_level", "Invalid trades count"))?,
             level_start_date: value.level_start_date,
         })
     }
@@ -262,8 +270,10 @@ impl TryFrom<LevelChangeSQLite> for LevelChange {
             deleted_at: value.deleted_at,
             account_id: Uuid::parse_str(&value.account_id)
                 .map_err(|_| ConversionError::new("account_id", "Failed to parse account ID"))?,
-            old_level: value.old_level as u8,
-            new_level: value.new_level as u8,
+            old_level: u8::try_from(value.old_level)
+                .map_err(|_| ConversionError::new("old_level", "Invalid level value"))?,
+            new_level: u8::try_from(value.new_level)
+                .map_err(|_| ConversionError::new("new_level", "Invalid level value"))?,
             change_reason: value.change_reason,
             trigger_type: value.trigger_type,
             changed_at: value.changed_at,
