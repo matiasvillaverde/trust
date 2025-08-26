@@ -30,11 +30,13 @@
 // Standard Rust lints for code quality
 #![warn(missing_docs, rust_2018_idioms, missing_debug_implementations)]
 
+use crate::services::{EventDistributionService, FundTransferService, ProfitDistributionService};
 use calculators_trade::QuantityCalculator;
 use model::{
-    Account, AccountBalance, Broker, BrokerLog, Currency, DatabaseFactory, DraftTrade, Environment,
-    Order, Rule, RuleLevel, RuleName, Status, Trade, TradeBalance, TradingVehicle,
-    TradingVehicleCategory, Transaction, TransactionCategory,
+    Account, AccountBalance, AccountType, Broker, BrokerLog, Currency, DatabaseFactory,
+    DistributionResult, DistributionRules, DraftTrade, Environment, Order, Rule, RuleLevel,
+    RuleName, Status, Trade, TradeBalance, TradingVehicle, TradingVehicleCategory, Transaction,
+    TransactionCategory,
 };
 use rust_decimal::Decimal;
 use uuid::Uuid;
@@ -524,6 +526,23 @@ impl TrustFacade {
         commands::trade::close(trade, &mut *self.factory, &mut *self.broker)
     }
 
+    /// Close a trade with automatic profit distribution
+    pub fn close_trade_with_auto_distribution(
+        &mut self,
+        trade: &Trade,
+    ) -> Result<(TradeBalance, BrokerLog, Option<DistributionResult>), Box<dyn std::error::Error>>
+    {
+        // 1. Close the trade normally
+        let (balance, log) = self.close_trade(trade)?;
+
+        // 2. Trigger automatic distribution if trade was profitable
+        let mut event_service = EventDistributionService::new(&mut *self.factory);
+        let distribution_result =
+            event_service.handle_trade_closed_event(trade, &trade.currency)?;
+
+        Ok((balance, log, distribution_result))
+    }
+
     /// Cancel a funded trade and return capital to the account.
     ///
     /// # Arguments
@@ -643,6 +662,126 @@ impl TrustFacade {
             &mut *self.factory,
         )
     }
+
+    /// Creates a new account with hierarchy support
+    /// Note: For now, uses existing create method - hierarchy will be added when database layer is updated
+    pub fn create_account_with_hierarchy(
+        &mut self,
+        name: &str,
+        description: &str,
+        environment: Environment,
+        taxes_percentage: Decimal,
+        earnings_percentage: Decimal,
+        _account_type: AccountType,
+        _parent_account_id: Option<Uuid>,
+    ) -> Result<Account, Box<dyn std::error::Error>> {
+        // TODO: Update when database layer supports hierarchy
+        self.factory.account_write().create(
+            name,
+            description,
+            environment,
+            taxes_percentage,
+            earnings_percentage,
+        )
+    }
+
+    /// Configure distribution rules for an account
+    /// Note: For now, only validates rules - database storage will be added when database layer is updated
+    pub fn configure_distribution(
+        &mut self,
+        account_id: Uuid,
+        earnings_percent: Decimal,
+        tax_percent: Decimal,
+        reinvestment_percent: Decimal,
+        minimum_threshold: Decimal,
+    ) -> Result<DistributionRules, Box<dyn std::error::Error>> {
+        // Validate percentages sum to 100%
+        let total = earnings_percent + tax_percent + reinvestment_percent;
+        if total != Decimal::ONE {
+            return Err("Distribution percentages must sum to 100%".into());
+        }
+
+        let rules = DistributionRules::new(
+            account_id,
+            earnings_percent,
+            tax_percent,
+            reinvestment_percent,
+            minimum_threshold,
+        );
+
+        // Validate the rules
+        rules.validate()?;
+
+        // TODO: Save to database when distribution_write trait is updated
+        // self.factory.distribution_write().create_rules(&rules)?;
+        Ok(rules)
+    }
+
+    /// Execute profit distribution for an account
+    /// Note: For now, uses default rules - database integration will be added when database layer is updated
+    pub fn execute_distribution(
+        &mut self,
+        source_account_id: Uuid,
+        earnings_account_id: Uuid,
+        tax_account_id: Uuid,
+        reinvestment_account_id: Uuid,
+        profit_amount: Decimal,
+        currency: Currency,
+    ) -> Result<DistributionResult, Box<dyn std::error::Error>> {
+        // Get accounts
+        let source_account = self.factory.account_read().id(source_account_id)?;
+        let earnings_account = self.factory.account_read().id(earnings_account_id)?;
+        let tax_account = self.factory.account_read().id(tax_account_id)?;
+        let reinvestment_account = self.factory.account_read().id(reinvestment_account_id)?;
+
+        // TODO: Get distribution rules from database when implemented
+        // let rules = self.factory.distribution_read().for_account(source_account_id)?;
+
+        // Use default rules for now (40% earnings, 30% tax, 30% reinvestment)
+        let rules = DistributionRules::new(
+            source_account_id,
+            Decimal::new(40, 2),  // 40%
+            Decimal::new(30, 2),  // 30%
+            Decimal::new(30, 2),  // 30%
+            Decimal::new(100, 0), // $100 minimum
+        );
+
+        // Execute distribution
+        let mut distribution_service = ProfitDistributionService::new(&mut *self.factory);
+        distribution_service.execute_distribution(
+            &source_account,
+            &earnings_account,
+            &tax_account,
+            &reinvestment_account,
+            profit_amount,
+            &rules,
+            &currency,
+        )
+    }
+
+    /// Transfer funds between accounts in hierarchy
+    pub fn transfer_between_accounts(
+        &mut self,
+        from_account_id: Uuid,
+        to_account_id: Uuid,
+        amount: Decimal,
+        currency: Currency,
+        reason: &str,
+    ) -> Result<(Uuid, Uuid), Box<dyn std::error::Error>> {
+        // Get accounts
+        let from_account = self.factory.account_read().id(from_account_id)?;
+        let to_account = self.factory.account_read().id(to_account_id)?;
+
+        // Execute transfer
+        let mut transfer_service = FundTransferService::new(&mut *self.factory);
+        transfer_service.transfer_between_accounts(
+            &from_account,
+            &to_account,
+            amount,
+            &currency,
+            reason,
+        )
+    }
 }
 
 mod calculators_account;
@@ -651,5 +790,8 @@ pub mod calculators_performance;
 pub mod calculators_risk;
 mod calculators_trade;
 mod commands;
+/// Integration tests module for validating complete system workflows
+pub mod integration_tests;
 mod mocks;
+pub mod services;
 mod validators;
