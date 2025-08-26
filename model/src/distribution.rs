@@ -126,7 +126,11 @@ impl DistributionRules {
         }
 
         // Check that percentages sum to 100% (1.0)
-        let total = self.earnings_percent + self.tax_percent + self.reinvestment_percent;
+        let total = self
+            .earnings_percent
+            .checked_add(self.tax_percent)
+            .and_then(|sum| sum.checked_add(self.reinvestment_percent))
+            .ok_or(DistributionError::InvalidPercentageSum)?;
         if total != Decimal::ONE {
             return Err(DistributionError::InvalidPercentageSum);
         }
@@ -150,9 +154,15 @@ impl DistributionRules {
         }
 
         // Calculate distribution amounts
-        let earnings_amount = profit * self.earnings_percent;
-        let tax_amount = profit * self.tax_percent;
-        let reinvestment_amount = profit * self.reinvestment_percent;
+        let earnings_amount = profit
+            .checked_mul(self.earnings_percent)
+            .ok_or(DistributionError::InvalidPercentage)?;
+        let tax_amount = profit
+            .checked_mul(self.tax_percent)
+            .ok_or(DistributionError::InvalidPercentage)?;
+        let reinvestment_amount = profit
+            .checked_mul(self.reinvestment_percent)
+            .ok_or(DistributionError::InvalidPercentage)?;
 
         Ok(DistributionResult {
             source_account_id: self.account_id,
@@ -253,10 +263,11 @@ mod tests {
         assert!(result.is_ok());
         let distribution = result.unwrap();
 
-        assert_eq!(distribution.original_profit, Decimal::new(2000, 0));
-        assert_eq!(distribution.earnings_amount, Decimal::new(600, 0)); // 30% of $2000
-        assert_eq!(distribution.tax_amount, Decimal::new(500, 0)); // 25% of $2000
-        assert_eq!(distribution.reinvestment_amount, Decimal::new(900, 0)); // 45% of $2000
+        assert_eq!(distribution.original_amount, Decimal::new(2000, 0));
+        assert_eq!(distribution.earnings_amount, Some(Decimal::new(600, 0))); // 30% of $2000
+        assert_eq!(distribution.tax_amount, Some(Decimal::new(500, 0))); // 25% of $2000
+        assert_eq!(distribution.reinvestment_amount, Some(Decimal::new(900, 0)));
+        // 45% of $2000
     }
 
     #[test]
