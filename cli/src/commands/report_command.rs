@@ -94,6 +94,28 @@ impl ReportCommandBuilder {
         );
         self
     }
+
+    pub fn concentration(mut self) -> Self {
+        self.subcommands.push(
+            Command::new("concentration")
+                .about("Display portfolio concentration analysis by sector and asset class")
+                .arg(
+                    Arg::new("account")
+                        .long("account")
+                        .value_name("ACCOUNT_ID")
+                        .help("Filter by specific account ID")
+                        .required(false),
+                )
+                .arg(
+                    Arg::new("open-only")
+                        .long("open-only")
+                        .help("Show only currently open positions")
+                        .action(clap::ArgAction::SetTrue)
+                        .required(false),
+                ),
+        );
+        self
+    }
 }
 
 impl Default for ReportCommandBuilder {

@@ -101,6 +101,7 @@ fn main() {
                 .drawdown()
                 .risk()
                 .metrics()
+                .concentration()
                 .build(),
         )
         .get_matches();
