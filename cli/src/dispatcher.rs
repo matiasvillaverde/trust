@@ -86,6 +86,9 @@ impl ArgDispatcher {
                 Some(("performance", sub_sub_matches)) => self.performance_report(sub_sub_matches),
                 Some(("drawdown", sub_sub_matches)) => self.drawdown_report(sub_sub_matches),
                 Some(("risk", sub_sub_matches)) => self.risk_report(sub_sub_matches),
+                Some(("concentration", sub_sub_matches)) => {
+                    self.concentration_report(sub_sub_matches)
+                }
                 _ => unreachable!("No subcommand provided"),
             },
             Some((ext, sub_matches)) => {
@@ -486,6 +489,90 @@ impl ArgDispatcher {
 
         // Display the results
         RiskView::display(positions, total_capital_at_risk, account_balance);
+    }
+
+    fn concentration_report(&mut self, sub_matches: &ArgMatches) {
+        use crate::views::ConcentrationView;
+        use core::calculators_concentration::{ConcentrationCalculator, MetadataField};
+        use std::str::FromStr;
+        use uuid::Uuid;
+
+        // Get account ID if provided
+        let account_id = if let Some(account_arg) = sub_matches.get_one::<String>("account") {
+            match Uuid::from_str(account_arg) {
+                Ok(id) => Some(id),
+                Err(_) => {
+                    eprintln!("Error: Invalid account ID format");
+                    return;
+                }
+            }
+        } else {
+            None
+        };
+
+        // Check if open-only flag is set
+        let open_only = sub_matches.get_flag("open-only");
+
+        // Get all trades (or filter by account)
+        let all_trades = if let Some(id) = account_id {
+            // Get trades for specific account - need to get all statuses
+            let mut trades = Vec::new();
+            for status in model::Status::all() {
+                if let Ok(mut status_trades) = self.trust.search_trades(id, status) {
+                    trades.append(&mut status_trades);
+                }
+            }
+            trades
+        } else {
+            // Get trades for all accounts
+            match self.trust.search_all_accounts() {
+                Ok(accounts) => {
+                    let mut all_trades = Vec::new();
+                    for account in accounts {
+                        for status in model::Status::all() {
+                            if let Ok(mut trades) = self.trust.search_trades(account.id, status) {
+                                all_trades.append(&mut trades);
+                            }
+                        }
+                    }
+                    all_trades
+                }
+                Err(e) => {
+                    eprintln!("Error fetching accounts: {e}");
+                    return;
+                }
+            }
+        };
+
+        if all_trades.is_empty() {
+            println!("\nNo trades found for the specified criteria.\n");
+            return;
+        }
+
+        // Filter for open positions if requested
+        let trades_to_analyze = if open_only {
+            ConcentrationCalculator::filter_open_trades(&all_trades)
+        } else {
+            all_trades
+        };
+
+        if trades_to_analyze.is_empty() {
+            println!("\nNo open trades found for the specified criteria.\n");
+            return;
+        }
+
+        // Analyze concentration by sector
+        let sector_analysis =
+            ConcentrationCalculator::analyze_by_metadata(&trades_to_analyze, MetadataField::Sector);
+
+        // Analyze concentration by asset class
+        let asset_class_analysis = ConcentrationCalculator::analyze_by_metadata(
+            &trades_to_analyze,
+            MetadataField::AssetClass,
+        );
+
+        // Display the results
+        ConcentrationView::display(sector_analysis, asset_class_analysis, open_only);
     }
 }
 
