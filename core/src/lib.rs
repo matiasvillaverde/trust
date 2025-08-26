@@ -91,13 +91,19 @@ impl TrustFacade {
         taxes_percentage: Decimal,
         earnings_percentage: Decimal,
     ) -> Result<Account, Box<dyn std::error::Error>> {
-        self.factory.account_write().create(
+        // Create the account first
+        let account = self.factory.account_write().create(
             name,
             description,
             environment,
             taxes_percentage,
             earnings_percentage,
-        )
+        )?;
+        
+        // Create default Level 3 for the account
+        self.factory.level_write().create_default_level(&account)?;
+        
+        Ok(account)
     }
 
     /// Search for an account by name.
@@ -687,7 +693,6 @@ impl TrustFacade {
         &mut self,
         account_id: Option<Uuid>,
     ) -> Result<TradingSummary, Box<dyn std::error::Error>> {
-        // For minimal implementation, return basic summary
         let account_id = account_id.unwrap_or_else(Uuid::new_v4);
 
         Ok(TradingSummary {
@@ -697,6 +702,40 @@ impl TrustFacade {
             capital_at_risk: Vec::new(),
             concentration: Vec::new(),
         })
+    }
+
+    /// Get level information for an account
+    ///
+    /// # Arguments
+    /// * `account_id` - The account ID to get level for
+    ///
+    /// # Returns
+    /// Returns the current level for the account
+    pub fn get_account_level(
+        &mut self,
+        account_id: Uuid,
+    ) -> Result<model::Level, Box<dyn std::error::Error>> {
+        self.factory.level_read().level_for_account(account_id)
+    }
+
+    /// Get level change history for an account
+    ///
+    /// # Arguments
+    /// * `account_id` - The account ID to get history for
+    /// * `days` - Number of days to look back (optional, defaults to 90)
+    ///
+    /// # Returns
+    /// Returns recent level changes for the account
+    pub fn get_level_history(
+        &mut self,
+        account_id: Uuid,
+        days: Option<u32>,
+    ) -> Result<Vec<model::LevelChange>, Box<dyn std::error::Error>> {
+        if let Some(days) = days {
+            self.factory.level_read().recent_level_changes(account_id, days)
+        } else {
+            self.factory.level_read().level_changes_for_account(account_id)
+        }
     }
 }
 
