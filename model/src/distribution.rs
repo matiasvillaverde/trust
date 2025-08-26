@@ -26,14 +26,18 @@ pub struct DistributionRules {
 /// Result of executing profit distribution
 #[derive(Debug, Clone, PartialEq)]
 pub struct DistributionResult {
+    /// Source account ID from which distribution originates
+    pub source_account_id: Uuid,
     /// Original profit amount being distributed
-    pub original_profit: Decimal,
-    /// Amount allocated to earnings
-    pub earnings_amount: Decimal,
-    /// Amount allocated to tax reserve
-    pub tax_amount: Decimal,
-    /// Amount allocated to reinvestment
-    pub reinvestment_amount: Decimal,
+    pub original_amount: Decimal,
+    /// Amount allocated to earnings (optional if percentage is 0)
+    pub earnings_amount: Option<Decimal>,
+    /// Amount allocated to tax reserve (optional if percentage is 0)
+    pub tax_amount: Option<Decimal>,
+    /// Amount allocated to reinvestment (optional if percentage is 0)
+    pub reinvestment_amount: Option<Decimal>,
+    /// Timestamp when distribution was executed
+    pub distribution_date: NaiveDateTime,
     /// Transaction IDs created for this distribution
     pub transactions_created: Vec<Uuid>,
 }
@@ -50,6 +54,25 @@ pub enum DistributionError {
     /// Profit amount is negative or zero
     InvalidProfitAmount,
 }
+
+impl std::fmt::Display for DistributionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DistributionError::InvalidPercentageSum => {
+                write!(f, "Distribution percentages must sum to 100% or less")
+            }
+            DistributionError::InvalidPercentage => {
+                write!(f, "Individual percentage must be between 0% and 100%")
+            }
+            DistributionError::BelowMinimumThreshold => {
+                write!(f, "Profit amount is below minimum threshold")
+            }
+            DistributionError::InvalidProfitAmount => write!(f, "Profit amount must be positive"),
+        }
+    }
+}
+
+impl std::error::Error for DistributionError {}
 
 impl DistributionRules {
     /// Creates new distribution rules
@@ -132,10 +155,24 @@ impl DistributionRules {
         let reinvestment_amount = profit * self.reinvestment_percent;
 
         Ok(DistributionResult {
-            original_profit: profit,
-            earnings_amount,
-            tax_amount,
-            reinvestment_amount,
+            source_account_id: self.account_id,
+            original_amount: profit,
+            earnings_amount: if earnings_amount > Decimal::ZERO {
+                Some(earnings_amount)
+            } else {
+                None
+            },
+            tax_amount: if tax_amount > Decimal::ZERO {
+                Some(tax_amount)
+            } else {
+                None
+            },
+            reinvestment_amount: if reinvestment_amount > Decimal::ZERO {
+                Some(reinvestment_amount)
+            } else {
+                None
+            },
+            distribution_date: Utc::now().naive_utc(),
             transactions_created: Vec::new(), // No transactions created yet
         })
     }

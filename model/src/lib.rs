@@ -71,6 +71,7 @@ pub use database::{
     ReadTradeDB, ReadTradeGradeDB, ReadTradingVehicleDB, ReadTransactionDB, WriteBrokerLogsDB,
     WriteExecutionDB, WriteLevelDB, WriteRuleDB, WriteTradeDB, WriteTradeGradeDB,
     WriteTradingVehicleDB, WriteTransactionDB,
+    DistributionRead, DistributionWrite,
 };
 pub use execution::{
     Execution, ExecutionSide, ExecutionSideParseError, ExecutionSource, ExecutionSourceParseError,
