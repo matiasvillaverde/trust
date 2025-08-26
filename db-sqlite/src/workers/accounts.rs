@@ -3,7 +3,7 @@ use crate::schema::accounts;
 use chrono::{NaiveDateTime, Utc};
 use diesel::prelude::*;
 use model::AccountRead;
-use model::{Account, AccountWrite, Environment};
+use model::{Account, AccountType, AccountWrite, Environment};
 use rust_decimal::Decimal;
 use std::error::Error;
 use std::str::FromStr;
@@ -150,6 +150,8 @@ impl TryFrom<AccountSQLite> for Account {
             earnings_percentage: Decimal::from_str(&value.earnings_percentage).map_err(|_| {
                 ConversionError::new("earnings_percentage", "Failed to parse earnings percentage")
             })?,
+            account_type: AccountType::Primary, // Default to Primary for existing accounts
+            parent_account_id: None,            // Existing accounts have no parent
         })
     }
 }

@@ -60,7 +60,7 @@ pub mod trading_vehicle;
 pub mod transaction;
 
 // Re-export the types from the model crate.
-pub use account::{Account, AccountBalance, Environment};
+pub use account::{Account, AccountBalance, AccountHierarchyError, AccountType, Environment};
 pub use broker::{Broker, BrokerLog, OrderIds};
 pub use currency::Currency;
 pub use database::{
