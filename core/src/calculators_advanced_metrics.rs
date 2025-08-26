@@ -91,7 +91,7 @@ impl AdvancedMetricsCalculator {
         let win_rate = Decimal::from(wins.len())
             .checked_div(total_trades)
             .unwrap_or(dec!(0));
-        let loss_rate = dec!(1) - win_rate;
+        let loss_rate = dec!(1).checked_sub(win_rate).unwrap_or(dec!(0));
 
         let avg_win = if wins.is_empty() {
             dec!(0)

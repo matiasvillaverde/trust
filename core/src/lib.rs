@@ -700,7 +700,9 @@ impl TrustFacade {
         let equity = balances
             .iter()
             .map(|balance| balance.total_balance)
-            .fold(Decimal::ZERO, |acc, balance| acc + balance);
+            .fold(Decimal::ZERO, |acc, balance| {
+                acc.checked_add(balance).unwrap_or(acc)
+            });
 
         // Get performance stats from closed trades
         let performance = match self.search_closed_trades(Some(account_id)) {
