@@ -675,7 +675,8 @@ impl TrustFacade {
     pub fn calculate_portfolio_concentration(
         &mut self,
         account_id: Option<Uuid>,
-    ) -> Result<Vec<calculators_concentration::ConcentrationGroup>, Box<dyn std::error::Error>> {
+    ) -> Result<Vec<calculators_concentration::ConcentrationGroup>, Box<dyn std::error::Error>>
+    {
         // Get all trades for the account
         let all_trades = if let Some(id) = account_id {
             // Get trades for specific account - need to get all statuses

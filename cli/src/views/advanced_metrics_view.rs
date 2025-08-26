@@ -18,6 +18,8 @@ impl AdvancedMetricsView {
         println!("=======================");
 
         Self::display_trade_quality_metrics(&closed_trades);
+        println!();
+        Self::display_risk_adjusted_metrics(&closed_trades);
 
         println!();
     }
@@ -54,9 +56,53 @@ impl AdvancedMetricsView {
             "Negative"
         };
         println!(
+            "├─ Win Rate: {:.1}% ({})",
+            AdvancedMetricsCalculator::calculate_win_rate(trades),
+            Self::rate_win_rate(AdvancedMetricsCalculator::calculate_win_rate(trades))
+        );
+        println!(
+            "├─ Average R-Multiple: {:.2}",
+            AdvancedMetricsCalculator::calculate_average_r_multiple(trades)
+        );
+        println!(
             "└─ Expectancy: ${:.2} per trade ({})",
             expectancy, expectancy_rating
         );
+    }
+
+    fn display_risk_adjusted_metrics(trades: &[Trade]) {
+        println!("Risk-Adjusted Performance:");
+
+        // Use a default risk-free rate of 5% for display purposes
+        let risk_free_rate = dec!(0.05);
+
+        // Sharpe Ratio
+        if let Some(sharpe) =
+            AdvancedMetricsCalculator::calculate_sharpe_ratio(trades, risk_free_rate)
+        {
+            let rating = Self::rate_sharpe_ratio(sharpe);
+            println!("├─ Sharpe Ratio: {:.2} ({})", sharpe, rating);
+        } else {
+            println!("├─ Sharpe Ratio: N/A (insufficient data)");
+        }
+
+        // Sortino Ratio
+        if let Some(sortino) =
+            AdvancedMetricsCalculator::calculate_sortino_ratio(trades, risk_free_rate)
+        {
+            let rating = Self::rate_sortino_ratio(sortino);
+            println!("├─ Sortino Ratio: {:.2} ({})", sortino, rating);
+        } else {
+            println!("├─ Sortino Ratio: N/A (insufficient data)");
+        }
+
+        // Calmar Ratio
+        if let Some(calmar) = AdvancedMetricsCalculator::calculate_calmar_ratio(trades) {
+            let rating = Self::rate_calmar_ratio(calmar);
+            println!("└─ Calmar Ratio: {:.2} ({})", calmar, rating);
+        } else {
+            println!("└─ Calmar Ratio: N/A (no drawdown or insufficient data)");
+        }
     }
 
     fn rate_profit_factor(factor: Decimal) -> &'static str {
@@ -70,6 +116,68 @@ impl AdvancedMetricsView {
             "Break Even"
         } else {
             "Poor"
+        }
+    }
+
+    fn rate_win_rate(win_rate: Decimal) -> &'static str {
+        if win_rate >= dec!(70.0) {
+            "Excellent"
+        } else if win_rate >= dec!(60.0) {
+            "Very Good"
+        } else if win_rate >= dec!(50.0) {
+            "Good"
+        } else if win_rate >= dec!(40.0) {
+            "Fair"
+        } else {
+            "Poor"
+        }
+    }
+
+    fn rate_sharpe_ratio(sharpe: Decimal) -> &'static str {
+        if sharpe >= dec!(3.0) {
+            "Excellent"
+        } else if sharpe >= dec!(2.0) {
+            "Very Good"
+        } else if sharpe >= dec!(1.0) {
+            "Good"
+        } else if sharpe >= dec!(0.5) {
+            "Acceptable"
+        } else if sharpe >= dec!(0.0) {
+            "Poor"
+        } else {
+            "Very Poor"
+        }
+    }
+
+    fn rate_sortino_ratio(sortino: Decimal) -> &'static str {
+        if sortino >= dec!(3.0) {
+            "Excellent"
+        } else if sortino >= dec!(2.0) {
+            "Very Good"
+        } else if sortino >= dec!(1.0) {
+            "Good"
+        } else if sortino >= dec!(0.5) {
+            "Acceptable"
+        } else if sortino >= dec!(0.0) {
+            "Poor"
+        } else {
+            "Very Poor"
+        }
+    }
+
+    fn rate_calmar_ratio(calmar: Decimal) -> &'static str {
+        if calmar >= dec!(3.0) {
+            "Excellent"
+        } else if calmar >= dec!(2.0) {
+            "Very Good"
+        } else if calmar >= dec!(1.0) {
+            "Good"
+        } else if calmar >= dec!(0.5) {
+            "Acceptable"
+        } else if calmar >= dec!(0.0) {
+            "Poor"
+        } else {
+            "Very Poor"
         }
     }
 }

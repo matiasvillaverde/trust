@@ -94,6 +94,11 @@ impl ArgDispatcher {
                 Some(("metrics", sub_sub_matches)) => self.metrics_report(sub_sub_matches),
                 _ => unreachable!("No subcommand provided"),
             },
+            Some(("metrics", sub_matches)) => match sub_matches.subcommand() {
+                Some(("advanced", sub_sub_matches)) => self.metrics_advanced(sub_sub_matches),
+                Some(("compare", sub_sub_matches)) => self.metrics_compare(sub_sub_matches),
+                _ => unreachable!("No subcommand provided"),
+            },
             Some(("level", sub_matches)) => match sub_matches.subcommand() {
                 Some(("status", sub_sub_matches)) => self.level_status(sub_sub_matches),
                 Some(("history", sub_sub_matches)) => self.level_history(sub_sub_matches),
@@ -738,6 +743,85 @@ impl ArgDispatcher {
             }
             Err(e) => eprintln!("Failed to get level history: {}", e),
         }
+    }
+
+    fn metrics_advanced(&mut self, sub_matches: &ArgMatches) {
+        use crate::views::AdvancedMetricsView;
+        use core::calculators_performance::PerformanceCalculator;
+        use rust_decimal::Decimal;
+        use rust_decimal_macros::dec;
+        use std::str::FromStr;
+        use uuid::Uuid;
+
+        // Get account ID if provided
+        let account_id = if let Some(account_arg) = sub_matches.get_one::<String>("account") {
+            match Uuid::from_str(account_arg) {
+                Ok(id) => Some(id),
+                Err(_) => {
+                    eprintln!("Error: Invalid account ID format");
+                    return;
+                }
+            }
+        } else {
+            None
+        };
+
+        // Get days filter if provided (default to 90)
+        let days_filter = sub_matches.get_one::<u32>("days").copied().unwrap_or(90);
+
+        // Get risk-free rate if provided (default to 5%)
+        let _risk_free_rate = if let Some(rate) = sub_matches.get_one::<f64>("risk-free-rate") {
+            Decimal::try_from(*rate).unwrap_or(dec!(0.05))
+        } else {
+            dec!(0.05)
+        };
+
+        // Display period information
+        if days_filter > 0 {
+            println!("Advanced Trading Metrics (Last {} days)", days_filter);
+        } else {
+            println!("Advanced Trading Metrics (All time)");
+        }
+        println!("======================================");
+
+        // Get all closed trades
+        let mut all_trades = match self.trust.search_closed_trades(account_id) {
+            Ok(trades) => trades,
+            Err(_) => {
+                eprintln!("Unable to retrieve trading data. Please check your account settings and try again.");
+                return;
+            }
+        };
+
+        // Apply days filter if specified
+        if days_filter > 0 {
+            all_trades = PerformanceCalculator::filter_trades_by_days(&all_trades, days_filter);
+        }
+
+        if all_trades.is_empty() {
+            println!("No trades found for the specified criteria.");
+            return;
+        }
+
+        AdvancedMetricsView::display(all_trades);
+    }
+
+    fn metrics_compare(&mut self, sub_matches: &ArgMatches) {
+        // For now, provide a placeholder implementation
+        let _period1 = sub_matches.get_one::<String>("period1");
+        let _period2 = sub_matches.get_one::<String>("period2");
+        let _account_id = sub_matches.get_one::<String>("account");
+
+        println!("Performance Comparison");
+        println!("=====================");
+        println!("Feature coming soon: Period-over-period performance analysis");
+        println!("This will compare metrics across different time periods.");
+        println!();
+        println!("Currently working on implementing:");
+        println!("  • Time period parsing (last-30-days, previous-30-days, etc.)");
+        println!("  • Comparative metric calculations");
+        println!("  • Trend analysis and direction indicators");
+        println!("  • Export capabilities");
     }
 }
 

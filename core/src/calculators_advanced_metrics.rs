@@ -120,6 +120,338 @@ impl AdvancedMetricsCalculator {
             .checked_sub(negative_component)
             .unwrap_or(dec!(0))
     }
+
+    /// Calculate win rate: Percentage of profitable trades
+    ///
+    /// # Arguments
+    /// * `closed_trades` - Vector of closed trades to analyze
+    ///
+    /// # Returns
+    /// * `Decimal` - Win rate as percentage (0.0 to 100.0)
+    pub fn calculate_win_rate(closed_trades: &[Trade]) -> Decimal {
+        if closed_trades.is_empty() {
+            return dec!(0);
+        }
+
+        let winning_trades = closed_trades
+            .iter()
+            .filter(|trade| trade.balance.total_performance > dec!(0))
+            .count();
+
+        let total_trades = closed_trades.len();
+        let win_rate = Decimal::from(winning_trades)
+            .checked_div(Decimal::from(total_trades))
+            .unwrap_or(dec!(0));
+
+        // Convert to percentage
+        win_rate.checked_mul(dec!(100)).unwrap_or(dec!(0))
+    }
+
+    /// Calculate average R-multiple: Average risk-adjusted return per trade
+    ///
+    /// R-multiple measures how many units of risk were gained or lost per trade.
+    /// Assumes risk per trade is calculated as |entry_price - stop_price| * quantity
+    ///
+    /// # Arguments
+    /// * `closed_trades` - Vector of closed trades to analyze
+    ///
+    /// # Returns
+    /// * `Decimal` - Average R-multiple across all trades
+    pub fn calculate_average_r_multiple(closed_trades: &[Trade]) -> Decimal {
+        if closed_trades.is_empty() {
+            return dec!(0);
+        }
+
+        let mut total_r = dec!(0);
+        let mut valid_trades = 0;
+
+        for trade in closed_trades {
+            // Calculate risk per trade based on entry-stop difference
+            let entry_price = trade.entry.unit_price;
+            let stop_price = trade.safety_stop.unit_price;
+
+            let risk_per_share = entry_price.checked_sub(stop_price).unwrap_or(dec!(0)).abs();
+
+            if risk_per_share > dec!(0) {
+                let total_risk = risk_per_share
+                    .checked_mul(Decimal::from(trade.entry.quantity))
+                    .unwrap_or(dec!(0));
+
+                if total_risk > dec!(0) {
+                    let r_multiple = trade
+                        .balance
+                        .total_performance
+                        .checked_div(total_risk)
+                        .unwrap_or(dec!(0));
+
+                    total_r = total_r.checked_add(r_multiple).unwrap_or(total_r);
+                    valid_trades += 1;
+                }
+            }
+        }
+
+        if valid_trades > 0 {
+            total_r
+                .checked_div(Decimal::from(valid_trades))
+                .unwrap_or(dec!(0))
+        } else {
+            dec!(0)
+        }
+    }
+
+    /// Calculate Sharpe ratio: Risk-adjusted return measure
+    ///
+    /// Sharpe Ratio = (Average Return - Risk-Free Rate) / Standard Deviation of Returns
+    ///
+    /// # Arguments
+    /// * `closed_trades` - Vector of closed trades to analyze
+    /// * `risk_free_rate` - Annual risk-free rate (e.g., 0.05 for 5%)
+    ///
+    /// # Returns
+    /// * `Option<Decimal>` - Sharpe ratio if calculable (None if insufficient data)
+    pub fn calculate_sharpe_ratio(
+        closed_trades: &[Trade],
+        risk_free_rate: Decimal,
+    ) -> Option<Decimal> {
+        if closed_trades.len() < 2 {
+            return None;
+        }
+
+        // Extract returns (performance percentages)
+        let returns: Vec<Decimal> = closed_trades
+            .iter()
+            .filter_map(|trade| {
+                // Calculate return as percentage of capital risked
+                let entry_price = trade.entry.unit_price;
+                let stop_price = trade.safety_stop.unit_price;
+
+                let risk_per_share = entry_price.checked_sub(stop_price).unwrap_or(dec!(0)).abs();
+                let total_risk = risk_per_share
+                    .checked_mul(Decimal::from(trade.entry.quantity))
+                    .unwrap_or(dec!(0));
+
+                if total_risk > dec!(0) {
+                    trade
+                        .balance
+                        .total_performance
+                        .checked_div(total_risk)
+                        .map(|r| r.checked_mul(dec!(100)).unwrap_or(dec!(0)))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        if returns.len() < 2 {
+            return None;
+        }
+
+        // Calculate average return
+        let avg_return = returns
+            .iter()
+            .sum::<Decimal>()
+            .checked_div(Decimal::from(returns.len()))
+            .unwrap_or(dec!(0));
+
+        // Calculate standard deviation
+        let variance = returns
+            .iter()
+            .map(|&r| {
+                let diff = r.checked_sub(avg_return).unwrap_or(dec!(0));
+                diff.checked_mul(diff).unwrap_or(dec!(0))
+            })
+            .sum::<Decimal>()
+            .checked_div(Decimal::from(returns.len()))
+            .unwrap_or(dec!(0));
+
+        // Approximate square root using Newton's method for Decimal
+        let std_dev = Self::decimal_sqrt(variance)?;
+
+        if std_dev > dec!(0) {
+            // Convert risk-free rate to per-trade basis (assuming daily trading)
+            let risk_free_per_trade = risk_free_rate.checked_div(dec!(252)).unwrap_or(dec!(0));
+            let excess_return = avg_return
+                .checked_sub(risk_free_per_trade)
+                .unwrap_or(avg_return);
+
+            excess_return.checked_div(std_dev)
+        } else {
+            None
+        }
+    }
+
+    /// Calculate Sortino ratio: Downside risk-adjusted return measure
+    ///
+    /// Similar to Sharpe ratio but only considers downside volatility
+    ///
+    /// # Arguments
+    /// * `closed_trades` - Vector of closed trades to analyze
+    /// * `risk_free_rate` - Annual risk-free rate
+    ///
+    /// # Returns
+    /// * `Option<Decimal>` - Sortino ratio if calculable
+    pub fn calculate_sortino_ratio(
+        closed_trades: &[Trade],
+        risk_free_rate: Decimal,
+    ) -> Option<Decimal> {
+        if closed_trades.len() < 2 {
+            return None;
+        }
+
+        // Extract returns
+        let returns: Vec<Decimal> = closed_trades
+            .iter()
+            .filter_map(|trade| {
+                let entry_price = trade.entry.unit_price;
+                let stop_price = trade.safety_stop.unit_price;
+
+                let risk_per_share = entry_price.checked_sub(stop_price).unwrap_or(dec!(0)).abs();
+                let total_risk = risk_per_share
+                    .checked_mul(Decimal::from(trade.entry.quantity))
+                    .unwrap_or(dec!(0));
+
+                if total_risk > dec!(0) {
+                    trade
+                        .balance
+                        .total_performance
+                        .checked_div(total_risk)
+                        .map(|r| r.checked_mul(dec!(100)).unwrap_or(dec!(0)))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        if returns.len() < 2 {
+            return None;
+        }
+
+        let avg_return = returns
+            .iter()
+            .sum::<Decimal>()
+            .checked_div(Decimal::from(returns.len()))
+            .unwrap_or(dec!(0));
+
+        // Calculate downside deviation (only negative returns)
+        let risk_free_per_trade = risk_free_rate.checked_div(dec!(252)).unwrap_or(dec!(0));
+        let downside_returns: Vec<Decimal> = returns
+            .iter()
+            .filter(|&&r| r < risk_free_per_trade)
+            .map(|&r| {
+                let diff = r.checked_sub(risk_free_per_trade).unwrap_or(dec!(0));
+                diff.checked_mul(diff).unwrap_or(dec!(0))
+            })
+            .collect();
+
+        if downside_returns.is_empty() {
+            return None; // No downside risk
+        }
+
+        let downside_variance = downside_returns
+            .iter()
+            .sum::<Decimal>()
+            .checked_div(Decimal::from(downside_returns.len()))
+            .unwrap_or(dec!(0));
+
+        let downside_deviation = Self::decimal_sqrt(downside_variance)?;
+
+        if downside_deviation > dec!(0) {
+            let excess_return = avg_return
+                .checked_sub(risk_free_per_trade)
+                .unwrap_or(avg_return);
+            excess_return.checked_div(downside_deviation)
+        } else {
+            None
+        }
+    }
+
+    /// Calculate Calmar ratio: Return to maximum drawdown ratio
+    ///
+    /// Calmar Ratio = Annualized Return / Maximum Drawdown
+    ///
+    /// # Arguments
+    /// * `closed_trades` - Vector of closed trades to analyze
+    ///
+    /// # Returns
+    /// * `Option<Decimal>` - Calmar ratio if calculable
+    pub fn calculate_calmar_ratio(closed_trades: &[Trade]) -> Option<Decimal> {
+        if closed_trades.is_empty() {
+            return None;
+        }
+
+        // Calculate total return
+        let total_return = closed_trades
+            .iter()
+            .map(|trade| trade.balance.total_performance)
+            .sum::<Decimal>();
+
+        // Calculate maximum drawdown by tracking running total
+        let mut running_total = dec!(0);
+        let mut peak = dec!(0);
+        let mut max_drawdown = dec!(0);
+
+        for trade in closed_trades {
+            running_total = running_total
+                .checked_add(trade.balance.total_performance)
+                .unwrap_or(running_total);
+
+            if running_total > peak {
+                peak = running_total;
+            }
+
+            let current_drawdown = peak.checked_sub(running_total).unwrap_or(dec!(0));
+            if current_drawdown > max_drawdown {
+                max_drawdown = current_drawdown;
+            }
+        }
+
+        if max_drawdown > dec!(0) {
+            // Annualize the return (assume trades span one year for simplicity)
+            total_return.checked_div(max_drawdown)
+        } else {
+            None // No drawdown occurred
+        }
+    }
+
+    /// Helper function to calculate square root of a Decimal using Newton's method
+    fn decimal_sqrt(value: Decimal) -> Option<Decimal> {
+        if value < dec!(0) {
+            return None;
+        }
+
+        if value == dec!(0) {
+            return Some(dec!(0));
+        }
+
+        let mut x = value;
+
+        // Newton's method: x_{n+1} = (x_n + value/x_n) / 2
+        for _ in 0..50 {
+            // Max 50 iterations
+            let prev_x = x;
+            if let Some(div) = value.checked_div(x) {
+                if let Some(sum) = x.checked_add(div) {
+                    if let Some(next_x) = sum.checked_div(dec!(2)) {
+                        x = next_x;
+
+                        // Check for convergence
+                        let diff = if x > prev_x { x - prev_x } else { prev_x - x };
+                        if diff < dec!(0.0000001) {
+                            return Some(x);
+                        }
+                    } else {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+
+        Some(x)
+    }
 }
 
 #[cfg(test)]
@@ -211,5 +543,122 @@ mod tests {
         // Expectancy = (0.3333 * 50) - (0.6667 * 150) = 16.67 - 100 = -83.33
         let expected = dec!(-83.33);
         assert!((result - expected).abs() < dec!(0.1));
+    }
+
+    #[test]
+    fn test_calculate_win_rate_empty_trades() {
+        let trades = vec![];
+        let result = AdvancedMetricsCalculator::calculate_win_rate(&trades);
+        assert_eq!(result, dec!(0));
+    }
+
+    #[test]
+    fn test_calculate_win_rate_all_wins() {
+        let trades = vec![
+            create_test_trade(dec!(100)),
+            create_test_trade(dec!(200)),
+            create_test_trade(dec!(50)),
+        ];
+        let result = AdvancedMetricsCalculator::calculate_win_rate(&trades);
+        assert_eq!(result, dec!(100));
+    }
+
+    #[test]
+    fn test_calculate_win_rate_mixed() {
+        let trades = vec![
+            create_test_trade(dec!(100)), // Win
+            create_test_trade(dec!(200)), // Win
+            create_test_trade(dec!(-50)), // Loss
+        ];
+        let result = AdvancedMetricsCalculator::calculate_win_rate(&trades);
+        // 2 wins out of 3 trades = 66.67%
+        let expected = dec!(66.666666666666666666666666667);
+        assert!((result - expected).abs() < dec!(0.1));
+    }
+
+    #[test]
+    fn test_calculate_average_r_multiple_empty_trades() {
+        let trades = vec![];
+        let result = AdvancedMetricsCalculator::calculate_average_r_multiple(&trades);
+        assert_eq!(result, dec!(0));
+    }
+
+    #[test]
+    fn test_calculate_sharpe_ratio_insufficient_data() {
+        let trades = vec![create_test_trade(dec!(100))];
+        let result = AdvancedMetricsCalculator::calculate_sharpe_ratio(&trades, dec!(0.05));
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_calculate_sortino_ratio_insufficient_data() {
+        let trades = vec![create_test_trade(dec!(100))];
+        let result = AdvancedMetricsCalculator::calculate_sortino_ratio(&trades, dec!(0.05));
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_calculate_calmar_ratio_empty_trades() {
+        let trades = vec![];
+        let result = AdvancedMetricsCalculator::calculate_calmar_ratio(&trades);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_calculate_calmar_ratio_no_drawdown() {
+        let trades = vec![
+            create_test_trade(dec!(100)),
+            create_test_trade(dec!(200)),
+            create_test_trade(dec!(50)),
+        ];
+        let result = AdvancedMetricsCalculator::calculate_calmar_ratio(&trades);
+        // No drawdown (all positive returns), so should return None
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_calculate_calmar_ratio_with_drawdown() {
+        let trades = vec![
+            create_test_trade(dec!(100)), // Running: 100, Peak: 100
+            create_test_trade(dec!(-50)), // Running: 50, Drawdown: 50
+            create_test_trade(dec!(200)), // Running: 250, Peak: 250
+        ];
+        let result = AdvancedMetricsCalculator::calculate_calmar_ratio(&trades);
+
+        // Total return: 100 - 50 + 200 = 250
+        // Max drawdown: 50
+        // Calmar ratio: 250 / 50 = 5.0
+        assert_eq!(result, Some(dec!(5.0)));
+    }
+
+    #[test]
+    fn test_decimal_sqrt_zero() {
+        let result = AdvancedMetricsCalculator::decimal_sqrt(dec!(0));
+        assert_eq!(result, Some(dec!(0)));
+    }
+
+    #[test]
+    fn test_decimal_sqrt_positive() {
+        let result = AdvancedMetricsCalculator::decimal_sqrt(dec!(4));
+        assert!(result.is_some());
+        let sqrt_result = result.unwrap();
+        // sqrt(4) should be close to 2
+        assert!((sqrt_result - dec!(2)).abs() < dec!(0.0001));
+    }
+
+    #[test]
+    fn test_decimal_sqrt_negative() {
+        let result = AdvancedMetricsCalculator::decimal_sqrt(dec!(-1));
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_decimal_sqrt_precision() {
+        let result = AdvancedMetricsCalculator::decimal_sqrt(dec!(2));
+        assert!(result.is_some());
+        let sqrt_result = result.unwrap();
+        // sqrt(2) should be close to 1.414213562373095
+        let expected = dec!(1.414213562373095);
+        assert!((sqrt_result - expected).abs() < dec!(0.01));
     }
 }
