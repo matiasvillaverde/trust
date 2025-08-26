@@ -1,6 +1,7 @@
 mod account_balance;
 mod accounts;
 mod broker_logs;
+mod worker_level;
 mod worker_order;
 mod worker_rule;
 mod worker_trade;
@@ -10,6 +11,7 @@ mod worker_transaction;
 pub use account_balance::AccountBalanceDB;
 pub use accounts::AccountDB;
 pub use broker_logs::BrokerLogDB;
+pub use worker_level::LevelDB;
 pub use worker_order::WorkerOrder;
 pub use worker_rule::WorkerRule;
 pub use worker_trade::WorkerTrade;

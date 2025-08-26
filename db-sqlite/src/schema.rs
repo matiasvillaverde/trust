@@ -137,6 +137,36 @@ diesel::table! {
 }
 
 diesel::table! {
+    level_changes (id) {
+        id -> Text,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        deleted_at -> Nullable<Timestamp>,
+        account_id -> Text,
+        old_level -> Integer,
+        new_level -> Integer,
+        change_reason -> Text,
+        trigger_type -> Text,
+        changed_at -> Timestamp,
+    }
+}
+
+diesel::table! {
+    levels (id) {
+        id -> Text,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        deleted_at -> Nullable<Timestamp>,
+        account_id -> Text,
+        current_level -> Integer,
+        risk_multiplier -> Text,
+        status -> Text,
+        trades_at_level -> Integer,
+        level_start_date -> Date,
+    }
+}
+
+diesel::table! {
     logs (id) {
         id -> Text,
         created_at -> Timestamp,
@@ -149,9 +179,25 @@ diesel::table! {
 
 diesel::joinable!(transactions -> accounts (account_id));
 diesel::joinable!(accounts_balances -> accounts (account_id));
+diesel::joinable!(level_changes -> accounts (account_id));
+diesel::joinable!(levels -> accounts (account_id));
 diesel::joinable!(orders -> trading_vehicles (trading_vehicle_id));
 diesel::joinable!(trades -> accounts (account_id));
 diesel::joinable!(trades -> trades_balances (balance_id));
 diesel::joinable!(trades -> trading_vehicles (trading_vehicle_id));
 diesel::joinable!(trades -> orders (safety_stop_id));
 diesel::joinable!(logs -> trades (trade_id));
+
+diesel::allow_tables_to_appear_in_same_query!(
+    accounts,
+    accounts_balances,
+    level_changes,
+    levels,
+    logs,
+    orders,
+    rules,
+    trades,
+    trades_balances,
+    trading_vehicles,
+    transactions,
+);
