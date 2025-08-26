@@ -10,10 +10,11 @@ use alpaca_broker::AlpacaBroker;
 use clap::ArgMatches;
 use core::TrustFacade;
 use db_sqlite::SqliteDatabase;
-use model::TransactionCategory;
+use model::{Trade, TransactionCategory};
+use rust_decimal::Decimal;
 use shellexpand::tilde;
 use std::ffi::OsString;
-use std::fs::{self, create_dir_all};
+use std::fs::create_dir_all;
 use std::path::Path;
 
 pub struct ArgDispatcher {
@@ -97,11 +98,6 @@ impl ArgDispatcher {
             Some(("metrics", sub_matches)) => match sub_matches.subcommand() {
                 Some(("advanced", sub_sub_matches)) => self.metrics_advanced(sub_sub_matches),
                 Some(("compare", sub_sub_matches)) => self.metrics_compare(sub_sub_matches),
-                _ => unreachable!("No subcommand provided"),
-            },
-            Some(("level", sub_matches)) => match sub_matches.subcommand() {
-                Some(("status", sub_sub_matches)) => self.level_status(sub_sub_matches),
-                Some(("history", sub_sub_matches)) => self.level_history(sub_sub_matches),
                 _ => unreachable!("No subcommand provided"),
             },
             Some((ext, sub_matches)) => {
@@ -650,7 +646,7 @@ impl ArgDispatcher {
             let total_risk: rust_decimal::Decimal = summary
                 .capital_at_risk
                 .iter()
-                .map(|pos| pos.capital_at_risk)
+                .map(|pos| pos.capital_amount)
                 .sum();
             println!("├─ Capital at Risk: ${:.2} ✅", total_risk);
             println!(
@@ -707,42 +703,6 @@ impl ArgDispatcher {
         }
 
         AdvancedMetricsView::display(all_trades);
-    }
-
-    fn level_status(&mut self, sub_matches: &ArgMatches) {
-        let account_id = sub_matches.get_one::<String>("account").map(|s| s.as_str());
-
-        match self.facade.get_account_level(account_id) {
-            Ok(level) => println!("{}", level),
-            Err(e) => eprintln!("Failed to get level status: {}", e),
-        }
-    }
-
-    fn level_history(&mut self, sub_matches: &ArgMatches) {
-        let account_id = sub_matches.get_one::<String>("account").map(|s| s.as_str());
-        let days = sub_matches.get_one::<u32>("days").copied().unwrap_or(90);
-
-        match self.facade.get_level_history(account_id, days) {
-            Ok(history) => {
-                if history.is_empty() {
-                    println!("No level changes found");
-                } else {
-                    println!("Level History (last {} days):", days);
-                    println!("{:<20} {:<8} {:<8} {:<30}", "Date", "From", "To", "Reason");
-                    println!("{}", "-".repeat(70));
-                    for change in history {
-                        println!(
-                            "{:<20} {:<8} {:<8} {:<30}",
-                            change.changed_at.format("%Y-%m-%d %H:%M"),
-                            change.old_level,
-                            change.new_level,
-                            change.change_reason
-                        );
-                    }
-                }
-            }
-            Err(e) => eprintln!("Failed to get level history: {}", e),
-        }
     }
 
     fn metrics_advanced(&mut self, sub_matches: &ArgMatches) {

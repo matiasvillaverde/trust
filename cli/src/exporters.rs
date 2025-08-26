@@ -173,7 +173,7 @@ mod tests {
 
         assert_eq!(result["metadata"]["total_trades"], 2);
         assert_eq!(result["metadata"]["closed_trades"], 2);
-        assert_eq!(result["metadata"]["risk_free_rate"], dec!(0.05));
+        assert_eq!(result["metadata"]["risk_free_rate"], 0.05);
         assert!(result["trade_quality_metrics"]["expectancy"].is_number());
     }
 

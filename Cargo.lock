@@ -520,6 +520,7 @@ dependencies = [
  "model",
  "rust_decimal",
  "rust_decimal_macros",
+ "serde_json",
  "shellexpand",
  "tabled",
  "uuid",
