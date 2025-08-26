@@ -36,8 +36,29 @@ impl AdvancedMetricsCalculator {
     /// * `Some(Decimal)` - The profit factor if calculable
     /// * `None` - If no losing trades exist (infinite profit factor)
     pub fn calculate_profit_factor(closed_trades: &[Trade]) -> Option<Decimal> {
-        // This will fail until we implement it
-        None
+        if closed_trades.is_empty() {
+            return None;
+        }
+
+        let gross_profit = closed_trades
+            .iter()
+            .filter(|trade| trade.balance.total_performance > dec!(0))
+            .map(|trade| trade.balance.total_performance)
+            .sum::<Decimal>();
+
+        let gross_loss = closed_trades
+            .iter()
+            .filter(|trade| trade.balance.total_performance < dec!(0))
+            .map(|trade| trade.balance.total_performance.abs())
+            .sum::<Decimal>();
+
+        if gross_loss == dec!(0) {
+            // No losses means infinite profit factor
+            return None;
+        }
+
+        // Profit Factor = Gross Profit / Gross Loss
+        gross_profit.checked_div(gross_loss)
     }
 
     /// Calculate expectancy: Average profit per trade
@@ -50,8 +71,54 @@ impl AdvancedMetricsCalculator {
     /// # Returns
     /// * `Decimal` - The expected profit per trade
     pub fn calculate_expectancy(closed_trades: &[Trade]) -> Decimal {
-        // This will fail until we implement it
-        dec!(0)
+        if closed_trades.is_empty() {
+            return dec!(0);
+        }
+
+        let wins: Vec<Decimal> = closed_trades
+            .iter()
+            .filter(|trade| trade.balance.total_performance > dec!(0))
+            .map(|trade| trade.balance.total_performance)
+            .collect();
+
+        let losses: Vec<Decimal> = closed_trades
+            .iter()
+            .filter(|trade| trade.balance.total_performance < dec!(0))
+            .map(|trade| trade.balance.total_performance.abs())
+            .collect();
+
+        let total_trades = Decimal::from(closed_trades.len());
+        let win_rate = Decimal::from(wins.len())
+            .checked_div(total_trades)
+            .unwrap_or(dec!(0));
+        let loss_rate = dec!(1) - win_rate;
+
+        let avg_win = if wins.is_empty() {
+            dec!(0)
+        } else {
+            wins.iter()
+                .sum::<Decimal>()
+                .checked_div(Decimal::from(wins.len()))
+                .unwrap_or(dec!(0))
+        };
+
+        let avg_loss = if losses.is_empty() {
+            dec!(0)
+        } else {
+            losses
+                .iter()
+                .sum::<Decimal>()
+                .checked_div(Decimal::from(losses.len()))
+                .unwrap_or(dec!(0))
+        };
+
+        // Expectancy = (Win Rate * Average Win) - (Loss Rate * Average Loss)
+        let positive_component = win_rate.checked_mul(avg_win).unwrap_or(dec!(0));
+        let negative_component = loss_rate.checked_mul(avg_loss).unwrap_or(dec!(0));
+
+        positive_component
+            .checked_sub(negative_component)
+            .unwrap_or(dec!(0))
     }
 }
 

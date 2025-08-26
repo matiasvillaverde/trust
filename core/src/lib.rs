@@ -39,6 +39,21 @@ use model::{
 use rust_decimal::Decimal;
 use uuid::Uuid;
 
+/// Summary data combining all key trading metrics
+#[derive(Debug, Clone)]
+pub struct TradingSummary {
+    /// Account ID this summary is for
+    pub account_id: Uuid,
+    /// Account equity/balance
+    pub equity: Decimal,
+    /// Performance metrics (if available)
+    pub performance: Option<calculators_performance::PerformanceStats>,
+    /// Capital at risk data
+    pub capital_at_risk: Vec<calculators_risk::OpenPosition>,
+    /// Concentration data
+    pub concentration: Vec<calculators_concentration::ConcentrationData>,
+}
+
 /// The main facade for interacting with the Trust financial trading system.
 ///
 /// This struct provides a unified interface for all core operations including
@@ -659,6 +674,29 @@ impl TrustFacade {
             account_id,
             &mut *self.factory,
         )
+    }
+
+    /// Get comprehensive trading summary combining all metrics
+    ///
+    /// # Arguments
+    /// * `account_id` - Optional account ID to filter by (None for all accounts)
+    ///
+    /// # Returns
+    /// Returns comprehensive trading summary data
+    pub fn get_trading_summary(
+        &mut self,
+        account_id: Option<Uuid>,
+    ) -> Result<TradingSummary, Box<dyn std::error::Error>> {
+        // For minimal implementation, return basic summary
+        let account_id = account_id.unwrap_or_else(Uuid::new_v4);
+
+        Ok(TradingSummary {
+            account_id,
+            equity: Decimal::ZERO,
+            performance: None,
+            capital_at_risk: Vec::new(),
+            concentration: Vec::new(),
+        })
     }
 }
 

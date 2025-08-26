@@ -40,6 +40,8 @@ pub mod currency;
 pub mod database;
 /// Trade grading and quality evaluation
 pub mod grade;
+/// Account level system and risk multipliers
+pub mod level;
 /// Order types and order management
 pub mod order;
 /// Risk management rules and enforcement
@@ -64,6 +66,7 @@ pub use database::{
     WriteTradingVehicleDB, WriteTransactionDB,
 };
 pub use grade::{Grade, GradingWeights, TradeGrade};
+pub use level::{Level, LevelChange, LevelStatus, LEVEL_MULTIPLIERS};
 pub use order::{Order, OrderAction, OrderCategory, OrderStatus, TimeInForce};
 pub use rule::{Rule, RuleLevel, RuleName};
 pub use strategy::Strategy;
