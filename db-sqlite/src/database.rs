@@ -1,5 +1,5 @@
 use crate::workers::{
-    AccountBalanceDB, AccountDB, BrokerLogDB, WorkerOrder, WorkerRule, WorkerTrade,
+    AccountBalanceDB, AccountDB, BrokerLogDB, DistributionDB, WorkerOrder, WorkerRule, WorkerTrade,
     WorkerTradingVehicle, WorkerTransaction,
 };
 use diesel::prelude::*;
@@ -8,10 +8,10 @@ use model::Status;
 use model::{
     database::{AccountWrite, WriteAccountBalanceDB},
     Account, AccountBalanceRead, AccountBalanceWrite, AccountRead, Currency, DatabaseFactory,
-    Order, OrderAction, OrderCategory, OrderRead, OrderWrite, ReadRuleDB, ReadTradeDB,
-    ReadTradingVehicleDB, ReadTransactionDB, Rule, RuleName, Trade, TradeBalance, TradingVehicle,
-    TradingVehicleCategory, Transaction, TransactionCategory, WriteRuleDB, WriteTradeDB,
-    WriteTradingVehicleDB, WriteTransactionDB,
+    DistributionRead, DistributionWrite, Order, OrderAction, OrderCategory, OrderRead, OrderWrite,
+    ReadRuleDB, ReadTradeDB, ReadTradingVehicleDB, ReadTransactionDB, Rule, RuleName, Trade,
+    TradeBalance, TradingVehicle, TradingVehicleCategory, Transaction, TransactionCategory,
+    WriteRuleDB, WriteTradeDB, WriteTradingVehicleDB, WriteTransactionDB,
 };
 use rust_decimal::Decimal;
 use std::error::Error;
@@ -102,6 +102,18 @@ impl DatabaseFactory for SqliteDatabase {
     }
     fn trading_vehicle_write(&self) -> Box<dyn WriteTradingVehicleDB> {
         Box::new(SqliteDatabase::new_from(self.connection.clone()))
+    }
+
+    fn distribution_read(&self) -> Box<dyn DistributionRead> {
+        Box::new(DistributionDB {
+            connection: self.connection.clone(),
+        })
+    }
+
+    fn distribution_write(&self) -> Box<dyn DistributionWrite> {
+        Box::new(DistributionDB {
+            connection: self.connection.clone(),
+        })
     }
 }
 

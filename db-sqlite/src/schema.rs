@@ -1,3 +1,5 @@
+// @generated automatically by Diesel CLI.
+
 diesel::table! {
     accounts (id) {
         id -> Text,
@@ -9,6 +11,8 @@ diesel::table! {
         environment -> Text,
         taxes_percentage -> Text,
         earnings_percentage -> Text,
+        account_type -> Text,
+        parent_account_id -> Nullable<Text>,
     }
 }
 
@@ -29,6 +33,103 @@ diesel::table! {
 }
 
 diesel::table! {
+    distribution_history (id) {
+        id -> Text,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        source_account_id -> Text,
+        trade_id -> Nullable<Text>,
+        original_amount -> Text,
+        distribution_date -> Timestamp,
+        earnings_amount -> Nullable<Text>,
+        tax_amount -> Nullable<Text>,
+        reinvestment_amount -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
+    distribution_rules (id) {
+        id -> Text,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        account_id -> Text,
+        earnings_percent -> Text,
+        tax_percent -> Text,
+        reinvestment_percent -> Text,
+        minimum_threshold -> Text,
+    }
+}
+
+diesel::table! {
+    level_changes (id) {
+        id -> Text,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        deleted_at -> Nullable<Timestamp>,
+        account_id -> Text,
+        old_level -> Integer,
+        new_level -> Integer,
+        change_reason -> Text,
+        trigger_type -> Text,
+        changed_at -> Timestamp,
+    }
+}
+
+diesel::table! {
+    levels (id) {
+        id -> Text,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        deleted_at -> Nullable<Timestamp>,
+        account_id -> Text,
+        current_level -> Integer,
+        risk_multiplier -> Text,
+        status -> Text,
+        trades_at_level -> Integer,
+        level_start_date -> Date,
+    }
+}
+
+diesel::table! {
+    logs (id) {
+        id -> Text,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        deleted_at -> Nullable<Timestamp>,
+        log -> Text,
+        trade_id -> Text,
+    }
+}
+
+diesel::table! {
+    orders (id) {
+        id -> Text,
+        broker_order_id -> Nullable<Text>,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        deleted_at -> Nullable<Timestamp>,
+        unit_price -> Text,
+        currency -> Text,
+        quantity -> Integer,
+        category -> Text,
+        trading_vehicle_id -> Text,
+        action -> Text,
+        status -> Text,
+        time_in_force -> Text,
+        trailing_percentage -> Nullable<Text>,
+        trailing_price -> Nullable<Text>,
+        filled_quantity -> Nullable<Integer>,
+        average_filled_price -> Nullable<Text>,
+        extended_hours -> Bool,
+        submitted_at -> Nullable<Timestamp>,
+        filled_at -> Nullable<Timestamp>,
+        expired_at -> Nullable<Timestamp>,
+        cancelled_at -> Nullable<Timestamp>,
+        closed_at -> Nullable<Timestamp>,
+    }
+}
+
+diesel::table! {
     rules (id) {
         id -> Text,
         created_at -> Timestamp,
@@ -45,57 +146,20 @@ diesel::table! {
 }
 
 diesel::table! {
-    transactions (id) {
+    trade_grades (id) {
         id -> Text,
         created_at -> Timestamp,
         updated_at -> Timestamp,
         deleted_at -> Nullable<Timestamp>,
-        currency -> Text,
-        category -> Text,
-        amount -> Text,
-        account_id -> Text,
-        trade_id -> Nullable<Text>,
-    }
-}
-
-diesel::table! {
-    trading_vehicles (id) {
-        id -> Text,
-        created_at -> Timestamp,
-        updated_at -> Timestamp,
-        deleted_at -> Nullable<Timestamp>,
-        symbol -> Text,
-        isin -> Text,
-        category -> Text,
-        broker -> Text,
-    }
-}
-
-diesel::table! {
-    orders (id) {
-        id -> Text,
-        broker_order_id -> Nullable<Text>,
-        created_at -> Timestamp,
-        updated_at -> Timestamp,
-        deleted_at -> Nullable<Timestamp>,
-        unit_price -> Text,
-        currency -> Text,
-        quantity -> BigInt,
-        category -> Text,
-        trading_vehicle_id -> Text,
-        action -> Text,
-        status -> Text,
-        time_in_force  -> Text,
-        trailing_percentage -> Nullable<Text>,
-        trailing_price -> Nullable<Text>,
-        filled_quantity -> BigInt,
-        average_filled_price-> Nullable<Text>,
-        extended_hours-> Bool,
-        submitted_at -> Nullable<Timestamp>,
-        filled_at -> Nullable<Timestamp>,
-        expired_at -> Nullable<Timestamp>,
-        cancelled_at -> Nullable<Timestamp>,
-        closed_at -> Nullable<Timestamp>,
+        trade_id -> Text,
+        overall_score -> Integer,
+        overall_grade -> Text,
+        process_score -> Integer,
+        risk_score -> Integer,
+        execution_score -> Integer,
+        documentation_score -> Integer,
+        recommendations -> Nullable<Text>,
+        graded_at -> Timestamp,
     }
 }
 
@@ -137,21 +201,60 @@ diesel::table! {
 }
 
 diesel::table! {
-    logs (id) {
+    trading_vehicles (id) {
         id -> Text,
         created_at -> Timestamp,
         updated_at -> Timestamp,
         deleted_at -> Nullable<Timestamp>,
-        log -> Text,
-        trade_id -> Text,
+        symbol -> Text,
+        isin -> Text,
+        category -> Text,
+        broker -> Text,
     }
 }
 
-diesel::joinable!(transactions -> accounts (account_id));
+diesel::table! {
+    transactions (id) {
+        id -> Text,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        deleted_at -> Nullable<Timestamp>,
+        currency -> Text,
+        category -> Text,
+        amount -> Text,
+        account_id -> Text,
+        trade_id -> Nullable<Text>,
+    }
+}
+
 diesel::joinable!(accounts_balances -> accounts (account_id));
+diesel::joinable!(distribution_history -> accounts (source_account_id));
+diesel::joinable!(distribution_history -> trades (trade_id));
+diesel::joinable!(distribution_rules -> accounts (account_id));
+diesel::joinable!(level_changes -> accounts (account_id));
+diesel::joinable!(levels -> accounts (account_id));
+diesel::joinable!(logs -> trades (trade_id));
 diesel::joinable!(orders -> trading_vehicles (trading_vehicle_id));
+diesel::joinable!(rules -> accounts (account_id));
+diesel::joinable!(trade_grades -> trades (trade_id));
 diesel::joinable!(trades -> accounts (account_id));
 diesel::joinable!(trades -> trades_balances (balance_id));
 diesel::joinable!(trades -> trading_vehicles (trading_vehicle_id));
-diesel::joinable!(trades -> orders (safety_stop_id));
-diesel::joinable!(logs -> trades (trade_id));
+diesel::joinable!(transactions -> accounts (account_id));
+
+diesel::allow_tables_to_appear_in_same_query!(
+    accounts,
+    accounts_balances,
+    distribution_history,
+    distribution_rules,
+    level_changes,
+    levels,
+    logs,
+    orders,
+    rules,
+    trade_grades,
+    trades,
+    trades_balances,
+    trading_vehicles,
+    transactions,
+);

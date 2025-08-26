@@ -47,6 +47,8 @@ impl AccountWrite for AccountDB {
             environment: environment.to_string(),
             taxes_percentage: taxes_percentage.to_string(),
             earnings_percentage: earnings_percentage.to_string(),
+            account_type: "primary".to_string(), // Default to primary account type
+            parent_account_id: None,             // No parent by default
         };
 
         let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap_or_else(|e| {
@@ -128,12 +130,31 @@ pub struct AccountSQLite {
     pub environment: String,
     pub taxes_percentage: String,
     pub earnings_percentage: String,
+    pub account_type: String,
+    pub parent_account_id: Option<String>,
 }
 
 impl TryFrom<AccountSQLite> for Account {
     type Error = ConversionError;
 
     fn try_from(value: AccountSQLite) -> Result<Self, Self::Error> {
+        let account_type = match value.account_type.as_str() {
+            "primary" => AccountType::Primary,
+            "earnings" => AccountType::Earnings,
+            "tax_reserve" => AccountType::TaxReserve,
+            "reinvestment" => AccountType::Reinvestment,
+            _ => AccountType::Primary, // Default to Primary for unknown types
+        };
+
+        let parent_account_id = value
+            .parent_account_id
+            .as_ref()
+            .map(|id| Uuid::parse_str(id))
+            .transpose()
+            .map_err(|_| {
+                ConversionError::new("parent_account_id", "Failed to parse parent account ID")
+            })?;
+
         Ok(Account {
             id: Uuid::parse_str(&value.id)
                 .map_err(|_| ConversionError::new("id", "Failed to parse account ID"))?,
@@ -150,8 +171,8 @@ impl TryFrom<AccountSQLite> for Account {
             earnings_percentage: Decimal::from_str(&value.earnings_percentage).map_err(|_| {
                 ConversionError::new("earnings_percentage", "Failed to parse earnings percentage")
             })?,
-            account_type: AccountType::Primary, // Default to Primary for existing accounts
-            parent_account_id: None,            // Existing accounts have no parent
+            account_type,
+            parent_account_id,
         })
     }
 }
@@ -175,6 +196,8 @@ struct NewAccount {
     environment: String,
     taxes_percentage: String,
     earnings_percentage: String,
+    account_type: String,
+    parent_account_id: Option<String>,
 }
 
 #[cfg(test)]
