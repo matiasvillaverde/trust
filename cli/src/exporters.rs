@@ -158,8 +158,18 @@ mod tests {
         let trades = vec![];
         let result = MetricsExporter::to_json(&trades, None);
 
-        assert_eq!(result["metadata"]["total_trades"], 0);
-        assert_eq!(result["metadata"]["closed_trades"], 0);
+        assert_eq!(
+            result.get("metadata").unwrap().get("total_trades").unwrap(),
+            0
+        );
+        assert_eq!(
+            result
+                .get("metadata")
+                .unwrap()
+                .get("closed_trades")
+                .unwrap(),
+            0
+        );
     }
 
     #[test]
@@ -167,10 +177,32 @@ mod tests {
         let trades = vec![create_test_trade(dec!(100)), create_test_trade(dec!(-50))];
         let result = MetricsExporter::to_json(&trades, Some(dec!(0.05)));
 
-        assert_eq!(result["metadata"]["total_trades"], 2);
-        assert_eq!(result["metadata"]["closed_trades"], 2);
-        assert_eq!(result["metadata"]["risk_free_rate"], 0.05);
-        assert!(result["trade_quality_metrics"]["expectancy"].is_number());
+        assert_eq!(
+            result.get("metadata").unwrap().get("total_trades").unwrap(),
+            2
+        );
+        assert_eq!(
+            result
+                .get("metadata")
+                .unwrap()
+                .get("closed_trades")
+                .unwrap(),
+            2
+        );
+        assert_eq!(
+            result
+                .get("metadata")
+                .unwrap()
+                .get("risk_free_rate")
+                .unwrap(),
+            0.05
+        );
+        assert!(result
+            .get("trade_quality_metrics")
+            .unwrap()
+            .get("expectancy")
+            .unwrap()
+            .is_number());
     }
 
     #[test]

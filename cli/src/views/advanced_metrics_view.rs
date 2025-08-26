@@ -270,8 +270,14 @@ mod tests {
 
         let closed_trades = AdvancedMetricsView::filter_closed_trades(&trades);
         assert_eq!(closed_trades.len(), 2);
-        assert!(matches!(closed_trades[0].status, Status::ClosedTarget));
-        assert!(matches!(closed_trades[1].status, Status::ClosedStopLoss));
+        assert!(matches!(
+            closed_trades.get(0).unwrap().status,
+            Status::ClosedTarget
+        ));
+        assert!(matches!(
+            closed_trades.get(1).unwrap().status,
+            Status::ClosedStopLoss
+        ));
     }
 
     #[test]
