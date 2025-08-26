@@ -13,9 +13,8 @@ use db_sqlite::SqliteDatabase;
 use model::TransactionCategory;
 use shellexpand::tilde;
 use std::ffi::OsString;
-use std::fs::create_dir_all;
+use std::fs::{self, create_dir_all};
 use std::path::Path;
-use std::fs;
 
 pub struct ArgDispatcher {
     trust: TrustFacade,
