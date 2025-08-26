@@ -158,24 +158,35 @@ impl TradeGradingCalculator {
         let mut score = 100u8;
 
         // Check thesis documentation
-        if trade.thesis.is_none() || trade.thesis.as_ref().unwrap().trim().is_empty() {
-            score = score.saturating_sub(40); // Major deduction for no thesis
-        } else if trade.thesis.as_ref().unwrap().len() < 20 {
-            score = score.saturating_sub(20); // Deduction for minimal thesis
+        match &trade.thesis {
+            None => {
+                score = score.saturating_sub(40); // Major deduction for no thesis
+            }
+            Some(thesis) if thesis.trim().is_empty() => {
+                score = score.saturating_sub(40); // Major deduction for empty thesis
+            }
+            Some(thesis) if thesis.len() < 20 => {
+                score = score.saturating_sub(20); // Deduction for minimal thesis
+            }
+            _ => {}
         }
 
         // Check sector classification
-        if trade.sector.is_none() || trade.sector.as_ref().unwrap().trim().is_empty() {
+        if trade.sector.as_ref().map_or(true, |s| s.trim().is_empty()) {
             score = score.saturating_sub(15);
         }
 
         // Check asset class documentation
-        if trade.asset_class.is_none() || trade.asset_class.as_ref().unwrap().trim().is_empty() {
+        if trade
+            .asset_class
+            .as_ref()
+            .map_or(true, |ac| ac.trim().is_empty())
+        {
             score = score.saturating_sub(15);
         }
 
         // Check trading context
-        if trade.context.is_none() || trade.context.as_ref().unwrap().trim().is_empty() {
+        if trade.context.as_ref().map_or(true, |c| c.trim().is_empty()) {
             score = score.saturating_sub(30); // Context is important for learning
         }
 
@@ -257,10 +268,10 @@ impl TradeGradingCalculator {
         }
 
         if documentation_score < 80 {
-            if trade.thesis.is_none() || trade.thesis.as_ref().unwrap().trim().is_empty() {
+            if trade.thesis.as_ref().map_or(true, |t| t.trim().is_empty()) {
                 recommendations.push("Always document trade thesis before entry".to_string());
             }
-            if trade.context.is_none() || trade.context.as_ref().unwrap().trim().is_empty() {
+            if trade.context.as_ref().map_or(true, |c| c.trim().is_empty()) {
                 recommendations
                     .push("Add technical analysis context for future reference".to_string());
             }
@@ -275,8 +286,8 @@ impl TradeGradingCalculator {
         let stop = trade.safety_stop.unit_price;
         let target = trade.target.unit_price;
 
-        let risk = (entry - stop).abs();
-        let reward = (target - entry).abs();
+        let risk = entry.checked_sub(stop).unwrap_or(dec!(0)).abs();
+        let reward = target.checked_sub(entry).unwrap_or(dec!(0)).abs();
 
         if risk > dec!(0) {
             reward.checked_div(risk).unwrap_or(dec!(0))
@@ -291,7 +302,14 @@ impl TradeGradingCalculator {
         let stop = trade.safety_stop.unit_price;
 
         if entry > dec!(0) {
-            ((entry - stop).abs().checked_div(entry).unwrap_or(dec!(0))) * dec!(100)
+            entry
+                .checked_sub(stop)
+                .unwrap_or(dec!(0))
+                .abs()
+                .checked_div(entry)
+                .unwrap_or(dec!(0))
+                .checked_mul(dec!(100))
+                .unwrap_or(dec!(0))
         } else {
             dec!(0)
         }
@@ -299,16 +317,22 @@ impl TradeGradingCalculator {
 
     /// Validate that grading weights sum to approximately 1.0
     fn validate_weights(weights: &GradingWeights) -> Result<(), GradingError> {
-        let sum = weights.process_weight
-            + weights.risk_weight
-            + weights.execution_weight
-            + weights.documentation_weight;
+        let sum = weights
+            .process_weight
+            .checked_add(weights.risk_weight)
+            .and_then(|partial| partial.checked_add(weights.execution_weight))
+            .and_then(|partial| partial.checked_add(weights.documentation_weight))
+            .ok_or(GradingError::ArithmeticError)?;
 
         // Allow for small floating point errors
-        if (sum - dec!(1.0)).abs() > dec!(0.01) {
+        let diff = sum
+            .checked_sub(dec!(1.0))
+            .ok_or(GradingError::ArithmeticError)?
+            .abs();
+
+        if diff > dec!(0.01) {
             return Err(GradingError::InvalidWeights(format!(
-                "Weights sum to {} but must sum to 1.0",
-                sum
+                "Weights sum to {sum} but must sum to 1.0"
             )));
         }
 
@@ -343,6 +367,7 @@ mod tests {
     };
     use uuid::Uuid;
 
+    #[allow(clippy::too_many_lines)]
     fn create_test_trade(
         entry_price: Decimal,
         stop_price: Decimal,

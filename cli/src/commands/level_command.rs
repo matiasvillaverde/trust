@@ -69,7 +69,7 @@ mod tests {
     fn test_level_command_builder_new() {
         let builder = LevelCommandBuilder::new();
         let command = builder.build();
-        
+
         assert_eq!(command.get_name(), "level");
         assert!(command.is_arg_required_else_help_set());
     }
@@ -78,7 +78,7 @@ mod tests {
     fn test_status_subcommand() {
         let builder = LevelCommandBuilder::new();
         let command = builder.status_command().build();
-        
+
         let subcommands: Vec<&str> = command.get_subcommands().map(|c| c.get_name()).collect();
         assert!(subcommands.contains(&"status"));
     }
@@ -87,7 +87,7 @@ mod tests {
     fn test_history_subcommand() {
         let builder = LevelCommandBuilder::new();
         let command = builder.history_command().build();
-        
+
         let subcommands: Vec<&str> = command.get_subcommands().map(|c| c.get_name()).collect();
         assert!(subcommands.contains(&"history"));
     }
@@ -96,7 +96,7 @@ mod tests {
     fn test_both_subcommands() {
         let builder = LevelCommandBuilder::new();
         let command = builder.status_command().history_command().build();
-        
+
         let subcommands: Vec<&str> = command.get_subcommands().map(|c| c.get_name()).collect();
         assert!(subcommands.contains(&"status"));
         assert!(subcommands.contains(&"history"));
@@ -107,15 +107,17 @@ mod tests {
     fn test_history_command_has_days_arg() {
         let builder = LevelCommandBuilder::new();
         let command = builder.history_command().build();
-        
-        let history_cmd = command.get_subcommands()
+
+        let history_cmd = command
+            .get_subcommands()
             .find(|c| c.get_name() == "history")
             .expect("History command should exist");
-            
-        let days_arg = history_cmd.get_arguments()
+
+        let days_arg = history_cmd
+            .get_arguments()
             .find(|a| a.get_id() == "days")
             .expect("Days argument should exist");
-            
+
         assert_eq!(days_arg.get_default_values(), &["90"]);
     }
 }

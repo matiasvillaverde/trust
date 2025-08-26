@@ -78,9 +78,12 @@ impl Level {
     /// Get the risk multiplier for a given level
     pub fn multiplier_for_level(level: u8) -> Result<Decimal, String> {
         if level > 4 {
-            return Err(format!("Invalid level: {}. Must be 0-4", level));
+            return Err(format!("Invalid level: {level}. Must be 0-4"));
         }
-        Ok(LEVEL_MULTIPLIERS[level as usize])
+        LEVEL_MULTIPLIERS
+            .get(level as usize)
+            .copied()
+            .ok_or_else(|| format!("Invalid level index: {level}"))
     }
 
     /// Get human-readable level description
