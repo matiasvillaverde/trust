@@ -1,5 +1,6 @@
 mod account_view;
 mod advanced_metrics_view;
+mod concentration_view;
 mod drawdown_view;
 mod log_view;
 mod order_view;
@@ -12,6 +13,7 @@ mod transaction_view;
 
 pub use account_view::{AccountBalanceView, AccountView};
 pub use advanced_metrics_view::AdvancedMetricsView;
+pub use concentration_view::ConcentrationView;
 pub use drawdown_view::DrawdownView;
 pub use log_view::LogView;
 pub use order_view::OrderView;

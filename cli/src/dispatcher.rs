@@ -13,6 +13,8 @@ use db_sqlite::SqliteDatabase;
 use model::TransactionCategory;
 use shellexpand::tilde;
 use std::ffi::OsString;
+use std::fs::create_dir_all;
+use std::path::Path;
 use std::fs;
 
 pub struct ArgDispatcher {
@@ -499,6 +501,8 @@ impl ArgDispatcher {
     }
 
     fn concentration_report(&mut self, sub_matches: &ArgMatches) {
+        use crate::views::ConcentrationView;
+        use core::calculators_concentration::{ConcentrationCalculator, MetadataField};
         use std::str::FromStr;
         use uuid::Uuid;
 
@@ -515,27 +519,69 @@ impl ArgDispatcher {
             None
         };
 
-        // Calculate concentration data
-        let concentration_data = match self.trust.calculate_portfolio_concentration(account_id) {
-            Ok(data) => data,
-            Err(e) => {
-                eprintln!("Error calculating portfolio concentration: {e}");
-                return;
+        // Check if open-only flag is set
+        let open_only = sub_matches.get_flag("open-only");
+
+        // Get all trades (or filter by account)
+        let all_trades = if let Some(id) = account_id {
+            // Get trades for specific account - need to get all statuses
+            let mut trades = Vec::new();
+            for status in model::Status::all() {
+                if let Ok(mut status_trades) = self.trust.search_trades(id, status) {
+                    trades.append(&mut status_trades);
+                }
+            }
+            trades
+        } else {
+            // Get trades for all accounts
+            match self.trust.search_all_accounts() {
+                Ok(accounts) => {
+                    let mut all_trades = Vec::new();
+                    for account in accounts {
+                        for status in model::Status::all() {
+                            if let Ok(mut trades) = self.trust.search_trades(account.id, status) {
+                                all_trades.append(&mut trades);
+                            }
+                        }
+                    }
+                    all_trades
+                }
+                Err(e) => {
+                    eprintln!("Error fetching accounts: {e}");
+                    return;
+                }
             }
         };
 
-        if concentration_data.is_empty() {
-            println!("No concentration data available - portfolio is empty or no positions found.");
-        } else {
-            println!("Portfolio Concentration Report");
-            println!("============================");
-            for data in concentration_data {
-                println!(
-                    "{:?}: {:.1}% ({} positions)",
-                    data.category, data.percentage, data.position_count
-                );
-            }
+        if all_trades.is_empty() {
+            println!("\nNo trades found for the specified criteria.\n");
+            return;
         }
+
+        // Filter for open positions if requested
+        let trades_to_analyze = if open_only {
+            ConcentrationCalculator::filter_open_trades(&all_trades)
+        } else {
+            all_trades
+        };
+
+        if trades_to_analyze.is_empty() {
+            println!("\nNo open trades found for the specified criteria.\n");
+            return;
+        }
+
+        // Analyze concentration by sector
+        let sector_analysis =
+            ConcentrationCalculator::analyze_by_metadata(&trades_to_analyze, MetadataField::Sector);
+
+        // Analyze concentration by asset class
+        let asset_class_analysis = ConcentrationCalculator::analyze_by_metadata(
+            &trades_to_analyze,
+            MetadataField::AssetClass,
+        );
+
+        // Display the results
+        ConcentrationView::display(sector_analysis, asset_class_analysis, open_only);
     }
 
     fn summary_report(&mut self, sub_matches: &ArgMatches) {
@@ -702,13 +748,10 @@ fn create_dir_if_necessary() {
     let directory_path = tilde("~/.trust").to_string();
 
     // Check if directory already exists or not
-    if fs::metadata(&directory_path).is_ok() {
+    if Path::new(&directory_path).exists() {
         return;
     }
 
-    // We need to create a directory
-    match fs::create_dir(directory_path.clone()) {
-        Ok(_) => println!("Directory {directory_path} created successfully!"),
-        Err(err) => eprintln!("Failed to create directory: {err}"),
-    }
+    // Create directory
+    let _result = create_dir_all(&directory_path);
 }
