@@ -11,6 +11,8 @@ diesel::table! {
         environment -> Text,
         taxes_percentage -> Text,
         earnings_percentage -> Text,
+        account_type -> Text,
+        parent_account_id -> Nullable<Text>,
     }
 }
 
@@ -72,6 +74,35 @@ diesel::table! {
         recovery_consecutive_wins -> Integer,
         min_trades_at_level_for_upgrade -> Integer,
         max_changes_in_30_days -> Integer,
+    }
+}
+
+diesel::table! {
+    distribution_history (id) {
+        id -> Text,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        source_account_id -> Text,
+        trade_id -> Nullable<Text>,
+        original_amount -> Text,
+        distribution_date -> Timestamp,
+        earnings_amount -> Nullable<Text>,
+        tax_amount -> Nullable<Text>,
+        reinvestment_amount -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
+    distribution_rules (id) {
+        id -> Text,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        account_id -> Text,
+        earnings_percent -> Text,
+        tax_percent -> Text,
+        reinvestment_percent -> Text,
+        minimum_threshold -> Text,
+        configuration_password_hash -> Text,
     }
 }
 
@@ -281,6 +312,9 @@ diesel::joinable!(levels -> accounts (account_id));
 diesel::joinable!(logs -> trades (trade_id));
 diesel::joinable!(broker_events -> accounts (account_id));
 diesel::joinable!(broker_events -> trades (trade_id));
+diesel::joinable!(distribution_history -> accounts (source_account_id));
+diesel::joinable!(distribution_history -> trades (trade_id));
+diesel::joinable!(distribution_rules -> accounts (account_id));
 diesel::joinable!(orders -> trading_vehicles (trading_vehicle_id));
 diesel::joinable!(rules -> accounts (account_id));
 diesel::joinable!(trade_grades -> trades (trade_id));
@@ -296,6 +330,8 @@ diesel::allow_tables_to_appear_in_same_query!(
     executions,
     broker_events,
     level_adjustment_rules,
+    distribution_history,
+    distribution_rules,
     level_changes,
     levels,
     logs,

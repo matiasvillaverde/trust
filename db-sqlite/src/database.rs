@@ -1,6 +1,7 @@
 use crate::workers::{
     AccountBalanceDB, AccountDB, BrokerLogDB, WorkerExecution, WorkerLevel, WorkerOrder,
     WorkerRule, WorkerTrade, WorkerTradeGrade, WorkerTradingVehicle, WorkerTransaction,
+    DistributionDB,
 };
 use crate::{backup, backup::ImportOptions};
 use diesel::prelude::*;
@@ -12,9 +13,10 @@ use model::{
     database::{AccountWrite, WriteAccountBalanceDB},
     Account, AccountBalanceRead, AccountBalanceWrite, AccountRead, Currency, DatabaseFactory,
     Execution, Level, LevelAdjustmentRules, LevelChange, Order, OrderAction, OrderCategory,
-    OrderRead, OrderWrite, ReadExecutionDB, ReadLevelDB, ReadRuleDB, ReadTradeDB, ReadTradeGradeDB,
-    ReadTradingVehicleDB, ReadTransactionDB, Rule, RuleName, Trade, TradeBalance, TradeGrade,
-    TradingVehicle, TradingVehicleCategory, Transaction, TransactionCategory, WriteExecutionDB,
+    DistributionRead, DistributionWrite, OrderRead, OrderWrite, ReadExecutionDB, ReadLevelDB,
+    ReadRuleDB, ReadTradeDB, ReadTradeGradeDB, ReadTradingVehicleDB, ReadTransactionDB, Rule,
+    RuleName, Trade, TradeBalance, TradeGrade, TradingVehicle, TradingVehicleCategory,
+    Transaction, TransactionCategory, WriteExecutionDB,
     WriteLevelDB, WriteRuleDB, WriteTradeDB, WriteTradeGradeDB, WriteTradingVehicleDB,
     WriteTransactionDB,
 };
@@ -144,6 +146,18 @@ impl DatabaseFactory for SqliteDatabase {
 
     fn level_write(&self) -> Box<dyn WriteLevelDB> {
         Box::new(SqliteDatabase::new_from(self.connection.clone()))
+    }
+
+    fn distribution_read(&self) -> Box<dyn DistributionRead> {
+        Box::new(DistributionDB {
+            connection: self.connection.clone(),
+        })
+    }
+
+    fn distribution_write(&self) -> Box<dyn DistributionWrite> {
+        Box::new(DistributionDB {
+            connection: self.connection.clone(),
+        })
     }
 }
 
