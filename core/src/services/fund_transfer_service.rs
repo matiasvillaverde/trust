@@ -1,5 +1,4 @@
-use model::database::WriteAccountBalanceDB;
-use model::{Account, AccountType, Currency, DatabaseFactory, TransactionCategory};
+use model::{Account, Currency, DatabaseFactory};
 use rust_decimal::Decimal;
 use std::error::Error;
 use uuid::Uuid;
