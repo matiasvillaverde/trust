@@ -41,6 +41,7 @@ use commands::RuleCommandBuilder;
 mod commands;
 mod dialogs;
 mod dispatcher;
+mod exporters;
 mod views;
 
 fn main() {

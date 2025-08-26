@@ -803,7 +803,52 @@ impl ArgDispatcher {
             return;
         }
 
+        // Handle export if requested
+        if let Some(export_format) = sub_matches.get_one::<String>("export") {
+            let output_file = sub_matches
+                .get_one::<String>("output")
+                .map(|s| s.clone())
+                .unwrap_or_else(|| format!("metrics.{}", export_format));
+
+            match self.export_metrics(&all_trades, export_format, &output_file, _risk_free_rate) {
+                Ok(()) => {
+                    println!("Metrics exported to: {}", output_file);
+                    return;
+                }
+                Err(e) => {
+                    eprintln!("Export failed: {}", e);
+                    // Continue with normal display
+                }
+            }
+        }
+
         AdvancedMetricsView::display(all_trades);
+    }
+
+    fn export_metrics(
+        &self,
+        trades: &[Trade],
+        format: &str,
+        output_file: &str,
+        risk_free_rate: Decimal,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        use crate::exporters::MetricsExporter;
+        use std::fs::File;
+        use std::io::Write;
+
+        let content = match format {
+            "json" => {
+                let json = MetricsExporter::to_json(trades, Some(risk_free_rate));
+                serde_json::to_string_pretty(&json)?
+            }
+            "csv" => MetricsExporter::to_csv(trades, Some(risk_free_rate)),
+            _ => return Err("Unsupported export format".into()),
+        };
+
+        let mut file = File::create(output_file)?;
+        file.write_all(content.as_bytes())?;
+
+        Ok(())
     }
 
     fn metrics_compare(&mut self, sub_matches: &ArgMatches) {

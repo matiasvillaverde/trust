@@ -509,13 +509,15 @@ impl AdvancedMetricsCalculator {
         returns.sort();
 
         // Calculate VaR using historical simulation method
-        let percentile_index = (dec!(1) - confidence_level)
+        let percentile_index = dec!(1)
+            .checked_sub(confidence_level)
+            .unwrap_or(dec!(0))
             .checked_mul(Decimal::from(returns.len()))
             .and_then(|idx| idx.to_usize())
             .unwrap_or(0);
 
         if percentile_index < returns.len() {
-            Some(returns[percentile_index])
+            returns.get(percentile_index).copied()
         } else {
             returns.first().copied()
         }
@@ -597,12 +599,14 @@ impl AdvancedMetricsCalculator {
             return 0;
         }
 
-        let mut max_consecutive = 0;
-        let mut current_consecutive = 0;
+        let mut max_consecutive: u32 = 0;
+        let mut current_consecutive: u32 = 0;
 
         for trade in closed_trades {
             if trade.balance.total_performance < dec!(0) {
-                current_consecutive += 1;
+                current_consecutive = current_consecutive
+                    .checked_add(1u32)
+                    .unwrap_or(current_consecutive);
                 max_consecutive = max_consecutive.max(current_consecutive);
             } else {
                 current_consecutive = 0;
@@ -624,12 +628,14 @@ impl AdvancedMetricsCalculator {
             return 0;
         }
 
-        let mut max_consecutive = 0;
-        let mut current_consecutive = 0;
+        let mut max_consecutive: u32 = 0;
+        let mut current_consecutive: u32 = 0;
 
         for trade in closed_trades {
             if trade.balance.total_performance > dec!(0) {
-                current_consecutive += 1;
+                current_consecutive = current_consecutive
+                    .checked_add(1u32)
+                    .unwrap_or(current_consecutive);
                 max_consecutive = max_consecutive.max(current_consecutive);
             } else {
                 current_consecutive = 0;

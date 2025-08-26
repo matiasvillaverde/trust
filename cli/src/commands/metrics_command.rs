@@ -45,6 +45,22 @@ impl MetricsCommandBuilder {
                         .help("Risk-free rate for Sharpe/Sortino calculations (default: 0.05)")
                         .value_parser(clap::value_parser!(f64))
                         .required(false),
+                )
+                .arg(
+                    Arg::new("export")
+                        .long("export")
+                        .value_name("FORMAT")
+                        .help("Export metrics to file (json, csv)")
+                        .value_parser(["json", "csv"])
+                        .required(false),
+                )
+                .arg(
+                    Arg::new("output")
+                        .short('o')
+                        .long("output")
+                        .value_name("FILE")
+                        .help("Output file path (default: metrics.{format})")
+                        .required(false),
                 ),
         );
         self
