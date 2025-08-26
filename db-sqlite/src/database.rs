@@ -10,8 +10,8 @@ use model::{
     Account, AccountBalanceRead, AccountBalanceWrite, AccountRead, Currency, DatabaseFactory,
     Order, OrderAction, OrderCategory, OrderRead, OrderWrite, ReadLevelDB, ReadRuleDB, ReadTradeDB,
     ReadTradingVehicleDB, ReadTransactionDB, Rule, RuleName, Trade, TradeBalance, TradingVehicle,
-    TradingVehicleCategory, Transaction, TransactionCategory, WriteLevelDB, WriteRuleDB, WriteTradeDB,
-    WriteTradingVehicleDB, WriteTransactionDB,
+    TradingVehicleCategory, Transaction, TransactionCategory, WriteLevelDB, WriteRuleDB,
+    WriteTradeDB, WriteTradingVehicleDB, WriteTransactionDB,
 };
 use rust_decimal::Decimal;
 use std::error::Error;

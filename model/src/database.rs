@@ -366,9 +366,16 @@ pub trait ReadLevelDB {
     /// Retrieves the current level for an account
     fn level_for_account(&mut self, account_id: Uuid) -> Result<Level, Box<dyn Error>>;
     /// Retrieves all level changes for an account
-    fn level_changes_for_account(&mut self, account_id: Uuid) -> Result<Vec<LevelChange>, Box<dyn Error>>;
+    fn level_changes_for_account(
+        &mut self,
+        account_id: Uuid,
+    ) -> Result<Vec<LevelChange>, Box<dyn Error>>;
     /// Retrieves recent level changes for an account within specified days
-    fn recent_level_changes(&mut self, account_id: Uuid, days: u32) -> Result<Vec<LevelChange>, Box<dyn Error>>;
+    fn recent_level_changes(
+        &mut self,
+        account_id: Uuid,
+        days: u32,
+    ) -> Result<Vec<LevelChange>, Box<dyn Error>>;
 }
 
 /// Trait for writing level data to the database
@@ -378,5 +385,8 @@ pub trait WriteLevelDB {
     /// Updates an existing level
     fn update_level(&mut self, level: &Level) -> Result<Level, Box<dyn Error>>;
     /// Creates a level change record
-    fn create_level_change(&mut self, level_change: &LevelChange) -> Result<LevelChange, Box<dyn Error>>;
+    fn create_level_change(
+        &mut self,
+        level_change: &LevelChange,
+    ) -> Result<LevelChange, Box<dyn Error>>;
 }

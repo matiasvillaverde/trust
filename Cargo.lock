@@ -552,6 +552,7 @@ dependencies = [
  "model",
  "rust_decimal",
  "rust_decimal_macros",
+ "thiserror 1.0.69",
  "uuid",
 ]
 
@@ -728,6 +729,7 @@ dependencies = [
  "model",
  "rust_decimal",
  "rust_decimal_macros",
+ "serde_json",
  "tracing",
  "tracing-subscriber",
  "uuid",

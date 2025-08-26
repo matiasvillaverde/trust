@@ -101,6 +101,29 @@ impl ReportCommandBuilder {
         );
         self
     }
+
+    pub fn metrics(mut self) -> Self {
+        self.subcommands.push(
+            Command::new("metrics")
+                .about("Display advanced financial metrics (profit factor, expectancy, etc.)")
+                .arg(
+                    Arg::new("account")
+                        .long("account")
+                        .value_name("ACCOUNT_ID")
+                        .help("Filter by specific account ID")
+                        .required(false),
+                )
+                .arg(
+                    Arg::new("days")
+                        .long("days")
+                        .value_name("DAYS")
+                        .help("Filter trades from the last N days")
+                        .value_parser(clap::value_parser!(u32))
+                        .required(false),
+                ),
+        );
+        self
+    }
 }
 
 impl Default for ReportCommandBuilder {

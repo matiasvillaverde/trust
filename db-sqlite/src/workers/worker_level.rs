@@ -2,7 +2,9 @@ use crate::error::{ConversionError, IntoDomainModel, IntoDomainModels};
 use crate::schema::{level_changes, levels};
 use chrono::{NaiveDate, NaiveDateTime, Utc};
 use diesel::prelude::*;
-use model::{Account, Level, LevelChange, LevelStatus, ReadLevelDB, WriteLevelDB, LEVEL_MULTIPLIERS};
+use model::{
+    Account, Level, LevelChange, LevelStatus, ReadLevelDB, WriteLevelDB, LEVEL_MULTIPLIERS,
+};
 use rust_decimal::Decimal;
 use std::error::Error;
 use std::str::FromStr;
@@ -36,13 +38,19 @@ impl ReadLevelDB for LevelDB {
             .filter(levels::deleted_at.is_null())
             .first::<LevelSQLite>(connection)
             .map_err(|error| {
-                error!("Error reading level for account {}: {:?}", account_id, error);
+                error!(
+                    "Error reading level for account {}: {:?}",
+                    account_id, error
+                );
                 error
             })?
             .into_domain_model()
     }
 
-    fn level_changes_for_account(&mut self, account_id: Uuid) -> Result<Vec<LevelChange>, Box<dyn Error>> {
+    fn level_changes_for_account(
+        &mut self,
+        account_id: Uuid,
+    ) -> Result<Vec<LevelChange>, Box<dyn Error>> {
         let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap_or_else(|e| {
             eprintln!("Failed to acquire connection lock: {e}");
             std::process::exit(1);
@@ -54,13 +62,20 @@ impl ReadLevelDB for LevelDB {
             .order(level_changes::changed_at.desc())
             .load::<LevelChangeSQLite>(connection)
             .map_err(|error| {
-                error!("Error reading level changes for account {}: {:?}", account_id, error);
+                error!(
+                    "Error reading level changes for account {}: {:?}",
+                    account_id, error
+                );
                 error
             })?
             .into_domain_models()
     }
 
-    fn recent_level_changes(&mut self, account_id: Uuid, days: u32) -> Result<Vec<LevelChange>, Box<dyn Error>> {
+    fn recent_level_changes(
+        &mut self,
+        account_id: Uuid,
+        days: u32,
+    ) -> Result<Vec<LevelChange>, Box<dyn Error>> {
         let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap_or_else(|e| {
             eprintln!("Failed to acquire connection lock: {e}");
             std::process::exit(1);
@@ -75,7 +90,10 @@ impl ReadLevelDB for LevelDB {
             .order(level_changes::changed_at.desc())
             .load::<LevelChangeSQLite>(connection)
             .map_err(|error| {
-                error!("Error reading recent level changes for account {}: {:?}", account_id, error);
+                error!(
+                    "Error reading recent level changes for account {}: {:?}",
+                    account_id, error
+                );
                 error
             })?
             .into_domain_models()
@@ -91,7 +109,7 @@ impl WriteLevelDB for LevelDB {
 
         let now = Utc::now().naive_utc();
         let today = now.date();
-        
+
         let new_level = NewLevel {
             id: Uuid::new_v4().to_string(),
             created_at: now,
@@ -108,7 +126,10 @@ impl WriteLevelDB for LevelDB {
             .values(&new_level)
             .get_result::<LevelSQLite>(connection)
             .map_err(|error| {
-                error!("Error creating default level for account {}: {:?}", account.id, error);
+                error!(
+                    "Error creating default level for account {}: {:?}",
+                    account.id, error
+                );
                 error
             })?
             .into_domain_model()
@@ -139,7 +160,10 @@ impl WriteLevelDB for LevelDB {
             .into_domain_model()
     }
 
-    fn create_level_change(&mut self, level_change: &LevelChange) -> Result<LevelChange, Box<dyn Error>> {
+    fn create_level_change(
+        &mut self,
+        level_change: &LevelChange,
+    ) -> Result<LevelChange, Box<dyn Error>> {
         let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap_or_else(|e| {
             eprintln!("Failed to acquire connection lock: {e}");
             std::process::exit(1);
