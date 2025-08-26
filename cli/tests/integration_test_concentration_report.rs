@@ -79,7 +79,7 @@ fn test_concentration_calculation_with_mixed_portfolio() {
         )
         .expect("Failed to create transaction");
 
-    // When: Calculating concentration (this should fail until we implement it)
+    // When: Calculating concentration
     let result = trust.calculate_portfolio_concentration(Some(account.id));
 
     // Then: Should get concentration data

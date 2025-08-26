@@ -56,7 +56,7 @@ fn test_summary_with_complete_data() {
         )
         .expect("Failed to create transaction");
 
-    // When: Getting summary data (this should fail until we implement it)
+    // When: Getting summary data
     let result = trust.get_trading_summary(Some(account.id));
 
     // Then: Should get comprehensive summary data
@@ -64,7 +64,10 @@ fn test_summary_with_complete_data() {
 
     let summary = result.unwrap();
     assert_eq!(summary.account_id, account.id);
-    // More assertions would go here once we define the summary structure
+    assert_eq!(summary.equity, dec!(50000.0)); // Should match the deposited amount
+    assert!(summary.performance.is_none()); // No closed trades yet
+    assert!(summary.capital_at_risk.is_empty()); // No open positions yet
+    assert!(summary.concentration.is_empty()); // No positions yet
 }
 
 #[test]
