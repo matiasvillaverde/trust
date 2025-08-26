@@ -643,9 +643,28 @@ impl TrustFacade {
             &mut *self.factory,
         )
     }
+
+    /// Calculate portfolio concentration by asset category
+    ///
+    /// # Arguments
+    /// * `account_id` - Optional account ID to filter by
+    ///
+    /// # Returns
+    /// Returns concentration data by asset category
+    pub fn calculate_portfolio_concentration(
+        &mut self,
+        account_id: Option<Uuid>,
+    ) -> Result<Vec<calculators_concentration::ConcentrationData>, Box<dyn std::error::Error>> {
+        calculators_concentration::ConcentrationCalculator::calculate_concentration(
+            account_id,
+            &mut *self.factory,
+        )
+    }
 }
 
 mod calculators_account;
+pub mod calculators_advanced_metrics;
+pub mod calculators_concentration;
 pub mod calculators_drawdown;
 pub mod calculators_performance;
 pub mod calculators_risk;
