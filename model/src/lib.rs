@@ -61,9 +61,9 @@ pub use broker::{Broker, BrokerLog, OrderIds};
 pub use currency::Currency;
 pub use database::{
     AccountBalanceRead, AccountBalanceWrite, AccountRead, AccountWrite, DatabaseFactory,
-    DraftTrade, OrderRead, OrderWrite, ReadBrokerLogsDB, ReadRuleDB, ReadTradeDB,
-    ReadTradingVehicleDB, ReadTransactionDB, WriteBrokerLogsDB, WriteRuleDB, WriteTradeDB,
-    WriteTradingVehicleDB, WriteTransactionDB,
+    DraftTrade, OrderRead, OrderWrite, ReadBrokerLogsDB, ReadLevelDB, ReadRuleDB, ReadTradeDB,
+    ReadTradingVehicleDB, ReadTransactionDB, WriteBrokerLogsDB, WriteLevelDB, WriteRuleDB,
+    WriteTradeDB, WriteTradingVehicleDB, WriteTransactionDB,
 };
 pub use grade::{Grade, GradingWeights, TradeGrade};
 pub use level::{Level, LevelChange, LevelStatus, LEVEL_MULTIPLIERS};
