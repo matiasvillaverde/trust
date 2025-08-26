@@ -45,7 +45,7 @@ impl AdvancedMetricsView {
         // Profit Factor
         if let Some(profit_factor) = AdvancedMetricsCalculator::calculate_profit_factor(trades) {
             let rating = Self::rate_profit_factor(profit_factor);
-            println!("├─ Profit Factor: {:.2} ({})", profit_factor, rating);
+            println!("├─ Profit Factor: {profit_factor:.2} ({rating})");
         } else {
             println!("├─ Profit Factor: ∞ (Perfect - no losses)");
         }
@@ -66,10 +66,7 @@ impl AdvancedMetricsView {
             "├─ Average R-Multiple: {:.2}",
             AdvancedMetricsCalculator::calculate_average_r_multiple(trades)
         );
-        println!(
-            "└─ Expectancy: ${:.2} per trade ({})",
-            expectancy, expectancy_rating
-        );
+        println!("└─ Expectancy: ${expectancy:.2} per trade ({expectancy_rating})");
     }
 
     fn display_risk_adjusted_metrics(trades: &[Trade]) {
@@ -83,7 +80,7 @@ impl AdvancedMetricsView {
             AdvancedMetricsCalculator::calculate_sharpe_ratio(trades, risk_free_rate)
         {
             let rating = Self::rate_sharpe_ratio(sharpe);
-            println!("├─ Sharpe Ratio: {:.2} ({})", sharpe, rating);
+            println!("├─ Sharpe Ratio: {sharpe:.2} ({rating})");
         } else {
             println!("├─ Sharpe Ratio: N/A (insufficient data)");
         }
@@ -93,7 +90,7 @@ impl AdvancedMetricsView {
             AdvancedMetricsCalculator::calculate_sortino_ratio(trades, risk_free_rate)
         {
             let rating = Self::rate_sortino_ratio(sortino);
-            println!("├─ Sortino Ratio: {:.2} ({})", sortino, rating);
+            println!("├─ Sortino Ratio: {sortino:.2} ({rating})");
         } else {
             println!("├─ Sortino Ratio: N/A (insufficient data)");
         }
@@ -101,7 +98,7 @@ impl AdvancedMetricsView {
         // Calmar Ratio
         if let Some(calmar) = AdvancedMetricsCalculator::calculate_calmar_ratio(trades) {
             let rating = Self::rate_calmar_ratio(calmar);
-            println!("└─ Calmar Ratio: {:.2} ({})", calmar, rating);
+            println!("└─ Calmar Ratio: {calmar:.2} ({rating})");
         } else {
             println!("└─ Calmar Ratio: N/A (no drawdown or insufficient data)");
         }
@@ -119,7 +116,7 @@ impl AdvancedMetricsView {
             } else {
                 "High Risk"
             };
-            println!("├─ Value at Risk (95%): {:.2}% ({})", var, var_rating);
+            println!("├─ Value at Risk (95%): {var:.2}% ({var_rating})");
         } else {
             println!("├─ Value at Risk (95%): N/A (insufficient data)");
         }
@@ -128,7 +125,7 @@ impl AdvancedMetricsView {
         if let Some(kelly) = AdvancedMetricsCalculator::calculate_kelly_criterion(trades) {
             let kelly_pct = kelly.checked_mul(dec!(100)).unwrap_or(dec!(0));
             let kelly_rating = Self::rate_kelly_criterion(kelly);
-            println!("├─ Kelly Criterion: {:.1}% ({})", kelly_pct, kelly_rating);
+            println!("├─ Kelly Criterion: {kelly_pct:.1}% ({kelly_rating})");
         } else {
             println!("├─ Kelly Criterion: N/A (need both wins and losses)");
         }
@@ -136,8 +133,8 @@ impl AdvancedMetricsView {
         // Maximum consecutive losses/wins
         let max_losses = AdvancedMetricsCalculator::calculate_max_consecutive_losses(trades);
         let max_wins = AdvancedMetricsCalculator::calculate_max_consecutive_wins(trades);
-        println!("├─ Max Consecutive Losses: {}", max_losses);
-        println!("├─ Max Consecutive Wins: {}", max_wins);
+        println!("├─ Max Consecutive Losses: {max_losses}");
+        println!("├─ Max Consecutive Wins: {max_wins}");
 
         // Ulcer Index
         if let Some(ulcer) = AdvancedMetricsCalculator::calculate_ulcer_index(trades) {
@@ -150,7 +147,7 @@ impl AdvancedMetricsView {
             } else {
                 "Poor"
             };
-            println!("└─ Ulcer Index: {:.2}% ({})", ulcer, ulcer_rating);
+            println!("└─ Ulcer Index: {ulcer:.2}% ({ulcer_rating})");
         } else {
             println!("└─ Ulcer Index: N/A (insufficient data)");
         }

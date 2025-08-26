@@ -648,7 +648,7 @@ impl ArgDispatcher {
                 .iter()
                 .map(|pos| pos.capital_amount)
                 .sum();
-            println!("├─ Capital at Risk: ${:.2} ✅", total_risk);
+            println!("├─ Capital at Risk: ${total_risk:.2} ✅");
             println!(
                 "└─ Open Positions: {} trades active",
                 summary.capital_at_risk.len()
@@ -738,7 +738,7 @@ impl ArgDispatcher {
 
         // Display period information
         if days_filter > 0 {
-            println!("Advanced Trading Metrics (Last {} days)", days_filter);
+            println!("Advanced Trading Metrics (Last {days_filter} days)");
         } else {
             println!("Advanced Trading Metrics (All time)");
         }
@@ -767,16 +767,16 @@ impl ArgDispatcher {
         if let Some(export_format) = sub_matches.get_one::<String>("export") {
             let output_file = sub_matches
                 .get_one::<String>("output")
-                .map(|s| s.clone())
-                .unwrap_or_else(|| format!("metrics.{}", export_format));
+                .cloned()
+                .unwrap_or_else(|| format!("metrics.{export_format}"));
 
             match self.export_metrics(&all_trades, export_format, &output_file, _risk_free_rate) {
                 Ok(()) => {
-                    println!("Metrics exported to: {}", output_file);
+                    println!("Metrics exported to: {output_file}");
                     return;
                 }
                 Err(e) => {
-                    eprintln!("Export failed: {}", e);
+                    eprintln!("Export failed: {e}");
                     // Continue with normal display
                 }
             }

@@ -1,5 +1,6 @@
 use core::calculators_advanced_metrics::AdvancedMetricsCalculator;
 use model::Trade;
+use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use serde_json::json;
@@ -8,6 +9,13 @@ use serde_json::Value;
 pub struct MetricsExporter;
 
 impl MetricsExporter {
+    fn decimal_to_f64(decimal: Option<Decimal>) -> Option<f64> {
+        decimal.and_then(|d| d.to_f64())
+    }
+
+    fn decimal_to_f64_unwrap(decimal: Decimal) -> f64 {
+        decimal.to_f64().unwrap_or(0.0)
+    }
     /// Export advanced metrics to JSON format
     pub fn to_json(trades: &[Trade], risk_free_rate: Option<Decimal>) -> Value {
         let risk_free = risk_free_rate.unwrap_or(dec!(0.05));
@@ -17,26 +25,26 @@ impl MetricsExporter {
             "metadata": {
                 "total_trades": trades.len(),
                 "closed_trades": closed_trades.len(),
-                "risk_free_rate": risk_free,
+                "risk_free_rate": risk_free.to_f64().unwrap_or(0.05),
                 "export_timestamp": chrono::Utc::now().to_rfc3339()
             },
             "trade_quality_metrics": {
-                "profit_factor": AdvancedMetricsCalculator::calculate_profit_factor(&closed_trades),
-                "expectancy": AdvancedMetricsCalculator::calculate_expectancy(&closed_trades),
-                "win_rate": AdvancedMetricsCalculator::calculate_win_rate(&closed_trades),
-                "average_r_multiple": AdvancedMetricsCalculator::calculate_average_r_multiple(&closed_trades)
+                "profit_factor": Self::decimal_to_f64(AdvancedMetricsCalculator::calculate_profit_factor(&closed_trades)),
+                "expectancy": Self::decimal_to_f64_unwrap(AdvancedMetricsCalculator::calculate_expectancy(&closed_trades)),
+                "win_rate": Self::decimal_to_f64_unwrap(AdvancedMetricsCalculator::calculate_win_rate(&closed_trades)),
+                "average_r_multiple": Self::decimal_to_f64_unwrap(AdvancedMetricsCalculator::calculate_average_r_multiple(&closed_trades))
             },
             "risk_adjusted_performance": {
-                "sharpe_ratio": AdvancedMetricsCalculator::calculate_sharpe_ratio(&closed_trades, risk_free),
-                "sortino_ratio": AdvancedMetricsCalculator::calculate_sortino_ratio(&closed_trades, risk_free),
-                "calmar_ratio": AdvancedMetricsCalculator::calculate_calmar_ratio(&closed_trades)
+                "sharpe_ratio": Self::decimal_to_f64(AdvancedMetricsCalculator::calculate_sharpe_ratio(&closed_trades, risk_free)),
+                "sortino_ratio": Self::decimal_to_f64(AdvancedMetricsCalculator::calculate_sortino_ratio(&closed_trades, risk_free)),
+                "calmar_ratio": Self::decimal_to_f64(AdvancedMetricsCalculator::calculate_calmar_ratio(&closed_trades))
             },
             "statistical_analysis": {
-                "value_at_risk_95": AdvancedMetricsCalculator::calculate_value_at_risk(&closed_trades, dec!(0.95)),
-                "kelly_criterion": AdvancedMetricsCalculator::calculate_kelly_criterion(&closed_trades),
+                "value_at_risk_95": Self::decimal_to_f64(AdvancedMetricsCalculator::calculate_value_at_risk(&closed_trades, dec!(0.95))),
+                "kelly_criterion": Self::decimal_to_f64(AdvancedMetricsCalculator::calculate_kelly_criterion(&closed_trades)),
                 "max_consecutive_losses": AdvancedMetricsCalculator::calculate_max_consecutive_losses(&closed_trades),
                 "max_consecutive_wins": AdvancedMetricsCalculator::calculate_max_consecutive_wins(&closed_trades),
-                "ulcer_index": AdvancedMetricsCalculator::calculate_ulcer_index(&closed_trades)
+                "ulcer_index": Self::decimal_to_f64(AdvancedMetricsCalculator::calculate_ulcer_index(&closed_trades))
             }
         })
     }
@@ -51,45 +59,39 @@ impl MetricsExporter {
 
         // Trade Quality Metrics
         if let Some(pf) = AdvancedMetricsCalculator::calculate_profit_factor(&closed_trades) {
-            csv.push_str(&format!("trade_quality,profit_factor,{:.4},ratio\n", pf));
+            csv.push_str(&format!("trade_quality,profit_factor,{pf:.4},ratio\n"));
         }
 
         let expectancy = AdvancedMetricsCalculator::calculate_expectancy(&closed_trades);
         csv.push_str(&format!(
-            "trade_quality,expectancy,{:.4},currency\n",
-            expectancy
+            "trade_quality,expectancy,{expectancy:.4},currency\n"
         ));
 
         let win_rate = AdvancedMetricsCalculator::calculate_win_rate(&closed_trades);
         csv.push_str(&format!(
-            "trade_quality,win_rate,{:.2},percentage\n",
-            win_rate
+            "trade_quality,win_rate,{win_rate:.2},percentage\n"
         ));
 
         let avg_r = AdvancedMetricsCalculator::calculate_average_r_multiple(&closed_trades);
         csv.push_str(&format!(
-            "trade_quality,average_r_multiple,{:.4},ratio\n",
-            avg_r
+            "trade_quality,average_r_multiple,{avg_r:.4},ratio\n"
         ));
 
         // Risk-Adjusted Performance
         if let Some(sharpe) =
             AdvancedMetricsCalculator::calculate_sharpe_ratio(&closed_trades, risk_free)
         {
-            csv.push_str(&format!("risk_adjusted,sharpe_ratio,{:.4},ratio\n", sharpe));
+            csv.push_str(&format!("risk_adjusted,sharpe_ratio,{sharpe:.4},ratio\n"));
         }
 
         if let Some(sortino) =
             AdvancedMetricsCalculator::calculate_sortino_ratio(&closed_trades, risk_free)
         {
-            csv.push_str(&format!(
-                "risk_adjusted,sortino_ratio,{:.4},ratio\n",
-                sortino
-            ));
+            csv.push_str(&format!("risk_adjusted,sortino_ratio,{sortino:.4},ratio\n"));
         }
 
         if let Some(calmar) = AdvancedMetricsCalculator::calculate_calmar_ratio(&closed_trades) {
-            csv.push_str(&format!("risk_adjusted,calmar_ratio,{:.4},ratio\n", calmar));
+            csv.push_str(&format!("risk_adjusted,calmar_ratio,{calmar:.4},ratio\n"));
         }
 
         // Statistical Analysis
@@ -97,33 +99,27 @@ impl MetricsExporter {
             AdvancedMetricsCalculator::calculate_value_at_risk(&closed_trades, dec!(0.95))
         {
             csv.push_str(&format!(
-                "statistical,value_at_risk_95,{:.4},percentage\n",
-                var
+                "statistical,value_at_risk_95,{var:.4},percentage\n"
             ));
         }
 
         if let Some(kelly) = AdvancedMetricsCalculator::calculate_kelly_criterion(&closed_trades) {
-            csv.push_str(&format!("statistical,kelly_criterion,{:.4},ratio\n", kelly));
+            csv.push_str(&format!("statistical,kelly_criterion,{kelly:.4},ratio\n"));
         }
 
         let max_losses =
             AdvancedMetricsCalculator::calculate_max_consecutive_losses(&closed_trades);
         csv.push_str(&format!(
-            "statistical,max_consecutive_losses,{},count\n",
-            max_losses
+            "statistical,max_consecutive_losses,{max_losses},count\n"
         ));
 
         let max_wins = AdvancedMetricsCalculator::calculate_max_consecutive_wins(&closed_trades);
         csv.push_str(&format!(
-            "statistical,max_consecutive_wins,{},count\n",
-            max_wins
+            "statistical,max_consecutive_wins,{max_wins},count\n"
         ));
 
         if let Some(ulcer) = AdvancedMetricsCalculator::calculate_ulcer_index(&closed_trades) {
-            csv.push_str(&format!(
-                "statistical,ulcer_index,{:.4},percentage\n",
-                ulcer
-            ));
+            csv.push_str(&format!("statistical,ulcer_index,{ulcer:.4},percentage\n"));
         }
 
         csv
