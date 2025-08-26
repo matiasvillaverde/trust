@@ -44,6 +44,8 @@ pub mod execution;
 pub mod level;
 /// Market data types
 pub mod market_data;
+/// Distribution rules and profit allocation
+pub mod distribution;
 /// Order types and order management
 pub mod order;
 /// Risk management rules and enforcement
@@ -78,6 +80,10 @@ pub use level::{
     LevelStatus, LevelStatusParseError, LevelTrigger, LevelTriggerParseError,
 };
 pub use market_data::{BarTimeframe, MarketBar};
+pub use distribution::{
+    DistributionError, DistributionExecutionLeg, DistributionExecutionPlan, DistributionHistory,
+    DistributionResult, DistributionRules, DistributionRulesNotFound,
+};
 pub use order::{Order, OrderAction, OrderCategory, OrderStatus, TimeInForce};
 pub use rule::{Rule, RuleLevel, RuleName};
 pub use strategy::Strategy;
