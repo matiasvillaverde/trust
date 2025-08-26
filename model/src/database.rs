@@ -1,7 +1,7 @@
 use crate::{
-    Account, AccountBalance, BrokerLog, Currency, Environment, Order, OrderAction, OrderCategory,
-    Rule, RuleLevel, RuleName, Status, Trade, TradeBalance, TradeCategory, TradingVehicle,
-    TradingVehicleCategory, Transaction, TransactionCategory,
+    Account, AccountBalance, BrokerLog, Currency, DistributionRules, Environment, Order,
+    OrderAction, OrderCategory, Rule, RuleLevel, RuleName, Status, Trade, TradeBalance,
+    TradeCategory, TradingVehicle, TradingVehicleCategory, Transaction, TransactionCategory,
 };
 use rust_decimal::Decimal;
 use uuid::Uuid;
@@ -55,6 +55,10 @@ pub trait DatabaseFactory {
     fn log_read(&self) -> Box<dyn ReadBrokerLogsDB>;
     /// Returns a writer for broker log data operations
     fn log_write(&self) -> Box<dyn WriteBrokerLogsDB>;
+    /// Returns a reader for distribution rules data operations
+    fn distribution_read(&self) -> Box<dyn DistributionRead>;
+    /// Returns a writer for distribution rules data operations
+    fn distribution_write(&self) -> Box<dyn DistributionWrite>;
 }
 
 /// Trait for reading account data from the database
@@ -355,4 +359,23 @@ pub trait ReadBrokerLogsDB {
     /// Retrieves all logs associated with a specific trade
     fn read_all_logs_for_trade(&mut self, trade_id: Uuid)
         -> Result<Vec<BrokerLog>, Box<dyn Error>>;
+}
+
+/// Trait for reading distribution rules from the database
+pub trait DistributionRead {
+    /// Retrieves distribution rules for a specific account
+    fn for_account(&mut self, account_id: Uuid) -> Result<DistributionRules, Box<dyn Error>>;
+}
+
+/// Trait for writing distribution rules to the database
+pub trait DistributionWrite {
+    /// Creates or updates distribution rules for an account
+    fn create_or_update(
+        &mut self,
+        account_id: Uuid,
+        earnings_percent: Decimal,
+        tax_percent: Decimal,
+        reinvestment_percent: Decimal,
+        minimum_threshold: Decimal,
+    ) -> Result<DistributionRules, Box<dyn Error>>;
 }

@@ -59,9 +59,9 @@ pub use broker::{Broker, BrokerLog, OrderIds};
 pub use currency::Currency;
 pub use database::{
     AccountBalanceRead, AccountBalanceWrite, AccountRead, AccountWrite, DatabaseFactory,
-    DraftTrade, OrderRead, OrderWrite, ReadBrokerLogsDB, ReadRuleDB, ReadTradeDB,
-    ReadTradingVehicleDB, ReadTransactionDB, WriteBrokerLogsDB, WriteRuleDB, WriteTradeDB,
-    WriteTradingVehicleDB, WriteTransactionDB,
+    DistributionRead, DistributionWrite, DraftTrade, OrderRead, OrderWrite, ReadBrokerLogsDB,
+    ReadRuleDB, ReadTradeDB, ReadTradingVehicleDB, ReadTransactionDB, WriteBrokerLogsDB,
+    WriteRuleDB, WriteTradeDB, WriteTradingVehicleDB, WriteTransactionDB,
 };
 pub use distribution::{DistributionError, DistributionResult, DistributionRules};
 pub use order::{Order, OrderAction, OrderCategory, OrderStatus, TimeInForce};
