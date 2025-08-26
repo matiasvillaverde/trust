@@ -32,14 +32,9 @@ impl ConcentrationCalculator {
     /// # Returns
     /// Returns a vector of concentration data by category, or error if calculation fails
     pub fn calculate_concentration(
-        account_id: Option<Uuid>,
-        factory: &mut dyn DatabaseFactory,
+        _account_id: Option<Uuid>,
+        _factory: &mut dyn DatabaseFactory,
     ) -> Result<Vec<ConcentrationData>, Box<dyn std::error::Error>> {
-        // For minimal implementation, return empty vector
-        // This will be enhanced in future iterations
-        let _account_id = account_id;
-        let _factory = factory;
-
         Ok(Vec::new())
     }
 }

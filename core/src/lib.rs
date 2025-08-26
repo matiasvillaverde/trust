@@ -99,10 +99,10 @@ impl TrustFacade {
             taxes_percentage,
             earnings_percentage,
         )?;
-        
+
         // Create default Level 3 for the account
         self.factory.level_write().create_default_level(&account)?;
-        
+
         Ok(account)
     }
 
@@ -695,12 +695,45 @@ impl TrustFacade {
     ) -> Result<TradingSummary, Box<dyn std::error::Error>> {
         let account_id = account_id.unwrap_or_else(Uuid::new_v4);
 
+        // Get account equity from balances
+        let balances = self.search_all_balances(account_id)?;
+        let equity = balances
+            .iter()
+            .map(|balance| balance.total_balance)
+            .fold(Decimal::ZERO, |acc, balance| acc + balance);
+
+        // Get performance stats from closed trades
+        let performance = match self.search_closed_trades(Some(account_id)) {
+            Ok(closed_trades) => {
+                if closed_trades.is_empty() {
+                    None
+                } else {
+                    Some(
+                        calculators_performance::PerformanceCalculator::calculate_performance_stats(
+                            &closed_trades,
+                        ),
+                    )
+                }
+            }
+            Err(_) => None, // No trades yet or search failed
+        };
+
+        // Get capital at risk from open positions
+        let capital_at_risk = self
+            .calculate_open_positions(Some(account_id))
+            .unwrap_or_else(|_| Vec::new());
+
+        // Get concentration data
+        let concentration = self
+            .calculate_portfolio_concentration(Some(account_id))
+            .unwrap_or_else(|_| Vec::new());
+
         Ok(TradingSummary {
             account_id,
-            equity: Decimal::ZERO,
-            performance: None,
-            capital_at_risk: Vec::new(),
-            concentration: Vec::new(),
+            equity,
+            performance,
+            capital_at_risk,
+            concentration,
         })
     }
 
@@ -732,9 +765,13 @@ impl TrustFacade {
         days: Option<u32>,
     ) -> Result<Vec<model::LevelChange>, Box<dyn std::error::Error>> {
         if let Some(days) = days {
-            self.factory.level_read().recent_level_changes(account_id, days)
+            self.factory
+                .level_read()
+                .recent_level_changes(account_id, days)
         } else {
-            self.factory.level_read().level_changes_for_account(account_id)
+            self.factory
+                .level_read()
+                .level_changes_for_account(account_id)
         }
     }
 }
