@@ -1,23 +1,12 @@
 //! Advanced financial metrics calculation module for sophisticated trading analytics
 //!
 //! This module provides functions to calculate advanced trading performance
-//! metrics such as profit factor, expectancy, Sharpe ratio, and other
+//! metrics such as profit factor, expectancy, win rate, R-multiple, and other
 //! sophisticated financial metrics using precise decimal arithmetic.
 
 use model::trade::Trade;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
-
-/// Error types for advanced metrics calculations
-#[derive(Debug, PartialEq)]
-pub enum AdvancedMetricsError {
-    /// Insufficient data for calculation (need minimum number of trades)
-    InsufficientData,
-    /// Division by zero in calculation
-    DivisionByZero,
-    /// Arithmetic overflow in calculation
-    ArithmeticOverflow,
-}
 
 /// Advanced financial metrics calculator
 #[derive(Debug)]
@@ -91,7 +80,7 @@ impl AdvancedMetricsCalculator {
         let win_rate = Decimal::from(wins.len())
             .checked_div(total_trades)
             .unwrap_or(dec!(0));
-        let loss_rate = dec!(1) - win_rate;
+        let loss_rate = dec!(1).checked_sub(win_rate).unwrap_or(dec!(0));
 
         let avg_win = if wins.is_empty() {
             dec!(0)
@@ -118,6 +107,62 @@ impl AdvancedMetricsCalculator {
 
         positive_component
             .checked_sub(negative_component)
+            .unwrap_or(dec!(0))
+    }
+
+    /// Calculate win rate: Percentage of winning trades
+    ///
+    /// Win Rate = Number of Winning Trades / Total Trades
+    ///
+    /// # Arguments
+    /// * `closed_trades` - Vector of closed trades to analyze
+    ///
+    /// # Returns
+    /// * `Decimal` - Win rate as a percentage (0.0 to 100.0)
+    pub fn calculate_win_rate(closed_trades: &[Trade]) -> Decimal {
+        if closed_trades.is_empty() {
+            return dec!(0);
+        }
+
+        let winning_trades = closed_trades
+            .iter()
+            .filter(|trade| trade.balance.total_performance > dec!(0))
+            .count();
+
+        let total_trades = closed_trades.len();
+        let win_rate = Decimal::from(winning_trades)
+            .checked_div(Decimal::from(total_trades))
+            .unwrap_or(dec!(0));
+
+        // Return as percentage
+        win_rate.checked_mul(dec!(100)).unwrap_or(dec!(0))
+    }
+
+    /// Calculate average R-multiple across all trades
+    ///
+    /// R-Multiple measures the profit/loss relative to the initial risk per trade.
+    /// This implementation uses total performance as a proxy when detailed risk data isn't available.
+    ///
+    /// # Arguments
+    /// * `closed_trades` - Vector of closed trades to analyze
+    ///
+    /// # Returns
+    /// * `Decimal` - Average R-multiple across all trades
+    pub fn calculate_average_r_multiple(closed_trades: &[Trade]) -> Decimal {
+        if closed_trades.is_empty() {
+            return dec!(0);
+        }
+
+        // For this implementation, we'll use performance as a proxy for R-multiple
+        // In a full implementation, this would calculate actual risk vs reward ratios
+        let total_performance: Decimal = closed_trades
+            .iter()
+            .map(|trade| trade.balance.total_performance)
+            .sum();
+
+        let trade_count = Decimal::from(closed_trades.len());
+        total_performance
+            .checked_div(trade_count)
             .unwrap_or(dec!(0))
     }
 }
@@ -211,5 +256,70 @@ mod tests {
         // Expectancy = (0.3333 * 50) - (0.6667 * 150) = 16.67 - 100 = -83.33
         let expected = dec!(-83.33);
         assert!((result - expected).abs() < dec!(0.1));
+    }
+
+    #[test]
+    fn test_calculate_win_rate_empty_trades() {
+        let trades = vec![];
+        let result = AdvancedMetricsCalculator::calculate_win_rate(&trades);
+        assert_eq!(result, dec!(0));
+    }
+
+    #[test]
+    fn test_calculate_win_rate_all_winners() {
+        let trades = vec![create_test_trade(dec!(100)), create_test_trade(dec!(200))];
+        let result = AdvancedMetricsCalculator::calculate_win_rate(&trades);
+        assert_eq!(result, dec!(100)); // 100% win rate
+    }
+
+    #[test]
+    fn test_calculate_win_rate_mixed_trades() {
+        let trades = vec![
+            create_test_trade(dec!(100)), // Win
+            create_test_trade(dec!(200)), // Win
+            create_test_trade(dec!(-50)), // Loss
+            create_test_trade(dec!(-75)), // Loss
+        ];
+        let result = AdvancedMetricsCalculator::calculate_win_rate(&trades);
+        assert_eq!(result, dec!(50)); // 50% win rate (2 wins out of 4 trades)
+    }
+
+    #[test]
+    fn test_calculate_win_rate_all_losses() {
+        let trades = vec![create_test_trade(dec!(-100)), create_test_trade(dec!(-50))];
+        let result = AdvancedMetricsCalculator::calculate_win_rate(&trades);
+        assert_eq!(result, dec!(0)); // 0% win rate
+    }
+
+    #[test]
+    fn test_calculate_average_r_multiple_empty_trades() {
+        let trades = vec![];
+        let result = AdvancedMetricsCalculator::calculate_average_r_multiple(&trades);
+        assert_eq!(result, dec!(0));
+    }
+
+    #[test]
+    fn test_calculate_average_r_multiple_positive() {
+        let trades = vec![
+            create_test_trade(dec!(100)),
+            create_test_trade(dec!(200)),
+            create_test_trade(dec!(150)),
+        ];
+        let result = AdvancedMetricsCalculator::calculate_average_r_multiple(&trades);
+        // Average = (100 + 200 + 150) / 3 = 150
+        assert_eq!(result, dec!(150));
+    }
+
+    #[test]
+    fn test_calculate_average_r_multiple_mixed() {
+        let trades = vec![
+            create_test_trade(dec!(100)),  // Win
+            create_test_trade(dec!(-50)),  // Loss
+            create_test_trade(dec!(200)),  // Win
+            create_test_trade(dec!(-100)), // Loss
+        ];
+        let result = AdvancedMetricsCalculator::calculate_average_r_multiple(&trades);
+        // Average = (100 - 50 + 200 - 100) / 4 = 150 / 4 = 37.5
+        assert_eq!(result, dec!(37.5));
     }
 }
