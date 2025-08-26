@@ -71,6 +71,36 @@ impl ReportCommandBuilder {
         );
         self
     }
+
+    pub fn concentration(mut self) -> Self {
+        self.subcommands.push(
+            Command::new("concentration")
+                .about("Display portfolio concentration by asset class")
+                .arg(
+                    Arg::new("account")
+                        .long("account")
+                        .value_name("ACCOUNT_ID")
+                        .help("Filter by specific account ID")
+                        .required(false),
+                ),
+        );
+        self
+    }
+
+    pub fn summary(mut self) -> Self {
+        self.subcommands.push(
+            Command::new("summary")
+                .about("Display comprehensive trading summary with all key metrics")
+                .arg(
+                    Arg::new("account")
+                        .long("account")
+                        .value_name("ACCOUNT_ID")
+                        .help("Filter by specific account ID")
+                        .required(false),
+                ),
+        );
+        self
+    }
 }
 
 impl Default for ReportCommandBuilder {

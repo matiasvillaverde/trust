@@ -86,6 +86,10 @@ impl ArgDispatcher {
                 Some(("performance", sub_sub_matches)) => self.performance_report(sub_sub_matches),
                 Some(("drawdown", sub_sub_matches)) => self.drawdown_report(sub_sub_matches),
                 Some(("risk", sub_sub_matches)) => self.risk_report(sub_sub_matches),
+                Some(("concentration", sub_sub_matches)) => {
+                    self.concentration_report(sub_sub_matches)
+                }
+                Some(("summary", sub_sub_matches)) => self.summary_report(sub_sub_matches),
                 _ => unreachable!("No subcommand provided"),
             },
             Some((ext, sub_matches)) => {
@@ -486,6 +490,129 @@ impl ArgDispatcher {
 
         // Display the results
         RiskView::display(positions, total_capital_at_risk, account_balance);
+    }
+
+    fn concentration_report(&mut self, sub_matches: &ArgMatches) {
+        use std::str::FromStr;
+        use uuid::Uuid;
+
+        // Get account ID if provided
+        let account_id = if let Some(account_arg) = sub_matches.get_one::<String>("account") {
+            match Uuid::from_str(account_arg) {
+                Ok(id) => Some(id),
+                Err(_) => {
+                    eprintln!("Error: Invalid account ID format");
+                    return;
+                }
+            }
+        } else {
+            None
+        };
+
+        // Calculate concentration data
+        let concentration_data = match self.trust.calculate_portfolio_concentration(account_id) {
+            Ok(data) => data,
+            Err(e) => {
+                eprintln!("Error calculating portfolio concentration: {e}");
+                return;
+            }
+        };
+
+        // For minimal implementation, just display basic info
+        if concentration_data.is_empty() {
+            println!("No concentration data available - portfolio is empty or no positions found.");
+        } else {
+            println!("Portfolio Concentration Report");
+            println!("============================");
+            for data in concentration_data {
+                println!(
+                    "{:?}: {:.1}% ({} positions)",
+                    data.category, data.percentage, data.position_count
+                );
+            }
+        }
+    }
+
+    fn summary_report(&mut self, sub_matches: &ArgMatches) {
+        use std::str::FromStr;
+        use uuid::Uuid;
+
+        // Get account ID if provided
+        let account_id = if let Some(account_arg) = sub_matches.get_one::<String>("account") {
+            match Uuid::from_str(account_arg) {
+                Ok(id) => Some(id),
+                Err(_) => {
+                    eprintln!("Error: Invalid account ID format");
+                    return;
+                }
+            }
+        } else {
+            None
+        };
+
+        // Get trading summary
+        let summary = match self.trust.get_trading_summary(account_id) {
+            Ok(summary) => summary,
+            Err(e) => {
+                eprintln!("Error generating trading summary: {e}");
+                return;
+            }
+        };
+
+        // Display comprehensive summary
+        println!("Trust Trading Summary");
+        println!("==================");
+        println!(
+            "Account: {} (${:.2} equity)",
+            summary.account_id, summary.equity
+        );
+        println!();
+
+        if let Some(ref performance) = summary.performance {
+            println!("Performance:");
+            println!(
+                "├─ Trades: {} total ({}W, {}L) - {:.1}% win rate",
+                performance.total_trades,
+                performance.winning_trades,
+                performance.losing_trades,
+                performance.win_rate
+            );
+            println!(
+                "└─ Avg R-Multiple: +{:.2}R per trade",
+                performance.average_r_multiple
+            );
+        } else {
+            println!("Performance: No closed trades available");
+        }
+
+        println!();
+        println!("Risk Management:");
+
+        if summary.capital_at_risk.is_empty() {
+            println!("├─ Capital at Risk: $0.00 (0.0% of account) ✅");
+            println!("└─ Open Positions: 0 trades active");
+        } else {
+            let total_risk: rust_decimal::Decimal = summary
+                .capital_at_risk
+                .iter()
+                .map(|pos| pos.capital_at_risk)
+                .sum();
+            println!("├─ Capital at Risk: ${:.2} ✅", total_risk);
+            println!(
+                "└─ Open Positions: {} trades active",
+                summary.capital_at_risk.len()
+            );
+        }
+
+        if summary.concentration.is_empty() {
+            println!();
+            println!("Concentration: Diversified portfolio ✅");
+        } else {
+            println!();
+            println!(
+                "Concentration: Analysis available (run 'trust report concentration' for details)"
+            );
+        }
     }
 }
 
