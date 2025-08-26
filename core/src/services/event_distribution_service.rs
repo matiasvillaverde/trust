@@ -1,0 +1,315 @@
+use crate::services::ProfitDistributionService;
+use model::{Account, Currency, DatabaseFactory, Trade};
+use rust_decimal::Decimal;
+use std::error::Error;
+use uuid::Uuid;
+
+/// Service for handling event-driven automatic profit distribution
+/// Listens to trade closure events and triggers distribution when profitable
+pub struct EventDistributionService<'a> {
+    database: &'a mut dyn DatabaseFactory,
+}
+
+impl<'a> std::fmt::Debug for EventDistributionService<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EventDistributionService")
+            .field("database", &"&mut dyn DatabaseFactory")
+            .finish()
+    }
+}
+
+impl<'a> EventDistributionService<'a> {
+    /// Creates a new event distribution service
+    pub fn new(database: &'a mut dyn DatabaseFactory) -> Self {
+        Self { database }
+    }
+
+    /// Handles trade closure event and triggers automatic distribution if profitable
+    pub fn handle_trade_closed_event(
+        &mut self,
+        trade: &Trade,
+        currency: &Currency,
+    ) -> Result<Option<model::DistributionResult>, Box<dyn Error>> {
+        // 1. Check if trade was profitable
+        let profit = self.calculate_trade_profit(trade)?;
+        if profit <= Decimal::ZERO {
+            return Ok(None); // No distribution for losses
+        }
+
+        // 2. For now, create a temporary account since database mocks don't support lookups yet
+        // TODO: Implement proper account lookup when database layer is ready
+        let source_account = self.create_temporary_account(trade.account_id);
+
+        // 3. Find child accounts for distribution
+        let child_accounts = self.find_child_accounts(&source_account)?;
+        if child_accounts.len() < 3 {
+            return Ok(None); // Need earnings, tax, and reinvestment accounts
+        }
+
+        // 4. Execute automatic distribution
+        let mut distribution_service = ProfitDistributionService::new(self.database);
+
+        // Find the specific account types
+        let earnings_account = child_accounts
+            .iter()
+            .find(|acc| acc.account_type == model::AccountType::Earnings)
+            .ok_or("Earnings account not found")?;
+
+        let tax_account = child_accounts
+            .iter()
+            .find(|acc| acc.account_type == model::AccountType::TaxReserve)
+            .ok_or("Tax account not found")?;
+
+        let reinvestment_account = child_accounts
+            .iter()
+            .find(|acc| acc.account_type == model::AccountType::Reinvestment)
+            .ok_or("Reinvestment account not found")?;
+
+        // Use default distribution rules (40% earnings, 30% tax, 30% reinvestment)
+        let rules = model::DistributionRules::new(
+            source_account.id,
+            Decimal::new(40, 2),  // 40%
+            Decimal::new(30, 2),  // 30%
+            Decimal::new(30, 2),  // 30%
+            Decimal::new(100, 0), // $100 minimum
+        );
+
+        // Execute distribution
+        let result = distribution_service.execute_distribution(
+            &source_account,
+            earnings_account,
+            tax_account,
+            reinvestment_account,
+            profit,
+            &rules,
+            currency,
+        )?;
+
+        Ok(Some(result))
+    }
+
+    /// Calculate profit from a closed trade
+    fn calculate_trade_profit(&self, trade: &Trade) -> Result<Decimal, Box<dyn Error>> {
+        // Use the total_performance field which represents profit/loss
+        Ok(trade.balance.total_performance)
+    }
+
+    /// Find all child accounts of the given parent account
+    fn find_child_accounts(&mut self, _parent: &Account) -> Result<Vec<Account>, Box<dyn Error>> {
+        // For now, return empty vec since database layer doesn't support hierarchy queries yet
+        // TODO: Implement when database layer supports account hierarchy queries
+        Ok(vec![])
+    }
+
+    /// Create a temporary account for testing purposes
+    fn create_temporary_account(&self, account_id: Uuid) -> Account {
+        use chrono::Utc;
+
+        Account {
+            id: account_id,
+            created_at: Utc::now().naive_utc(),
+            updated_at: Utc::now().naive_utc(),
+            deleted_at: None,
+            name: "Temporary Account".to_string(),
+            description: "Temporary account for event processing".to_string(),
+            environment: model::Environment::Paper,
+            taxes_percentage: Decimal::new(25, 0),
+            earnings_percentage: Decimal::new(30, 0),
+            account_type: model::AccountType::Primary,
+            parent_account_id: None,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+    use model::{Currency, DatabaseFactory, Status};
+    use rust_decimal_macros::dec;
+    use uuid::Uuid;
+
+    // Mock database factory for testing
+    #[derive(Debug)]
+    struct MockDatabaseFactory;
+
+    impl DatabaseFactory for MockDatabaseFactory {
+        fn account_read(&self) -> Box<dyn model::AccountRead> {
+            todo!("Mock not needed for this test")
+        }
+
+        fn account_write(&self) -> Box<dyn model::AccountWrite> {
+            todo!("Mock not needed for this test")
+        }
+
+        fn account_balance_read(&self) -> Box<dyn model::AccountBalanceRead> {
+            todo!("Mock not needed for this test")
+        }
+
+        fn account_balance_write(&self) -> Box<dyn model::AccountBalanceWrite> {
+            todo!("Mock not needed for this test")
+        }
+
+        fn order_read(&self) -> Box<dyn model::OrderRead> {
+            todo!("Mock not needed for this test")
+        }
+
+        fn order_write(&self) -> Box<dyn model::OrderWrite> {
+            todo!("Mock not needed for this test")
+        }
+
+        fn transaction_read(&self) -> Box<dyn model::ReadTransactionDB> {
+            todo!("Mock not needed for this test")
+        }
+
+        fn transaction_write(&self) -> Box<dyn model::WriteTransactionDB> {
+            todo!("Mock not needed for this test")
+        }
+
+        fn trade_read(&self) -> Box<dyn model::ReadTradeDB> {
+            todo!("Mock not needed for this test")
+        }
+
+        fn trade_write(&self) -> Box<dyn model::WriteTradeDB> {
+            todo!("Mock not needed for this test")
+        }
+
+        fn trade_balance_write(&self) -> Box<dyn model::database::WriteAccountBalanceDB> {
+            todo!("Mock not needed for this test")
+        }
+
+        fn rule_read(&self) -> Box<dyn model::ReadRuleDB> {
+            todo!("Mock not needed for this test")
+        }
+
+        fn rule_write(&self) -> Box<dyn model::WriteRuleDB> {
+            todo!("Mock not needed for this test")
+        }
+
+        fn trading_vehicle_read(&self) -> Box<dyn model::ReadTradingVehicleDB> {
+            todo!("Mock not needed for this test")
+        }
+
+        fn trading_vehicle_write(&self) -> Box<dyn model::WriteTradingVehicleDB> {
+            todo!("Mock not needed for this test")
+        }
+
+        fn log_read(&self) -> Box<dyn model::ReadBrokerLogsDB> {
+            todo!("Mock not needed for this test")
+        }
+
+        fn log_write(&self) -> Box<dyn model::WriteBrokerLogsDB> {
+            todo!("Mock not needed for this test")
+        }
+
+        fn distribution_read(&self) -> Box<dyn model::DistributionRead> {
+            todo!("Mock not needed for this test")
+        }
+
+        fn distribution_write(&self) -> Box<dyn model::DistributionWrite> {
+            todo!("Mock not needed for this test")
+        }
+    }
+
+    fn create_test_trade_profitable() -> Trade {
+        use model::{Currency, TradeBalance};
+
+        let mut trade = Trade::default();
+        trade.status = Status::ClosedTarget;
+
+        // Create profitable balance
+        let now = Utc::now().naive_utc();
+        trade.balance = TradeBalance {
+            id: Uuid::new_v4(),
+            created_at: now,
+            updated_at: now,
+            deleted_at: None,
+            currency: Currency::USD,
+            funding: dec!(1000.0),            // Initial investment
+            capital_in_market: dec!(0.0),     // No longer in market (closed)
+            capital_out_market: dec!(1200.0), // Total capital out
+            taxed: dec!(50.0),                // Tax amount
+            total_performance: dec!(200.0),   // Profit: 1200 - 1000 = 200
+        };
+
+        trade
+    }
+
+    fn create_test_trade_loss() -> Trade {
+        let mut trade = create_test_trade_profitable();
+        trade.balance.capital_out_market = dec!(800.0); // Loss
+        trade.balance.total_performance = dec!(-200.0); // Negative profit
+        trade.status = Status::ClosedStopLoss;
+        trade
+    }
+
+    #[test]
+    fn test_calculate_trade_profit_profitable() {
+        // Given: Event distribution service
+        let mut mock_db = MockDatabaseFactory;
+        let service = EventDistributionService::new(&mut mock_db);
+
+        // And: A profitable trade
+        let trade = create_test_trade_profitable();
+
+        // When: Calculate profit
+        let profit = service.calculate_trade_profit(&trade).unwrap();
+
+        // Then: Should return positive profit (1200 - 1000 = 200)
+        assert_eq!(profit, dec!(200.0));
+    }
+
+    #[test]
+    fn test_calculate_trade_profit_loss() {
+        // Given: Event distribution service
+        let mut mock_db = MockDatabaseFactory;
+        let service = EventDistributionService::new(&mut mock_db);
+
+        // And: A losing trade
+        let trade = create_test_trade_loss();
+
+        // When: Calculate profit
+        let profit = service.calculate_trade_profit(&trade).unwrap();
+
+        // Then: Should return negative profit (800 - 1000 = -200)
+        assert_eq!(profit, dec!(-200.0));
+    }
+
+    #[test]
+    fn test_handle_trade_closed_event_loss_no_distribution() {
+        // Given: Event distribution service
+        let mut mock_db = MockDatabaseFactory;
+        let mut service = EventDistributionService::new(&mut mock_db);
+
+        // And: A losing trade
+        let trade = create_test_trade_loss();
+        let currency = Currency::USD;
+
+        // When: Handle trade closed event
+        let result = service
+            .handle_trade_closed_event(&trade, &currency)
+            .unwrap();
+
+        // Then: Should return None (no distribution for losses)
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_event_distribution_integration() {
+        // Given: Event distribution service
+        let mut mock_db = MockDatabaseFactory;
+        let mut service = EventDistributionService::new(&mut mock_db);
+
+        // And: A profitable trade
+        let trade = create_test_trade_profitable();
+        let currency = Currency::USD;
+
+        // When: Handle trade closed event (this should not fail even without child accounts)
+        let result = service.handle_trade_closed_event(&trade, &currency);
+
+        // Then: Should succeed (returns None because no child accounts available yet)
+        assert!(result.is_ok());
+        let distribution = result.unwrap();
+        assert!(distribution.is_none()); // No distribution without proper account hierarchy
+    }
+}

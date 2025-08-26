@@ -117,6 +117,22 @@ diesel::table! {
 }
 
 diesel::table! {
+    broker_events (id) {
+        id -> Text,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        deleted_at -> Nullable<Timestamp>,
+        account_id -> Text,
+        trade_id -> Text,
+        source -> Text,
+        stream -> Text,
+        event_type -> Text,
+        broker_order_id -> Nullable<Text>,
+        payload_json -> Text,
+    }
+}
+
+diesel::table! {
     orders (id) {
         id -> Text,
         broker_order_id -> Nullable<Text>,
@@ -263,6 +279,8 @@ diesel::joinable!(level_adjustment_rules -> accounts (account_id));
 diesel::joinable!(level_changes -> accounts (account_id));
 diesel::joinable!(levels -> accounts (account_id));
 diesel::joinable!(logs -> trades (trade_id));
+diesel::joinable!(broker_events -> accounts (account_id));
+diesel::joinable!(broker_events -> trades (trade_id));
 diesel::joinable!(orders -> trading_vehicles (trading_vehicle_id));
 diesel::joinable!(rules -> accounts (account_id));
 diesel::joinable!(trade_grades -> trades (trade_id));
@@ -276,6 +294,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     accounts,
     accounts_balances,
     executions,
+    broker_events,
     level_adjustment_rules,
     level_changes,
     levels,

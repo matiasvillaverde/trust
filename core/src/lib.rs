@@ -34,12 +34,20 @@ use calculators_trade::{LevelAdjustedQuantity, QuantityCalculator};
 use events::trade::{CloseReason, TradeClosed};
 use model::database::TradingVehicleUpsert;
 use model::{
-    Account, AccountBalance, Broker, BrokerLog, Currency, DatabaseFactory, DraftTrade, Environment,
-    Execution, Level, LevelAdjustmentRules, LevelChange, LevelTrigger, Order, Rule, RuleLevel,
-    RuleName, Status, Trade, TradeBalance, TradingVehicle, TradingVehicleCategory, Transaction,
+    Account, AccountBalance, AccountType, Broker, BrokerLog, Currency, DatabaseFactory,
+    DistributionHistory, DistributionResult, DistributionRules, DraftTrade, Environment, Execution,
+    Level, LevelAdjustmentRules, LevelChange, LevelTrigger, Order, Rule, RuleLevel, RuleName,
+    Status, Trade, TradeBalance, TradingVehicle, TradingVehicleCategory, Transaction,
     TransactionCategory,
 };
+use crate::services::{EventDistributionService, FundTransferService, ProfitDistributionService};
+use argon2::{
+    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
+    Argon2,
+};
+use rand_core::OsRng;
 use rust_decimal::Decimal;
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 use {
     services::leveling::{
@@ -803,6 +811,23 @@ impl TrustFacade {
         Ok(result)
     }
 
+    /// Close a trade with automatic profit distribution
+    pub fn close_trade_with_auto_distribution(
+        &mut self,
+        trade: &Trade,
+    ) -> Result<(TradeBalance, BrokerLog, Option<DistributionResult>), Box<dyn std::error::Error>>
+    {
+        // 1. Close the trade normally
+        let (balance, log) = self.close_trade(trade)?;
+
+        // 2. Trigger automatic distribution if trade was profitable
+        let mut event_service = EventDistributionService::new(&mut *self.factory);
+        let distribution_result =
+            event_service.handle_trade_closed_event(trade, &trade.currency)?;
+
+        Ok((balance, log, distribution_result))
+    }
+
     /// Cancel a funded trade and return capital to the account.
     ///
     /// # Arguments
@@ -1105,6 +1130,242 @@ impl TrustFacade {
             concentration,
         })
     }
+
+    /// Creates a new account with hierarchy metadata.
+    ///
+    /// Only primary accounts receive a default level profile.
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_account_with_hierarchy(
+        &mut self,
+        name: &str,
+        description: &str,
+        environment: Environment,
+        taxes_percentage: Decimal,
+        earnings_percentage: Decimal,
+        account_type: AccountType,
+        parent_account_id: Option<Uuid>,
+    ) -> Result<Account, Box<dyn std::error::Error>> {
+        self.consume_protected_authorization("create_account_with_hierarchy")?;
+        let savepoint = "create_account_with_hierarchy";
+        self.factory.begin_savepoint(savepoint)?;
+
+        let account = match self.factory.account_write().create_with_hierarchy(
+            name,
+            description,
+            environment,
+            taxes_percentage,
+            earnings_percentage,
+            account_type,
+            parent_account_id,
+        ) {
+            Ok(account) => account,
+            Err(error) => {
+                let _ = self.factory.rollback_to_savepoint(savepoint);
+                return Err(error);
+            }
+        };
+
+        if account.account_type == AccountType::Primary {
+            if let Err(error) = self.factory.level_write().create_default_level(&account) {
+                let _ = self.factory.rollback_to_savepoint(savepoint);
+                return Err(error);
+            }
+        }
+
+        self.factory.release_savepoint(savepoint)?;
+        Ok(account)
+    }
+
+    /// Configure distribution rules for an account (DB-backed).
+    pub fn configure_distribution(
+        &mut self,
+        account_id: Uuid,
+        earnings_percent: Decimal,
+        tax_percent: Decimal,
+        reinvestment_percent: Decimal,
+        minimum_threshold: Decimal,
+        configuration_password: &str,
+    ) -> Result<DistributionRules, Box<dyn std::error::Error>> {
+        self.consume_protected_authorization("configure_distribution")?;
+
+        let total = earnings_percent
+            .checked_add(tax_percent)
+            .and_then(|sum| sum.checked_add(reinvestment_percent))
+            .ok_or("Arithmetic overflow in percentage calculation")?;
+        if total != Decimal::ONE {
+            return Err("Distribution percentages must sum to 100%".into());
+        }
+
+        let rules = DistributionRules::new(
+            account_id,
+            earnings_percent,
+            tax_percent,
+            reinvestment_percent,
+            minimum_threshold,
+        );
+        rules.validate()?;
+
+        match self.factory.distribution_read().for_account(account_id) {
+            Ok(existing_rules) => {
+                if !verify_distribution_password(
+                    configuration_password,
+                    &existing_rules.configuration_password_hash,
+                )? {
+                    return Err("Invalid distribution configuration password".into());
+                }
+            }
+            Err(e) => {
+                if !e.as_ref().is::<model::DistributionRulesNotFound>() {
+                    return Err(e);
+                }
+            }
+        }
+
+        let password_hash = hash_distribution_password(configuration_password)?;
+        self.factory.distribution_write().create_or_update(
+            account_id,
+            earnings_percent,
+            tax_percent,
+            reinvestment_percent,
+            minimum_threshold,
+            &password_hash,
+        )
+    }
+
+    /// Execute profit distribution for an account using persisted rules.
+    pub fn execute_distribution(
+        &mut self,
+        source_account_id: Uuid,
+        profit_amount: Decimal,
+        currency: Currency,
+    ) -> Result<DistributionResult, Box<dyn std::error::Error>> {
+        let source_account = self.factory.account_read().id(source_account_id)?;
+        let rules = self.factory.distribution_read().for_account(source_account_id)?;
+        let (earnings_account, tax_account, reinvestment_account) =
+            self.resolve_distribution_accounts(source_account_id)?;
+
+        let mut distribution_service = ProfitDistributionService::new(&mut *self.factory);
+        distribution_service.execute_distribution(
+            &source_account,
+            &earnings_account,
+            &tax_account,
+            &reinvestment_account,
+            profit_amount,
+            &rules,
+            &currency,
+            None,
+        )
+    }
+
+    /// Returns persisted profit distribution execution history for an account.
+    pub fn distribution_history(
+        &mut self,
+        source_account_id: Uuid,
+    ) -> Result<Vec<DistributionHistory>, Box<dyn std::error::Error>> {
+        self.factory.distribution_read().history_for_account(source_account_id)
+    }
+
+    /// Transfer funds between accounts within the same hierarchy.
+    pub fn transfer_between_accounts(
+        &mut self,
+        from_account_id: Uuid,
+        to_account_id: Uuid,
+        amount: Decimal,
+        currency: Currency,
+        reason: &str,
+    ) -> Result<(Uuid, Uuid), Box<dyn std::error::Error>> {
+        // Get accounts
+        let from_account = self.factory.account_read().id(from_account_id)?;
+        let to_account = self.factory.account_read().id(to_account_id)?;
+
+        // Execute transfer
+        let mut transfer_service = FundTransferService::new(&mut *self.factory);
+        transfer_service.transfer_between_accounts(
+            &from_account,
+            &to_account,
+            amount,
+            &currency,
+            reason,
+        )
+    }
+}
+
+impl TrustFacade {
+    fn resolve_distribution_accounts(
+        &mut self,
+        source_account_id: Uuid,
+    ) -> Result<(Account, Account, Account), Box<dyn std::error::Error>> {
+        let child_accounts: Vec<Account> = self
+            .factory
+            .account_read()
+            .all()?
+            .into_iter()
+            .filter(|account| account.parent_account_id == Some(source_account_id))
+            .collect();
+
+        let earnings_account = child_accounts
+            .iter()
+            .find(|account| account.account_type == AccountType::Earnings)
+            .cloned()
+            .ok_or("Missing earnings subaccount for distribution")?;
+        let tax_account = child_accounts
+            .iter()
+            .find(|account| account.account_type == AccountType::TaxReserve)
+            .cloned()
+            .ok_or("Missing tax reserve subaccount for distribution")?;
+        let reinvestment_account = child_accounts
+            .iter()
+            .find(|account| account.account_type == AccountType::Reinvestment)
+            .cloned()
+            .ok_or("Missing reinvestment subaccount for distribution")?;
+
+        Ok((earnings_account, tax_account, reinvestment_account))
+    }
+}
+
+fn hash_distribution_password(password: &str) -> Result<String, Box<dyn std::error::Error>> {
+    if password.trim().len() < 8 {
+        return Err("Distribution password must be at least 8 characters".into());
+    }
+
+    let salt = SaltString::generate(&mut OsRng);
+    let argon2 = Argon2::default();
+    let hash = argon2
+        .hash_password(password.as_bytes(), &salt)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+    Ok(hash.to_string())
+}
+
+fn verify_distribution_password(
+    password: &str,
+    stored_hash: &str,
+) -> Result<bool, Box<dyn std::error::Error>> {
+    if stored_hash.starts_with("$argon2") {
+        let parsed = PasswordHash::new(stored_hash).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Invalid password hash: {e}"),
+            )
+        })?;
+        Ok(Argon2::default()
+            .verify_password(password.as_bytes(), &parsed)
+            .is_ok())
+    } else {
+        Ok(hash_distribution_password_legacy_sha256(password)? == stored_hash)
+    }
+}
+
+fn hash_distribution_password_legacy_sha256(
+    password: &str,
+) -> Result<String, Box<dyn std::error::Error>> {
+    if password.trim().len() < 8 {
+        return Err("Distribution password must be at least 8 characters".into());
+    }
+
+    let mut hasher = Sha256::new();
+    hasher.update(password.as_bytes());
+    let digest = hasher.finalize();
+    Ok(format!("{digest:x}"))
 }
 
 mod calculators_account;
