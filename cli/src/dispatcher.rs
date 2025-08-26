@@ -86,6 +86,7 @@ impl ArgDispatcher {
                 Some(("performance", sub_sub_matches)) => self.performance_report(sub_sub_matches),
                 Some(("drawdown", sub_sub_matches)) => self.drawdown_report(sub_sub_matches),
                 Some(("risk", sub_sub_matches)) => self.risk_report(sub_sub_matches),
+                Some(("metrics", sub_sub_matches)) => self.metrics_report(sub_sub_matches),
                 _ => unreachable!("No subcommand provided"),
             },
             Some((ext, sub_matches)) => {
@@ -486,6 +487,45 @@ impl ArgDispatcher {
 
         // Display the results
         RiskView::display(positions, total_capital_at_risk, account_balance);
+    }
+
+    fn metrics_report(&mut self, sub_matches: &ArgMatches) {
+        use crate::views::AdvancedMetricsView;
+        use core::calculators_performance::PerformanceCalculator;
+        use std::str::FromStr;
+        use uuid::Uuid;
+
+        // Get account ID if provided
+        let account_id = if let Some(account_arg) = sub_matches.get_one::<String>("account") {
+            match Uuid::from_str(account_arg) {
+                Ok(id) => Some(id),
+                Err(_) => {
+                    eprintln!("Error: Invalid account ID format");
+                    return;
+                }
+            }
+        } else {
+            None
+        };
+
+        // Get days filter if provided
+        let days_filter = sub_matches.get_one::<u32>("days").copied();
+
+        // Get all closed trades
+        let mut all_trades = match self.trust.search_closed_trades(account_id) {
+            Ok(trades) => trades,
+            Err(_) => {
+                eprintln!("Unable to retrieve trading data. Please check your account settings and try again.");
+                return;
+            }
+        };
+
+        // Apply days filter if specified
+        if let Some(days) = days_filter {
+            all_trades = PerformanceCalculator::filter_trades_by_days(&all_trades, days);
+        }
+
+        AdvancedMetricsView::display(all_trades);
     }
 }
 

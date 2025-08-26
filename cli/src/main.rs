@@ -100,6 +100,7 @@ fn main() {
                 .performance()
                 .drawdown()
                 .risk()
+                .metrics()
                 .build(),
         )
         .get_matches();
