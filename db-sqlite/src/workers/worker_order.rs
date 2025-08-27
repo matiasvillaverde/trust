@@ -69,7 +69,7 @@ impl WorkerOrder {
                 orders::updated_at.eq(now),
                 orders::broker_order_id.eq(order.broker_order_id.map(|id| id.to_string())),
                 orders::status.eq(order.status.to_string()),
-                orders::filled_quantity.eq(order.filled_quantity as i64),
+                orders::filled_quantity.eq(Some(order.filled_quantity as i64)),
                 orders::average_filled_price
                     .eq(order.average_filled_price.map(|price| price.to_string())),
                 orders::submitted_at.eq(order.submitted_at),
@@ -166,7 +166,7 @@ struct OrderSQLite {
     time_in_force: String,
     trailing_percentage: Option<String>,
     trailing_price: Option<String>,
-    filled_quantity: i64,
+    filled_quantity: Option<i64>,
     average_filled_price: Option<String>,
     extended_hours: bool,
     submitted_at: Option<NaiveDateTime>,
@@ -214,7 +214,7 @@ impl TryFrom<OrderSQLite> for Order {
                 .trailing_price
                 .and_then(|p| Decimal::from_str(&p).ok()),
             #[allow(clippy::cast_sign_loss)]
-            filled_quantity: value.filled_quantity.max(0) as u64,
+            filled_quantity: value.filled_quantity.unwrap_or(0).max(0) as u64,
             average_filled_price: value
                 .average_filled_price
                 .and_then(|p| Decimal::from_str(&p).ok()),
@@ -253,7 +253,7 @@ struct NewOrder {
     time_in_force: String,
     trailing_percentage: Option<String>,
     trailing_price: Option<String>,
-    filled_quantity: i64,
+    filled_quantity: Option<i64>,
     average_filled_price: Option<String>,
     extended_hours: bool,
     submitted_at: Option<NaiveDateTime>,
@@ -282,7 +282,7 @@ impl Default for NewOrder {
             time_in_force: TimeInForce::UntilCanceled.to_string(),
             trailing_percentage: None,
             trailing_price: None,
-            filled_quantity: 0,
+            filled_quantity: Some(0),
             average_filled_price: None,
             extended_hours: false,
             submitted_at: None,
