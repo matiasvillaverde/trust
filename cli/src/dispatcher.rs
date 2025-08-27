@@ -15,7 +15,6 @@ use model::TransactionCategory;
 use shellexpand::tilde;
 use std::ffi::OsString;
 use std::fs;
-use std::str::FromStr;
 
 pub struct ArgDispatcher {
     trust: TrustFacade,
@@ -911,20 +910,8 @@ impl ArgDispatcher {
             Ok(result) => {
                 progress.complete();
 
-                // Create formatted result with proper account IDs
-                let formatted_result = model::DistributionResult {
-                    source_account_id: result.source_account_id,
-                    earnings_account_id: Some(earnings_account_id),
-                    tax_account_id: Some(tax_account_id),
-                    reinvestment_account_id: Some(reinvestment_account_id),
-                    total_profit_amount: result.total_profit_amount,
-                    earnings_amount: result.earnings_amount,
-                    tax_amount: result.tax_amount,
-                    reinvestment_amount: result.reinvestment_amount,
-                    transactions_created: result.transactions_created,
-                    created_at: result.created_at,
-                    original_amount: result.original_amount,
-                };
+                // Use the result directly
+                let formatted_result = &result;
 
                 println!(
                     "{}",
