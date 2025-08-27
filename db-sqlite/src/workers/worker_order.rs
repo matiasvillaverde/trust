@@ -26,6 +26,7 @@ impl WorkerOrder {
         trading_vehicle: &TradingVehicle,
     ) -> Result<Order, Box<dyn Error>> {
         let new_order = NewOrder {
+            #[allow(clippy::cast_possible_truncation)]
             quantity: quantity as i32,
             unit_price: unit_price.to_string(),
             category: category.to_string(),
@@ -69,6 +70,7 @@ impl WorkerOrder {
                 orders::updated_at.eq(now),
                 orders::broker_order_id.eq(order.broker_order_id.map(|id| id.to_string())),
                 orders::status.eq(order.status.to_string()),
+                #[allow(clippy::cast_possible_truncation)]
                 orders::filled_quantity.eq(Some(order.filled_quantity as i32)),
                 orders::average_filled_price
                     .eq(order.average_filled_price.map(|price| price.to_string())),

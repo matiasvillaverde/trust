@@ -665,6 +665,7 @@ impl TrustFacade {
 
     /// Creates a new account with hierarchy support
     /// Note: For now, uses existing create method - hierarchy will be added when database layer is updated
+    #[allow(clippy::too_many_arguments)]
     pub fn create_account_with_hierarchy(
         &mut self,
         name: &str,
@@ -696,7 +697,10 @@ impl TrustFacade {
         minimum_threshold: Decimal,
     ) -> Result<DistributionRules, Box<dyn std::error::Error>> {
         // Validate percentages sum to 100%
-        let total = earnings_percent + tax_percent + reinvestment_percent;
+        let total = earnings_percent
+            .checked_add(tax_percent)
+            .and_then(|sum| sum.checked_add(reinvestment_percent))
+            .ok_or("Arithmetic overflow in percentage calculation")?;
         if total != Decimal::ONE {
             return Err("Distribution percentages must sum to 100%".into());
         }
