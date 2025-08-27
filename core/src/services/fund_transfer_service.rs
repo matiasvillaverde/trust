@@ -87,7 +87,7 @@ impl<'a> FundTransferService<'a> {
 mod tests {
     use super::*;
     use chrono::Utc;
-    use model::database::{DistributionRead, DistributionWrite, WriteAccountBalanceDB};
+    use model::database::WriteAccountBalanceDB;
     use model::{AccountType, DatabaseFactory, Environment};
     use rust_decimal_macros::dec;
     use uuid::Uuid;
@@ -95,6 +95,7 @@ mod tests {
     // Mock database factory for testing
     #[derive(Debug)]
     struct MockDatabaseFactory {
+        #[allow(dead_code)]
         transactions_created: Vec<(Uuid, TransactionCategory, Decimal)>,
     }
 
@@ -177,10 +178,12 @@ mod tests {
         }
 
         fn distribution_read(&self) -> Box<dyn model::DistributionRead> {
+            use model::database::DistributionRead;
             todo!("Mock not needed for this test")
         }
 
         fn distribution_write(&self) -> Box<dyn model::DistributionWrite> {
+            use model::database::DistributionWrite;
             todo!("Mock not needed for this test")
         }
     }

@@ -93,9 +93,13 @@ impl DistributionFormatter {
             │ Minimum Threshold: ${}                     \n\
             │ (Only profits above this amount will be distributed)    \n\
             └─────────────────────────────────────────────────────────┘",
-            earnings_pct * Decimal::from(100),
-            tax_pct * Decimal::from(100),
-            reinvestment_pct * Decimal::from(100),
+            earnings_pct
+                .checked_mul(Decimal::from(100))
+                .unwrap_or(earnings_pct),
+            tax_pct.checked_mul(Decimal::from(100)).unwrap_or(tax_pct),
+            reinvestment_pct
+                .checked_mul(Decimal::from(100))
+                .unwrap_or(reinvestment_pct),
             minimum
         )
     }
@@ -232,9 +236,9 @@ mod tests {
         );
 
         assert!(result.contains("⚙️  Distribution Rules Configured"));
-        assert!(result.contains("40% of profit"));
-        assert!(result.contains("30% of profit"));
-        assert!(result.contains("$100"));
+        assert!(result.contains("40.00% of profit"));
+        assert!(result.contains("30.00% of profit"));
+        assert!(result.contains("$100.0"));
     }
 
     #[test]

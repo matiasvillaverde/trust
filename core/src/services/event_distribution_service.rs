@@ -214,8 +214,10 @@ mod tests {
     fn create_test_trade_profitable() -> Trade {
         use model::{Currency, TradeBalance};
 
-        let mut trade = Trade::default();
-        trade.status = Status::ClosedTarget;
+        let mut trade = Trade {
+            status: Status::ClosedTarget,
+            ..Default::default()
+        };
 
         // Create profitable balance
         let now = Utc::now().naive_utc();
