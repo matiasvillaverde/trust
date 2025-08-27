@@ -1,6 +1,9 @@
 #![allow(clippy::arithmetic_side_effects)]
 #![allow(clippy::unwrap_used)]
 #![allow(clippy::uninlined_format_args)]
+#![allow(clippy::const_is_empty)]
+#![allow(clippy::field_reassign_with_default)]
+#![allow(clippy::cognitive_complexity)]
 
 use crate::services::EventDistributionService;
 use chrono::Utc;
