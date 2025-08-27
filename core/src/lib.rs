@@ -1187,7 +1187,7 @@ impl TrustFacade {
         configuration_password: &str,
     ) -> Result<DistributionRules, Box<dyn std::error::Error>> {
         self.consume_protected_authorization("configure_distribution")?;
-
+        // Validate percentages sum to 100%.
         let total = earnings_percent
             .checked_add(tax_percent)
             .and_then(|sum| sum.checked_add(reinvestment_percent))

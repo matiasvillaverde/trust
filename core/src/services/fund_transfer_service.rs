@@ -87,6 +87,7 @@ impl<'a> FundTransferService<'a> {
 mod tests {
     use super::*;
     use chrono::Utc;
+    use model::database::WriteAccountBalanceDB;
     use model::{AccountType, DatabaseFactory, Environment};
     use rust_decimal_macros::dec;
     use uuid::Uuid;

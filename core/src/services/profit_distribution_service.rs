@@ -36,6 +36,7 @@ impl<'a> ProfitDistributionService<'a> {
     }
 
     /// Executes profit distribution across account hierarchy with atomic transactions
+    #[allow(clippy::too_many_arguments)]
     pub fn execute_distribution(
         &mut self,
         source_account: &Account,

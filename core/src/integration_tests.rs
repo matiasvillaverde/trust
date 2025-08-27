@@ -1,3 +1,7 @@
+#![allow(clippy::arithmetic_side_effects)]
+#![allow(clippy::unwrap_used)]
+#![allow(clippy::uninlined_format_args)]
+
 use crate::services::EventDistributionService;
 use chrono::Utc;
 use model::{Account, AccountType, Currency, DatabaseFactory, Environment, Trade, TradeBalance};
