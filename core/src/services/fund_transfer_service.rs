@@ -87,7 +87,7 @@ impl<'a> FundTransferService<'a> {
 mod tests {
     use super::*;
     use chrono::Utc;
-    use model::database::WriteAccountBalanceDB;
+    use model::database::{DistributionRead, DistributionWrite, WriteAccountBalanceDB};
     use model::{AccountType, DatabaseFactory, Environment};
     use rust_decimal_macros::dec;
     use uuid::Uuid;
@@ -173,6 +173,14 @@ mod tests {
         }
 
         fn log_write(&self) -> Box<dyn model::WriteBrokerLogsDB> {
+            todo!("Mock not needed for this test")
+        }
+
+        fn distribution_read(&self) -> Box<dyn model::DistributionRead> {
+            todo!("Mock not needed for this test")
+        }
+
+        fn distribution_write(&self) -> Box<dyn model::DistributionWrite> {
             todo!("Mock not needed for this test")
         }
     }
