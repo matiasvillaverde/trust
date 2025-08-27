@@ -114,6 +114,7 @@ impl ArgDispatcher {
 
 // Account
 impl ArgDispatcher {
+    #[allow(dead_code)]
     fn create_account(&mut self) {
         AccountDialogBuilder::new()
             .name()
