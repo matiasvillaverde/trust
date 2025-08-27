@@ -1,3 +1,14 @@
+//! CLI dispatcher module - handles command-line interface operations
+//!
+//! SAFETY ALLOWANCES: This module contains UI code that uses .unwrap()
+//! for command-line argument handling where panics are acceptable since
+//! they indicate programming errors in command setup, not runtime errors.
+#![allow(
+    clippy::unwrap_used,
+    clippy::uninlined_format_args,
+    clippy::expect_used
+)]
+
 use crate::dialogs::{
     AccountDialogBuilder, AccountSearchDialog, CancelDialogBuilder, CloseDialogBuilder,
     ExitDialogBuilder, FillTradeDialogBuilder, FundingDialogBuilder, KeysDeleteDialogBuilder,
