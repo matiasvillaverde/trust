@@ -5,7 +5,6 @@
 
 use model::{Account, DistributionResult};
 use rust_decimal::Decimal;
-use std::fmt;
 
 /// Formats account information in a structured table
 pub struct AccountFormatter;
@@ -63,13 +62,13 @@ impl DistributionFormatter {
             │ └─ Reinvestment: ${} → Account: {}   \n\
             └─────────────────────────────────────────────────────────┘",
             result.source_account_id,
-            result.total_profit_amount,
+            result.original_amount,
             result.earnings_amount.unwrap_or_default(),
-            result.earnings_account_id.unwrap_or_default(),
+            "N/A", // earnings account ID not available in result
             result.tax_amount.unwrap_or_default(),
-            result.tax_account_id.unwrap_or_default(),
+            "N/A", // tax account ID not available in result
             result.reinvestment_amount.unwrap_or_default(),
-            result.reinvestment_account_id.unwrap_or_default()
+            "N/A" // reinvestment account ID not available in result
         )
     }
 
