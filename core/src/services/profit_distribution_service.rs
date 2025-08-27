@@ -184,6 +184,7 @@ mod tests {
     // Mock database factory for testing
     #[derive(Debug)]
     struct MockDatabaseFactory {
+        #[allow(dead_code)]
         transactions_created: Vec<(Uuid, Uuid, Decimal)>, // (from, to, amount)
     }
 

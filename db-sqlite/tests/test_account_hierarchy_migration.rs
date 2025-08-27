@@ -62,7 +62,7 @@ fn test_account_hierarchy_child_parent_relationship() {
     };
 
     // When: We create parent and child accounts
-    let created_parent = db
+    let _created_parent = db
         .account_write()
         .create(
             &parent.name,
@@ -94,17 +94,14 @@ fn test_account_hierarchy_child_parent_relationship() {
 #[test]
 fn test_distribution_tables_exist_after_migration() {
     // Given: A fresh database with migrations applied
-    let db = SqliteDatabase::new_in_memory();
+    let _db = SqliteDatabase::new_in_memory();
 
     // When: We try to access distribution-related operations
     // This test will fail until we implement DistributionRead/Write traits
 
     // For now, we'll test that the database can be created without errors
     // indicating the schema migration succeeded
-    assert!(
-        true,
-        "Database created successfully - distribution tables should exist"
-    );
+    // Note: Replace with actual distribution table queries when traits are implemented
 
     // TODO: Implement actual distribution table operations test
     // when we add DistributionRead/Write traits
