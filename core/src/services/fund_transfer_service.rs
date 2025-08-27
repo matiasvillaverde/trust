@@ -1,4 +1,6 @@
-use model::{Account, Currency, DatabaseFactory};
+use model::{
+    Account, AccountType, Currency, DatabaseFactory, TransactionCategory, WriteAccountBalanceDB,
+};
 use rust_decimal::Decimal;
 use std::error::Error;
 use uuid::Uuid;
@@ -28,18 +30,30 @@ impl<'a> FundTransferService<'a> {
         from_account: &Account,
         to_account: &Account,
         amount: Decimal,
-        _currency: &Currency,
+        currency: &Currency,
         _reason: &str,
     ) -> Result<(Uuid, Uuid), Box<dyn Error>> {
         // Validate the transfer first
         self.validate_transfer(from_account, to_account, amount)?;
 
-        // For now, return mock transaction IDs
-        // Later this will create actual transactions in the database
-        let withdrawal_tx_id = Uuid::new_v4();
-        let deposit_tx_id = Uuid::new_v4();
+        // Create withdrawal transaction
+        let withdrawal_amount = amount.checked_neg().ok_or("Invalid withdrawal amount")?;
+        let withdrawal_tx = self.database.transaction_write().create_transaction(
+            from_account,
+            withdrawal_amount, // Negative for withdrawal
+            currency,
+            TransactionCategory::Withdrawal,
+        )?;
 
-        Ok((withdrawal_tx_id, deposit_tx_id))
+        // Create deposit transaction
+        let deposit_tx = self.database.transaction_write().create_transaction(
+            to_account,
+            amount, // Positive for deposit
+            currency,
+            TransactionCategory::Deposit,
+        )?;
+
+        Ok((withdrawal_tx.id, deposit_tx.id))
     }
 
     /// Validates if a transfer is allowed between two accounts
@@ -161,11 +175,11 @@ mod tests {
             todo!("Mock not needed for this test")
         }
 
-        fn distribution_read(&self) -> Box<dyn model::DistributionRead> {
+        fn level_read(&self) -> Box<dyn model::ReadLevelDB> {
             todo!("Mock not needed for this test")
         }
 
-        fn distribution_write(&self) -> Box<dyn model::DistributionWrite> {
+        fn level_write(&self) -> Box<dyn model::WriteLevelDB> {
             todo!("Mock not needed for this test")
         }
     }
