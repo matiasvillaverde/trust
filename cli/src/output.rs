@@ -114,11 +114,10 @@ impl ErrorFormatter {
         format!(
             "❌ Validation Error\n\
             ┌─────────────────────────────────────────────────────────┐\n\
-            │ Field:      {}                            \n\
-            │ Issue:      {}                            \n\
-            │ Suggestion: {}                            \n\
-            └─────────────────────────────────────────────────────────┘",
-            field, issue, suggestion
+            │ Field:      {field}                            \n\
+            │ Issue:      {issue}                            \n\
+            │ Suggestion: {suggestion}                            \n\
+            └─────────────────────────────────────────────────────────┘"
         )
     }
 
@@ -127,10 +126,9 @@ impl ErrorFormatter {
         format!(
             "🚨 System Error\n\
             ┌─────────────────────────────────────────────────────────┐\n\
-            │ Error:    {}                              \n\
-            │ Recovery: {}                              \n\
-            └─────────────────────────────────────────────────────────┘",
-            error, recovery
+            │ Error:    {error}                              \n\
+            │ Recovery: {recovery}                              \n\
+            └─────────────────────────────────────────────────────────┘"
         )
     }
 }
@@ -153,9 +151,14 @@ impl ProgressIndicator {
     }
 
     /// Updates progress and displays current status
+    #[allow(clippy::arithmetic_side_effects)]
+    #[allow(clippy::cast_precision_loss)]
+    #[allow(clippy::cast_possible_truncation)]
+    #[allow(clippy::cast_sign_loss)]
+    #[allow(clippy::float_arithmetic)]
     pub fn step(&mut self, step_message: &str) {
-        self.current += 1;
-        let progress = (self.current as f32 / self.steps as f32 * 100.0) as usize;
+        self.current = self.current.saturating_add(1);
+        let progress = ((self.current as f32 / self.steps as f32) * 100.0) as usize;
 
         println!(
             "🔄 {} [{}/{}] ({}%) - {}",
@@ -173,7 +176,7 @@ impl ProgressIndicator {
 #[allow(dead_code)]
 fn truncate(s: &str, max_len: usize) -> String {
     if s.len() <= max_len {
-        format!("{:width$}", s, width = max_len)
+        format!("{s:max_len$}")
     } else {
         format!("{}...", &s[..max_len.saturating_sub(3)])
     }

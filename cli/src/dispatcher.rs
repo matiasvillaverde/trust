@@ -590,6 +590,7 @@ impl ArgDispatcher {
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     fn transfer_accounts(&mut self, matches: &ArgMatches) {
         // Extract arguments from clap
         let from_id_str = matches.get_one::<String>("from").unwrap();
@@ -692,7 +693,23 @@ impl ArgDispatcher {
 // Distribution Operations
 impl ArgDispatcher {
     fn configure_distribution(&mut self, matches: &ArgMatches) {
-        // Extract arguments from clap
+        // Extract arguments from clap - use helper to avoid result complexity
+        if let Err(e) = self.configure_distribution_impl(matches) {
+            println!(
+                "{}",
+                ErrorFormatter::format_system_error(
+                    &format!("Failed to configure distribution: {}", e),
+                    "Please check your input parameters"
+                )
+            );
+        }
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn configure_distribution_impl(
+        &mut self,
+        matches: &ArgMatches,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let account_id_str = matches.get_one::<String>("account-id").unwrap();
         let earnings_str = matches.get_one::<String>("earnings").unwrap();
         let tax_str = matches.get_one::<String>("tax").unwrap();
@@ -700,67 +717,43 @@ impl ArgDispatcher {
         let threshold_str = matches.get_one::<String>("threshold").unwrap();
 
         // Parse account ID
-        let account_id =
-            match uuid::Uuid::parse_str(account_id_str) {
-                Ok(uuid) => uuid,
-                Err(_) => {
-                    println!("{}", ErrorFormatter::format_validation_error(
-                    "Account ID",
-                    "Invalid UUID format", 
-                    "Please provide a valid UUID (e.g., 550e8400-e29b-41d4-a716-446655440000)"
-                ));
-                    return;
-                }
-            };
+        let account_id = match uuid::Uuid::parse_str(account_id_str) {
+            Ok(uuid) => uuid,
+            Err(_) => {
+                return Err("Invalid UUID format for account ID".into());
+            }
+        };
 
         // Parse percentages (convert from 40.0 to 0.40) with progress indicator
         let mut progress = ProgressIndicator::new("Configuring Distribution Rules".to_string(), 5);
 
         progress.step("Parsing earnings percentage");
         let earnings_percent = match rust_decimal::Decimal::from_str_exact(earnings_str) {
-            Ok(decimal) => decimal / rust_decimal::Decimal::new(100, 0),
+            Ok(decimal) => decimal
+                .checked_div(rust_decimal::Decimal::new(100, 0))
+                .ok_or("Division by zero error in earnings percentage calculation")?,
             Err(_) => {
-                println!(
-                    "{}",
-                    ErrorFormatter::format_validation_error(
-                        "Earnings Percentage",
-                        "Invalid decimal format",
-                        "Please provide a decimal value (e.g., 40.0 for 40%)"
-                    )
-                );
-                return;
+                return Err("Invalid decimal format for earnings percentage".into());
             }
         };
 
         progress.step("Parsing tax percentage");
         let tax_percent = match rust_decimal::Decimal::from_str_exact(tax_str) {
-            Ok(decimal) => decimal / rust_decimal::Decimal::new(100, 0),
+            Ok(decimal) => decimal
+                .checked_div(rust_decimal::Decimal::new(100, 0))
+                .ok_or("Division by zero error in tax percentage calculation")?,
             Err(_) => {
-                println!(
-                    "{}",
-                    ErrorFormatter::format_validation_error(
-                        "Tax Percentage",
-                        "Invalid decimal format",
-                        "Please provide a decimal value (e.g., 30.0 for 30%)"
-                    )
-                );
-                return;
+                return Err("Invalid decimal format for tax percentage".into());
             }
         };
 
         progress.step("Parsing reinvestment percentage");
         let reinvestment_percent = match rust_decimal::Decimal::from_str_exact(reinvestment_str) {
-            Ok(decimal) => decimal / rust_decimal::Decimal::new(100, 0),
+            Ok(decimal) => decimal
+                .checked_div(rust_decimal::Decimal::new(100, 0))
+                .ok_or("Division by zero error in reinvestment percentage calculation")?,
             Err(_) => {
-                println!(
-                    "{}",
-                    ErrorFormatter::format_validation_error(
-                        "Reinvestment Percentage",
-                        "Invalid decimal format",
-                        "Please provide a decimal value (e.g., 30.0 for 30%)"
-                    )
-                );
-                return;
+                return Err("Invalid decimal format for reinvestment percentage".into());
             }
         };
 
@@ -768,53 +761,36 @@ impl ArgDispatcher {
         let threshold = match rust_decimal::Decimal::from_str_exact(threshold_str) {
             Ok(decimal) => decimal,
             Err(_) => {
-                println!(
-                    "{}",
-                    ErrorFormatter::format_validation_error(
-                        "Minimum Threshold",
-                        "Invalid decimal format",
-                        "Please provide a decimal value (e.g., 100.00 for $100)"
-                    )
-                );
-                return;
+                return Err("Invalid decimal format for minimum threshold".into());
             }
         };
 
         progress.step("Applying configuration to system");
 
         // Configure the distribution
-        match self.trust.configure_distribution(
+        self.trust.configure_distribution(
             account_id,
             earnings_percent,
             tax_percent,
             reinvestment_percent,
             threshold,
-        ) {
-            Ok(_rules) => {
-                progress.complete();
-                println!(
-                    "{}",
-                    DistributionFormatter::format_configuration_summary(
-                        earnings_percent,
-                        tax_percent,
-                        reinvestment_percent,
-                        threshold
-                    )
-                );
-                println!("📋 Account ID: {}", account_id);
-            }
-            Err(e) => {
-                println!(
-                    "{}",
-                    ErrorFormatter::format_system_error(
-                        &format!("Failed to configure distribution: {}", e),
-                        "Please verify the account exists and percentages sum to 100%"
-                    )
-                );
-            }
-        }
+        )?;
+
+        progress.complete();
+        println!(
+            "{}",
+            DistributionFormatter::format_configuration_summary(
+                earnings_percent,
+                tax_percent,
+                reinvestment_percent,
+                threshold
+            )
+        );
+        println!("📋 Account ID: {}", account_id);
+        Ok(())
     }
 
+    #[allow(clippy::too_many_lines)]
     fn execute_distribution(&mut self, matches: &ArgMatches) {
         // Extract arguments from clap
         let account_id_str = matches.get_one::<String>("account-id").unwrap();
@@ -923,11 +899,9 @@ impl ArgDispatcher {
                 progress.complete();
 
                 // Use the result directly
-                let formatted_result = &result;
-
                 println!(
                     "{}",
-                    DistributionFormatter::format_distribution_result(&formatted_result)
+                    DistributionFormatter::format_distribution_result(&result)
                 );
                 println!(
                     "📈 Total Transactions Created: {}",
