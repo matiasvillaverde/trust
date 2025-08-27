@@ -7,10 +7,12 @@ use model::{Account, DistributionResult};
 use rust_decimal::Decimal;
 
 /// Formats account information in a structured table
+#[allow(dead_code)]
 pub struct AccountFormatter;
 
 impl AccountFormatter {
     /// Formats a single account as a table row
+    #[allow(dead_code)]
     pub fn format_account(account: &Account) -> String {
         format!(
             "│ {} │ {:15} │ {:10} │ {:12} │",
@@ -22,6 +24,7 @@ impl AccountFormatter {
     }
 
     /// Formats account creation success message
+    #[allow(dead_code)]
     pub fn format_creation_success(account: &Account) -> String {
         format!(
             "✅ Account Created Successfully\n\
@@ -163,6 +166,7 @@ impl ProgressIndicator {
 }
 
 /// Helper function to truncate strings to a maximum length
+#[allow(dead_code)]
 fn truncate(s: &str, max_len: usize) -> String {
     if s.len() <= max_len {
         format!("{:width$}", s, width = max_len)
