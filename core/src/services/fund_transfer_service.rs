@@ -1,6 +1,4 @@
-use model::{
-    Account, AccountType, Currency, DatabaseFactory, TransactionCategory, WriteAccountBalanceDB,
-};
+use model::{Account, Currency, DatabaseFactory, TransactionCategory};
 use rust_decimal::Decimal;
 use std::error::Error;
 use uuid::Uuid;
@@ -37,7 +35,9 @@ impl<'a> FundTransferService<'a> {
         self.validate_transfer(from_account, to_account, amount)?;
 
         // Create withdrawal transaction
-        let withdrawal_amount = amount.checked_neg().ok_or("Invalid withdrawal amount")?;
+        let withdrawal_amount = Decimal::ZERO
+            .checked_sub(amount)
+            .ok_or("Invalid withdrawal amount")?;
         let withdrawal_tx = self.database.transaction_write().create_transaction(
             from_account,
             withdrawal_amount, // Negative for withdrawal
@@ -87,7 +87,7 @@ impl<'a> FundTransferService<'a> {
 mod tests {
     use super::*;
     use chrono::Utc;
-    use model::{DatabaseFactory, Environment};
+    use model::{AccountType, DatabaseFactory, Environment};
     use rust_decimal_macros::dec;
     use uuid::Uuid;
 
@@ -172,14 +172,6 @@ mod tests {
         }
 
         fn log_write(&self) -> Box<dyn model::WriteBrokerLogsDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn level_read(&self) -> Box<dyn model::ReadLevelDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn level_write(&self) -> Box<dyn model::WriteLevelDB> {
             todo!("Mock not needed for this test")
         }
     }
