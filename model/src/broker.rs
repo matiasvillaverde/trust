@@ -1,5 +1,6 @@
-use crate::{Account, Order, Status, Trade};
+use crate::{Account, BarTimeframe, MarketBar, Order, Status, Trade};
 use chrono::NaiveDateTime;
+use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use std::error::Error;
 use uuid::Uuid;
@@ -95,4 +96,18 @@ pub trait Broker {
         account: &Account,
         new_price: Decimal,
     ) -> Result<Uuid, Box<dyn Error>>;
+
+    /// Retrieve market bars for a symbol from the broker's market data API (if supported).
+    ///
+    /// Implementations may return an error if market data isn't available for the broker/account.
+    fn get_bars(
+        &self,
+        _symbol: &str,
+        _start: DateTime<Utc>,
+        _end: DateTime<Utc>,
+        _timeframe: BarTimeframe,
+        _account: &Account,
+    ) -> Result<Vec<MarketBar>, Box<dyn Error>> {
+        Err("Market data not supported by this broker".into())
+    }
 }

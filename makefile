@@ -59,6 +59,8 @@ help:
 	@echo "  make ci-test        - Run test suite as in CI"
 	@echo "  make ci-perf        - Run performance regression gate"
 	@echo "  make ci-build       - Run build checks as in CI"
+	@echo "  make ci-snapshots   - Verify CLI report JSON snapshots"
+	@echo "  make snapshots-update - Update CLI report JSON snapshots"
 	@echo ""
 	@echo "$(GREEN)Database Commands:$(NC)"
 	@echo "  make setup          - Setup database"
@@ -171,7 +173,7 @@ quality-gate: fmt-check lint-strict security-check
 
 # CI Pipeline Commands
 .PHONY: ci
-ci: ci-fast ci-build ci-test ci-perf
+ci: ci-fast ci-build ci-test ci-snapshots ci-perf
 	@echo "$(GREEN)✓ Full CI pipeline passed!$(NC)"
 
 .PHONY: ci-fast
@@ -183,6 +185,16 @@ ci-test: setup
 	@echo "$(BLUE)Running CI test suite...$(NC)"
 	@$(CARGO) test $(TEST_FLAGS) $(CARGO_FLAGS)
 	@$(CARGO) test --doc $(CARGO_FLAGS)
+
+.PHONY: ci-snapshots
+ci-snapshots:
+	@echo "$(BLUE)Verifying CLI report JSON snapshots...$(NC)"
+	@$(CARGO) test -p cli --test integration_test_report_json_snapshots $(CARGO_FLAGS)
+
+.PHONY: snapshots-update
+snapshots-update:
+	@echo "$(YELLOW)Updating CLI report JSON snapshots...$(NC)"
+	@UPDATE_SNAPSHOTS=1 $(CARGO) test -p cli --test integration_test_report_json_snapshots $(CARGO_FLAGS)
 
 .PHONY: ci-perf
 ci-perf:
@@ -209,7 +221,7 @@ pre-commit: fmt-check lint-strict test-single
 	@echo "$(GREEN)✓ Pre-commit checks passed!$(NC)"
 
 .PHONY: pre-push
-pre-push: quality-gate ci-build ci-test ci-perf
+pre-push: quality-gate ci-build ci-test ci-snapshots ci-perf
 	@echo "$(GREEN)✓ Pre-push checks passed! Safe to push.$(NC)"
 
 # Utility Commands

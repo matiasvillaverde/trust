@@ -10,6 +10,15 @@ impl ReportCommandBuilder {
         ReportCommandBuilder {
             command: Command::new("report")
                 .about("Generate trading performance reports")
+                .arg(
+                    Arg::new("format")
+                        .long("format")
+                        .value_name("FORMAT")
+                        .help("Output format")
+                        .value_parser(["text", "json"])
+                        .default_value("text")
+                        .global(true),
+                )
                 .arg_required_else_help(true),
             subcommands: Vec::new(),
         }
@@ -88,6 +97,44 @@ impl ReportCommandBuilder {
                         .long("open-only")
                         .help("Show only currently open positions")
                         .action(clap::ArgAction::SetTrue)
+                        .required(false),
+                ),
+        );
+        self
+    }
+
+    pub fn summary(mut self) -> Self {
+        self.subcommands.push(
+            Command::new("summary")
+                .about("Display comprehensive trading summary with all key metrics")
+                .arg(
+                    Arg::new("account")
+                        .long("account")
+                        .value_name("ACCOUNT_ID")
+                        .help("Filter by specific account ID")
+                        .required(false),
+                ),
+        );
+        self
+    }
+
+    pub fn metrics(mut self) -> Self {
+        self.subcommands.push(
+            Command::new("metrics")
+                .about("Display advanced financial metrics (profit factor, expectancy, etc.)")
+                .arg(
+                    Arg::new("account")
+                        .long("account")
+                        .value_name("ACCOUNT_ID")
+                        .help("Filter by specific account ID")
+                        .required(false),
+                )
+                .arg(
+                    Arg::new("days")
+                        .long("days")
+                        .value_name("DAYS")
+                        .help("Filter trades from the last N days")
+                        .value_parser(clap::value_parser!(u32))
                         .required(false),
                 ),
         );

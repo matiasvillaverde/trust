@@ -1,7 +1,7 @@
 use crate::{
     Account, AccountBalance, BrokerLog, Currency, Environment, Order, OrderAction, OrderCategory,
-    Rule, RuleLevel, RuleName, Status, Trade, TradeBalance, TradeCategory, TradingVehicle,
-    TradingVehicleCategory, Transaction, TransactionCategory,
+    Rule, RuleLevel, RuleName, Status, Trade, TradeBalance, TradeCategory, TradeGrade,
+    TradingVehicle, TradingVehicleCategory, Transaction, TransactionCategory,
 };
 use rust_decimal::Decimal;
 use uuid::Uuid;
@@ -55,6 +55,10 @@ pub trait DatabaseFactory {
     fn log_read(&self) -> Box<dyn ReadBrokerLogsDB>;
     /// Returns a writer for broker log data operations
     fn log_write(&self) -> Box<dyn WriteBrokerLogsDB>;
+    /// Returns a reader for trade grade data operations
+    fn trade_grade_read(&self) -> Box<dyn ReadTradeGradeDB>;
+    /// Returns a writer for trade grade data operations
+    fn trade_grade_write(&self) -> Box<dyn WriteTradeGradeDB>;
 
     /// Begins a named savepoint.
     ///
@@ -363,10 +367,49 @@ pub trait WriteTradingVehicleDB {
     fn create_trading_vehicle(
         &mut self,
         symbol: &str,
-        isin: &str,
+        isin: Option<&str>,
         category: &TradingVehicleCategory,
         broker: &str,
     ) -> Result<TradingVehicle, Box<dyn Error>>;
+
+    /// Creates or updates a trading vehicle, storing broker-provided metadata and optional enrichment.
+    fn upsert_trading_vehicle(
+        &mut self,
+        input: TradingVehicleUpsert,
+    ) -> Result<TradingVehicle, Box<dyn Error>>;
+}
+
+/// Full upsert input for trading vehicles (manual or broker-backed).
+#[derive(Debug, Clone)]
+pub struct TradingVehicleUpsert {
+    /// Vehicle symbol as known by the broker (e.g., AAPL).
+    pub symbol: String,
+    /// Optional ISIN if available from enrichment/manual entry.
+    pub isin: Option<String>,
+    /// High-level category used by Trust (stock, crypto, fiat).
+    pub category: TradingVehicleCategory,
+    /// Broker name used as part of the `(broker, symbol)` identity.
+    pub broker: String,
+
+    // Broker metadata
+    /// Broker-native asset identifier when available.
+    pub broker_asset_id: Option<String>,
+    /// Exchange code reported by the broker.
+    pub exchange: Option<String>,
+    /// Broker-specific asset class string.
+    pub broker_asset_class: Option<String>,
+    /// Broker-specific lifecycle status string.
+    pub broker_asset_status: Option<String>,
+    /// Whether the broker marks the asset as tradable.
+    pub tradable: Option<bool>,
+    /// Whether margin trading is allowed for this asset.
+    pub marginable: Option<bool>,
+    /// Whether short selling is allowed for this asset.
+    pub shortable: Option<bool>,
+    /// Whether the asset is easy to borrow for shorting.
+    pub easy_to_borrow: Option<bool>,
+    /// Whether fractional trading is supported for this asset.
+    pub fractionable: Option<bool>,
 }
 
 /// Trait for writing broker log data to the database
@@ -380,4 +423,26 @@ pub trait ReadBrokerLogsDB {
     /// Retrieves all logs associated with a specific trade
     fn read_all_logs_for_trade(&mut self, trade_id: Uuid)
         -> Result<Vec<BrokerLog>, Box<dyn Error>>;
+}
+
+/// Trait for reading trade grades from the database.
+pub trait ReadTradeGradeDB {
+    /// Read latest grade for a trade.
+    fn read_latest_for_trade(
+        &mut self,
+        trade_id: Uuid,
+    ) -> Result<Option<TradeGrade>, Box<dyn Error>>;
+
+    /// Read grades for an account for the last N days (based on trade close/update time).
+    fn read_for_account_days(
+        &mut self,
+        account_id: Uuid,
+        days: u32,
+    ) -> Result<Vec<TradeGrade>, Box<dyn Error>>;
+}
+
+/// Trait for writing trade grades to the database.
+pub trait WriteTradeGradeDB {
+    /// Persist a new grade record for a trade.
+    fn create_trade_grade(&mut self, grade: &TradeGrade) -> Result<TradeGrade, Box<dyn Error>>;
 }

@@ -158,6 +158,24 @@ jobs:
     - name: ${{ matrix.name }}
       run: ${{ matrix.cmd }}
 
+  snapshot-contracts:
+    name: Snapshot Contracts
+    runs-on: ubuntu-latest
+    needs: quick-checks
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libdbus-1-dev pkg-config libssl-dev build-essential
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@1.93.0
+
+    - name: Verify report JSON snapshots (no updates)
+      run: cargo test --locked -p cli --test integration_test_report_json_snapshots
+
   # Explicit regression coverage for the CLI integration use-cases suite.
   # This guarantees the large bug-hunt tests run in every PR CI cycle.
   cli-integration-use-cases:
@@ -240,7 +258,7 @@ jobs:
   ci-success:
     name: CI Success
     runs-on: ubuntu-latest
-    needs: [quick-checks, lint, build-and-test, cli-integration-use-cases, release-build]
+    needs: [quick-checks, lint, build-and-test, snapshot-contracts, cli-integration-use-cases, release-build]
     steps:
     - name: CI Success
       run: echo "All CI checks passed successfully!"

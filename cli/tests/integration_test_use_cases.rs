@@ -216,7 +216,12 @@ fn deposit(
 fn create_vehicle(trust: &mut TrustFacade, symbol: &str) -> TradingVehicle {
     let isin = format!("US{}", Uuid::new_v4().simple());
     trust
-        .create_trading_vehicle(symbol, &isin, &TradingVehicleCategory::Stock, "Nasdaq")
+        .create_trading_vehicle(
+            symbol,
+            Some(&isin),
+            &TradingVehicleCategory::Stock,
+            "Nasdaq",
+        )
         .expect("create trading vehicle")
 }
 
@@ -698,7 +703,7 @@ fn test_case_17_duplicate_trading_vehicle_isin_is_rejected() {
     trust
         .create_trading_vehicle(
             "AAPL",
-            "US0378331005",
+            Some("US0378331005"),
             &TradingVehicleCategory::Stock,
             "Nasdaq",
         )
@@ -707,7 +712,7 @@ fn test_case_17_duplicate_trading_vehicle_isin_is_rejected() {
     let err = trust
         .create_trading_vehicle(
             "AAPL",
-            "US0378331005",
+            Some("US0378331005"),
             &TradingVehicleCategory::Stock,
             "Nasdaq",
         )
@@ -723,14 +728,14 @@ fn test_case_18_trading_vehicle_values_are_normalized() {
     let tv = trust
         .create_trading_vehicle(
             "aapl",
-            "us0378331005",
+            Some("us0378331005"),
             &TradingVehicleCategory::Stock,
             "NaSdAq",
         )
         .expect("create vehicle");
 
     assert_eq!(tv.symbol, "AAPL");
-    assert_eq!(tv.isin, "US0378331005");
+    assert_eq!(tv.isin.as_deref(), Some("US0378331005"));
     assert_eq!(tv.broker, "nasdaq");
 }
 

@@ -1,0 +1,25 @@
+{
+  "consistency": {
+    "drawdown_non_negative": true,
+    "max_ge_current": true
+  },
+  "data": {
+    "current_drawdown": "1220",
+    "current_drawdown_percentage": "1.62666667",
+    "current_equity": "73780",
+    "days_in_drawdown": 0,
+    "days_since_peak": 0,
+    "max_drawdown": "1220",
+    "max_drawdown_date": "<redacted>",
+    "max_drawdown_percentage": "1.62666667",
+    "peak_equity": "75000",
+    "recovery_from_max": "0",
+    "recovery_percentage": "0"
+  },
+  "format_version": 1,
+  "generated_at": "<redacted>",
+  "report": "drawdown",
+  "scope": {
+    "account_id": "<account-id>"
+  }
+}

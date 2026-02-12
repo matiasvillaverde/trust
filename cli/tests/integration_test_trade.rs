@@ -61,7 +61,7 @@ fn create_trade(
     let tv = trust
         .create_trading_vehicle(
             "TSLA",
-            "US88160R1014",
+            Some("US88160R1014"),
             &TradingVehicleCategory::Stock,
             "NASDAQ",
         )
@@ -905,7 +905,7 @@ fn test_short_trade_funding_with_better_entry_execution() {
     let tv = trust
         .create_trading_vehicle(
             "AAPL",
-            "US0378331005",
+            Some("US0378331005"),
             &TradingVehicleCategory::Stock,
             "NASDAQ",
         )

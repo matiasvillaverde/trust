@@ -1,0 +1,63 @@
+{
+  "consistency": {
+    "asset_group_sum": "0",
+    "asset_group_sum_matches_total": true,
+    "sector_group_sum": "0",
+    "sector_group_sum_matches_total": true
+  },
+  "data": {
+    "asset_class": {
+      "groups": [
+        {
+          "current_open_risk": "0",
+          "name": "ETF",
+          "open_risk_share_percentage": "0",
+          "realized_pnl": "0",
+          "total_capital_deployed": "520",
+          "trade_count": 1
+        },
+        {
+          "current_open_risk": "0",
+          "name": "Stocks",
+          "open_risk_share_percentage": "0",
+          "realized_pnl": "0",
+          "total_capital_deployed": "700",
+          "trade_count": 1
+        }
+      ],
+      "total_risk": "0",
+      "warnings": []
+    },
+    "sector": {
+      "groups": [
+        {
+          "current_open_risk": "0",
+          "name": "Healthcare",
+          "open_risk_share_percentage": "0",
+          "realized_pnl": "0",
+          "total_capital_deployed": "520",
+          "trade_count": 1
+        },
+        {
+          "current_open_risk": "0",
+          "name": "Technology",
+          "open_risk_share_percentage": "0",
+          "realized_pnl": "0",
+          "total_capital_deployed": "700",
+          "trade_count": 1
+        }
+      ],
+      "total_risk": "0",
+      "warnings": []
+    }
+  },
+  "filters": {
+    "open_only": false
+  },
+  "format_version": 1,
+  "generated_at": "<redacted>",
+  "report": "concentration",
+  "scope": {
+    "account_id": "<account-id>"
+  }
+}

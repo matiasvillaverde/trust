@@ -125,7 +125,7 @@ fn test_performance_report_with_trades() {
     let trading_vehicle = trust
         .create_trading_vehicle(
             "AAPL",
-            "US0378331005",
+            Some("US0378331005"),
             &TradingVehicleCategory::Stock,
             "TestBroker",
         )

@@ -13,11 +13,12 @@ pub struct TradingVehicleView {
 
 impl TradingVehicleView {
     fn new(tv: TradingVehicle) -> TradingVehicleView {
+        let isin = tv.isin.unwrap_or_else(|| "-".to_string());
         TradingVehicleView {
             category: tv.category.to_string(),
             symbol: tv.symbol.to_uppercase(),
             broker: tv.broker.to_uppercase(),
-            isin: tv.isin.to_uppercase(),
+            isin: isin.to_uppercase(),
         }
     }
 

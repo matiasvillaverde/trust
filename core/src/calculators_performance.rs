@@ -19,7 +19,7 @@ pub enum PerformanceError {
 }
 
 /// Performance statistics for a collection of trades
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct PerformanceStats {
     /// Total number of trades analyzed
     pub total_trades: usize,

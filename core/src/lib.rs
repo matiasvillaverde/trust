@@ -31,6 +31,7 @@
 #![warn(missing_docs, rust_2018_idioms, missing_debug_implementations)]
 
 use calculators_trade::QuantityCalculator;
+use model::database::TradingVehicleUpsert;
 use model::{
     Account, AccountBalance, Broker, BrokerLog, Currency, DatabaseFactory, DraftTrade, Environment,
     Order, Rule, RuleLevel, RuleName, Status, Trade, TradeBalance, TradingVehicle,
@@ -38,6 +39,21 @@ use model::{
 };
 use rust_decimal::Decimal;
 use uuid::Uuid;
+
+/// Summary data combining all key trading metrics
+#[derive(Debug, Clone)]
+pub struct TradingSummary {
+    /// Account ID this summary is for
+    pub account_id: Option<Uuid>,
+    /// Account equity/balance
+    pub equity: Decimal,
+    /// Performance metrics (if available)
+    pub performance: Option<calculators_performance::PerformanceStats>,
+    /// Capital at risk data
+    pub capital_at_risk: Vec<calculators_risk::OpenPosition>,
+    /// Concentration data
+    pub concentration: Vec<calculators_concentration::ConcentrationGroup>,
+}
 
 /// The main facade for interacting with the Trust financial trading system.
 ///
@@ -76,13 +92,16 @@ impl TrustFacade {
         taxes_percentage: Decimal,
         earnings_percentage: Decimal,
     ) -> Result<Account, Box<dyn std::error::Error>> {
-        self.factory.account_write().create(
+        // Create the account first
+        let account = self.factory.account_write().create(
             name,
             description,
             environment,
             taxes_percentage,
             earnings_percentage,
-        )
+        )?;
+
+        Ok(account)
     }
 
     /// Search for an account by name.
@@ -247,13 +266,23 @@ impl TrustFacade {
     pub fn create_trading_vehicle(
         &mut self,
         symbol: &str,
-        isin: &str,
+        isin: Option<&str>,
         category: &TradingVehicleCategory,
         broker: &str,
     ) -> Result<TradingVehicle, Box<dyn std::error::Error>> {
         self.factory
             .trading_vehicle_write()
             .create_trading_vehicle(symbol, isin, category, broker)
+    }
+
+    /// Create or update a trading vehicle, storing broker metadata and optional enrichment.
+    pub fn upsert_trading_vehicle(
+        &mut self,
+        input: TradingVehicleUpsert,
+    ) -> Result<TradingVehicle, Box<dyn std::error::Error>> {
+        self.factory
+            .trading_vehicle_write()
+            .upsert_trading_vehicle(input)
     }
 
     /// Retrieve all available trading vehicles.
@@ -468,7 +497,81 @@ impl TrustFacade {
         trade: &Trade,
         account: &Account,
     ) -> Result<(Status, Vec<Order>, BrokerLog), Box<dyn std::error::Error>> {
-        commands::trade::sync_with_broker(trade, account, &mut *self.factory, &mut *self.broker)
+        let (status, orders, log) = commands::trade::sync_with_broker(
+            trade,
+            account,
+            &mut *self.factory,
+            &mut *self.broker,
+        )?;
+
+        // Best-effort auto-grade when the trade closes. Never fail the sync because grading
+        // depends on optional broker market data.
+        if status == Status::ClosedTarget || status == Status::ClosedStopLoss {
+            let has_grade = match self
+                .factory
+                .trade_grade_read()
+                .read_latest_for_trade(trade.id)
+            {
+                Ok(opt) => opt.is_some(),
+                Err(_) => true, // Can't read grades; treat as "don't try" to keep sync reliable.
+            };
+
+            if !has_grade {
+                let mut grader = crate::services::grading::TradeGradeService::new(
+                    &mut *self.factory,
+                    &mut *self.broker,
+                );
+                let _ = grader.grade_trade(
+                    trade.id,
+                    crate::services::grading::GradingWeightsPermille::default(),
+                );
+            }
+        }
+
+        Ok((status, orders, log))
+    }
+
+    /// Grade a closed trade and persist its grade.
+    pub fn grade_trade(
+        &mut self,
+        trade_id: Uuid,
+        weights: crate::services::grading::GradingWeightsPermille,
+    ) -> Result<crate::services::grading::DetailedTradeGrade, Box<dyn std::error::Error>> {
+        let mut grader =
+            crate::services::grading::TradeGradeService::new(&mut *self.factory, &mut *self.broker);
+        grader.grade_trade(trade_id, weights)
+    }
+
+    /// Compute a trade grade (without persisting it).
+    pub fn compute_trade_grade(
+        &mut self,
+        trade_id: Uuid,
+        weights: crate::services::grading::GradingWeightsPermille,
+    ) -> Result<crate::services::grading::DetailedTradeGrade, Box<dyn std::error::Error>> {
+        let mut grader =
+            crate::services::grading::TradeGradeService::new(&mut *self.factory, &mut *self.broker);
+        grader.compute_grade(trade_id, weights)
+    }
+
+    /// Retrieve the latest grade for a trade (if any).
+    pub fn latest_trade_grade(
+        &mut self,
+        trade_id: Uuid,
+    ) -> Result<Option<model::TradeGrade>, Box<dyn std::error::Error>> {
+        self.factory
+            .trade_grade_read()
+            .read_latest_for_trade(trade_id)
+    }
+
+    /// Retrieve grades for an account over the last N days.
+    pub fn trade_grades_for_account_days(
+        &mut self,
+        account_id: Uuid,
+        days: u32,
+    ) -> Result<Vec<model::TradeGrade>, Box<dyn std::error::Error>> {
+        self.factory
+            .trade_grade_read()
+            .read_for_account_days(account_id, days)
     }
 
     /// Mark a trade as filled and create the appropriate transactions.
@@ -643,9 +746,136 @@ impl TrustFacade {
             &mut *self.factory,
         )
     }
+
+    /// Calculate portfolio concentration by asset category
+    ///
+    /// # Arguments
+    /// * `account_id` - Optional account ID to filter by
+    ///
+    /// # Returns
+    /// Returns concentration data by asset category
+    pub fn calculate_portfolio_concentration(
+        &mut self,
+        account_id: Option<Uuid>,
+    ) -> Result<Vec<calculators_concentration::ConcentrationGroup>, Box<dyn std::error::Error>>
+    {
+        // Get all trades for the account
+        let all_trades = if let Some(id) = account_id {
+            // Get trades for specific account - need to get all statuses
+            let mut trades = Vec::new();
+            for status in model::Status::all() {
+                if let Ok(mut status_trades) = self.search_trades(id, status) {
+                    trades.append(&mut status_trades);
+                }
+            }
+            trades
+        } else {
+            // Get trades for all accounts
+            match self.search_all_accounts() {
+                Ok(accounts) => {
+                    let mut all_trades = Vec::new();
+                    for account in accounts {
+                        for status in model::Status::all() {
+                            if let Ok(mut trades) = self.search_trades(account.id, status) {
+                                all_trades.append(&mut trades);
+                            }
+                        }
+                    }
+                    all_trades
+                }
+                Err(e) => return Err(e),
+            }
+        };
+
+        // Analyze concentration by asset class (primary analysis)
+        let analysis = calculators_concentration::ConcentrationCalculator::analyze_by_metadata(
+            &all_trades,
+            calculators_concentration::MetadataField::AssetClass,
+        );
+
+        Ok(analysis.groups)
+    }
+
+    /// Get comprehensive trading summary combining all metrics
+    ///
+    /// # Arguments
+    /// * `account_id` - Optional account ID to filter by (None for all accounts)
+    ///
+    /// # Returns
+    /// Returns comprehensive trading summary data
+    pub fn get_trading_summary(
+        &mut self,
+        account_id: Option<Uuid>,
+    ) -> Result<TradingSummary, Box<dyn std::error::Error>> {
+        if let Some(id) = account_id {
+            let account_exists = self
+                .factory
+                .account_read()
+                .all()?
+                .iter()
+                .any(|account| account.id == id);
+            if !account_exists {
+                return Err("Account not found".into());
+            }
+        }
+
+        let equity = if let Some(id) = account_id {
+            let balances = self.search_all_balances(id)?;
+            balances
+                .iter()
+                .map(|balance| balance.total_balance)
+                .fold(Decimal::ZERO, |acc, balance| {
+                    acc.checked_add(balance).unwrap_or(acc)
+                })
+        } else {
+            let accounts = self.search_all_accounts()?;
+            accounts
+                .iter()
+                .map(|account| self.search_all_balances(account.id))
+                .filter_map(Result::ok)
+                .flat_map(|balances| balances.into_iter())
+                .map(|balance| balance.total_balance)
+                .fold(Decimal::ZERO, |acc, balance| {
+                    acc.checked_add(balance).unwrap_or(acc)
+                })
+        };
+
+        // Get performance stats from closed trades.
+        let performance = match self.search_closed_trades(account_id) {
+            Ok(closed_trades) => {
+                if closed_trades.is_empty() {
+                    None
+                } else {
+                    Some(
+                        calculators_performance::PerformanceCalculator::calculate_performance_stats(
+                            &closed_trades,
+                        ),
+                    )
+                }
+            }
+            Err(_) => None,
+        };
+
+        let capital_at_risk = self
+            .calculate_open_positions(account_id)
+            .unwrap_or_else(|_| Vec::new());
+
+        let concentration = self
+            .calculate_portfolio_concentration(account_id)
+            .unwrap_or_else(|_| Vec::new());
+
+        Ok(TradingSummary {
+            account_id,
+            equity,
+            performance,
+            capital_at_risk,
+            concentration,
+        })
+    }
 }
 
 mod calculators_account;
+pub mod calculators_advanced_metrics;
 pub mod calculators_concentration;
 pub mod calculators_drawdown;
 pub mod calculators_performance;
@@ -653,4 +883,6 @@ pub mod calculators_risk;
 mod calculators_trade;
 mod commands;
 mod mocks;
+/// Core service layer modules.
+pub mod services;
 mod validators;

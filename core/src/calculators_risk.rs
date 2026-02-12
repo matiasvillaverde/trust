@@ -40,7 +40,7 @@ impl CapitalAtRiskCalculator {
         let mut open_positions = Vec::new();
 
         // Get trades that could be open (Funded, Submitted, Filled)
-        let potential_open_statuses = vec![Status::Funded, Status::Submitted, Status::Filled];
+        let potential_open_statuses = [Status::Funded, Status::Submitted, Status::Filled];
 
         let trades = if let Some(account_id) = account_id {
             let mut all_trades = Vec::new();

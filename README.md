@@ -341,6 +341,12 @@ make pre-commit
 # Full CI pipeline
 make pre-push
 
+# Verify report JSON contract snapshots
+make ci-snapshots
+
+# Intentionally refresh snapshots after report contract changes
+make snapshots-update
+
 # Run GitHub Actions locally with act
 make act
 ```

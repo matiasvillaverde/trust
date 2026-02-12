@@ -1,4 +1,4 @@
-use clap::Command;
+use clap::{Arg, ArgAction, Command};
 
 pub struct TradingVehicleCommandBuilder {
     command: Command,
@@ -20,8 +20,28 @@ impl TradingVehicleCommandBuilder {
     }
 
     pub fn create_trading_vehicle(mut self) -> Self {
-        self.subcommands
-            .push(Command::new("create").about("Create a new trading vehicle"));
+        self.subcommands.push(
+            Command::new("create")
+                .about("Create a new trading vehicle")
+                .arg(
+                    Arg::new("from-alpaca")
+                        .long("from-alpaca")
+                        .action(ArgAction::SetTrue)
+                        .help("Fetch symbol metadata from Alpaca instead of prompting manually"),
+                )
+                .arg(
+                    Arg::new("account")
+                        .long("account")
+                        .value_name("ACCOUNT_NAME")
+                        .help("Account name used to resolve Alpaca keys"),
+                )
+                .arg(
+                    Arg::new("symbol")
+                        .long("symbol")
+                        .value_name("SYMBOL")
+                        .help("Trading symbol to fetch from broker metadata"),
+                ),
+        );
         self
     }
 

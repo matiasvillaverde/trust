@@ -20,14 +20,37 @@ pub struct TradingVehicle {
     /// The symbol of the trading vehicle like BTC, ETH, AAPL, TSLA, etc.
     pub symbol: String,
 
-    /// The ISIN of the trading vehicle. More information: https://en.wikipedia.org/wiki/International_Securities_Identification_Number
-    pub isin: String,
+    /// Optional ISIN of the trading vehicle.
+    ///
+    /// Note: some brokers (e.g., Alpaca assets endpoint) do not provide ISIN.
+    pub isin: Option<String>,
 
     /// The category of the trading vehicle - crypto, fiat, stock, future, etc.
     pub category: TradingVehicleCategory,
 
     /// The broker that is used to trade the trading vehicle. For example: Coinbase, Binance, NASDAQ etc.
     pub broker: String,
+
+    /// Broker-provided asset identifier (e.g., Alpaca `asset.id` UUID).
+    pub broker_asset_id: Option<String>,
+    /// Broker exchange code (e.g., NASDAQ, NYSE) when available.
+    pub exchange: Option<String>,
+    /// Broker asset class string (e.g., us_equity, crypto) when available.
+    pub broker_asset_class: Option<String>,
+    /// Broker asset status string (e.g., active, inactive) when available.
+    pub broker_asset_status: Option<String>,
+
+    /// Broker capability flags. Optional because not all brokers provide them.
+    /// Whether the asset is tradable.
+    pub tradable: Option<bool>,
+    /// Whether margin trading is supported.
+    pub marginable: Option<bool>,
+    /// Whether short selling is supported.
+    pub shortable: Option<bool>,
+    /// Whether the broker flags the asset as easy to borrow.
+    pub easy_to_borrow: Option<bool>,
+    /// Whether fractional trading is supported.
+    pub fractionable: Option<bool>,
 }
 
 /// TradingVehicleCategory enum - represents the type of the trading vehicle
@@ -85,13 +108,14 @@ impl std::fmt::Display for TradingVehicleCategory {
 
 impl std::fmt::Display for TradingVehicle {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let isin = self.isin.as_deref().unwrap_or("-");
         write!(
             f,
             "{}: {} traded in {} with ISIN: {}",
             self.symbol.to_uppercase(),
             self.category,
             self.broker.to_uppercase(),
-            self.isin.to_uppercase(),
+            isin.to_uppercase(),
         )
     }
 }
@@ -105,9 +129,18 @@ impl Default for TradingVehicle {
             updated_at: now,
             deleted_at: None,
             symbol: "AAPL".to_string(),
-            isin: "AAPL".to_string(),
+            isin: Some("AAPL".to_string()),
             category: TradingVehicleCategory::Stock,
             broker: "NASDAQ".to_string(),
+            broker_asset_id: None,
+            exchange: None,
+            broker_asset_class: None,
+            broker_asset_status: None,
+            tradable: None,
+            marginable: None,
+            shortable: None,
+            easy_to_borrow: None,
+            fractionable: None,
         }
     }
 }

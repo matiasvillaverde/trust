@@ -31,8 +31,9 @@
 #![warn(missing_docs, rust_2018_idioms, missing_debug_implementations)]
 
 use crate::commands::{
-    AccountCommandBuilder, KeysCommandBuilder, ReportCommandBuilder, TradeCommandBuilder,
-    TradingVehicleCommandBuilder, TransactionCommandBuilder,
+    AccountCommandBuilder, GradeCommandBuilder, KeysCommandBuilder, MetricsCommandBuilder,
+    ReportCommandBuilder, TradeCommandBuilder, TradingVehicleCommandBuilder,
+    TransactionCommandBuilder,
 };
 use crate::dispatcher::ArgDispatcher;
 use clap::Command;
@@ -40,6 +41,7 @@ use commands::RuleCommandBuilder;
 mod commands;
 mod dialogs;
 mod dispatcher;
+mod exporters;
 mod views;
 
 fn main() {
@@ -101,10 +103,19 @@ fn main() {
                 .drawdown()
                 .risk()
                 .concentration()
+                .summary()
+                .metrics()
                 .build(),
         )
+        .subcommand(GradeCommandBuilder::new().show().summary().build())
+        .subcommand(MetricsCommandBuilder::new().advanced().compare().build())
         .get_matches();
 
     let dispatcher = ArgDispatcher::new_sqlite();
-    dispatcher.dispatch(matches);
+    if let Err(error) = dispatcher.dispatch(matches) {
+        if !error.already_printed() {
+            eprintln!("{error}");
+        }
+        std::process::exit(1);
+    }
 }

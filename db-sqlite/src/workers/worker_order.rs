@@ -26,7 +26,8 @@ impl WorkerOrder {
         trading_vehicle: &TradingVehicle,
     ) -> Result<Order, Box<dyn Error>> {
         let new_order = NewOrder {
-            quantity,
+            #[allow(clippy::cast_possible_truncation)]
+            quantity: quantity as i32,
             unit_price: unit_price.to_string(),
             category: category.to_string(),
             currency: currency.to_string(),
@@ -69,7 +70,8 @@ impl WorkerOrder {
                 orders::updated_at.eq(now),
                 orders::broker_order_id.eq(order.broker_order_id.map(|id| id.to_string())),
                 orders::status.eq(order.status.to_string()),
-                orders::filled_quantity.eq(order.filled_quantity as i64),
+                #[allow(clippy::cast_possible_truncation)]
+                orders::filled_quantity.eq(Some(order.filled_quantity as i32)),
                 orders::average_filled_price
                     .eq(order.average_filled_price.map(|price| price.to_string())),
                 orders::submitted_at.eq(order.submitted_at),
@@ -174,7 +176,7 @@ struct OrderSQLite {
     deleted_at: Option<NaiveDateTime>,
     unit_price: String,
     currency: String,
-    quantity: i64,
+    quantity: i32,
     category: String,
     trading_vehicle_id: String,
     action: String,
@@ -182,7 +184,7 @@ struct OrderSQLite {
     time_in_force: String,
     trailing_percentage: Option<String>,
     trailing_price: Option<String>,
-    filled_quantity: i64,
+    filled_quantity: Option<i32>,
     average_filled_price: Option<String>,
     extended_hours: bool,
     submitted_at: Option<NaiveDateTime>,
@@ -210,7 +212,7 @@ impl TryFrom<OrderSQLite> for Order {
             currency: Currency::from_str(&value.currency)
                 .map_err(|_| ConversionError::new("currency", "Failed to parse currency"))?,
             #[allow(clippy::cast_sign_loss)]
-            quantity: value.quantity.max(0) as u64,
+            quantity: (value.quantity as i64).max(0) as u64,
             action: OrderAction::from_str(&value.action)
                 .map_err(|_| ConversionError::new("action", "Failed to parse order action"))?,
             category: OrderCategory::from_str(&value.category)
@@ -230,7 +232,7 @@ impl TryFrom<OrderSQLite> for Order {
                 .trailing_price
                 .and_then(|p| Decimal::from_str(&p).ok()),
             #[allow(clippy::cast_sign_loss)]
-            filled_quantity: value.filled_quantity.max(0) as u64,
+            filled_quantity: (value.filled_quantity.unwrap_or(0) as i64).max(0) as u64,
             average_filled_price: value
                 .average_filled_price
                 .and_then(|p| Decimal::from_str(&p).ok()),
@@ -261,7 +263,7 @@ struct NewOrder {
     deleted_at: Option<NaiveDateTime>,
     unit_price: String,
     currency: String,
-    quantity: i64,
+    quantity: i32,
     category: String,
     trading_vehicle_id: String,
     action: String,
@@ -269,7 +271,7 @@ struct NewOrder {
     time_in_force: String,
     trailing_percentage: Option<String>,
     trailing_price: Option<String>,
-    filled_quantity: i64,
+    filled_quantity: Option<i32>,
     average_filled_price: Option<String>,
     extended_hours: bool,
     submitted_at: Option<NaiveDateTime>,
@@ -298,7 +300,7 @@ impl Default for NewOrder {
             time_in_force: TimeInForce::UntilCanceled.to_string(),
             trailing_percentage: None,
             trailing_price: None,
-            filled_quantity: 0,
+            filled_quantity: None,
             average_filled_price: None,
             extended_hours: false,
             submitted_at: None,
@@ -337,7 +339,7 @@ mod tests {
         let trading_vehicle = WorkerTradingVehicle::create(
             &mut conn,
             "AAPL",
-            "isin",
+            Some("isin"),
             &TradingVehicleCategory::Crypto,
             "NASDAQ",
         )

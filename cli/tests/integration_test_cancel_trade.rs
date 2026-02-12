@@ -45,7 +45,7 @@ fn test_cancel_of_funded_trade() {
     let tv = trust
         .create_trading_vehicle(
             "TSLA",
-            "US88160R1014",
+            Some("US88160R1014"),
             &TradingVehicleCategory::Stock,
             "NASDAQ",
         )

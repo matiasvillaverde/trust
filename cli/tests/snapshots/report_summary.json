@@ -1,0 +1,164 @@
+{
+  "consistency": {
+    "risk_is_sum_of_positions": true,
+    "trade_count_balanced": true
+  },
+  "data": {
+    "advanced_metrics": {
+      "average_trade_pnl": "0",
+      "calmar_ratio": null,
+      "expectancy": "0",
+      "expected_shortfall_95": null,
+      "gross_loss": "0",
+      "gross_profit": "0",
+      "kelly_criterion": null,
+      "max_consecutive_losses": 0,
+      "max_consecutive_wins": 0,
+      "median_trade_pnl": null,
+      "net_profit": "0",
+      "payoff_ratio": null,
+      "profit_factor": null,
+      "risk_of_ruin_proxy_100t_8l": null,
+      "sharpe_ratio": null,
+      "sortino_ratio": null,
+      "ulcer_index": null,
+      "value_at_risk_95": null
+    },
+    "agent_signals": {
+      "breaches": [],
+      "recommended_actions": [],
+      "status": "ok"
+    },
+    "concentration": {
+      "group_count": 2,
+      "top_groups_by_open_risk": [
+        {
+          "current_open_risk": "0",
+          "name": "ETF",
+          "open_risk_share_percentage": "0",
+          "realized_pnl": "0",
+          "total_capital_deployed": "520",
+          "trade_count": 1
+        },
+        {
+          "current_open_risk": "0",
+          "name": "Stocks",
+          "open_risk_share_percentage": "0",
+          "realized_pnl": "0",
+          "total_capital_deployed": "700",
+          "trade_count": 1
+        }
+      ],
+      "total_open_risk": "0"
+    },
+    "confidence_intervals": {
+      "expectancy_95": null,
+      "sharpe_95": null
+    },
+    "costs": {
+      "fee_close_total": "0",
+      "fee_open_total": "0",
+      "fees_per_closed_trade": "0",
+      "fees_total": "0"
+    },
+    "equity": "75000",
+    "execution_quality": {
+      "average_abs_entry_slippage_bps": null,
+      "average_abs_stop_slippage_bps": null,
+      "average_abs_target_slippage_bps": null,
+      "average_entry_slippage_bps": null,
+      "average_holding_days": "0",
+      "average_setup_reward_to_risk": null,
+      "average_stop_slippage_bps": null,
+      "average_target_slippage_bps": null,
+      "fill_price_coverage_percentage": "0",
+      "median_abs_entry_slippage_bps": null,
+      "median_entry_slippage_bps": null,
+      "p95_abs_entry_slippage_bps": null,
+      "profit_per_holding_day": null,
+      "stop_fill_price_coverage_percentage": "0",
+      "target_fill_price_coverage_percentage": "0"
+    },
+    "exposure": {
+      "gross_exposure": "0",
+      "long_exposure": "0",
+      "net_exposure": "0",
+      "short_exposure": "0",
+      "top_3_symbol_concentration_percentage": "0",
+      "top_sector_concentration_percentage": "0"
+    },
+    "journal_quality": {
+      "asset_class_coverage_percentage": "0",
+      "complete_journal_percentage": "0",
+      "context_coverage_percentage": "0",
+      "sector_coverage_percentage": "0",
+      "thesis_coverage_percentage": "0"
+    },
+    "performance": {
+      "average_loss": "0",
+      "average_r_multiple": "0",
+      "average_win": "0",
+      "best_trade": null,
+      "losing_trades": 0,
+      "total_trades": 0,
+      "win_rate_percentage": "0",
+      "winning_trades": 0,
+      "worst_trade": null
+    },
+    "risk": {
+      "capital_at_risk_percentage": "1.62666667",
+      "drawdown": {
+        "current_drawdown": "1220",
+        "current_drawdown_percentage": "1.62666667",
+        "max_drawdown": "1220",
+        "max_drawdown_date": "<redacted>",
+        "max_drawdown_percentage": "1.62666667"
+      },
+      "open_positions_count": 2,
+      "total_capital_at_risk": "1220"
+    },
+    "rolling_metrics": [
+      {
+        "calmar_ratio": null,
+        "expectancy": "0",
+        "max_drawdown": "0",
+        "sharpe_ratio": null,
+        "sortino_ratio": null,
+        "trade_count": 0,
+        "window_days": 30
+      },
+      {
+        "calmar_ratio": null,
+        "expectancy": "0",
+        "max_drawdown": "0",
+        "sharpe_ratio": null,
+        "sortino_ratio": null,
+        "trade_count": 0,
+        "window_days": 90
+      },
+      {
+        "calmar_ratio": null,
+        "expectancy": "0",
+        "max_drawdown": "0",
+        "sharpe_ratio": null,
+        "sortino_ratio": null,
+        "trade_count": 0,
+        "window_days": 252
+      }
+    ],
+    "streaks_detail": {
+      "average_loss_streak": null,
+      "average_win_streak": null,
+      "current_streak_len": 0,
+      "current_streak_type": null,
+      "max_consecutive_losses": 0,
+      "max_consecutive_wins": 0
+    }
+  },
+  "format_version": 1,
+  "generated_at": "<redacted>",
+  "report": "summary",
+  "scope": {
+    "account_id": "<account-id>"
+  }
+}
