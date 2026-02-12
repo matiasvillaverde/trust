@@ -26,13 +26,14 @@ impl WriteBrokerLogsDB for BrokerLogDB {
     fn create_log(&mut self, log: &str, trade: &Trade) -> Result<BrokerLog, Box<dyn Error>> {
         let uuid = Uuid::new_v4().to_string();
         let now = Utc::now().naive_utc();
+        let normalized_log = log.to_lowercase();
 
         let new_account = NewBrokerLogs {
-            id: uuid,
+            id: uuid.clone(),
             created_at: now,
             updated_at: now,
             deleted_at: None,
-            log: log.to_lowercase(),
+            log: normalized_log.clone(),
             trade_id: trade.id.to_string(),
         };
 
@@ -43,12 +44,20 @@ impl WriteBrokerLogsDB for BrokerLogDB {
 
         diesel::insert_into(logs::table)
             .values(&new_account)
-            .get_result::<BrokerLogSQLite>(connection)
+            .execute(connection)
             .map_err(|error| {
                 error!("Error creating broker log: {:?}", error);
                 error
-            })?
-            .into_domain_model()
+            })?;
+
+        Ok(BrokerLog {
+            id: Uuid::parse_str(&uuid)?,
+            created_at: now,
+            updated_at: now,
+            deleted_at: None,
+            log: normalized_log,
+            trade_id: trade.id,
+        })
     }
 }
 
