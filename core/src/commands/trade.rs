@@ -404,7 +404,7 @@ pub fn sync_with_broker(
 
     // 4. Update Orders
     for order in &orders {
-        commands::order::update_order(&order, database)?;
+        commands::order::update_order(order, database)?;
     }
 
     // 5. Update Trade Status

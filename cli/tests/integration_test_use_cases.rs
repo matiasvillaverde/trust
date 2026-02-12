@@ -357,6 +357,7 @@ fn order_stop_canceled(trade: &Trade) -> Order {
     stop
 }
 
+#[allow(clippy::too_many_arguments)]
 fn setup_account_deposit_vehicle_trade(
     trust: &mut TrustFacade,
     name: &str,
@@ -1845,15 +1846,19 @@ fn test_case_47_concentration_groups_unknown_metadata_under_unknown_bucket() {
 
 #[test]
 fn test_case_48_concentration_warnings_trigger_for_moderate_and_high_thresholds() {
-    let mut high_trade = Trade::default();
-    high_trade.status = Status::Filled;
-    high_trade.sector = Some("technology".to_string());
+    let mut high_trade = Trade {
+        status: Status::Filled,
+        sector: Some("technology".to_string()),
+        ..Trade::default()
+    };
     high_trade.balance.capital_in_market = dec!(700);
     high_trade.balance.funding = dec!(700);
 
-    let mut low_trade = Trade::default();
-    low_trade.status = Status::Filled;
-    low_trade.sector = Some("healthcare".to_string());
+    let mut low_trade = Trade {
+        status: Status::Filled,
+        sector: Some("healthcare".to_string()),
+        ..Trade::default()
+    };
     low_trade.balance.capital_in_market = dec!(300);
     low_trade.balance.funding = dec!(300);
 
@@ -1928,24 +1933,30 @@ fn test_case_49_drawdown_calculation_sorts_out_of_order_transactions_and_finds_m
 
 #[test]
 fn test_case_50_performance_stats_include_only_closed_trades_and_are_correct() {
-    let mut win = Trade::default();
-    win.status = Status::ClosedTarget;
+    let mut win = Trade {
+        status: Status::ClosedTarget,
+        ..Trade::default()
+    };
     win.balance.total_performance = dec!(200);
     win.entry.unit_price = dec!(100);
     win.safety_stop.unit_price = dec!(90);
     win.target.unit_price = dec!(120);
     win.category = TradeCategory::Long;
 
-    let mut loss = Trade::default();
-    loss.status = Status::ClosedStopLoss;
+    let mut loss = Trade {
+        status: Status::ClosedStopLoss,
+        ..Trade::default()
+    };
     loss.balance.total_performance = dec!(-100);
     loss.entry.unit_price = dec!(80);
     loss.safety_stop.unit_price = dec!(85);
     loss.target.unit_price = dec!(60);
     loss.category = TradeCategory::Short;
 
-    let mut open = Trade::default();
-    open.status = Status::Filled;
+    let mut open = Trade {
+        status: Status::Filled,
+        ..Trade::default()
+    };
     open.balance.total_performance = dec!(9999);
 
     let all_trades = vec![win.clone(), loss.clone(), open];
@@ -2761,9 +2772,11 @@ fn test_case_200_high_frequency_sync_lifecycle_101_trades_per_day_for_365_days()
                     .checked_add_signed(Duration::minutes(slot_offset))
                     .expect("synthetic minute offset");
 
-                let mut synthetic_trade = Trade::default();
-                synthetic_trade.status = status;
-                synthetic_trade.category = category;
+                let mut synthetic_trade = Trade {
+                    status,
+                    category,
+                    ..Trade::default()
+                };
                 synthetic_trade.entry.unit_price = entry;
                 synthetic_trade.entry.quantity = u64::try_from(quantity).expect("quantity u64");
                 synthetic_trade.safety_stop.unit_price = stop;
