@@ -178,5 +178,12 @@ pub mod read_transaction_db_mocks {
         fn read_trade(&mut self, _id: Uuid) -> Result<Trade, Box<dyn Error>> {
             Ok(self.trades.first().unwrap().clone())
         }
+
+        fn read_trade_balance(
+            &mut self,
+            _balance_id: Uuid,
+        ) -> Result<TradeBalance, Box<dyn Error>> {
+            Ok(self.trades.first().unwrap().balance.clone())
+        }
     }
 }

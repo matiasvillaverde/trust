@@ -185,22 +185,30 @@ impl WorkerTrade {
         taxed: Decimal,
         total_performance: Decimal,
     ) -> Result<TradeBalance, Box<dyn Error>> {
-        let balance = diesel::update(trades_balances::table)
+        let now = Utc::now().naive_utc();
+        diesel::update(trades_balances::table)
             .filter(trades_balances::id.eq(&trade.balance.id.to_string()))
             .set((
-                trades_balances::updated_at.eq(Utc::now().naive_utc()),
+                trades_balances::updated_at.eq(now),
                 trades_balances::funding.eq(funding.to_string()),
                 trades_balances::capital_in_market.eq(capital_in_market.to_string()),
                 trades_balances::capital_out_market.eq(capital_out_market.to_string()),
                 trades_balances::taxed.eq(taxed.to_string()),
                 trades_balances::total_performance.eq(total_performance.to_string()),
             ))
-            .get_result::<AccountBalanceSQLite>(connection)
+            .execute(connection)
             .map_err(|error| {
                 error!("Error updating balance: {:?}", error);
                 error
-            })?
-            .into_domain_model()?;
+            })?;
+
+        let mut balance = trade.balance.clone();
+        balance.updated_at = now;
+        balance.funding = funding;
+        balance.capital_in_market = capital_in_market;
+        balance.capital_out_market = capital_out_market;
+        balance.taxed = taxed;
+        balance.total_performance = total_performance;
         Ok(balance)
     }
 
@@ -210,19 +218,22 @@ impl WorkerTrade {
         trade: &Trade,
     ) -> Result<Trade, Box<dyn Error>> {
         let now = Utc::now().naive_utc();
-        let trade = diesel::update(trades::table)
+        diesel::update(trades::table)
             .filter(trades::id.eq(trade.id.to_string()))
             .set((
                 trades::updated_at.eq(now),
                 trades::status.eq(status.to_string()),
             ))
-            .get_result::<TradeSQLite>(connection)
+            .execute(connection)
             .map_err(|error| {
                 error!("Error executing trade: {:?}", error);
                 error
-            })?
-            .try_into_domain_model(connection)?;
-        Ok(trade)
+            })?;
+
+        let mut updated = trade.clone();
+        updated.updated_at = now;
+        updated.status = status;
+        Ok(updated)
     }
 }
 

@@ -14,6 +14,7 @@ use rust_decimal_macros::dec;
 use std::collections::VecDeque;
 use std::error::Error;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration as StdDuration, Instant};
 use uuid::Uuid;
 
 type SyncOutcome = Result<(Status, Vec<Order>), String>;
@@ -3413,4 +3414,87 @@ fn test_case_211_bug_hunt_thousands_of_long_short_sync_lifecycle_scenarios() {
     let balance = usd_balance(&mut trust, &account);
     assert_eq!(balance.total_in_trade, dec!(0));
     assert_account_balance_reconciles(&mut trust, &account);
+}
+
+fn median_duration(samples: &[StdDuration]) -> StdDuration {
+    let mut ordered = samples.to_vec();
+    ordered.sort_unstable();
+    ordered[ordered.len() / 2]
+}
+
+fn parse_perf_env_usize(key: &str, default_value: usize) -> usize {
+    std::env::var(key)
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(default_value)
+}
+
+fn collect_perf_samples(
+    iterations: usize,
+    warmup_iterations: usize,
+    mut run_case: impl FnMut(),
+) -> Vec<StdDuration> {
+    for _ in 0..warmup_iterations {
+        run_case();
+    }
+
+    let mut samples = Vec::with_capacity(iterations);
+    for _ in 0..iterations {
+        let start = Instant::now();
+        run_case();
+        samples.push(start.elapsed());
+    }
+    samples
+}
+
+#[test]
+#[ignore = "Performance regression gate; run via `make perf-gate`"]
+fn test_case_212_perf_gate_sync_lifecycle_regression_guard() {
+    let iterations = parse_perf_env_usize("TRUST_PERF_GATE_ITERATIONS", 3);
+    let warmup_iterations = parse_perf_env_usize("TRUST_PERF_GATE_WARMUP_ITERATIONS", 1);
+    let max_case_200_ms = parse_perf_env_usize("TRUST_PERF_GATE_MAX_CASE_200_MS", 26000);
+    let max_case_211_ms = parse_perf_env_usize("TRUST_PERF_GATE_MAX_CASE_211_MS", 6000);
+
+    let case_200_samples = collect_perf_samples(iterations, warmup_iterations, || {
+        test_case_200_high_frequency_sync_lifecycle_101_trades_per_day_for_365_days();
+    });
+    let case_211_samples = collect_perf_samples(iterations, warmup_iterations, || {
+        test_case_211_bug_hunt_thousands_of_long_short_sync_lifecycle_scenarios();
+    });
+
+    let case_200_median = median_duration(&case_200_samples);
+    let case_211_median = median_duration(&case_211_samples);
+    let case_200_ms: Vec<u128> = case_200_samples
+        .iter()
+        .map(|sample| sample.as_millis())
+        .collect();
+    let case_211_ms: Vec<u128> = case_211_samples
+        .iter()
+        .map(|sample| sample.as_millis())
+        .collect();
+    eprintln!(
+        "perf gate medians: case_200={}ms (max={}ms, samples={:?}), case_211={}ms (max={}ms, samples={:?}), iterations={}, warmup_iterations={}",
+        case_200_median.as_millis(),
+        max_case_200_ms,
+        case_200_ms,
+        case_211_median.as_millis(),
+        max_case_211_ms,
+        case_211_ms,
+        iterations,
+        warmup_iterations
+    );
+
+    assert!(
+        case_200_median <= StdDuration::from_millis(max_case_200_ms as u64),
+        "performance regression: case_200 median {}ms exceeds {}ms",
+        case_200_median.as_millis(),
+        max_case_200_ms
+    );
+    assert!(
+        case_211_median <= StdDuration::from_millis(max_case_211_ms as u64),
+        "performance regression: case_211 median {}ms exceeds {}ms",
+        case_211_median.as_millis(),
+        max_case_211_ms
+    );
 }

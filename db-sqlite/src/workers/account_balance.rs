@@ -63,21 +63,29 @@ impl AccountBalanceWrite for AccountBalanceDB {
             eprintln!("Failed to acquire connection lock: {e}");
             std::process::exit(1);
         });
+        let now = Utc::now().naive_utc();
         diesel::update(accounts_balances::table)
             .filter(accounts_balances::id.eq(&balance.id.to_string()))
             .set((
-                accounts_balances::updated_at.eq(Utc::now().naive_utc()),
+                accounts_balances::updated_at.eq(now),
                 accounts_balances::total_balance.eq(total_balance.to_string()),
                 accounts_balances::total_available.eq(total_available.to_string()),
                 accounts_balances::total_in_trade.eq(total_in_trade.to_string()),
                 accounts_balances::taxed.eq(total_taxed.to_string()),
             ))
-            .get_result::<AccountBalanceSQLite>(connection)
+            .execute(connection)
             .map_err(|error| {
                 error!("Error updating balance: {:?}", error);
                 error
-            })?
-            .into_domain_model()
+            })?;
+
+        let mut updated = *balance;
+        updated.updated_at = now;
+        updated.total_balance = total_balance;
+        updated.total_in_trade = total_in_trade;
+        updated.total_available = total_available;
+        updated.taxed = total_taxed;
+        Ok(updated)
     }
 }
 

@@ -47,7 +47,7 @@ CREATE TABLE transactions (
 	category 		TEXT CHECK(category IN ('deposit', 'withdrawal', 'payment_from_trade', 'fund_trade', 'open_trade', 'close_target', "close_safety_stop", "close_safety_stop_slippage", "fee_open", "fee_close", "payment_earnings", "withdrawal_earnings", "payment_tax", "withdrawal_tax")) NOT NULL,
 	amount			TEXT NOT NULL,
 	account_id 		TEXT NOT NULL REFERENCES accounts(id),
-	trade_id		TEXT REFERENCES trades (uuid)
+	trade_id		TEXT REFERENCES trades (id)
 );
 
 CREATE TABLE "trading_vehicles" (
@@ -124,3 +124,19 @@ CREATE TABLE "logs" (
 	log			TEXT NOT NULL,
 	trade_id	TEXT NOT NULL REFERENCES trades (id)
 );
+
+CREATE INDEX IF NOT EXISTS idx_transactions_account_currency_category_active
+ON transactions(account_id, currency, category, created_at)
+WHERE deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_transactions_trade_category_active
+ON transactions(trade_id, category, created_at)
+WHERE deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_trades_account_status_currency_active
+ON trades(account_id, status, currency)
+WHERE deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_accounts_balances_account_currency_active
+ON accounts_balances(account_id, currency)
+WHERE deleted_at IS NULL;
