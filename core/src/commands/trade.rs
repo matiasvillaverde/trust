@@ -6,8 +6,8 @@ use model::{
 };
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
-use std::error::Error;
 use std::collections::HashSet;
+use std::error::Error;
 
 pub fn create_trade(
     trade: DraftTrade,
@@ -440,12 +440,17 @@ fn validate_sync_payload(
 
     match status {
         Status::Submitted => {
-            let has_fill_like = [resolved.entry.status, resolved.target.status, resolved.stop.status]
-                .iter()
-                .any(|s| matches!(s, OrderStatus::Filled | OrderStatus::PartiallyFilled));
+            let has_fill_like = [
+                resolved.entry.status,
+                resolved.target.status,
+                resolved.stop.status,
+            ]
+            .iter()
+            .any(|s| matches!(s, OrderStatus::Filled | OrderStatus::PartiallyFilled));
             if has_fill_like {
-                return Err("inconsistent sync payload: submitted trade contains filled order state"
-                    .into());
+                return Err(
+                    "inconsistent sync payload: submitted trade contains filled order state".into(),
+                );
             }
         }
         Status::Filled => {
@@ -467,7 +472,9 @@ fn validate_sync_payload(
 
 fn validate_sync_transition(trade: &Trade, status: Status) -> Result<(), Box<dyn Error>> {
     match status {
-        Status::Filled if trade.status == Status::Submitted || trade.status == Status::Filled => Ok(()),
+        Status::Filled if trade.status == Status::Submitted || trade.status == Status::Filled => {
+            Ok(())
+        }
         Status::ClosedStopLoss
             if trade.status == Status::Submitted
                 || trade.status == Status::Filled
@@ -498,7 +505,10 @@ struct ResolvedSyncOrders {
     stop: Order,
 }
 
-fn resolve_orders_for_sync(trade: &Trade, orders: &[Order]) -> Result<ResolvedSyncOrders, Box<dyn Error>> {
+fn resolve_orders_for_sync(
+    trade: &Trade,
+    orders: &[Order],
+) -> Result<ResolvedSyncOrders, Box<dyn Error>> {
     let mut entry = trade.entry.clone();
     let mut target = trade.target.clone();
     let mut stop = trade.safety_stop.clone();
@@ -506,7 +516,11 @@ fn resolve_orders_for_sync(trade: &Trade, orders: &[Order]) -> Result<ResolvedSy
 
     for order in orders {
         if !seen_ids.insert(order.id) {
-            return Err(format!("duplicate order update in sync payload for order id {}", order.id).into());
+            return Err(format!(
+                "duplicate order update in sync payload for order id {}",
+                order.id
+            )
+            .into());
         }
 
         if order.id == entry.id {

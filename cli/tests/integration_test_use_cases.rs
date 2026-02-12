@@ -5,9 +5,9 @@ use core::calculators_performance::PerformanceCalculator;
 use core::TrustFacade;
 use db_sqlite::SqliteDatabase;
 use model::{
-    Account, AccountBalance, Broker, BrokerLog, Currency, DraftTrade, Order, OrderIds,
-    OrderStatus, RuleLevel, RuleName, Status, Trade, TradeCategory, TradingVehicle,
-    TradingVehicleCategory, Transaction, TransactionCategory,
+    Account, AccountBalance, Broker, BrokerLog, Currency, DraftTrade, Order, OrderIds, OrderStatus,
+    RuleLevel, RuleName, Status, Trade, TradeCategory, TradingVehicle, TradingVehicleCategory,
+    Transaction, TransactionCategory,
 };
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
@@ -53,21 +53,13 @@ impl TestBroker {
 
     fn with_submit_error(message: &str) -> Self {
         let broker = Self::success();
-        broker
-            .state
-            .lock()
-            .expect("broker state lock")
-            .submit_error = Some(message.to_string());
+        broker.state.lock().expect("broker state lock").submit_error = Some(message.to_string());
         broker
     }
 
     fn with_cancel_error(message: &str) -> Self {
         let broker = Self::success();
-        broker
-            .state
-            .lock()
-            .expect("broker state lock")
-            .cancel_error = Some(message.to_string());
+        broker.state.lock().expect("broker state lock").cancel_error = Some(message.to_string());
         broker
     }
 
@@ -284,12 +276,7 @@ fn account_transactions(trust: &mut TrustFacade, account: &Account) -> Vec<Trans
         .expect("account transactions")
 }
 
-fn add_risk_rules(
-    trust: &mut TrustFacade,
-    account: &Account,
-    risk_month: f32,
-    risk_trade: f32,
-) {
+fn add_risk_rules(trust: &mut TrustFacade, account: &Account, risk_month: f32, risk_trade: f32) {
     trust
         .create_rule(
             account,
@@ -384,18 +371,7 @@ fn setup_account_deposit_vehicle_trade(
     deposit(trust, &account, deposit_amount, Currency::USD);
     let vehicle = create_vehicle(trust, "AAPL");
     let trade = create_trade(
-        trust,
-        &account,
-        &vehicle,
-        category,
-        quantity,
-        entry,
-        stop,
-        target,
-        None,
-        None,
-        None,
-        None,
+        trust, &account, &vehicle, category, quantity, entry, stop, target, None, None, None, None,
     );
     (account, vehicle, trade)
 }
@@ -496,10 +472,9 @@ fn test_case_06_negative_deposit_is_rejected() {
         )
         .expect_err("negative deposit must fail");
 
-    assert!(
-        err.to_string()
-            .contains("Amount of deposit must be positive")
-    );
+    assert!(err
+        .to_string()
+        .contains("Amount of deposit must be positive"));
 }
 
 #[test]
@@ -539,10 +514,9 @@ fn test_case_08_withdrawal_greater_than_available_is_rejected() {
         )
         .expect_err("over-withdrawal must fail");
 
-    assert!(
-        err.to_string()
-            .contains("Withdrawal amount is greater than available amount")
-    );
+    assert!(err
+        .to_string()
+        .contains("Withdrawal amount is greater than available amount"));
 }
 
 #[test]
@@ -562,8 +536,7 @@ fn test_case_09_withdrawal_from_missing_currency_is_rejected() {
         .expect_err("withdrawal with no BTC balance must fail");
 
     assert!(
-        err.to_string()
-            .contains("Overview not found")
+        err.to_string().contains("Overview not found")
             || err.to_string().contains("OverviewForWithdrawNotFound")
     );
 }
@@ -594,12 +567,7 @@ fn test_case_11_large_transaction_values_remain_consistent() {
     let mut trust = new_trust_with_broker(TestBroker::success());
     let account = create_account(&mut trust, "acct-11", model::Environment::Paper);
 
-    deposit(
-        &mut trust,
-        &account,
-        dec!(999999999999.99),
-        Currency::USD,
-    );
+    deposit(&mut trust, &account, dec!(999999999999.99), Currency::USD);
     trust
         .create_transaction(
             &account,
@@ -637,10 +605,9 @@ fn test_case_12_duplicate_rule_name_is_rejected_for_same_account() {
         )
         .expect_err("duplicate rule type must fail");
 
-    assert!(
-        err.to_string()
-            .contains("Rule with name risk_per_trade already exists")
-    );
+    assert!(err
+        .to_string()
+        .contains("Rule with name risk_per_trade already exists"));
 }
 
 #[test]
@@ -1137,7 +1104,10 @@ fn test_case_31_modify_stop_with_reduced_risk_updates_price_and_broker_id() {
         .expect("modify stop should succeed");
 
     assert_eq!(updated.safety_stop.unit_price, dec!(95));
-    assert_eq!(updated.safety_stop.broker_order_id, Some(broker.modify_stop_id()));
+    assert_eq!(
+        updated.safety_stop.broker_order_id,
+        Some(broker.modify_stop_id())
+    );
 }
 
 #[test]
@@ -1226,7 +1196,10 @@ fn test_case_34_modify_target_on_filled_trade_updates_price_and_broker_id() {
         .expect("modify target should succeed");
 
     assert_eq!(updated.target.unit_price, dec!(130));
-    assert_eq!(updated.target.broker_order_id, Some(broker.modify_target_id()));
+    assert_eq!(
+        updated.target.broker_order_id,
+        Some(broker.modify_target_id())
+    );
 }
 
 #[test]
@@ -1613,7 +1586,10 @@ fn test_case_43_manual_stop_with_fee_creates_closing_and_payment_transactions() 
         tx_stop.category,
         TransactionCategory::CloseSafetyStop(_) | TransactionCategory::CloseSafetyStopSlippage(_)
     ));
-    assert_eq!(tx_payment.category, TransactionCategory::PaymentFromTrade(trade.id));
+    assert_eq!(
+        tx_payment.category,
+        TransactionCategory::PaymentFromTrade(trade.id)
+    );
 
     let closed = trade_by_status_and_id(&mut trust, &account, Status::ClosedStopLoss, trade.id);
     assert_eq!(closed.status, Status::ClosedStopLoss);
@@ -1662,8 +1638,14 @@ fn test_case_44_manual_target_with_fee_creates_closing_and_payment_transactions(
         .target_acquired(&filled, dec!(5))
         .expect("manual target should succeed");
 
-    assert_eq!(tx_target.category, TransactionCategory::CloseTarget(trade.id));
-    assert_eq!(tx_payment.category, TransactionCategory::PaymentFromTrade(trade.id));
+    assert_eq!(
+        tx_target.category,
+        TransactionCategory::CloseTarget(trade.id)
+    );
+    assert_eq!(
+        tx_payment.category,
+        TransactionCategory::PaymentFromTrade(trade.id)
+    );
 
     let closed = trade_by_status_and_id(&mut trust, &account, Status::ClosedTarget, trade.id);
     assert_eq!(closed.status, Status::ClosedTarget);
@@ -1752,7 +1734,9 @@ fn test_case_45_risk_open_positions_returns_only_open_trade_statuses() {
         .expect("calculate open positions");
 
     assert_eq!(positions.len(), 3);
-    assert!(positions.iter().any(|p| p.trade_id == trade_a.id && p.status == Status::Funded));
+    assert!(positions
+        .iter()
+        .any(|p| p.trade_id == trade_a.id && p.status == Status::Funded));
     assert!(positions
         .iter()
         .any(|p| p.trade_id == submitted_b.id && p.status == Status::Submitted));
@@ -1849,7 +1833,8 @@ fn test_case_47_concentration_groups_unknown_metadata_under_unknown_bucket() {
         }
     }
 
-    let sector_analysis = ConcentrationCalculator::analyze_by_metadata(&all_trades, MetadataField::Sector);
+    let sector_analysis =
+        ConcentrationCalculator::analyze_by_metadata(&all_trades, MetadataField::Sector);
 
     assert!(sector_analysis.groups.iter().any(|g| g.name == "Unknown"));
     assert!(sector_analysis
@@ -1872,8 +1857,10 @@ fn test_case_48_concentration_warnings_trigger_for_moderate_and_high_thresholds(
     low_trade.balance.capital_in_market = dec!(300);
     low_trade.balance.funding = dec!(300);
 
-    let analysis =
-        ConcentrationCalculator::analyze_by_metadata(&[high_trade, low_trade], MetadataField::Sector);
+    let analysis = ConcentrationCalculator::analyze_by_metadata(
+        &[high_trade, low_trade],
+        MetadataField::Sector,
+    );
 
     assert_eq!(analysis.total_risk, dec!(1000));
     assert_eq!(analysis.concentration_warnings.len(), 1);
@@ -2013,27 +2000,25 @@ fn account_transactions_for_trade(
 fn replay_available_from_account_transactions(transactions: &[Transaction]) -> Decimal {
     transactions
         .iter()
-        .try_fold(dec!(0), |acc, tx| {
-            match tx.category {
-                TransactionCategory::Deposit | TransactionCategory::PaymentFromTrade(_) => {
-                    acc.checked_add(tx.amount).ok_or_else(|| {
-                        format!(
-                            "available replay overflow in addition: {} + {}",
-                            acc, tx.amount
-                        )
-                    })
-                }
-                TransactionCategory::Withdrawal
-                | TransactionCategory::FundTrade(_)
-                | TransactionCategory::FeeOpen(_)
-                | TransactionCategory::FeeClose(_) => acc.checked_sub(tx.amount).ok_or_else(|| {
+        .try_fold(dec!(0), |acc, tx| match tx.category {
+            TransactionCategory::Deposit | TransactionCategory::PaymentFromTrade(_) => {
+                acc.checked_add(tx.amount).ok_or_else(|| {
                     format!(
-                        "available replay overflow in subtraction: {} - {}",
+                        "available replay overflow in addition: {} + {}",
                         acc, tx.amount
                     )
-                }),
-                _ => Ok(acc),
+                })
             }
+            TransactionCategory::Withdrawal
+            | TransactionCategory::FundTrade(_)
+            | TransactionCategory::FeeOpen(_)
+            | TransactionCategory::FeeClose(_) => acc.checked_sub(tx.amount).ok_or_else(|| {
+                format!(
+                    "available replay overflow in subtraction: {} - {}",
+                    acc, tx.amount
+                )
+            }),
+            _ => Ok(acc),
         })
         .expect("replay available from account transactions")
 }
@@ -2325,7 +2310,11 @@ fn run_portfolio_window_case(case_id: usize) {
             let trade = create_trade(
                 &mut trust,
                 &account,
-                if is_long { &vehicle_long } else { &vehicle_short },
+                if is_long {
+                    &vehicle_long
+                } else {
+                    &vehicle_short
+                },
                 category,
                 quantity,
                 entry,
@@ -2612,11 +2601,7 @@ fn test_case_200_high_frequency_sync_lifecycle_101_trades_per_day_for_365_days()
     let broker = TestBroker::success();
     let mut trust = new_trust_with_broker(broker.clone());
 
-    let account = create_account(
-        &mut trust,
-        "acct-200-hft",
-        model::Environment::Paper,
-    );
+    let account = create_account(&mut trust, "acct-200-hft", model::Environment::Paper);
 
     // Reserve enough capital for high-throughput synced subset.
     deposit(&mut trust, &account, dec!(5000000), Currency::USD);
@@ -2674,13 +2659,25 @@ fn test_case_200_high_frequency_sync_lifecycle_101_trades_per_day_for_365_days()
 
             if slot < synced_trades_per_day {
                 let thesis = format!("hft synced day {day} slot {slot}");
-                let sector = if is_long { Some("technology") } else { Some("energy") };
-                let asset_class = if is_long { Some("stocks") } else { Some("futures") };
+                let sector = if is_long {
+                    Some("technology")
+                } else {
+                    Some("energy")
+                };
+                let asset_class = if is_long {
+                    Some("stocks")
+                } else {
+                    Some("futures")
+                };
 
                 let trade = create_trade(
                     &mut trust,
                     &account,
-                    if is_long { &vehicle_long } else { &vehicle_short },
+                    if is_long {
+                        &vehicle_long
+                    } else {
+                        &vehicle_short
+                    },
                     category,
                     quantity,
                     entry,
@@ -2803,8 +2800,10 @@ fn test_case_200_high_frequency_sync_lifecycle_101_trades_per_day_for_365_days()
     assert!(!last_30_days.is_empty());
     assert!(last_30_days.len() < total_trades);
 
-    let sector_analysis =
-        ConcentrationCalculator::analyze_by_metadata(&simulated_closed_trades, MetadataField::Sector);
+    let sector_analysis = ConcentrationCalculator::analyze_by_metadata(
+        &simulated_closed_trades,
+        MetadataField::Sector,
+    );
     assert_eq!(sector_analysis.total_risk, dec!(0));
     assert!(sector_analysis.concentration_warnings.is_empty());
     assert!(sector_analysis.groups.len() >= 2);
@@ -2919,8 +2918,7 @@ fn test_case_202_bug_hunt_sync_should_be_atomic_when_any_order_update_fails() {
 
     let still_submitted = trade_by_status_and_id(&mut trust, &account, Status::Submitted, trade.id);
     assert_eq!(
-        still_submitted.target.status,
-        submitted.target.status,
+        still_submitted.target.status, submitted.target.status,
         "failed sync should not persist partial order updates"
     );
 }
@@ -2955,8 +2953,7 @@ fn test_case_203_bug_hunt_rejected_status_update_should_not_mutate_orders() {
 
     let still_submitted = trade_by_status_and_id(&mut trust, &account, Status::Submitted, trade.id);
     assert_eq!(
-        still_submitted.entry.status,
-        submitted.entry.status,
+        still_submitted.entry.status, submitted.entry.status,
         "failed status transition should not mutate order state"
     );
 }
@@ -3022,7 +3019,10 @@ fn test_case_205_bug_hunt_closed_target_sync_should_not_leave_stop_order_open() 
 
     let closed = trade_by_status_and_id(&mut trust, &account, Status::ClosedTarget, trade.id);
     assert!(
-        matches!(closed.safety_stop.status, OrderStatus::Canceled | OrderStatus::Filled),
+        matches!(
+            closed.safety_stop.status,
+            OrderStatus::Canceled | OrderStatus::Filled
+        ),
         "closed trades should not leave a live stop order"
     );
 }
@@ -3030,11 +3030,8 @@ fn test_case_205_bug_hunt_closed_target_sync_should_not_leave_stop_order_open() 
 #[test]
 fn test_case_206_bug_hunt_close_trade_broker_error_must_not_mutate_trade_state() {
     let broker = TestBroker::success();
-    broker
-        .state
-        .lock()
-        .expect("broker state lock")
-        .close_error = Some("forced close error".to_string());
+    broker.state.lock().expect("broker state lock").close_error =
+        Some("forced close error".to_string());
 
     let mut trust = new_trust_with_broker(broker.clone());
     let (account, _vehicle, trade) = setup_account_deposit_vehicle_trade(
@@ -3213,8 +3210,7 @@ fn test_case_209_bug_hunt_failed_sync_on_closed_trade_should_not_mutate_orders()
 
     let still_closed = trade_by_status_and_id(&mut trust, &account, Status::ClosedTarget, trade.id);
     assert_eq!(
-        still_closed.target.status,
-        closed.target.status,
+        still_closed.target.status, closed.target.status,
         "failed transition should not mutate order status on closed trade"
     );
 }
@@ -3315,7 +3311,11 @@ fn test_case_211_bug_hunt_thousands_of_long_short_sync_lifecycle_scenarios() {
         let trade = create_trade(
             &mut trust,
             &account,
-            if is_long { &vehicle_long } else { &vehicle_short },
+            if is_long {
+                &vehicle_long
+            } else {
+                &vehicle_short
+            },
             category,
             quantity,
             entry,
