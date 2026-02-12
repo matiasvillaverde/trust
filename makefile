@@ -6,6 +6,10 @@ CLI_NAME = cli
 MIGRATIONS_DIRECTORY = ./db-sqlite/migrations
 DIESEL_CONFIG_FILE = ./db-sqlite/diesel.toml
 CLI_DATABASE_URL = ~/.trust/debug.db
+CARGO_HOME ?= $(HOME)/.cargo
+
+# Ensure cargo-installed tooling is available in all make targets.
+export PATH := $(CARGO_HOME)/bin:$(PATH)
 
 # Tool paths
 DIESEL_CLI = diesel
@@ -157,7 +161,7 @@ security-check:
 	@echo "$(YELLOW)Checking for security vulnerabilities...$(NC)"
 	@$(CARGO) audit
 	@echo "$(YELLOW)Checking for unused dependencies...$(NC)"
-	@$(CARGO) udeps --all-targets || echo "$(YELLOW)Warning: cargo-udeps not installed or failed$(NC)"
+	@$(CARGO) machete --with-metadata --skip-target-dir || echo "$(YELLOW)Warning: cargo-machete not installed or found possible unused deps$(NC)"
 
 .PHONY: quality-gate
 quality-gate: fmt-check lint-strict security-check
@@ -183,7 +187,7 @@ ci-build: setup
 	@echo "$(BLUE)Running CI build checks...$(NC)"
 	@$(CARGO) check $(CARGO_FLAGS) --all-features --workspace
 	@$(CARGO) check $(CARGO_FLAGS) --no-default-features --workspace
-	@$(CARGO) build -p model $(CARGO_FLAGS) --release
+	@$(CARGO) build -p trust-model $(CARGO_FLAGS) --release
 	@$(CARGO) build -p core $(CARGO_FLAGS) --release
 	@$(CARGO) build -p cli $(CARGO_FLAGS) --release
 	@$(CARGO) build --all $(CARGO_FLAGS) --release
@@ -212,8 +216,8 @@ install-tools:
 	@$(CARGO) install cargo-nextest
 	@echo "Installing cargo-deny..."
 	@$(CARGO) install cargo-deny
-	@echo "Installing cargo-udeps..."
-	@$(CARGO) install cargo-udeps
+	@echo "Installing cargo-machete..."
+	@$(CARGO) install cargo-machete
 	@echo ""
 	@echo "$(YELLOW)To install 'act' for running GitHub Actions locally:$(NC)"
 	@echo "  macOS:    brew install act"

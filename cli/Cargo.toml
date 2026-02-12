@@ -2,12 +2,12 @@
 name = "cli"
 version = "0.3.0"
 edition = "2021"
-license = "GPL-3.0"
+license = "GPL-3.0-only"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-model = { path = "../model", version = "0.3.0" }
+model = { package = "trust-model", path = "../model", version = "0.3.0" }
 core = { path = "../core", version = "0.3.0" }
 alpaca-broker = { path = "../alpaca-broker", version = "0.3.0" }
 db-sqlite = { path = "../db-sqlite", version = "0.3.0" }
