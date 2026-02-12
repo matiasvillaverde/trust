@@ -1,6 +1,5 @@
 use model::{
-    Currency, DatabaseFactory, Order, OrderAction, OrderCategory, OrderWrite, ReadTradeDB, Trade,
-    TradeCategory,
+    Currency, DatabaseFactory, Order, OrderAction, OrderCategory, OrderWrite, Trade, TradeCategory,
 };
 use rust_decimal::Decimal;
 use uuid::Uuid;
@@ -71,38 +70,28 @@ pub fn create_target(
     )
 }
 
-pub fn update_order(
-    order: &Order,
-    database: &mut dyn DatabaseFactory,
-) -> Result<Order, Box<dyn std::error::Error>> {
-    database.order_write().update(order)
-}
-
 pub fn record_timestamp_filled(
     trade: &Trade,
     write_database: &mut dyn OrderWrite,
-    read_database: &mut dyn ReadTradeDB,
-) -> Result<Trade, Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn std::error::Error>> {
     write_database.filling_of(&trade.entry)?;
-    read_database.read_trade(trade.id)
+    Ok(())
 }
 
 pub fn record_timestamp_stop(
     trade: &Trade,
     write_database: &mut dyn OrderWrite,
-    read_database: &mut dyn ReadTradeDB,
-) -> Result<Trade, Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn std::error::Error>> {
     write_database.closing_of(&trade.safety_stop)?;
-    read_database.read_trade(trade.id)
+    Ok(())
 }
 
 pub fn record_timestamp_target(
     trade: &Trade,
     write_database: &mut dyn OrderWrite,
-    read_database: &mut dyn ReadTradeDB,
-) -> Result<Trade, Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn std::error::Error>> {
     write_database.closing_of(&trade.target)?;
-    read_database.read_trade(trade.id)
+    Ok(())
 }
 
 pub fn modify(
