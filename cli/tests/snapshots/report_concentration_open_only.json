@@ -1,0 +1,29 @@
+{
+  "consistency": {
+    "asset_group_sum": "0",
+    "asset_group_sum_matches_total": true,
+    "sector_group_sum": "0",
+    "sector_group_sum_matches_total": true
+  },
+  "data": {
+    "asset_class": {
+      "groups": [],
+      "total_risk": "0",
+      "warnings": []
+    },
+    "sector": {
+      "groups": [],
+      "total_risk": "0",
+      "warnings": []
+    }
+  },
+  "filters": {
+    "open_only": true
+  },
+  "format_version": 1,
+  "generated_at": "<redacted>",
+  "report": "concentration",
+  "scope": {
+    "account_id": "<account-id>"
+  }
+}

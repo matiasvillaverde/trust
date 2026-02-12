@@ -32,7 +32,8 @@
 
 use crate::commands::{
     AccountCommandBuilder, KeysCommandBuilder, MetricsCommandBuilder, ReportCommandBuilder,
-    TradeCommandBuilder, TradingVehicleCommandBuilder, TransactionCommandBuilder,
+    GradeCommandBuilder, TradeCommandBuilder, TradingVehicleCommandBuilder,
+    TransactionCommandBuilder,
 };
 use crate::dispatcher::ArgDispatcher;
 use clap::Command;
@@ -106,9 +107,15 @@ fn main() {
                 .metrics()
                 .build(),
         )
+        .subcommand(GradeCommandBuilder::new().show().summary().build())
         .subcommand(MetricsCommandBuilder::new().advanced().compare().build())
         .get_matches();
 
     let dispatcher = ArgDispatcher::new_sqlite();
-    dispatcher.dispatch(matches);
+    if let Err(error) = dispatcher.dispatch(matches) {
+        if !error.already_printed() {
+            eprintln!("{error}");
+        }
+        std::process::exit(1);
+    }
 }

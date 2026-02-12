@@ -46,6 +46,10 @@ pub mod rule;
 pub mod strategy;
 /// Trade lifecycle and management
 pub mod trade;
+/// Market data types
+pub mod market_data;
+/// Trade grading types
+pub mod trade_grade;
 /// Trading vehicle (asset) definitions
 pub mod trading_vehicle;
 /// Transaction tracking and accounting
@@ -58,12 +62,14 @@ pub use currency::Currency;
 pub use database::{
     AccountBalanceRead, AccountBalanceWrite, AccountRead, AccountWrite, DatabaseFactory,
     DraftTrade, OrderRead, OrderWrite, ReadBrokerLogsDB, ReadRuleDB, ReadTradeDB,
-    ReadTradingVehicleDB, ReadTransactionDB, WriteBrokerLogsDB, WriteRuleDB, WriteTradeDB,
-    WriteTradingVehicleDB, WriteTransactionDB,
+    ReadTradeGradeDB, ReadTradingVehicleDB, ReadTransactionDB, WriteBrokerLogsDB, WriteRuleDB,
+    WriteTradeDB, WriteTradeGradeDB, WriteTradingVehicleDB, WriteTransactionDB,
 };
 pub use order::{Order, OrderAction, OrderCategory, OrderStatus, TimeInForce};
 pub use rule::{Rule, RuleLevel, RuleName};
 pub use strategy::Strategy;
 pub use trade::{Status, Trade, TradeBalance, TradeCategory};
+pub use market_data::{BarTimeframe, MarketBar};
+pub use trade_grade::{Grade, TradeGrade};
 pub use trading_vehicle::{TradingVehicle, TradingVehicleCategory};
 pub use transaction::{Transaction, TransactionCategory};

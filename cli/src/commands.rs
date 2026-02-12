@@ -1,4 +1,5 @@
 mod account_command;
+mod grade_command;
 mod key_command;
 mod metrics_command;
 mod report_command;
@@ -9,6 +10,7 @@ mod transaction_command;
 
 // Re-export the types from the cli crate.
 pub use account_command::AccountCommandBuilder;
+pub use grade_command::GradeCommandBuilder;
 pub use key_command::KeysCommandBuilder;
 pub use metrics_command::MetricsCommandBuilder;
 pub use report_command::ReportCommandBuilder;

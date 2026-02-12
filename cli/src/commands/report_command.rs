@@ -10,6 +10,15 @@ impl ReportCommandBuilder {
         ReportCommandBuilder {
             command: Command::new("report")
                 .about("Generate trading performance reports")
+                .arg(
+                    Arg::new("format")
+                        .long("format")
+                        .value_name("FORMAT")
+                        .help("Output format")
+                        .value_parser(["text", "json"])
+                        .default_value("text")
+                        .global(true),
+                )
                 .arg_required_else_help(true),
             subcommands: Vec::new(),
         }

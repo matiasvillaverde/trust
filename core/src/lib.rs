@@ -31,6 +31,7 @@
 #![warn(missing_docs, rust_2018_idioms, missing_debug_implementations)]
 
 use calculators_trade::QuantityCalculator;
+use model::database::TradingVehicleUpsert;
 use model::{
     Account, AccountBalance, Broker, BrokerLog, Currency, DatabaseFactory, DraftTrade, Environment,
     Order, Rule, RuleLevel, RuleName, Status, Trade, TradeBalance, TradingVehicle,
@@ -43,7 +44,7 @@ use uuid::Uuid;
 #[derive(Debug, Clone)]
 pub struct TradingSummary {
     /// Account ID this summary is for
-    pub account_id: Uuid,
+    pub account_id: Option<Uuid>,
     /// Account equity/balance
     pub equity: Decimal,
     /// Performance metrics (if available)
@@ -265,13 +266,23 @@ impl TrustFacade {
     pub fn create_trading_vehicle(
         &mut self,
         symbol: &str,
-        isin: &str,
+        isin: Option<&str>,
         category: &TradingVehicleCategory,
         broker: &str,
     ) -> Result<TradingVehicle, Box<dyn std::error::Error>> {
         self.factory
             .trading_vehicle_write()
             .create_trading_vehicle(symbol, isin, category, broker)
+    }
+
+    /// Create or update a trading vehicle, storing broker metadata and optional enrichment.
+    pub fn upsert_trading_vehicle(
+        &mut self,
+        input: TradingVehicleUpsert,
+    ) -> Result<TradingVehicle, Box<dyn std::error::Error>> {
+        self.factory
+            .trading_vehicle_write()
+            .upsert_trading_vehicle(input)
     }
 
     /// Retrieve all available trading vehicles.
@@ -486,7 +497,79 @@ impl TrustFacade {
         trade: &Trade,
         account: &Account,
     ) -> Result<(Status, Vec<Order>, BrokerLog), Box<dyn std::error::Error>> {
-        commands::trade::sync_with_broker(trade, account, &mut *self.factory, &mut *self.broker)
+        let (status, orders, log) = commands::trade::sync_with_broker(
+            trade,
+            account,
+            &mut *self.factory,
+            &mut *self.broker,
+        )?;
+
+        // Best-effort auto-grade when the trade closes. Never fail the sync because grading
+        // depends on optional broker market data.
+        if status == Status::ClosedTarget || status == Status::ClosedStopLoss {
+            let has_grade = match self
+                .factory
+                .trade_grade_read()
+                .read_latest_for_trade(trade.id)
+            {
+                Ok(opt) => opt.is_some(),
+                Err(_) => true, // Can't read grades; treat as "don't try" to keep sync reliable.
+            };
+
+            if !has_grade {
+                let mut grader = crate::services::grading::TradeGradeService::new(
+                    &mut *self.factory,
+                    &mut *self.broker,
+                );
+                let _ = grader.grade_trade(
+                    trade.id,
+                    crate::services::grading::GradingWeightsPermille::default(),
+                );
+            }
+        }
+
+        Ok((status, orders, log))
+    }
+
+    /// Grade a closed trade and persist its grade.
+    pub fn grade_trade(
+        &mut self,
+        trade_id: Uuid,
+        weights: crate::services::grading::GradingWeightsPermille,
+    ) -> Result<crate::services::grading::DetailedTradeGrade, Box<dyn std::error::Error>> {
+        let mut grader =
+            crate::services::grading::TradeGradeService::new(&mut *self.factory, &mut *self.broker);
+        grader.grade_trade(trade_id, weights)
+    }
+
+    /// Compute a trade grade (without persisting it).
+    pub fn compute_trade_grade(
+        &mut self,
+        trade_id: Uuid,
+        weights: crate::services::grading::GradingWeightsPermille,
+    ) -> Result<crate::services::grading::DetailedTradeGrade, Box<dyn std::error::Error>> {
+        let mut grader =
+            crate::services::grading::TradeGradeService::new(&mut *self.factory, &mut *self.broker);
+        grader.compute_grade(trade_id, weights)
+    }
+
+    /// Retrieve the latest grade for a trade (if any).
+    pub fn latest_trade_grade(
+        &mut self,
+        trade_id: Uuid,
+    ) -> Result<Option<model::TradeGrade>, Box<dyn std::error::Error>> {
+        self.factory.trade_grade_read().read_latest_for_trade(trade_id)
+    }
+
+    /// Retrieve grades for an account over the last N days.
+    pub fn trade_grades_for_account_days(
+        &mut self,
+        account_id: Uuid,
+        days: u32,
+    ) -> Result<Vec<model::TradeGrade>, Box<dyn std::error::Error>> {
+        self.factory
+            .trade_grade_read()
+            .read_for_account_days(account_id, days)
     }
 
     /// Mark a trade as filled and create the appropriate transactions.
@@ -722,19 +805,41 @@ impl TrustFacade {
         &mut self,
         account_id: Option<Uuid>,
     ) -> Result<TradingSummary, Box<dyn std::error::Error>> {
-        let account_id = account_id.unwrap_or_else(Uuid::new_v4);
+        if let Some(id) = account_id {
+            let account_exists = self
+                .factory
+                .account_read()
+                .all()?
+                .iter()
+                .any(|account| account.id == id);
+            if !account_exists {
+                return Err("Account not found".into());
+            }
+        }
 
-        // Get account equity from balances
-        let balances = self.search_all_balances(account_id)?;
-        let equity = balances
-            .iter()
-            .map(|balance| balance.total_balance)
-            .fold(Decimal::ZERO, |acc, balance| {
-                acc.checked_add(balance).unwrap_or(acc)
-            });
+        let equity = if let Some(id) = account_id {
+            let balances = self.search_all_balances(id)?;
+            balances
+                .iter()
+                .map(|balance| balance.total_balance)
+                .fold(Decimal::ZERO, |acc, balance| {
+                    acc.checked_add(balance).unwrap_or(acc)
+                })
+        } else {
+            let accounts = self.search_all_accounts()?;
+            accounts
+                .iter()
+                .map(|account| self.search_all_balances(account.id))
+                .filter_map(Result::ok)
+                .flat_map(|balances| balances.into_iter())
+                .map(|balance| balance.total_balance)
+                .fold(Decimal::ZERO, |acc, balance| {
+                    acc.checked_add(balance).unwrap_or(acc)
+                })
+        };
 
-        // Get performance stats from closed trades
-        let performance = match self.search_closed_trades(Some(account_id)) {
+        // Get performance stats from closed trades.
+        let performance = match self.search_closed_trades(account_id) {
             Ok(closed_trades) => {
                 if closed_trades.is_empty() {
                     None
@@ -746,17 +851,15 @@ impl TrustFacade {
                     )
                 }
             }
-            Err(_) => None, // No trades yet or search failed
+            Err(_) => None,
         };
 
-        // Get capital at risk from open positions
         let capital_at_risk = self
-            .calculate_open_positions(Some(account_id))
+            .calculate_open_positions(account_id)
             .unwrap_or_else(|_| Vec::new());
 
-        // Get concentration data
         let concentration = self
-            .calculate_portfolio_concentration(Some(account_id))
+            .calculate_portfolio_concentration(account_id)
             .unwrap_or_else(|_| Vec::new());
 
         Ok(TradingSummary {
@@ -778,4 +881,5 @@ pub mod calculators_risk;
 mod calculators_trade;
 mod commands;
 mod mocks;
+pub mod services;
 mod validators;

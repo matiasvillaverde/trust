@@ -30,18 +30,24 @@
 // Standard Rust lints for code quality
 #![warn(missing_docs, rust_2018_idioms, missing_debug_implementations)]
 
-use model::{Account, Broker, BrokerLog, Environment, Order, OrderIds, Status, Trade};
+use model::{
+    Account, BarTimeframe, Broker, BrokerLog, Environment, MarketBar, Order, OrderIds, Status,
+    Trade,
+};
 use std::error::Error;
 use uuid::Uuid;
 
+mod asset_lookup;
 mod cancel_trade;
 mod close_trade;
 mod keys;
+mod market_data;
 mod modify_stop;
 mod modify_target;
 mod order_mapper;
 mod submit_trade;
 mod sync_trade;
+pub use asset_lookup::AssetMetadata;
 pub use keys::Keys;
 
 #[derive(Default)]
@@ -97,6 +103,17 @@ impl Broker for AlpacaBroker {
     ) -> Result<Uuid, Box<dyn Error>> {
         modify_target::modify(trade, account, new_target_price)
     }
+
+    fn get_bars(
+        &self,
+        symbol: &str,
+        start: chrono::DateTime<chrono::Utc>,
+        end: chrono::DateTime<chrono::Utc>,
+        timeframe: BarTimeframe,
+        account: &Account,
+    ) -> Result<Vec<MarketBar>, Box<dyn Error>> {
+        market_data::get_bars(symbol, start, end, timeframe, account)
+    }
 }
 
 /// Alpaca-specific Broker API
@@ -124,5 +141,13 @@ impl AlpacaBroker {
     pub fn delete_keys(environment: &Environment, account: &Account) -> Result<(), Box<dyn Error>> {
         Keys::delete(environment, &account.name)?;
         Ok(())
+    }
+
+    /// Read broker asset metadata for a specific symbol from Alpaca.
+    pub fn fetch_asset_metadata(
+        account: &Account,
+        symbol: &str,
+    ) -> Result<AssetMetadata, Box<dyn Error>> {
+        asset_lookup::fetch_asset_metadata(account, symbol)
     }
 }

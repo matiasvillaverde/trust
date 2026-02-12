@@ -1,0 +1,35 @@
+{
+  "consistency": {
+    "delta_total_minus_sum": "0",
+    "position_sum": "1220",
+    "position_sum_matches_total": true
+  },
+  "data": {
+    "account_equity": "75000",
+    "capital_at_risk_percentage": "1.62666667",
+    "open_positions": [
+      {
+        "capital_amount": "700",
+        "funded_date": "<redacted>",
+        "status": "Funded",
+        "symbol": "AAPL",
+        "trade_id": "<trade-id>"
+      },
+      {
+        "capital_amount": "520",
+        "funded_date": "<redacted>",
+        "status": "Funded",
+        "symbol": "XLV",
+        "trade_id": "<trade-id>"
+      }
+    ],
+    "open_positions_count": 2,
+    "total_capital_at_risk": "1220"
+  },
+  "format_version": 1,
+  "generated_at": "<redacted>",
+  "report": "risk",
+  "scope": {
+    "account_id": "<account-id>"
+  }
+}

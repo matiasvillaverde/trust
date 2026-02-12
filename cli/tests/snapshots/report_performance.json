@@ -1,0 +1,27 @@
+{
+  "consistency": {
+    "trade_count_balanced": true,
+    "win_rate_delta_percentage": "0",
+    "win_rate_recomputed_percentage": "0"
+  },
+  "data": {
+    "average_loss": "0",
+    "average_r_multiple": "0",
+    "average_win": "0",
+    "best_trade": null,
+    "losing_trades": 0,
+    "total_trades": 0,
+    "win_rate_percentage": "0",
+    "winning_trades": 0,
+    "worst_trade": null
+  },
+  "filters": {
+    "days": null
+  },
+  "format_version": 1,
+  "generated_at": "<redacted>",
+  "report": "performance",
+  "scope": {
+    "account_id": "<account-id>"
+  }
+}

@@ -35,4 +35,7 @@ mod error;
 mod schema;
 mod workers;
 
+#[cfg(test)]
+mod migration_fk_safety_tests;
+
 pub use database::SqliteDatabase;

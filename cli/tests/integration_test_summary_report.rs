@@ -63,7 +63,7 @@ fn test_summary_with_complete_data() {
     assert!(result.is_ok(), "Trading summary should succeed");
 
     let summary = result.unwrap();
-    assert_eq!(summary.account_id, account.id);
+    assert_eq!(summary.account_id, Some(account.id));
     assert_eq!(summary.equity, dec!(50000.0)); // Should match the deposited amount
     assert!(summary.performance.is_none()); // No closed trades yet
     assert!(summary.capital_at_risk.is_empty()); // No open positions yet
@@ -108,9 +108,6 @@ fn test_summary_with_invalid_account() {
     let fake_account_id = Uuid::new_v4();
     let result = trust.get_trading_summary(Some(fake_account_id));
 
-    // Then: Should handle invalid account appropriately
-    assert!(
-        result.is_ok(),
-        "Invalid account should be handled gracefully"
-    );
+    // Then: Should report account not found
+    assert!(result.is_err(), "Invalid account should return an error");
 }

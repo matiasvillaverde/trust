@@ -63,7 +63,7 @@ fn test_concentration_report_with_trades() {
     let vehicle = trust
         .create_trading_vehicle(
             "AAPL",
-            "US0378331005",
+            Some("US0378331005"),
             &TradingVehicleCategory::Stock,
             "alpaca",
         )

@@ -1,17 +1,18 @@
 use crate::workers::{
     AccountBalanceDB, AccountDB, BrokerLogDB, WorkerOrder, WorkerRule, WorkerTrade,
-    WorkerTradingVehicle, WorkerTransaction,
+    WorkerTradeGrade, WorkerTradingVehicle, WorkerTransaction,
 };
 use diesel::prelude::*;
 use model::DraftTrade;
 use model::Status;
 use model::{
+    database::TradingVehicleUpsert,
     database::{AccountWrite, WriteAccountBalanceDB},
     Account, AccountBalanceRead, AccountBalanceWrite, AccountRead, Currency, DatabaseFactory,
     Order, OrderAction, OrderCategory, OrderRead, OrderWrite, ReadRuleDB, ReadTradeDB,
-    ReadTradingVehicleDB, ReadTransactionDB, Rule, RuleName, Trade, TradeBalance, TradingVehicle,
-    TradingVehicleCategory, Transaction, TransactionCategory, WriteRuleDB, WriteTradeDB,
-    WriteTradingVehicleDB, WriteTransactionDB,
+    ReadTradeGradeDB, ReadTradingVehicleDB, ReadTransactionDB, Rule, RuleName, Trade, TradeBalance,
+    TradeGrade, TradingVehicle, TradingVehicleCategory, Transaction, TransactionCategory,
+    WriteRuleDB, WriteTradeDB, WriteTradeGradeDB, WriteTradingVehicleDB, WriteTransactionDB,
 };
 use rust_decimal::Decimal;
 use std::error::Error;
@@ -101,6 +102,14 @@ impl DatabaseFactory for SqliteDatabase {
         Box::new(SqliteDatabase::new_from(self.connection.clone()))
     }
     fn trading_vehicle_write(&self) -> Box<dyn WriteTradingVehicleDB> {
+        Box::new(SqliteDatabase::new_from(self.connection.clone()))
+    }
+
+    fn trade_grade_read(&self) -> Box<dyn ReadTradeGradeDB> {
+        Box::new(SqliteDatabase::new_from(self.connection.clone()))
+    }
+
+    fn trade_grade_write(&self) -> Box<dyn WriteTradeGradeDB> {
         Box::new(SqliteDatabase::new_from(self.connection.clone()))
     }
 }
@@ -267,6 +276,48 @@ impl WriteTransactionDB for SqliteDatabase {
             amount,
             currency,
             category,
+        )
+    }
+}
+
+impl ReadTradeGradeDB for SqliteDatabase {
+    fn read_latest_for_trade(
+        &mut self,
+        trade_id: Uuid,
+    ) -> Result<Option<TradeGrade>, Box<dyn Error>> {
+        WorkerTradeGrade::read_latest_for_trade(
+            &mut self.connection.lock().unwrap_or_else(|e| {
+                eprintln!("Failed to acquire connection lock: {e}");
+                std::process::exit(1);
+            }),
+            trade_id,
+        )
+    }
+
+    fn read_for_account_days(
+        &mut self,
+        account_id: Uuid,
+        days: u32,
+    ) -> Result<Vec<TradeGrade>, Box<dyn Error>> {
+        WorkerTradeGrade::read_for_account_days(
+            &mut self.connection.lock().unwrap_or_else(|e| {
+                eprintln!("Failed to acquire connection lock: {e}");
+                std::process::exit(1);
+            }),
+            account_id,
+            days,
+        )
+    }
+}
+
+impl WriteTradeGradeDB for SqliteDatabase {
+    fn create_trade_grade(&mut self, grade: &TradeGrade) -> Result<TradeGrade, Box<dyn Error>> {
+        WorkerTradeGrade::create(
+            &mut self.connection.lock().unwrap_or_else(|e| {
+                eprintln!("Failed to acquire connection lock: {e}");
+                std::process::exit(1);
+            }),
+            grade,
         )
     }
 }
@@ -453,7 +504,7 @@ impl WriteTradingVehicleDB for SqliteDatabase {
     fn create_trading_vehicle(
         &mut self,
         symbol: &str,
-        isin: &str,
+        isin: Option<&str>,
         category: &TradingVehicleCategory,
         broker: &str,
     ) -> Result<TradingVehicle, Box<dyn Error>> {
@@ -466,6 +517,19 @@ impl WriteTradingVehicleDB for SqliteDatabase {
             isin,
             category,
             broker,
+        )
+    }
+
+    fn upsert_trading_vehicle(
+        &mut self,
+        input: TradingVehicleUpsert,
+    ) -> Result<TradingVehicle, Box<dyn Error>> {
+        WorkerTradingVehicle::upsert(
+            &mut self.connection.lock().unwrap_or_else(|e| {
+                eprintln!("Failed to acquire connection lock: {e}");
+                std::process::exit(1);
+            }),
+            input,
         )
     }
 }

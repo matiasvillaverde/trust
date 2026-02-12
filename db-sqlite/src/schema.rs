@@ -130,6 +130,10 @@ diesel::table! {
         documentation_score -> Integer,
         recommendations -> Nullable<Text>,
         graded_at -> Timestamp,
+        process_weight_permille -> Integer,
+        risk_weight_permille -> Integer,
+        execution_weight_permille -> Integer,
+        documentation_weight_permille -> Integer,
     }
 }
 
@@ -177,9 +181,18 @@ diesel::table! {
         updated_at -> Timestamp,
         deleted_at -> Nullable<Timestamp>,
         symbol -> Text,
-        isin -> Text,
+        isin -> Nullable<Text>,
         category -> Text,
         broker -> Text,
+        broker_asset_id -> Nullable<Text>,
+        exchange -> Nullable<Text>,
+        broker_asset_class -> Nullable<Text>,
+        broker_asset_status -> Nullable<Text>,
+        tradable -> Nullable<Bool>,
+        marginable -> Nullable<Bool>,
+        shortable -> Nullable<Bool>,
+        easy_to_borrow -> Nullable<Bool>,
+        fractionable -> Nullable<Bool>,
     }
 }
 

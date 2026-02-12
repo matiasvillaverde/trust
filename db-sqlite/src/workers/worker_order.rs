@@ -323,7 +323,7 @@ mod tests {
         let trading_vehicle = WorkerTradingVehicle::create(
             &mut conn,
             "AAPL",
-            "isin",
+            Some("isin"),
             &TradingVehicleCategory::Crypto,
             "NASDAQ",
         )

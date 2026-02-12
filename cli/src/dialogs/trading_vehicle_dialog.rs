@@ -38,12 +38,20 @@ impl TradingVehicleDialogBuilder {
     }
 
     pub fn build(mut self, trust: &mut TrustFacade) -> TradingVehicleDialogBuilder {
-        let isin = self.isin.clone().expect("Select isin first");
         let symbol = self.symbol.clone().expect("Select symbol first");
         let category = self.category.expect("Select category first");
         let broker = self.broker.clone().expect("Select broker first");
 
-        self.result = Some(trust.create_trading_vehicle(&symbol, &isin, &category, &broker));
+        let isin = self.isin.clone().and_then(|value| {
+            if value.trim().is_empty() {
+                None
+            } else {
+                Some(value)
+            }
+        });
+
+        self.result =
+            Some(trust.create_trading_vehicle(&symbol, isin.as_deref(), &category, &broker));
         self
     }
 
@@ -92,13 +100,16 @@ impl TradingVehicleDialogBuilder {
     pub fn isin(mut self) -> Self {
         self.isin = Some(
             Input::with_theme(&ColorfulTheme::default())
-                .with_prompt("ISIN: ")
+                .with_prompt("ISIN (optional): ")
                 .validate_with({
                     |input: &String| -> Result<(), &str> {
-                        match input.parse::<String>() {
-                            Ok(_) => Ok(()),
-                            Err(_) => Err("Please enter a valid ISIN."),
+                        if input.trim().is_empty() {
+                            return Ok(());
                         }
+                        input
+                            .parse::<String>()
+                            .map(|_| ())
+                            .map_err(|_| "Please enter a valid ISIN.")
                     }
                 })
                 .interact_text()
