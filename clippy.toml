@@ -34,7 +34,7 @@ avoid-breaking-exported-api = false
 
 # Minimum Supported Rust Version - matches project requirement
 # Ensures clippy suggestions are compatible with our toolchain
-msrv = "1.68.2"
+msrv = "1.93.0"
 
 # === PERFORMANCE SETTINGS ===
 #

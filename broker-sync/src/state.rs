@@ -190,9 +190,7 @@ impl BrokerState {
         }
 
         // Generate random jitter in range [-jitter_range, +jitter_range]
-        use rand::Rng;
-        let mut rng = rand::thread_rng();
-        let jitter_i64 = rng.gen_range(-(jitter_range as i64)..=(jitter_range as i64));
+        let jitter_i64 = rand::random_range(-(jitter_range as i64)..=(jitter_range as i64));
 
         // Apply jitter and clamp to valid range
         let jittered_delay = if jitter_i64 < 0 {

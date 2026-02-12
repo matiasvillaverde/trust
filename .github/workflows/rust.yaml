@@ -16,8 +16,8 @@ env:
   RUST_BACKTRACE: 1
   RUSTFLAGS: -D warnings
   CARGO_INCREMENTAL: 0
-  CARGO_DENY_VERSION: "0.16.1"
-  CARGO_UDEPS_VERSION: "0.1.45"
+  CARGO_DENY_VERSION: "0.19.0"
+  CARGO_MACHETE_VERSION: "0.9.1"
 
 jobs:
   # Quick checks run first for fast feedback
@@ -25,7 +25,7 @@ jobs:
     name: Quick Checks
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
 
     - name: Install system dependencies
       run: |
@@ -33,7 +33,7 @@ jobs:
         sudo apt-get install -y libdbus-1-dev pkg-config libssl-dev build-essential
 
     - name: Install Rust
-      uses: dtolnay/rust-toolchain@stable
+      uses: dtolnay/rust-toolchain@1.93.0
       with:
         components: rustfmt
 
@@ -49,7 +49,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: quick-checks
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
 
     - name: Install system dependencies
       run: |
@@ -57,20 +57,12 @@ jobs:
         sudo apt-get install -y libdbus-1-dev pkg-config libssl-dev build-essential
 
     - name: Install Rust
-      uses: dtolnay/rust-toolchain@stable
+      uses: dtolnay/rust-toolchain@1.93.0
       with:
         components: clippy
-
-    - name: Install Rust nightly (for cargo-udeps)
-      uses: dtolnay/rust-toolchain@nightly
-      with:
-        components: clippy
-
-    - name: Set stable as default toolchain
-      run: rustup default stable
 
     - name: Cache dependencies
-      uses: actions/cache@v3
+      uses: actions/cache@v5
       with:
         path: |
           ~/.cargo/registry
@@ -82,13 +74,13 @@ jobs:
           ${{ runner.os }}-cargo-
 
     - name: Cache cargo tools binaries
-      uses: actions/cache@v3
+      uses: actions/cache@v5
       id: tools-cache
       with:
         path: |
           ~/.cargo/bin/cargo-deny
-          ~/.cargo/bin/cargo-udeps
-        key: ${{ runner.os }}-cargo-tools-deny-${{ env.CARGO_DENY_VERSION }}-udeps-${{ env.CARGO_UDEPS_VERSION }}
+          ~/.cargo/bin/cargo-machete
+        key: ${{ runner.os }}-cargo-tools-deny-${{ env.CARGO_DENY_VERSION }}-machete-${{ env.CARGO_MACHETE_VERSION }}
         restore-keys: |
           ${{ runner.os }}-cargo-tools-deny-
           ${{ runner.os }}-cargo-tools-
@@ -103,11 +95,11 @@ jobs:
         mv cargo-deny-${{ env.CARGO_DENY_VERSION }}-x86_64-unknown-linux-musl/cargo-deny ~/.cargo/bin/
         chmod +x ~/.cargo/bin/cargo-deny
 
-    - name: Install cargo-udeps
+    - name: Install cargo-machete
       if: steps.tools-cache.outputs.cache-hit != 'true'
       run: |
         mkdir -p ~/.cargo/bin
-        cargo +nightly install cargo-udeps --locked
+        cargo install cargo-machete --version ${{ env.CARGO_MACHETE_VERSION }} --locked
 
     - name: Run enhanced clippy with complexity analysis
       run: cargo clippy --workspace --all-targets --all-features -- -D warnings
@@ -117,7 +109,7 @@ jobs:
 
     - name: Check for unused dependencies
       run: |
-        cargo +nightly udeps --all-targets || echo "Warning: cargo-udeps check failed or not available"
+        cargo machete --with-metadata --skip-target-dir || echo "Warning: cargo-machete detected possible unused dependencies"
       continue-on-error: true
 
   # Combined build and test job for efficiency
@@ -137,7 +129,7 @@ jobs:
           - name: "Doc tests"
             cmd: "cargo test --locked --doc"
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
 
     - name: Install system dependencies
       run: |
@@ -145,10 +137,10 @@ jobs:
         sudo apt-get install -y libdbus-1-dev pkg-config libssl-dev build-essential
 
     - name: Install Rust
-      uses: dtolnay/rust-toolchain@stable
+      uses: dtolnay/rust-toolchain@1.93.0
 
     - name: Cache dependencies
-      uses: actions/cache@v3
+      uses: actions/cache@v5
       with:
         path: |
           ~/.cargo/registry
@@ -173,7 +165,7 @@ jobs:
     # Run in parallel with other jobs
     needs: quick-checks
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
 
     - name: Install system dependencies
       run: |
@@ -181,10 +173,10 @@ jobs:
         sudo apt-get install -y libdbus-1-dev pkg-config libssl-dev build-essential
 
     - name: Install Rust
-      uses: dtolnay/rust-toolchain@stable
+      uses: dtolnay/rust-toolchain@1.93.0
 
     - name: Cache dependencies
-      uses: actions/cache@v3
+      uses: actions/cache@v5
       with:
         path: |
           ~/.cargo/registry
@@ -206,7 +198,7 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
     - uses: rustsec/audit-check@v2.0.0
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
