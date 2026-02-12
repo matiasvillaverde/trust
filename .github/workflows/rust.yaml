@@ -158,6 +158,39 @@ jobs:
     - name: ${{ matrix.name }}
       run: ${{ matrix.cmd }}
 
+  # Explicit regression coverage for the CLI integration use-cases suite.
+  # This guarantees the large bug-hunt tests run in every PR CI cycle.
+  cli-integration-use-cases:
+    name: CLI Integration Use Cases
+    runs-on: ubuntu-latest
+    needs: quick-checks
+    timeout-minutes: 45
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libdbus-1-dev pkg-config libssl-dev build-essential
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@1.93.0
+
+    - name: Cache dependencies
+      uses: actions/cache@v5
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-cli-integration-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-cli-integration-
+          ${{ runner.os }}-cargo-
+
+    - name: Run CLI integration use-case suite
+      run: cargo test --locked -p cli --test integration_test_use_cases
+
   # Release build verification
   release-build:
     name: Release Build
@@ -207,7 +240,7 @@ jobs:
   ci-success:
     name: CI Success
     runs-on: ubuntu-latest
-    needs: [quick-checks, lint, build-and-test, release-build]
+    needs: [quick-checks, lint, build-and-test, cli-integration-use-cases, release-build]
     steps:
     - name: CI Success
       run: echo "All CI checks passed successfully!"

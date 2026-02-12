@@ -54,11 +54,19 @@ impl CapitalAtRiskCalculator {
             }
             all_trades
         } else {
-            // Get trades for all accounts - need to query all accounts first
-            // Note: In a real implementation, we'd need a method to get all accounts
-            // For now, this will return empty when no account_id is specified
-            // The CLI will need to handle this by always providing an account_id
-            Vec::new()
+            let mut all_trades = Vec::new();
+            let accounts = database.account_read().all()?;
+            for account in accounts {
+                for status in &[Status::Funded, Status::Submitted, Status::Filled] {
+                    if let Ok(trades) = database
+                        .trade_read()
+                        .read_trades_with_status(account.id, *status)
+                    {
+                        all_trades.extend(trades);
+                    }
+                }
+            }
+            all_trades
         };
 
         // Check each trade for closing transactions

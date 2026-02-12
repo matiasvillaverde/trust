@@ -1,10 +1,12 @@
 use crate::commands;
+use chrono::Utc;
 use model::{
     Account, AccountBalance, Broker, BrokerLog, DatabaseFactory, DraftTrade, Order, OrderStatus,
     Status, Trade, TradeBalance, Transaction,
 };
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
+use std::collections::HashSet;
 use std::error::Error;
 
 pub fn create_trade(
@@ -397,19 +399,217 @@ pub fn sync_with_broker(
     // 2. Save log in the DB
     database.log_write().create_log(log.log.as_str(), trade)?;
 
-    // 3. Update Orders
-    for order in orders.clone() {
-        commands::order::update_order(&order, database)?;
+    // 3. Validate payload before mutating DB state.
+    validate_sync_payload(trade, account, status, &orders)?;
+
+    // 4. Update Orders
+    for order in &orders {
+        commands::order::update_order(order, database)?;
     }
 
-    // 4. Update Trade Status
+    // 5. Update Trade Status
     let trade = database.trade_read().read_trade(trade.id)?; // We need to read the trade again to get the updated orders
     update_status(&trade, status, database)?;
 
-    // 5. Update Account Overview
+    // 6. Ensure sibling exit orders are consistently closed in terminal trade states.
+    let trade = database.trade_read().read_trade(trade.id)?;
+    reconcile_sibling_exit_orders(&trade, status, database)?;
+
+    // 7. Update Account Overview
     commands::balance::calculate_account(database, account, &trade.currency)?;
 
     Ok((status, orders, log))
+}
+
+fn validate_sync_payload(
+    trade: &Trade,
+    account: &Account,
+    status: Status,
+    orders: &[Order],
+) -> Result<(), Box<dyn Error>> {
+    if trade.account_id != account.id {
+        return Err(format!(
+            "sync account mismatch: trade account {} does not match provided account {}",
+            trade.account_id, account.id
+        )
+        .into());
+    }
+
+    validate_sync_transition(trade, status)?;
+    let resolved = resolve_orders_for_sync(trade, orders)?;
+
+    match status {
+        Status::Submitted => {
+            let has_fill_like = [
+                resolved.entry.status,
+                resolved.target.status,
+                resolved.stop.status,
+            ]
+            .iter()
+            .any(|s| matches!(s, OrderStatus::Filled | OrderStatus::PartiallyFilled));
+            if has_fill_like {
+                return Err(
+                    "inconsistent sync payload: submitted trade contains filled order state".into(),
+                );
+            }
+        }
+        Status::Filled => {
+            ensure_order_filled(&resolved.entry, "entry")?;
+        }
+        Status::ClosedTarget => {
+            ensure_order_filled(&resolved.entry, "entry")?;
+            ensure_order_filled(&resolved.target, "target")?;
+        }
+        Status::ClosedStopLoss => {
+            ensure_order_filled(&resolved.entry, "entry")?;
+            ensure_order_filled(&resolved.stop, "stop")?;
+        }
+        _ => {}
+    }
+
+    Ok(())
+}
+
+fn validate_sync_transition(trade: &Trade, status: Status) -> Result<(), Box<dyn Error>> {
+    match status {
+        Status::Filled if trade.status == Status::Submitted || trade.status == Status::Filled => {
+            Ok(())
+        }
+        Status::ClosedStopLoss
+            if trade.status == Status::Submitted
+                || trade.status == Status::Filled
+                || trade.status == Status::ClosedStopLoss =>
+        {
+            Ok(())
+        }
+        Status::ClosedTarget
+            if trade.status == Status::Submitted
+                || trade.status == Status::Filled
+                || trade.status == Status::Canceled
+                || trade.status == Status::ClosedTarget =>
+        {
+            Ok(())
+        }
+        Status::Submitted if trade.status == Status::Submitted => Ok(()),
+        _ => Err(format!(
+            "invalid sync transition: trade {} is {:?}, broker reported {:?}",
+            trade.id, trade.status, status
+        )
+        .into()),
+    }
+}
+
+struct ResolvedSyncOrders {
+    entry: Order,
+    target: Order,
+    stop: Order,
+}
+
+fn resolve_orders_for_sync(
+    trade: &Trade,
+    orders: &[Order],
+) -> Result<ResolvedSyncOrders, Box<dyn Error>> {
+    let mut entry = trade.entry.clone();
+    let mut target = trade.target.clone();
+    let mut stop = trade.safety_stop.clone();
+    let mut seen_ids = HashSet::new();
+
+    for order in orders {
+        if !seen_ids.insert(order.id) {
+            return Err(format!(
+                "duplicate order update in sync payload for order id {}",
+                order.id
+            )
+            .into());
+        }
+
+        if order.id == entry.id {
+            entry = order.clone();
+        } else if order.id == target.id {
+            target = order.clone();
+        } else if order.id == stop.id {
+            stop = order.clone();
+        } else {
+            return Err(format!(
+                "order id {} not found in trade {} order set during sync",
+                order.id, trade.id
+            )
+            .into());
+        }
+    }
+
+    Ok(ResolvedSyncOrders {
+        entry,
+        target,
+        stop,
+    })
+}
+
+fn ensure_order_filled(order: &Order, role: &str) -> Result<(), Box<dyn Error>> {
+    if order.status != OrderStatus::Filled {
+        return Err(format!(
+            "inconsistent sync payload: expected {role} order {} to be filled, found {:?}",
+            order.id, order.status
+        )
+        .into());
+    }
+
+    if order.average_filled_price.is_none() {
+        return Err(format!(
+            "inconsistent sync payload: filled {role} order {} has no average filled price",
+            order.id
+        )
+        .into());
+    }
+
+    Ok(())
+}
+
+fn reconcile_sibling_exit_orders(
+    trade: &Trade,
+    status: Status,
+    database: &mut dyn DatabaseFactory,
+) -> Result<(), Box<dyn Error>> {
+    let now = Utc::now().naive_utc();
+
+    match status {
+        Status::ClosedTarget => {
+            if !is_terminal_order_status(trade.safety_stop.status) {
+                let mut stop = trade.safety_stop.clone();
+                stop.status = OrderStatus::Canceled;
+                if stop.cancelled_at.is_none() {
+                    stop.cancelled_at = Some(now);
+                }
+                if stop.closed_at.is_none() {
+                    stop.closed_at = Some(now);
+                }
+                commands::order::update_order(&stop, database)?;
+            }
+        }
+        Status::ClosedStopLoss => {
+            if !is_terminal_order_status(trade.target.status) {
+                let mut target = trade.target.clone();
+                target.status = OrderStatus::Canceled;
+                if target.cancelled_at.is_none() {
+                    target.cancelled_at = Some(now);
+                }
+                if target.closed_at.is_none() {
+                    target.closed_at = Some(now);
+                }
+                commands::order::update_order(&target, database)?;
+            }
+        }
+        _ => {}
+    }
+
+    Ok(())
+}
+
+fn is_terminal_order_status(status: OrderStatus) -> bool {
+    matches!(
+        status,
+        OrderStatus::Filled | OrderStatus::Canceled | OrderStatus::Expired | OrderStatus::Rejected
+    )
 }
 
 pub fn close(
