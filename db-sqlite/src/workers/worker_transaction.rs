@@ -37,15 +37,24 @@ impl WorkerTransaction {
             trade_id: category.trade_id().map(|uuid| uuid.to_string()),
         };
 
-        let transaction = diesel::insert_into(transactions::table)
+        diesel::insert_into(transactions::table)
             .values(&new_transaction)
-            .get_result::<TransactionSQLite>(connection)
+            .execute(connection)
             .map_err(|error| {
                 error!("Error creating transaction: {:?}", error);
                 error
-            })?
-            .into_domain_model()?;
-        Ok(transaction)
+            })?;
+
+        Ok(Transaction {
+            id: Uuid::parse_str(&new_transaction.id)?,
+            created_at: new_transaction.created_at,
+            updated_at: new_transaction.updated_at,
+            deleted_at: new_transaction.deleted_at,
+            category,
+            currency: *currency,
+            amount,
+            account_id,
+        })
     }
 
     pub fn read_all_transactions(
@@ -217,6 +226,7 @@ impl WorkerTransaction {
             .filter(transactions::account_id.eq(account_id.to_string()))
             .filter(transactions::currency.eq(currency.to_string()))
             .filter(transactions::category.eq(category.key()))
+            .order((transactions::created_at.asc(), transactions::id.asc()))
             .load::<TransactionSQLite>(connection)
             .map_err(|error| {
                 error!("Error reading transactions: {:?}", error);
@@ -235,6 +245,7 @@ impl WorkerTransaction {
             .filter(transactions::deleted_at.is_null())
             .filter(transactions::trade_id.eq(trade_id.to_string()))
             .filter(transactions::category.eq(category.key()))
+            .order((transactions::created_at.asc(), transactions::id.asc()))
             .load::<TransactionSQLite>(connection)
             .map_err(|error| {
                 error!("Error creating price: {:?}", error);
@@ -251,6 +262,7 @@ impl WorkerTransaction {
         let transactions = transactions::table
             .filter(transactions::deleted_at.is_null())
             .filter(transactions::trade_id.eq(trade.to_string()))
+            .order((transactions::created_at.asc(), transactions::id.asc()))
             .load::<TransactionSQLite>(connection)
             .map_err(|error| {
                 error!("Error reading trade transactions: {:?}", error);
@@ -318,6 +330,7 @@ impl WorkerTransaction {
             .filter(transactions::created_at.le(first_day_of_month))
             .filter(transactions::currency.eq(currency.to_string()))
             .filter(transactions::category.eq(category.key()))
+            .order((transactions::created_at.asc(), transactions::id.asc()))
             .load::<TransactionSQLite>(connection)
             .map_err(|error| {
                 error!("Error creating price: {:?}", error);
@@ -483,6 +496,38 @@ mod tests {
         assert_eq!(tx.amount, dec!(10.99));
         assert_eq!(tx.currency, Currency::BTC);
         assert_eq!(tx.category, TransactionCategory::FundTrade(trade_id));
+        assert_eq!(tx.deleted_at, None);
+    }
+
+    #[test]
+    fn test_create_transaction_by_account_id() {
+        let db: Box<dyn DatabaseFactory> = create_factory();
+
+        let account = db
+            .account_write()
+            .create(
+                "Test Account 4",
+                "This is another test account",
+                Environment::Paper,
+                dec!(0.0),
+                dec!(0.0),
+            )
+            .expect("Error creating account");
+
+        let tx = db
+            .transaction_write()
+            .create_transaction_by_account_id(
+                account.id,
+                dec!(42.50),
+                &Currency::USD,
+                TransactionCategory::Deposit,
+            )
+            .expect("Error creating transaction by account id");
+
+        assert_eq!(tx.account_id, account.id);
+        assert_eq!(tx.amount, dec!(42.50));
+        assert_eq!(tx.currency, Currency::USD);
+        assert_eq!(tx.category, TransactionCategory::Deposit);
         assert_eq!(tx.deleted_at, None);
     }
 }

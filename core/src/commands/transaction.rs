@@ -8,7 +8,7 @@ use std::error::Error;
 use uuid::Uuid;
 
 use crate::{
-    calculators_trade::{TradeCapitalOutOfMarket, TradeCapitalRequired},
+    calculators_trade::TradeCapitalRequired,
     validators::{
         transaction::{self, can_transfer_deposit},
         TransactionValidationErrorCode,
@@ -46,8 +46,6 @@ fn deposit(
     currency: &Currency,
     account_id: Uuid,
 ) -> Result<(Transaction, AccountBalance), Box<dyn Error>> {
-    let account = database.account_read().id(account_id)?;
-
     match can_transfer_deposit(
         amount,
         currency,
@@ -55,27 +53,44 @@ fn deposit(
         database.account_balance_read().as_mut(),
     ) {
         Ok(_) => {
-            let transaction = database.transaction_write().create_transaction(
-                &account,
-                amount,
-                currency,
-                TransactionCategory::Deposit,
-            )?;
-            let updated_balance = balance::calculate_account(database, &account, currency)?;
-            Ok((transaction, updated_balance))
-        }
-        Err(error) => {
-            if error.code == TransactionValidationErrorCode::OverviewNotFound {
-                let transaction = database.transaction_write().create_transaction(
-                    &account,
+            let transaction = database
+                .transaction_write()
+                .create_transaction_by_account_id(
+                    account_id,
                     amount,
                     currency,
                     TransactionCategory::Deposit,
                 )?;
+            let updated_balance = balance::apply_account_projection_for_transaction_by_id(
+                database,
+                account_id,
+                currency,
+                TransactionCategory::Deposit,
+                amount,
+            )?;
+            Ok((transaction, updated_balance))
+        }
+        Err(error) => {
+            if error.code == TransactionValidationErrorCode::OverviewNotFound {
+                let transaction = database
+                    .transaction_write()
+                    .create_transaction_by_account_id(
+                        account_id,
+                        amount,
+                        currency,
+                        TransactionCategory::Deposit,
+                    )?;
+                let account = database.account_read().id(account_id)?;
                 database
                     .account_balance_write()
                     .create(&account, currency)?;
-                let updated_balance = balance::calculate_account(database, &account, currency)?;
+                let updated_balance = balance::apply_account_projection_for_transaction_by_id(
+                    database,
+                    account_id,
+                    currency,
+                    TransactionCategory::Deposit,
+                    amount,
+                )?;
                 Ok((transaction, updated_balance))
             } else {
                 Err(error)
@@ -90,8 +105,6 @@ fn withdraw(
     currency: &Currency,
     account_id: Uuid,
 ) -> Result<(Transaction, AccountBalance), Box<dyn Error>> {
-    let account = database.account_read().id(account_id)?;
-
     // Validate that account has enough funds to withdraw
     transaction::can_transfer_withdraw(
         amount,
@@ -101,15 +114,23 @@ fn withdraw(
     )?;
 
     // Create transaction
-    let transaction = database.transaction_write().create_transaction(
-        &account,
-        amount,
-        currency,
-        TransactionCategory::Withdrawal,
-    )?;
+    let transaction = database
+        .transaction_write()
+        .create_transaction_by_account_id(
+            account_id,
+            amount,
+            currency,
+            TransactionCategory::Withdrawal,
+        )?;
 
     // Update account balance
-    let updated_balance = balance::calculate_account(database, &account, currency)?;
+    let updated_balance = balance::apply_account_projection_for_transaction_by_id(
+        database,
+        account_id,
+        currency,
+        TransactionCategory::Withdrawal,
+        amount,
+    )?;
 
     Ok((transaction, updated_balance))
 }
@@ -121,24 +142,35 @@ pub fn transfer_to_fund_trade(
     // 1. Validate that trade can be fund
     crate::validators::funding::can_fund(trade, database)?;
 
-    // 2. Create transaction
-    let account = database.account_read().id(trade.account_id)?;
-
     // Use the calculator to determine the required capital based on trade type.
     // For short trades, this uses the stop price (worst case) to ensure we have
     // enough capital even if the entry executes at a better price.
     let trade_total = TradeCapitalRequired::calculate(trade)?;
 
-    let transaction = database.transaction_write().create_transaction(
-        &account,
-        trade_total,
-        &trade.currency,
-        TransactionCategory::FundTrade(trade.id),
-    )?;
+    let transaction = database
+        .transaction_write()
+        .create_transaction_by_account_id(
+            trade.account_id,
+            trade_total,
+            &trade.currency,
+            TransactionCategory::FundTrade(trade.id),
+        )?;
 
     // 3. Update Account Overview and Trade Overview
-    let account_balance = balance::calculate_account(database, &account, &trade.currency)?;
-    let trade_balance: TradeBalance = balance::calculate_trade(database, trade)?;
+    let account_balance = balance::apply_account_projection_with_in_trade_delta_by_id(
+        database,
+        trade.account_id,
+        &trade.currency,
+        TransactionCategory::FundTrade(trade.id),
+        trade_total,
+        trade_total,
+    )?;
+    let trade_balance: TradeBalance = balance::apply_trade_projection_for_transaction(
+        database,
+        trade,
+        TransactionCategory::FundTrade(trade.id),
+        trade_total,
+    )?;
 
     Ok((transaction, account_balance, trade_balance))
 }
@@ -147,8 +179,6 @@ pub fn transfer_to_fill_trade(
     trade: &Trade,
     database: &mut dyn DatabaseFactory,
 ) -> Result<(Transaction, TradeBalance), Box<dyn Error>> {
-    let account = database.account_read().id(trade.account_id)?;
-
     // 1. Calculate the total amount of the trade
     let average_price = trade
         .entry
@@ -167,13 +197,6 @@ pub fn transfer_to_fill_trade(
     transaction::can_transfer_fill(trade, total)?;
 
     // 3. Create transaction
-    let transaction = database.transaction_write().create_transaction(
-        &account,
-        total,
-        &trade.currency,
-        TransactionCategory::OpenTrade(trade.id),
-    )?;
-
     // 4. If there is a difference between the unit_price and the average_filled_price
     // then we should create a transaction to transfer the difference to the account.
     let entry_total = trade
@@ -192,17 +215,58 @@ pub fn transfer_to_fill_trade(
         .ok_or_else(|| format!("Arithmetic overflow in subtraction: {total} - {entry_total}"))?;
     total_difference.set_sign_positive(true);
 
-    if total_difference > dec!(0) {
-        database.transaction_write().create_transaction(
-            &account,
-            total_difference,
+    let transaction = {
+        let mut transaction_writer = database.transaction_write();
+        let transaction = transaction_writer.create_transaction_by_account_id(
+            trade.account_id,
+            total,
             &trade.currency,
-            TransactionCategory::PaymentFromTrade(trade.id),
+            TransactionCategory::OpenTrade(trade.id),
         )?;
+
+        if total_difference > dec!(0) {
+            transaction_writer.create_transaction_by_account_id(
+                trade.account_id,
+                total_difference,
+                &trade.currency,
+                TransactionCategory::PaymentFromTrade(trade.id),
+            )?;
+        }
+
+        transaction
+    };
+
+    if total_difference > dec!(0) {
+        let lifecycle_updates = [
+            (TransactionCategory::OpenTrade(trade.id), total),
+            (
+                TransactionCategory::PaymentFromTrade(trade.id),
+                total_difference,
+            ),
+        ];
+        let _ = balance::apply_account_projection_batch_by_id(
+            database,
+            trade.account_id,
+            &trade.currency,
+            &lifecycle_updates,
+            total,
+        )?;
+        let trade_balance =
+            balance::apply_trade_projection_batch(database, trade, &lifecycle_updates)?;
+
+        return Ok((transaction, trade_balance));
     }
 
-    // 5. Update trade balance
-    let trade_balance: TradeBalance = balance::calculate_trade(database, trade)?;
+    let lifecycle_updates = [(TransactionCategory::OpenTrade(trade.id), total)];
+    let _ = balance::apply_account_projection_batch_by_id(
+        database,
+        trade.account_id,
+        &trade.currency,
+        &lifecycle_updates,
+        total,
+    )?;
+    let trade_balance = balance::apply_trade_projection_batch(database, trade, &lifecycle_updates)?;
+
     Ok((transaction, trade_balance))
 }
 
@@ -218,18 +282,31 @@ pub fn transfer_opening_fee(
     transaction::can_transfer_fee(&account_balance, fee)?;
 
     // 2. Create transaction
-    let account = database.account_read().id(trade.account_id)?;
-    let transaction = database.transaction_write().create_transaction(
-        &account,
-        fee,
-        &trade.currency,
-        TransactionCategory::FeeOpen(trade.id),
-    )?;
+    let transaction = database
+        .transaction_write()
+        .create_transaction_by_account_id(
+            trade.account_id,
+            fee,
+            &trade.currency,
+            TransactionCategory::FeeOpen(trade.id),
+        )?;
 
     // 3. Update account balance
-    let balance = balance::calculate_account(database, &account, &trade.currency)?;
+    let updated_balance = balance::apply_account_projection_for_transaction_by_id(
+        database,
+        trade.account_id,
+        &trade.currency,
+        TransactionCategory::FeeOpen(trade.id),
+        fee,
+    )?;
+    let _ = balance::apply_trade_projection_for_transaction(
+        database,
+        trade,
+        TransactionCategory::FeeOpen(trade.id),
+        fee,
+    )?;
 
-    Ok((transaction, balance))
+    Ok((transaction, updated_balance))
 }
 
 pub fn transfer_closing_fee(
@@ -243,27 +320,37 @@ pub fn transfer_closing_fee(
         .for_currency(trade.account_id, &trade.currency)?;
     transaction::can_transfer_fee(&account_balance, fee)?;
 
-    let account = database.account_read().id(trade.account_id)?;
-
-    let transaction = database.transaction_write().create_transaction(
-        &account,
-        fee,
-        &trade.currency,
-        TransactionCategory::FeeClose(trade.id),
-    )?;
+    let transaction = database
+        .transaction_write()
+        .create_transaction_by_account_id(
+            trade.account_id,
+            fee,
+            &trade.currency,
+            TransactionCategory::FeeClose(trade.id),
+        )?;
 
     // Update account balance
-    let balance = balance::calculate_account(database, &account, &trade.currency)?;
+    let updated_balance = balance::apply_account_projection_for_transaction_by_id(
+        database,
+        trade.account_id,
+        &trade.currency,
+        TransactionCategory::FeeClose(trade.id),
+        fee,
+    )?;
+    let _ = balance::apply_trade_projection_for_transaction(
+        database,
+        trade,
+        TransactionCategory::FeeClose(trade.id),
+        fee,
+    )?;
 
-    Ok((transaction, balance))
+    Ok((transaction, updated_balance))
 }
 
 pub fn transfer_to_close_target(
     trade: &Trade,
     database: &mut dyn DatabaseFactory,
 ) -> Result<(Transaction, TradeBalance), Box<dyn Error>> {
-    let account = database.account_read().id(trade.account_id)?;
-
     let average_price = trade
         .target
         .average_filled_price
@@ -281,16 +368,25 @@ pub fn transfer_to_close_target(
     transaction::can_transfer_close(total)?;
 
     // 2. Create transaction
-    let transaction = database.transaction_write().create_transaction(
-        &account,
-        total,
-        &trade.currency,
-        TransactionCategory::CloseTarget(trade.id),
-    )?;
+    let transaction = database
+        .transaction_write()
+        .create_transaction_by_account_id(
+            trade.account_id,
+            total,
+            &trade.currency,
+            TransactionCategory::CloseTarget(trade.id),
+        )?;
 
     // 3. Update trade balance and account balance
-    let trade_balance: TradeBalance = balance::calculate_trade(database, trade)?;
-    balance::calculate_account(database, &account, &trade.currency)?;
+    let lifecycle_updates = [(TransactionCategory::CloseTarget(trade.id), total)];
+    let trade_balance = balance::apply_trade_projection_batch(database, trade, &lifecycle_updates)?;
+    let _ = balance::apply_account_projection_batch_by_id(
+        database,
+        trade.account_id,
+        &trade.currency,
+        &lifecycle_updates,
+        Decimal::ZERO,
+    )?;
 
     Ok((transaction, trade_balance))
 }
@@ -299,8 +395,6 @@ pub fn transfer_to_close_stop(
     trade: &Trade,
     database: &mut dyn DatabaseFactory,
 ) -> Result<(Transaction, TradeBalance), Box<dyn Error>> {
-    let account = database.account_read().id(trade.account_id)?;
-
     // 1. Calculate the total amount of the trade
     let average_price = trade
         .safety_stop
@@ -338,16 +432,20 @@ pub fn transfer_to_close_stop(
     };
 
     // 4. Create transaction
-    let transaction = database.transaction_write().create_transaction(
-        &account,
-        total,
-        &trade.currency,
-        category,
-    )?;
+    let transaction = database
+        .transaction_write()
+        .create_transaction_by_account_id(trade.account_id, total, &trade.currency, category)?;
 
     // 5. Update trade balance and account balance
-    let trade_balance: TradeBalance = balance::calculate_trade(database, trade)?;
-    balance::calculate_account(database, &account, &trade.currency)?;
+    let lifecycle_updates = [(category, total)];
+    let trade_balance = balance::apply_trade_projection_batch(database, trade, &lifecycle_updates)?;
+    let _ = balance::apply_account_projection_batch_by_id(
+        database,
+        trade.account_id,
+        &trade.currency,
+        &lifecycle_updates,
+        Decimal::ZERO,
+    )?;
 
     Ok((transaction, trade_balance))
 }
@@ -357,21 +455,36 @@ pub fn transfer_to_account_from(
     database: &mut dyn DatabaseFactory,
 ) -> Result<(Transaction, AccountBalance, TradeBalance), Box<dyn Error>> {
     // Create transaction
-    let account = database.account_read().id(trade.account_id)?;
-    let total_to_withdrawal =
-        TradeCapitalOutOfMarket::calculate(trade.id, database.transaction_read().as_mut())?;
+    let trade_balance = database.trade_read().read_trade_balance(trade.balance.id)?;
+    let total_to_withdrawal = trade_balance.capital_out_market;
 
-    let transaction = database.transaction_write().create_transaction(
-        &account,
-        total_to_withdrawal,
-        &trade.currency,
-        TransactionCategory::PaymentFromTrade(trade.id),
-    )?;
+    let transaction = database
+        .transaction_write()
+        .create_transaction_by_account_id(
+            trade.account_id,
+            total_to_withdrawal,
+            &trade.currency,
+            TransactionCategory::PaymentFromTrade(trade.id),
+        )?;
 
     // Update account balance and trade balance.
-    let account_balance: AccountBalance =
-        balance::calculate_account(database, &account, &trade.currency)?;
-    let trade_balance: TradeBalance = balance::calculate_trade(database, trade)?;
+    let lifecycle_updates = [(
+        TransactionCategory::PaymentFromTrade(trade.id),
+        total_to_withdrawal,
+    )];
+    let account_balance: AccountBalance = balance::apply_account_projection_batch_by_id(
+        database,
+        trade.account_id,
+        &trade.currency,
+        &lifecycle_updates,
+        Decimal::ZERO,
+    )?;
+    let trade_balance: TradeBalance = balance::apply_trade_projection_batch_with_current_balance(
+        database,
+        trade,
+        trade_balance,
+        &lifecycle_updates,
+    )?;
 
     Ok((transaction, account_balance, trade_balance))
 }

@@ -21,28 +21,21 @@ allow = [
     
     # BSD License family (permissive)
     "BSD-2-Clause",
-    "BSD-3-Clause", 
-    "BSD-2-Clause-Patent",
     
     # Other permissive licenses
-    "ISC",
-    "CC0-1.0",          # Public domain equivalent
     "Unlicense",        # Public domain
     "0BSD",             # Zero-clause BSD (public domain equivalent)
     
     # Unicode licenses (required for text processing)  
-    "Unicode-DFS-2016",
     "Unicode-3.0",
     
     # Common utility licenses
     "Zlib",
     "BSL-1.0",          # Boost Software License
     
-    # Deprecated but still valid permissive licenses
-    "MIT-0",            # MIT No Attribution
-    
-    # Project license
-    "GPL-3.0",          # Trust project license
+    # Project/dependency GPL licenses
+    "GPL-3.0-only",     # Trust project license
+    "GPL-3.0-or-later", # apca/http-endpoint/websocket-util/num-decimal
     
     # Mozilla Public License (required by option-ext dependency)
     "MPL-2.0",          # Required by option-ext (used by dirs-sys)

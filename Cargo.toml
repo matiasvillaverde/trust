@@ -5,36 +5,32 @@ resolver = "2"
 [workspace.package]
 version = "0.3.2"
 authors = ["Matias Villaverde <matiasvillaverde@protonmail.com>"]
-rust-version = "1.68.2"
-license = "GPL-3.0"
+rust-version = "1.93.0"
+license = "GPL-3.0-only"
 repository = "https://github.com/integer256/trust"
 readme = "README.md"
 
 [workspace.dependencies]
-chrono = "0.4.41"
-diesel = { version = "2.2.10", features = ["sqlite", "returning_clauses_for_sqlite_3_35", "chrono"] }
-diesel_migrations = "2.2.0"
-diesel-derive-enum = { version = "2.0.1", features = ["sqlite"] }
-uuid = { version = "1.17.0", features = [
+chrono = "0.4.43"
+diesel = { version = "2.3.6", features = ["sqlite", "returning_clauses_for_sqlite_3_35", "chrono"] }
+diesel_migrations = "2.3.1"
+uuid = { version = "1.20.0", features = [
     "v4",                # Lets you generate random UUIDs
     "fast-rng",          # Use a faster (but still sufficiently random) RNG
     "macro-diagnostics", # Enable better diagnostics for compile-time UUIDs
 ] }
-clap = { version = "4.5.39", features = ["derive"] }
-tabled = { version = "0.19.0" }
-dialoguer = { version = "0.11.0", features = ["fuzzy-select"] }
-rust_decimal = "1.37.1"
-rust_decimal_macros = "1.37.1"
-tracing = "0.1.41"
-tracing-subscriber = "0.3.19"
+clap = { version = "4.5.58", features = ["derive"] }
+tabled = { version = "0.20.0" }
+dialoguer = { version = "0.12.0", features = ["fuzzy-select"] }
+rust_decimal = "1.40.0"
+rust_decimal_macros = "1.40.0"
+tracing = "0.1.44"
 # NOTE: apca uses GPL-3.0 license. Consider alternatives if license compatibility becomes an issue.
 apca = "0.30.0"
 num-decimal = { version = "0.2.5", default-features = false }
 # USING: rust_decimal (MIT/Apache-2.0) instead of num-decimal for consistency
-tokio = {version = "1.45.1", default-features = false, features = ["net", "rt-multi-thread", "macros"]}
-# REPLACED: dotenv (unmaintained) with dotenvy (MIT, actively maintained)
-dotenvy = "0.15.7"
+tokio = {version = "1.49.0", default-features = false, features = ["net", "rt-multi-thread", "macros"]}
 shellexpand = "3.1.1"
-keyring = { version = "3.6.2", features = ["apple-native", "windows-native", "sync-secret-service"] }
-serde_json = "1.0.140"
+keyring = { version = "3.6.3", features = ["apple-native", "windows-native", "sync-secret-service"] }
+serde_json = "1.0.149"
 thiserror = "1.0.69"

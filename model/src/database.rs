@@ -59,6 +59,17 @@ pub trait DatabaseFactory {
     fn trade_grade_read(&self) -> Box<dyn ReadTradeGradeDB>;
     /// Returns a writer for trade grade data operations
     fn trade_grade_write(&self) -> Box<dyn WriteTradeGradeDB>;
+
+    /// Begins a named savepoint.
+    ///
+    /// Savepoints can be nested and are compatible with existing outer transactions.
+    fn begin_savepoint(&mut self, name: &str) -> Result<(), Box<dyn Error>>;
+
+    /// Releases a previously opened named savepoint.
+    fn release_savepoint(&mut self, name: &str) -> Result<(), Box<dyn Error>>;
+
+    /// Rolls back all changes after a named savepoint.
+    fn rollback_to_savepoint(&mut self, name: &str) -> Result<(), Box<dyn Error>>;
 }
 
 /// Trait for reading account data from the database
@@ -210,6 +221,15 @@ pub trait ReadTransactionDB {
 
 /// Trait for writing transaction data to the database
 pub trait WriteTransactionDB {
+    /// Creates a new transaction for an account id with the specified parameters.
+    fn create_transaction_by_account_id(
+        &mut self,
+        account_id: Uuid,
+        amount: Decimal,
+        currency: &Currency,
+        category: TransactionCategory,
+    ) -> Result<Transaction, Box<dyn Error>>;
+
     /// Creates a new transaction with the specified parameters
     fn create_transaction(
         &mut self,
@@ -217,7 +237,9 @@ pub trait WriteTransactionDB {
         amount: Decimal,
         currency: &Currency,
         category: TransactionCategory,
-    ) -> Result<Transaction, Box<dyn Error>>;
+    ) -> Result<Transaction, Box<dyn Error>> {
+        self.create_transaction_by_account_id(account.id, amount, currency, category)
+    }
 }
 
 // Trade DB
@@ -240,6 +262,9 @@ pub trait ReadTradeDB {
 
     /// Retrieves a specific trade by its ID
     fn read_trade(&mut self, id: Uuid) -> Result<Trade, Box<dyn Error>>;
+
+    /// Retrieves a specific trade balance by its ID
+    fn read_trade_balance(&mut self, balance_id: Uuid) -> Result<TradeBalance, Box<dyn Error>>;
 }
 
 /// Structure representing a draft trade before it's created in the database

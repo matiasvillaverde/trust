@@ -57,10 +57,10 @@ impl CapitalAtRiskCalculator {
             let mut all_trades = Vec::new();
             let accounts = database.account_read().all()?;
             for account in accounts {
-                for status in potential_open_statuses {
+                for status in &[Status::Funded, Status::Submitted, Status::Filled] {
                     if let Ok(trades) = database
                         .trade_read()
-                        .read_trades_with_status(account.id, status)
+                        .read_trades_with_status(account.id, *status)
                     {
                         all_trades.extend(trades);
                     }

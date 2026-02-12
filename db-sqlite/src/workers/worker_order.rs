@@ -83,7 +83,9 @@ impl WorkerOrder {
             ))
             .execute(connection)?;
 
-        WorkerOrder::read(connection, order.id)
+        let mut updated = order.clone();
+        updated.updated_at = now;
+        Ok(updated)
     }
 
     pub fn update_price(
@@ -102,7 +104,11 @@ impl WorkerOrder {
             ))
             .execute(connection)?;
 
-        WorkerOrder::read(connection, order.id)
+        let mut updated = order.clone();
+        updated.unit_price = new_price;
+        updated.broker_order_id = Some(new_broker_id);
+        updated.updated_at = now;
+        Ok(updated)
     }
 
     pub fn update_submitted_at(
@@ -120,7 +126,11 @@ impl WorkerOrder {
             ))
             .execute(connection)?;
 
-        WorkerOrder::read(connection, order.id)
+        let mut updated = order.clone();
+        updated.submitted_at = Some(now);
+        updated.broker_order_id = Some(broker_order_id);
+        updated.updated_at = now;
+        Ok(updated)
     }
 
     pub fn update_filled_at(
@@ -133,7 +143,10 @@ impl WorkerOrder {
             .set((orders::filled_at.eq(now), orders::updated_at.eq(now)))
             .execute(connection)?;
 
-        WorkerOrder::read(connection, order.id)
+        let mut updated = order.clone();
+        updated.filled_at = Some(now);
+        updated.updated_at = now;
+        Ok(updated)
     }
 
     pub fn update_closed_at(
@@ -146,7 +159,10 @@ impl WorkerOrder {
             .set((orders::closed_at.eq(now), orders::updated_at.eq(now)))
             .execute(connection)?;
 
-        WorkerOrder::read(connection, order.id)
+        let mut updated = order.clone();
+        updated.closed_at = Some(now);
+        updated.updated_at = now;
+        Ok(updated)
     }
 }
 

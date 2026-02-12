@@ -6,6 +6,10 @@ CLI_NAME = cli
 MIGRATIONS_DIRECTORY = ./db-sqlite/migrations
 DIESEL_CONFIG_FILE = ./db-sqlite/diesel.toml
 CLI_DATABASE_URL = ~/.trust/debug.db
+CARGO_HOME ?= $(HOME)/.cargo
+
+# Ensure cargo-installed tooling is available in all make targets.
+export PATH := $(CARGO_HOME)/bin:$(PATH)
 
 # Tool paths
 DIESEL_CLI = diesel
@@ -53,6 +57,7 @@ help:
 	@echo "  make ci             - Run full CI pipeline locally"
 	@echo "  make ci-fast        - Run quick CI checks (fmt + clippy)"
 	@echo "  make ci-test        - Run test suite as in CI"
+	@echo "  make ci-perf        - Run performance regression gate"
 	@echo "  make ci-build       - Run build checks as in CI"
 	@echo "  make ci-snapshots   - Verify CLI report JSON snapshots"
 	@echo "  make snapshots-update - Update CLI report JSON snapshots"
@@ -74,6 +79,7 @@ help:
 	@echo "$(GREEN)Utility Commands:$(NC)"
 	@echo "  make clean          - Clean build artifacts"
 	@echo "  make install-tools  - Install required development tools"
+	@echo "  make perf-gate      - Run sync-lifecycle performance gate"
 	@echo "  make act            - Run GitHub Actions locally"
 
 # Database Management
@@ -159,7 +165,7 @@ security-check:
 	@echo "$(YELLOW)Checking for security vulnerabilities...$(NC)"
 	@$(CARGO) audit
 	@echo "$(YELLOW)Checking for unused dependencies...$(NC)"
-	@$(CARGO) udeps --all-targets || echo "$(YELLOW)Warning: cargo-udeps not installed or failed$(NC)"
+	@$(CARGO) machete --with-metadata --skip-target-dir || echo "$(YELLOW)Warning: cargo-machete not installed or found possible unused deps$(NC)"
 
 .PHONY: quality-gate
 quality-gate: fmt-check lint-strict security-check
@@ -167,7 +173,7 @@ quality-gate: fmt-check lint-strict security-check
 
 # CI Pipeline Commands
 .PHONY: ci
-ci: ci-fast ci-build ci-test ci-snapshots
+ci: ci-fast ci-build ci-test ci-snapshots ci-perf
 	@echo "$(GREEN)✓ Full CI pipeline passed!$(NC)"
 
 .PHONY: ci-fast
@@ -190,12 +196,21 @@ snapshots-update:
 	@echo "$(YELLOW)Updating CLI report JSON snapshots...$(NC)"
 	@UPDATE_SNAPSHOTS=1 $(CARGO) test -p cli --test integration_test_report_json_snapshots $(CARGO_FLAGS)
 
+.PHONY: ci-perf
+ci-perf:
+	@echo "$(BLUE)Running CI performance gate...$(NC)"
+	@TRUST_PERF_GATE_ITERATIONS=$${TRUST_PERF_GATE_ITERATIONS:-3} \
+	TRUST_PERF_GATE_WARMUP_ITERATIONS=$${TRUST_PERF_GATE_WARMUP_ITERATIONS:-1} \
+	TRUST_PERF_GATE_MAX_CASE_200_MS=$${TRUST_PERF_GATE_MAX_CASE_200_MS:-26000} \
+	TRUST_PERF_GATE_MAX_CASE_211_MS=$${TRUST_PERF_GATE_MAX_CASE_211_MS:-6000} \
+	$(CARGO) test -p cli --test integration_test_use_cases $(CARGO_FLAGS) -- test_case_212_perf_gate_sync_lifecycle_regression_guard --ignored --nocapture
+
 .PHONY: ci-build
 ci-build: setup
 	@echo "$(BLUE)Running CI build checks...$(NC)"
 	@$(CARGO) check $(CARGO_FLAGS) --all-features --workspace
 	@$(CARGO) check $(CARGO_FLAGS) --no-default-features --workspace
-	@$(CARGO) build -p model $(CARGO_FLAGS) --release
+	@$(CARGO) build -p trust-model $(CARGO_FLAGS) --release
 	@$(CARGO) build -p core $(CARGO_FLAGS) --release
 	@$(CARGO) build -p cli $(CARGO_FLAGS) --release
 	@$(CARGO) build --all $(CARGO_FLAGS) --release
@@ -206,7 +221,7 @@ pre-commit: fmt-check lint-strict test-single
 	@echo "$(GREEN)✓ Pre-commit checks passed!$(NC)"
 
 .PHONY: pre-push
-pre-push: quality-gate ci-build ci-test ci-snapshots
+pre-push: quality-gate ci-build ci-test ci-snapshots ci-perf
 	@echo "$(GREEN)✓ Pre-push checks passed! Safe to push.$(NC)"
 
 # Utility Commands
@@ -214,6 +229,15 @@ pre-push: quality-gate ci-build ci-test ci-snapshots
 clean:
 	@echo "$(BLUE)Cleaning build artifacts...$(NC)"
 	@$(CARGO) clean
+
+.PHONY: perf-gate
+perf-gate:
+	@echo "$(BLUE)Running performance regression gate...$(NC)"
+	@TRUST_PERF_GATE_ITERATIONS=$${TRUST_PERF_GATE_ITERATIONS:-3} \
+	TRUST_PERF_GATE_WARMUP_ITERATIONS=$${TRUST_PERF_GATE_WARMUP_ITERATIONS:-1} \
+	TRUST_PERF_GATE_MAX_CASE_200_MS=$${TRUST_PERF_GATE_MAX_CASE_200_MS:-26000} \
+	TRUST_PERF_GATE_MAX_CASE_211_MS=$${TRUST_PERF_GATE_MAX_CASE_211_MS:-6000} \
+	$(CARGO) test -p cli --test integration_test_use_cases $(CARGO_FLAGS) -- test_case_212_perf_gate_sync_lifecycle_regression_guard --ignored --nocapture
 
 .PHONY: install-tools
 install-tools:
@@ -224,8 +248,8 @@ install-tools:
 	@$(CARGO) install cargo-nextest
 	@echo "Installing cargo-deny..."
 	@$(CARGO) install cargo-deny
-	@echo "Installing cargo-udeps..."
-	@$(CARGO) install cargo-udeps
+	@echo "Installing cargo-machete..."
+	@$(CARGO) install cargo-machete
 	@echo ""
 	@echo "$(YELLOW)To install 'act' for running GitHub Actions locally:$(NC)"
 	@echo "  macOS:    brew install act"

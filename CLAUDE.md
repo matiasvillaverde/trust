@@ -26,7 +26,7 @@ make delete-db  # Delete database file
 
 ### Working with Individual Crates
 ```bash
-cargo build -p model        # Build specific crate
+cargo build -p trust-model  # Build specific crate
 cargo test -p core         # Test specific crate
 cargo run -p cli          # Run the CLI directly
 ```

@@ -400,7 +400,7 @@ This tool is currently in the beta phase and should be used cautiously. You shou
 
 ## License
 
-MIT License - see the LICENSE file for details.
+GPL-3.0 - see the LICENSE file for details.
 
 ## Support
 

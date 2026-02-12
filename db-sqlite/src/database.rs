@@ -3,6 +3,7 @@ use crate::workers::{
     WorkerTradeGrade, WorkerTradingVehicle, WorkerTransaction,
 };
 use diesel::prelude::*;
+use diesel::sql_query;
 use model::DraftTrade;
 use model::Status;
 use model::{
@@ -56,6 +57,18 @@ impl DatabaseFactory for SqliteDatabase {
         Box::new(BrokerLogDB {
             connection: self.connection.clone(),
         })
+    }
+
+    fn begin_savepoint(&mut self, name: &str) -> Result<(), Box<dyn Error>> {
+        self.execute_savepoint_statement("SAVEPOINT", name)
+    }
+
+    fn release_savepoint(&mut self, name: &str) -> Result<(), Box<dyn Error>> {
+        self.execute_savepoint_statement("RELEASE SAVEPOINT", name)
+    }
+
+    fn rollback_to_savepoint(&mut self, name: &str) -> Result<(), Box<dyn Error>> {
+        self.execute_savepoint_statement("ROLLBACK TO SAVEPOINT", name)
     }
 
     fn account_balance_read(&self) -> Box<dyn AccountBalanceRead> {
@@ -115,6 +128,82 @@ impl DatabaseFactory for SqliteDatabase {
 }
 
 impl SqliteDatabase {
+    fn validate_savepoint_name(name: &str) -> Result<(), Box<dyn Error>> {
+        if name.is_empty() {
+            return Err("savepoint name cannot be empty".into());
+        }
+        if !name.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_') {
+            return Err(format!(
+                "invalid savepoint name '{name}': only ASCII alphanumeric and '_' are allowed"
+            )
+            .into());
+        }
+        Ok(())
+    }
+
+    fn execute_savepoint_statement(
+        &mut self,
+        statement: &str,
+        savepoint: &str,
+    ) -> Result<(), Box<dyn Error>> {
+        Self::validate_savepoint_name(savepoint)?;
+        let sql = format!("{statement} {savepoint}");
+        let mut connection = self.connection.lock().unwrap_or_else(|e| {
+            eprintln!("Failed to acquire connection lock: {e}");
+            std::process::exit(1);
+        });
+        sql_query(sql).execute(&mut *connection)?;
+        Ok(())
+    }
+
+    fn configure_connection(connection: &mut SqliteConnection) {
+        sql_query(
+            "CREATE INDEX IF NOT EXISTS idx_transactions_account_currency_category_active \
+             ON transactions(account_id, currency, category, created_at) \
+             WHERE deleted_at IS NULL",
+        )
+        .execute(connection)
+        .unwrap_or_else(|e| {
+            eprintln!(
+                "Failed to create index idx_transactions_account_currency_category_active: {e}"
+            );
+            std::process::exit(1);
+        });
+
+        sql_query(
+            "CREATE INDEX IF NOT EXISTS idx_transactions_trade_category_active \
+             ON transactions(trade_id, category, created_at) \
+             WHERE deleted_at IS NULL",
+        )
+        .execute(connection)
+        .unwrap_or_else(|e| {
+            eprintln!("Failed to create index idx_transactions_trade_category_active: {e}");
+            std::process::exit(1);
+        });
+
+        sql_query(
+            "CREATE INDEX IF NOT EXISTS idx_trades_account_status_currency_active \
+             ON trades(account_id, status, currency) \
+             WHERE deleted_at IS NULL",
+        )
+        .execute(connection)
+        .unwrap_or_else(|e| {
+            eprintln!("Failed to create index idx_trades_account_status_currency_active: {e}");
+            std::process::exit(1);
+        });
+
+        sql_query(
+            "CREATE INDEX IF NOT EXISTS idx_accounts_balances_account_currency_active \
+             ON accounts_balances(account_id, currency) \
+             WHERE deleted_at IS NULL",
+        )
+        .execute(connection)
+        .unwrap_or_else(|e| {
+            eprintln!("Failed to create index idx_accounts_balances_account_currency_active: {e}");
+            std::process::exit(1);
+        });
+    }
+
     /// Create a new SQLite database connection from a URL
     pub fn new(url: &str) -> Self {
         let connection: SqliteConnection = Self::establish_connection(url);
@@ -143,6 +232,7 @@ impl SqliteDatabase {
                 eprintln!("Failed to run migrations on in-memory database: {e}");
                 std::process::exit(1);
             });
+        Self::configure_connection(&mut connection);
         connection.begin_test_transaction().unwrap_or_else(|e| {
             eprintln!("Failed to begin test transaction: {e}");
             std::process::exit(1);
@@ -173,6 +263,7 @@ impl SqliteDatabase {
                 });
         }
 
+        Self::configure_connection(&mut connection);
         connection
     }
 }
@@ -260,9 +351,9 @@ impl OrderWrite for SqliteDatabase {
 }
 
 impl WriteTransactionDB for SqliteDatabase {
-    fn create_transaction(
+    fn create_transaction_by_account_id(
         &mut self,
-        account: &Account,
+        account_id: Uuid,
         amount: rust_decimal::Decimal,
         currency: &Currency,
         category: TransactionCategory,
@@ -272,7 +363,7 @@ impl WriteTransactionDB for SqliteDatabase {
                 eprintln!("Failed to acquire connection lock: {e}");
                 std::process::exit(1);
             }),
-            account.id,
+            account_id,
             amount,
             currency,
             category,
@@ -597,6 +688,16 @@ impl ReadTradeDB for SqliteDatabase {
                 std::process::exit(1);
             }),
             id,
+        )
+    }
+
+    fn read_trade_balance(&mut self, balance_id: Uuid) -> Result<TradeBalance, Box<dyn Error>> {
+        WorkerTrade::read_balance(
+            &mut self.connection.lock().unwrap_or_else(|e| {
+                eprintln!("Failed to acquire connection lock: {e}");
+                std::process::exit(1);
+            }),
+            balance_id,
         )
     }
 

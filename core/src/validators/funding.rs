@@ -9,21 +9,16 @@ type FundingValidationResult = Result<(), Box<FundValidationError>>;
 
 // Validate if trade can be funded by checking account balance, available capital and rules
 pub fn can_fund(trade: &Trade, database: &mut dyn DatabaseFactory) -> FundingValidationResult {
-    // 1.  Get account balance
-    let account = database.account_read().id(trade.account_id).map_err(|e| {
-        Box::new(FundValidationError {
-            code: FundValidationErrorCode::NotEnoughFunds,
-            message: format!("Account {} not found: {}", trade.account_id, e),
-        })
-    })?;
-
-    // 2. Calculate account balance based on the given trade currency
-    // This calculators uses all the transactions to ensure that the account balance is the latest one
-    match crate::commands::balance::calculate_account(database, &account, &trade.currency) {
+    // 1. Read the cached account projection for the trade currency.
+    // Projection updates are applied incrementally on every write path.
+    match database
+        .account_balance_read()
+        .for_currency(trade.account_id, &trade.currency)
+    {
         Ok(balance) => {
-            // 3. Validate that there is enough capital available to fund the trade
+            // 2. Validate that there is enough capital available to fund the trade
             validate_enough_capital(trade, &balance)?;
-            // 4. Validate the trade against all the applicable rules
+            // 3. Validate the trade against all the applicable rules
             validate_rules(trade, &balance, database)
         }
         Err(e) => {
