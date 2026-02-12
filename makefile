@@ -57,6 +57,7 @@ help:
 	@echo "  make ci             - Run full CI pipeline locally"
 	@echo "  make ci-fast        - Run quick CI checks (fmt + clippy)"
 	@echo "  make ci-test        - Run test suite as in CI"
+	@echo "  make ci-perf        - Run performance regression gate"
 	@echo "  make ci-build       - Run build checks as in CI"
 	@echo ""
 	@echo "$(GREEN)Database Commands:$(NC)"
@@ -76,6 +77,7 @@ help:
 	@echo "$(GREEN)Utility Commands:$(NC)"
 	@echo "  make clean          - Clean build artifacts"
 	@echo "  make install-tools  - Install required development tools"
+	@echo "  make perf-gate      - Run sync-lifecycle performance gate"
 	@echo "  make act            - Run GitHub Actions locally"
 
 # Database Management
@@ -169,7 +171,7 @@ quality-gate: fmt-check lint-strict security-check
 
 # CI Pipeline Commands
 .PHONY: ci
-ci: ci-fast ci-build ci-test
+ci: ci-fast ci-build ci-test ci-perf
 	@echo "$(GREEN)✓ Full CI pipeline passed!$(NC)"
 
 .PHONY: ci-fast
@@ -181,6 +183,15 @@ ci-test: setup
 	@echo "$(BLUE)Running CI test suite...$(NC)"
 	@$(CARGO) test $(TEST_FLAGS) $(CARGO_FLAGS)
 	@$(CARGO) test --doc $(CARGO_FLAGS)
+
+.PHONY: ci-perf
+ci-perf:
+	@echo "$(BLUE)Running CI performance gate...$(NC)"
+	@TRUST_PERF_GATE_ITERATIONS=$${TRUST_PERF_GATE_ITERATIONS:-3} \
+	TRUST_PERF_GATE_WARMUP_ITERATIONS=$${TRUST_PERF_GATE_WARMUP_ITERATIONS:-1} \
+	TRUST_PERF_GATE_MAX_CASE_200_MS=$${TRUST_PERF_GATE_MAX_CASE_200_MS:-26000} \
+	TRUST_PERF_GATE_MAX_CASE_211_MS=$${TRUST_PERF_GATE_MAX_CASE_211_MS:-6000} \
+	$(CARGO) test -p cli --test integration_test_use_cases $(CARGO_FLAGS) -- test_case_212_perf_gate_sync_lifecycle_regression_guard --ignored --nocapture
 
 .PHONY: ci-build
 ci-build: setup
@@ -198,7 +209,7 @@ pre-commit: fmt-check lint-strict test-single
 	@echo "$(GREEN)✓ Pre-commit checks passed!$(NC)"
 
 .PHONY: pre-push
-pre-push: quality-gate ci-build ci-test
+pre-push: quality-gate ci-build ci-test ci-perf
 	@echo "$(GREEN)✓ Pre-push checks passed! Safe to push.$(NC)"
 
 # Utility Commands
@@ -206,6 +217,15 @@ pre-push: quality-gate ci-build ci-test
 clean:
 	@echo "$(BLUE)Cleaning build artifacts...$(NC)"
 	@$(CARGO) clean
+
+.PHONY: perf-gate
+perf-gate:
+	@echo "$(BLUE)Running performance regression gate...$(NC)"
+	@TRUST_PERF_GATE_ITERATIONS=$${TRUST_PERF_GATE_ITERATIONS:-3} \
+	TRUST_PERF_GATE_WARMUP_ITERATIONS=$${TRUST_PERF_GATE_WARMUP_ITERATIONS:-1} \
+	TRUST_PERF_GATE_MAX_CASE_200_MS=$${TRUST_PERF_GATE_MAX_CASE_200_MS:-26000} \
+	TRUST_PERF_GATE_MAX_CASE_211_MS=$${TRUST_PERF_GATE_MAX_CASE_211_MS:-6000} \
+	$(CARGO) test -p cli --test integration_test_use_cases $(CARGO_FLAGS) -- test_case_212_perf_gate_sync_lifecycle_regression_guard --ignored --nocapture
 
 .PHONY: install-tools
 install-tools:
