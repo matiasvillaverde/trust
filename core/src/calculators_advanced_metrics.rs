@@ -3,6 +3,13 @@
 //! This module provides functions to calculate advanced trading performance
 //! metrics such as profit factor, expectancy, Sharpe ratio, and other
 //! sophisticated financial metrics using precise decimal arithmetic.
+#![allow(
+    missing_docs,
+    clippy::arithmetic_side_effects,
+    clippy::cognitive_complexity,
+    clippy::indexing_slicing,
+    clippy::too_many_lines
+)]
 
 use model::trade::Trade;
 use rust_decimal::prelude::*;

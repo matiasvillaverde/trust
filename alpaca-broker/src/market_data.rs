@@ -17,7 +17,8 @@ fn map_timeframe(tf: BarTimeframe) -> TimeFrame {
 }
 
 fn num_to_decimal(value: &num_decimal::Num) -> Result<Decimal, Box<dyn Error>> {
-    Decimal::from_str(&value.to_string()).map_err(|e| format!("Failed to parse decimal: {e}").into())
+    Decimal::from_str(&value.to_string())
+        .map_err(|e| format!("Failed to parse decimal: {e}").into())
 }
 
 pub fn get_bars(
@@ -49,4 +50,3 @@ pub fn get_bars(
     }
     Ok(bars)
 }
-

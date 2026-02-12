@@ -67,9 +67,7 @@ impl WorkerTradeGrade {
                 error
             })?;
 
-        Ok(row
-            .map(|sqlite| sqlite.into_domain_model())
-            .transpose()?)
+        row.map(|sqlite| sqlite.into_domain_model()).transpose()
     }
 
     pub fn read_for_account_days(
@@ -165,13 +163,9 @@ impl TryFrom<TradeGradeSQLite> for TradeGrade {
                 .clamp(0, 100)
                 .try_into()
                 .map_err(|_| ConversionError::new("execution_score", "Invalid execution score"))?,
-            documentation_score: value
-                .documentation_score
-                .clamp(0, 100)
-                .try_into()
-                .map_err(|_| {
-                    ConversionError::new("documentation_score", "Invalid documentation score")
-                })?,
+            documentation_score: value.documentation_score.clamp(0, 100).try_into().map_err(
+                |_| ConversionError::new("documentation_score", "Invalid documentation score"),
+            )?,
             recommendations,
             graded_at: value.graded_at,
             process_weight_permille: value
@@ -231,11 +225,16 @@ struct NewTradeGrade {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::indexing_slicing, clippy::too_many_lines)]
+
     use super::*;
     use crate::workers::{WorkerOrder, WorkerTrade, WorkerTradingVehicle};
     use diesel::Connection;
     use diesel_migrations::*;
-    use model::{Currency, DraftTrade, OrderAction, OrderCategory, Status, TradeCategory, TradingVehicleCategory};
+    use model::{
+        Currency, DraftTrade, OrderAction, OrderCategory, Status, TradeCategory,
+        TradingVehicleCategory,
+    };
     use rust_decimal_macros::dec;
 
     #[test]
@@ -347,7 +346,8 @@ mod tests {
         assert_eq!(latest.id, created.id);
         assert_eq!(latest.recommendations, created.recommendations);
 
-        let by_account = WorkerTradeGrade::read_for_account_days(&mut conn, account_id, 30).unwrap();
+        let by_account =
+            WorkerTradeGrade::read_for_account_days(&mut conn, account_id, 30).unwrap();
         assert_eq!(by_account.len(), 1);
         assert_eq!(by_account[0].id, created.id);
     }

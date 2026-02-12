@@ -38,6 +38,8 @@ pub mod broker;
 pub mod currency;
 /// Database abstraction layer
 pub mod database;
+/// Market data types
+pub mod market_data;
 /// Order types and order management
 pub mod order;
 /// Risk management rules and enforcement
@@ -46,8 +48,6 @@ pub mod rule;
 pub mod strategy;
 /// Trade lifecycle and management
 pub mod trade;
-/// Market data types
-pub mod market_data;
 /// Trade grading types
 pub mod trade_grade;
 /// Trading vehicle (asset) definitions
@@ -61,15 +61,15 @@ pub use broker::{Broker, BrokerLog, OrderIds};
 pub use currency::Currency;
 pub use database::{
     AccountBalanceRead, AccountBalanceWrite, AccountRead, AccountWrite, DatabaseFactory,
-    DraftTrade, OrderRead, OrderWrite, ReadBrokerLogsDB, ReadRuleDB, ReadTradeDB,
-    ReadTradeGradeDB, ReadTradingVehicleDB, ReadTransactionDB, WriteBrokerLogsDB, WriteRuleDB,
-    WriteTradeDB, WriteTradeGradeDB, WriteTradingVehicleDB, WriteTransactionDB,
+    DraftTrade, OrderRead, OrderWrite, ReadBrokerLogsDB, ReadRuleDB, ReadTradeDB, ReadTradeGradeDB,
+    ReadTradingVehicleDB, ReadTransactionDB, WriteBrokerLogsDB, WriteRuleDB, WriteTradeDB,
+    WriteTradeGradeDB, WriteTradingVehicleDB, WriteTransactionDB,
 };
+pub use market_data::{BarTimeframe, MarketBar};
 pub use order::{Order, OrderAction, OrderCategory, OrderStatus, TimeInForce};
 pub use rule::{Rule, RuleLevel, RuleName};
 pub use strategy::Strategy;
 pub use trade::{Status, Trade, TradeBalance, TradeCategory};
-pub use market_data::{BarTimeframe, MarketBar};
 pub use trade_grade::{Grade, TradeGrade};
 pub use trading_vehicle::{TradingVehicle, TradingVehicleCategory};
 pub use transaction::{Transaction, TransactionCategory};

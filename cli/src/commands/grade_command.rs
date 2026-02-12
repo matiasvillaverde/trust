@@ -92,4 +92,3 @@ impl Default for GradeCommandBuilder {
         Self::new()
     }
 }
-

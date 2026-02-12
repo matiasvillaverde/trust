@@ -1,7 +1,7 @@
 use crate::{
     Account, AccountBalance, BrokerLog, Currency, Environment, Order, OrderAction, OrderCategory,
-    Rule, RuleLevel, RuleName, Status, Trade, TradeBalance, TradeCategory, TradingVehicle,
-    TradingVehicleCategory, Transaction, TransactionCategory, TradeGrade,
+    Rule, RuleLevel, RuleName, Status, Trade, TradeBalance, TradeCategory, TradeGrade,
+    TradingVehicle, TradingVehicleCategory, Transaction, TransactionCategory,
 };
 use rust_decimal::Decimal;
 use uuid::Uuid;
@@ -382,20 +382,33 @@ pub trait WriteTradingVehicleDB {
 /// Full upsert input for trading vehicles (manual or broker-backed).
 #[derive(Debug, Clone)]
 pub struct TradingVehicleUpsert {
+    /// Vehicle symbol as known by the broker (e.g., AAPL).
     pub symbol: String,
+    /// Optional ISIN if available from enrichment/manual entry.
     pub isin: Option<String>,
+    /// High-level category used by Trust (stock, crypto, fiat).
     pub category: TradingVehicleCategory,
+    /// Broker name used as part of the `(broker, symbol)` identity.
     pub broker: String,
 
     // Broker metadata
+    /// Broker-native asset identifier when available.
     pub broker_asset_id: Option<String>,
+    /// Exchange code reported by the broker.
     pub exchange: Option<String>,
+    /// Broker-specific asset class string.
     pub broker_asset_class: Option<String>,
+    /// Broker-specific lifecycle status string.
     pub broker_asset_status: Option<String>,
+    /// Whether the broker marks the asset as tradable.
     pub tradable: Option<bool>,
+    /// Whether margin trading is allowed for this asset.
     pub marginable: Option<bool>,
+    /// Whether short selling is allowed for this asset.
     pub shortable: Option<bool>,
+    /// Whether the asset is easy to borrow for shorting.
     pub easy_to_borrow: Option<bool>,
+    /// Whether fractional trading is supported for this asset.
     pub fractionable: Option<bool>,
 }
 
@@ -415,7 +428,10 @@ pub trait ReadBrokerLogsDB {
 /// Trait for reading trade grades from the database.
 pub trait ReadTradeGradeDB {
     /// Read latest grade for a trade.
-    fn read_latest_for_trade(&mut self, trade_id: Uuid) -> Result<Option<TradeGrade>, Box<dyn Error>>;
+    fn read_latest_for_trade(
+        &mut self,
+        trade_id: Uuid,
+    ) -> Result<Option<TradeGrade>, Box<dyn Error>>;
 
     /// Read grades for an account for the last N days (based on trade close/update time).
     fn read_for_account_days(

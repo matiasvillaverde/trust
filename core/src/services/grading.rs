@@ -1,10 +1,21 @@
+#![allow(
+    missing_docs,
+    missing_debug_implementations,
+    clippy::arithmetic_side_effects,
+    clippy::cast_sign_loss,
+    clippy::field_reassign_with_default,
+    clippy::indexing_slicing,
+    clippy::too_many_lines,
+    clippy::type_complexity
+)]
+
 use chrono::{Duration, NaiveDateTime, TimeZone, Utc};
 use model::{
     Account, BarTimeframe, Broker, DatabaseFactory, Grade, MarketBar, OrderCategory, RuleName,
     Status, Trade, TradeGrade,
 };
-use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use std::error::Error;
 use uuid::Uuid;
@@ -37,10 +48,9 @@ impl GradingWeightsPermille {
             .saturating_add(self.execution)
             .saturating_add(self.documentation);
         if sum != 1000 {
-            return Err(format!(
-                "Invalid grading weights: expected sum=1000 permille, got {sum}"
-            )
-            .into());
+            return Err(
+                format!("Invalid grading weights: expected sum=1000 permille, got {sum}").into(),
+            );
         }
         Ok(())
     }
@@ -108,7 +118,11 @@ impl<'a> TradeGradeService<'a> {
         let now = Utc::now().naive_utc();
 
         let (entry_fill, entry_time) = best_effort_fill(&trade.entry, trade.entry.unit_price);
-        let (exit_fill, exit_time) = best_effort_exit_fill(&trade, trade.target.unit_price, trade.safety_stop.unit_price);
+        let (exit_fill, exit_time) = best_effort_exit_fill(
+            &trade,
+            trade.target.unit_price,
+            trade.safety_stop.unit_price,
+        );
 
         let mut checks: Vec<String> = Vec::new();
         if trade.status != Status::ClosedTarget
@@ -191,10 +205,7 @@ impl<'a> TradeGradeService<'a> {
             "math:total_points={}",
             points.total_points.round_dp(4).normalize()
         ));
-        checks.push(format!(
-            "math:overall_score={}",
-            draft_grade.overall_score
-        ));
+        checks.push(format!("math:overall_score={}", draft_grade.overall_score));
 
         Ok(DetailedTradeGrade {
             trade_id: trade.id,
@@ -224,7 +235,9 @@ impl<'a> TradeGradeService<'a> {
         &mut self,
         trade_id: Uuid,
     ) -> Result<Option<TradeGrade>, Box<dyn Error>> {
-        self.database.trade_grade_read().read_latest_for_trade(trade_id)
+        self.database
+            .trade_grade_read()
+            .read_latest_for_trade(trade_id)
     }
 
     pub fn grades_for_account_days(
@@ -319,7 +332,9 @@ fn score_process(trade: &Trade) -> (u8, Vec<String>) {
             recs.push("Planned R:R is < 1.0 (rework entry/stop/target)".to_string());
         } else if rr < dec!(1.5) {
             score = score.saturating_sub(25);
-            recs.push("Planned R:R is < 1.5 (consider improving target or tightening stop)".to_string());
+            recs.push(
+                "Planned R:R is < 1.5 (consider improving target or tightening stop)".to_string(),
+            );
         } else if rr < dec!(2.0) {
             score = score.saturating_sub(10);
             recs.push("Planned R:R is < 2.0 (aim for >= 2.0 when possible)".to_string());
@@ -342,15 +357,22 @@ fn score_risk(
     let mut recs: Vec<String> = Vec::new();
 
     // 1) Stop submitted before entry fill (best-effort based on timestamps).
-    if let (Some(stop_submitted), Some(entry_filled)) = (trade.safety_stop.submitted_at, trade.entry.filled_at) {
+    if let (Some(stop_submitted), Some(entry_filled)) =
+        (trade.safety_stop.submitted_at, trade.entry.filled_at)
+    {
         if stop_submitted > entry_filled {
             score = score.saturating_sub(30);
-            recs.push("Stop order was submitted after entry filled (submit stop before entry execution)".to_string());
+            recs.push(
+                "Stop order was submitted after entry filled (submit stop before entry execution)"
+                    .to_string(),
+            );
         }
     } else if entry_time.is_some() {
         // Entry has timing but stop doesn't.
         score = score.saturating_sub(10);
-        recs.push("Stop submission timestamp missing (ensure bracket orders are submitted)".to_string());
+        recs.push(
+            "Stop submission timestamp missing (ensure bracket orders are submitted)".to_string(),
+        );
     }
 
     // 2) Risk per trade vs account equity and configured rules.
@@ -372,7 +394,10 @@ fn score_risk(
                 // Basic wiki guidance: 2% rule.
                 if risk_pct > dec!(2.0) {
                     score = score.saturating_sub(20);
-                    recs.push("Planned risk exceeds 2% of equity (consider smaller size or tighter stop)".to_string());
+                    recs.push(
+                        "Planned risk exceeds 2% of equity (consider smaller size or tighter stop)"
+                            .to_string(),
+                    );
                 }
 
                 // If a rule exists, score against it.
@@ -425,7 +450,9 @@ fn score_execution_with_market_data(
     if let Some(bps) = entry_slip {
         if bps > 50 {
             score = score.saturating_sub(10);
-            recs.push("Entry slippage > 0.50% (consider limit orders / more liquidity)".to_string());
+            recs.push(
+                "Entry slippage > 0.50% (consider limit orders / more liquidity)".to_string(),
+            );
         } else if bps > 10 {
             score = score.saturating_sub(5);
             recs.push("Entry slippage > 0.10% (review execution)".to_string());
@@ -451,13 +478,7 @@ fn score_execution_with_market_data(
     // Market data derived metrics (MFE/MAE, ADV, ATR) are best-effort.
     let (market_status, timeframe, mfe_bps, mae_bps, adv20, atr14, stop_atr) =
         fetch_and_compute_market_metrics(
-            broker,
-            account,
-            trade,
-            entry_fill,
-            entry_time,
-            exit_fill,
-            exit_time,
+            broker, account, trade, entry_fill, entry_time, exit_fill, exit_time,
         );
 
     if let Some(adv) = adv20 {
@@ -559,8 +580,7 @@ fn fetch_and_compute_market_metrics(
 
     let stop_atr = match (entry_fill, atr14) {
         (Some(entry), Some(atr)) if atr > dec!(0) => {
-            planned_stop_distance(trade, entry)
-                .and_then(|d| d.checked_div(atr))
+            planned_stop_distance(trade, entry).and_then(|d| d.checked_div(atr))
         }
         _ => None,
     };
@@ -608,7 +628,10 @@ fn planned_reward_distance(trade: &Trade, entry: Decimal) -> Option<Decimal> {
     }
 }
 
-fn best_effort_fill(order: &model::Order, fallback_price: Decimal) -> (Option<Decimal>, Option<NaiveDateTime>) {
+fn best_effort_fill(
+    order: &model::Order,
+    fallback_price: Decimal,
+) -> (Option<Decimal>, Option<NaiveDateTime>) {
     let price = order.average_filled_price.or(Some(fallback_price));
     (price, order.filled_at)
 }
@@ -624,7 +647,8 @@ fn best_effort_exit_fill(
             trade.target.filled_at,
         ),
         Status::ClosedStopLoss => (
-            trade.safety_stop
+            trade
+                .safety_stop
                 .average_filled_price
                 .or(Some(fallback_stop)),
             trade.safety_stop.filled_at,
@@ -650,9 +674,7 @@ fn slippage_bps(fill: Option<Decimal>, intended: Decimal) -> Option<i32> {
     }
     let fill = fill?;
     let diff = fill.checked_sub(intended)?.abs();
-    let bps = diff
-        .checked_mul(dec!(10000))?
-        .checked_div(intended)?;
+    let bps = diff.checked_mul(dec!(10000))?.checked_div(intended)?;
     decimal_to_i32_rounded(bps)
 }
 
@@ -674,14 +696,32 @@ fn mfe_mae_bps(trade: &Trade, entry: Decimal, bars: &[MarketBar]) -> (Option<i32
 
     match trade.category {
         model::TradeCategory::Long => {
-            let mfe = max_high.checked_sub(entry).and_then(|d| d.checked_mul(dec!(10000))).and_then(|d| d.checked_div(entry));
-            let mae = entry.checked_sub(min_low).and_then(|d| d.checked_mul(dec!(10000))).and_then(|d| d.checked_div(entry));
-            (mfe.and_then(decimal_to_i32_rounded), mae.and_then(decimal_to_i32_rounded))
+            let mfe = max_high
+                .checked_sub(entry)
+                .and_then(|d| d.checked_mul(dec!(10000)))
+                .and_then(|d| d.checked_div(entry));
+            let mae = entry
+                .checked_sub(min_low)
+                .and_then(|d| d.checked_mul(dec!(10000)))
+                .and_then(|d| d.checked_div(entry));
+            (
+                mfe.and_then(decimal_to_i32_rounded),
+                mae.and_then(decimal_to_i32_rounded),
+            )
         }
         model::TradeCategory::Short => {
-            let mfe = entry.checked_sub(min_low).and_then(|d| d.checked_mul(dec!(10000))).and_then(|d| d.checked_div(entry));
-            let mae = max_high.checked_sub(entry).and_then(|d| d.checked_mul(dec!(10000))).and_then(|d| d.checked_div(entry));
-            (mfe.and_then(decimal_to_i32_rounded), mae.and_then(decimal_to_i32_rounded))
+            let mfe = entry
+                .checked_sub(min_low)
+                .and_then(|d| d.checked_mul(dec!(10000)))
+                .and_then(|d| d.checked_div(entry));
+            let mae = max_high
+                .checked_sub(entry)
+                .and_then(|d| d.checked_mul(dec!(10000)))
+                .and_then(|d| d.checked_div(entry));
+            (
+                mfe.and_then(decimal_to_i32_rounded),
+                mae.and_then(decimal_to_i32_rounded),
+            )
         }
     }
 }
@@ -713,7 +753,10 @@ fn atr14_from_bars(bars: &[MarketBar]) -> Option<Decimal> {
     }
     let start = trs.len() - 14;
     let slice = &trs[start..];
-    let sum = slice.iter().copied().try_fold(dec!(0), |acc, v| acc.checked_add(v))?;
+    let sum = slice
+        .iter()
+        .copied()
+        .try_fold(dec!(0), |acc, v| acc.checked_add(v))?;
     sum.checked_div(Decimal::from(14))
 }
 
@@ -858,8 +901,11 @@ mod tests {
         trade.target.average_filled_price = None;
         trade.target.filled_at = None;
 
-        let (exit_fill, exit_time) =
-            best_effort_exit_fill(&trade, trade.target.unit_price, trade.safety_stop.unit_price);
+        let (exit_fill, exit_time) = best_effort_exit_fill(
+            &trade,
+            trade.target.unit_price,
+            trade.safety_stop.unit_price,
+        );
         assert_eq!(exit_fill, None);
         assert_eq!(exit_time, None);
     }

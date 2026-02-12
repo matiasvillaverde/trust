@@ -1,3 +1,5 @@
+#![allow(clippy::indexing_slicing)]
+
 use diesel::prelude::*;
 use diesel::sql_query;
 use diesel::sql_types::{Integer, Text};
@@ -70,7 +72,9 @@ fn exec_script(conn: &mut SqliteConnection, script: &str) {
 #[test]
 fn trading_vehicles_migration_does_not_rewrite_dependent_foreign_keys() {
     let mut conn = SqliteConnection::establish(":memory:").unwrap();
-    sql_query("PRAGMA foreign_keys=ON;").execute(&mut conn).unwrap();
+    sql_query("PRAGMA foreign_keys=ON;")
+        .execute(&mut conn)
+        .unwrap();
 
     // Minimal pre-migration schema: a referenced `trading_vehicles` table and a dependent table
     // that references it via FK. This reproduces the SQLite behavior where renaming a referenced
@@ -108,14 +112,16 @@ fn trading_vehicles_migration_does_not_rewrite_dependent_foreign_keys() {
     exec_script(&mut conn, migration_sql);
 
     // Ensure FK on orders still points to `trading_vehicles` (and not `trading_vehicles_old`).
-    let fks: Vec<ForeignKeyListRow> =
-        sql_query("PRAGMA foreign_key_list('orders')").load(&mut conn).unwrap();
+    let fks: Vec<ForeignKeyListRow> = sql_query("PRAGMA foreign_key_list('orders')")
+        .load(&mut conn)
+        .unwrap();
     assert_eq!(fks.len(), 1);
     assert_eq!(fks[0].table, "trading_vehicles");
 
     // Ensure all FK constraints are valid.
-    let fk_check: Vec<ForeignKeyCheckRow> =
-        sql_query("PRAGMA foreign_key_check").load(&mut conn).unwrap();
+    let fk_check: Vec<ForeignKeyCheckRow> = sql_query("PRAGMA foreign_key_check")
+        .load(&mut conn)
+        .unwrap();
     assert!(
         fk_check.is_empty(),
         "foreign_key_check must be empty, got: {fk_check:?}"
@@ -125,7 +131,9 @@ fn trading_vehicles_migration_does_not_rewrite_dependent_foreign_keys() {
 #[test]
 fn trading_vehicles_migration_allows_same_isin_across_brokers() {
     let mut conn = SqliteConnection::establish(":memory:").unwrap();
-    sql_query("PRAGMA foreign_keys=ON;").execute(&mut conn).unwrap();
+    sql_query("PRAGMA foreign_keys=ON;")
+        .execute(&mut conn)
+        .unwrap();
 
     exec_script(
         &mut conn,

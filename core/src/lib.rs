@@ -558,7 +558,9 @@ impl TrustFacade {
         &mut self,
         trade_id: Uuid,
     ) -> Result<Option<model::TradeGrade>, Box<dyn std::error::Error>> {
-        self.factory.trade_grade_read().read_latest_for_trade(trade_id)
+        self.factory
+            .trade_grade_read()
+            .read_latest_for_trade(trade_id)
     }
 
     /// Retrieve grades for an account over the last N days.
@@ -881,5 +883,6 @@ pub mod calculators_risk;
 mod calculators_trade;
 mod commands;
 mod mocks;
+/// Core service layer modules.
 pub mod services;
 mod validators;

@@ -40,11 +40,16 @@ pub struct TradingVehicle {
     /// Broker asset status string (e.g., active, inactive) when available.
     pub broker_asset_status: Option<String>,
 
-    // Broker capability flags. Optional because not all brokers provide them.
+    /// Broker capability flags. Optional because not all brokers provide them.
+    /// Whether the asset is tradable.
     pub tradable: Option<bool>,
+    /// Whether margin trading is supported.
     pub marginable: Option<bool>,
+    /// Whether short selling is supported.
     pub shortable: Option<bool>,
+    /// Whether the broker flags the asset as easy to borrow.
     pub easy_to_borrow: Option<bool>,
+    /// Whether fractional trading is supported.
     pub fractionable: Option<bool>,
 }
 

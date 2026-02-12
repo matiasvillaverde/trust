@@ -3,6 +3,7 @@ use rust_decimal::Decimal;
 
 /// Supported bar timeframes for market data retrieval.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(clippy::enum_variant_names)]
 pub enum BarTimeframe {
     /// One-minute bars.
     OneMinute,
@@ -28,4 +29,3 @@ pub struct MarketBar {
     /// Volume.
     pub volume: u64,
 }
-

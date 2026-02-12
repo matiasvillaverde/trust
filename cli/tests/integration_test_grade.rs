@@ -1,9 +1,9 @@
 use core::TrustFacade;
 use db_sqlite::SqliteDatabase;
+use model::DatabaseFactory;
 use model::{
     Currency, DraftTrade, Environment, OrderStatus, Status, TradeCategory, TradingVehicleCategory,
 };
-use model::DatabaseFactory;
 use rust_decimal_macros::dec;
 use serde_json::Value;
 use std::fs;
@@ -151,7 +151,9 @@ fn seed_closed_trade_with_grade(database_url: &str) -> (Uuid, Uuid) {
         .cloned()
         .expect("filled trade exists");
 
-    let _ = trust.target_acquired(&filled, dec!(0)).expect("close target");
+    let _ = trust
+        .target_acquired(&filled, dec!(0))
+        .expect("close target");
 
     let closed = trust
         .search_trades(account.id, Status::ClosedTarget)
@@ -161,7 +163,10 @@ fn seed_closed_trade_with_grade(database_url: &str) -> (Uuid, Uuid) {
         .expect("closed trade exists");
 
     let _ = trust
-        .grade_trade(closed.id, core::services::grading::GradingWeightsPermille::default())
+        .grade_trade(
+            closed.id,
+            core::services::grading::GradingWeightsPermille::default(),
+        )
         .expect("grade trade");
 
     (account.id, closed.id)
@@ -239,10 +244,7 @@ fn seed_canceled_trade_without_exit_fill(database_url: &str) -> Uuid {
 
 #[test]
 fn test_grade_show_json() {
-    let database_url = format!(
-        "file:/tmp/trust-grade-show-{}.db",
-        Uuid::new_v4().to_string()
-    );
+    let database_url = format!("file:/tmp/trust-grade-show-{}.db", Uuid::new_v4());
     let _cleanup = TestDatabaseCleanup::new(&database_url);
     let (_account_id, trade_id) = seed_closed_trade_with_grade(&database_url);
 
@@ -261,10 +263,7 @@ fn test_grade_show_json() {
 
 #[test]
 fn test_grade_summary_json() {
-    let database_url = format!(
-        "file:/tmp/trust-grade-summary-{}.db",
-        Uuid::new_v4().to_string()
-    );
+    let database_url = format!("file:/tmp/trust-grade-summary-{}.db", Uuid::new_v4());
     let _cleanup = TestDatabaseCleanup::new(&database_url);
     let (account_id, _trade_id) = seed_closed_trade_with_grade(&database_url);
 
@@ -293,10 +292,7 @@ fn test_grade_summary_json() {
 
 #[test]
 fn test_grade_show_without_weights_reads_existing_custom_weight_grade() {
-    let database_url = format!(
-        "file:/tmp/trust-grade-custom-weights-{}.db",
-        Uuid::new_v4().to_string()
-    );
+    let database_url = format!("file:/tmp/trust-grade-custom-weights-{}.db", Uuid::new_v4());
     let _cleanup = TestDatabaseCleanup::new(&database_url);
     let (_account_id, trade_id) = seed_closed_trade_with_grade(&database_url);
 
@@ -336,7 +332,7 @@ fn test_grade_show_without_weights_reads_existing_custom_weight_grade() {
 fn test_grade_show_fails_for_canceled_trade_without_real_exit_fill() {
     let database_url = format!(
         "file:/tmp/trust-grade-canceled-unfilled-{}.db",
-        Uuid::new_v4().to_string()
+        Uuid::new_v4()
     );
     let _cleanup = TestDatabaseCleanup::new(&database_url);
     let trade_id = seed_canceled_trade_without_exit_fill(&database_url);

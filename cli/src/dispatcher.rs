@@ -407,6 +407,7 @@ impl ArgDispatcher {
         Ok(())
     }
 
+    #[allow(clippy::too_many_lines)]
     fn create_trading_vehicle_from_alpaca(&mut self, matches: &ArgMatches) -> Result<(), CliError> {
         let account_name = match matches.get_one::<String>("account") {
             Some(value) if !value.trim().is_empty() => value.trim(),
@@ -1410,7 +1411,8 @@ impl ArgDispatcher {
         let journal = AdvancedMetricsCalculator::calculate_journal_quality(&closed_trades);
         let streaks_detail = AdvancedMetricsCalculator::calculate_streak_metrics(&closed_trades);
         let open_trades_for_scope = Self::open_trades_for_scope(&mut self.trust, account_id);
-        let exposure = AdvancedMetricsCalculator::calculate_exposure_metrics(&open_trades_for_scope);
+        let exposure =
+            AdvancedMetricsCalculator::calculate_exposure_metrics(&open_trades_for_scope);
         let bootstrap = AdvancedMetricsCalculator::calculate_bootstrap_confidence_intervals(
             &closed_trades,
             200,
@@ -1445,7 +1447,8 @@ impl ArgDispatcher {
             let per_trade = if closed_trades.is_empty() {
                 dec!(0)
             } else {
-                total.checked_div(Decimal::from(closed_trades.len()))
+                total
+                    .checked_div(Decimal::from(closed_trades.len()))
                     .unwrap_or(dec!(0))
             };
             (fee_open, fee_close, total, per_trade)
@@ -1698,7 +1701,8 @@ impl ArgDispatcher {
         let journal = AdvancedMetricsCalculator::calculate_journal_quality(&all_trades);
         let streaks_detail = AdvancedMetricsCalculator::calculate_streak_metrics(&all_trades);
         let open_trades_for_scope = Self::open_trades_for_scope(&mut self.trust, account_id);
-        let exposure = AdvancedMetricsCalculator::calculate_exposure_metrics(&open_trades_for_scope);
+        let exposure =
+            AdvancedMetricsCalculator::calculate_exposure_metrics(&open_trades_for_scope);
         let bootstrap = AdvancedMetricsCalculator::calculate_bootstrap_confidence_intervals(
             &all_trades,
             200,
@@ -1713,7 +1717,9 @@ impl ArgDispatcher {
                     .get_account_transactions(id)
                     .unwrap_or_else(|_| Vec::new())
             } else {
-                self.trust.get_all_transactions().unwrap_or_else(|_| Vec::new())
+                self.trust
+                    .get_all_transactions()
+                    .unwrap_or_else(|_| Vec::new())
             };
 
             if let Some(days) = days_filter {
@@ -1742,7 +1748,8 @@ impl ArgDispatcher {
             let per_trade = if all_trades.is_empty() {
                 dec!(0)
             } else {
-                total.checked_div(Decimal::from(all_trades.len()))
+                total
+                    .checked_div(Decimal::from(all_trades.len()))
                     .unwrap_or(dec!(0))
             };
             (fee_open, fee_close, total, per_trade)
@@ -1851,6 +1858,7 @@ impl ArgDispatcher {
         Ok(())
     }
 
+    #[allow(clippy::too_many_lines)]
     fn grade_show(
         &mut self,
         sub_matches: &ArgMatches,
@@ -1872,27 +1880,23 @@ impl ArgDispatcher {
             None
         };
 
-        let existing = self
-            .trust
-            .latest_trade_grade(trade_id)
-            .map_err(|e| {
-                Self::report_error(
-                    format,
-                    "grade_read_failed",
-                    format!("Failed to read existing grade: {e}"),
-                )
-            })?;
+        let existing = self.trust.latest_trade_grade(trade_id).map_err(|e| {
+            Self::report_error(
+                format,
+                "grade_read_failed",
+                format!("Failed to read existing grade: {e}"),
+            )
+        })?;
 
         let grade = if let Some(existing) = existing {
             if regrade {
-                let weights = requested_weights.unwrap_or(
-                    core::services::grading::GradingWeightsPermille {
+                let weights =
+                    requested_weights.unwrap_or(core::services::grading::GradingWeightsPermille {
                         process: existing.process_weight_permille,
                         risk: existing.risk_weight_permille,
                         execution: existing.execution_weight_permille,
                         documentation: existing.documentation_weight_permille,
-                    },
-                );
+                    });
                 self.trust
                     .grade_trade(trade_id, weights)
                     .map(|d| d.grade)
@@ -2002,6 +2006,7 @@ impl ArgDispatcher {
         Ok(())
     }
 
+    #[allow(clippy::too_many_lines)]
     fn grade_summary(
         &mut self,
         sub_matches: &ArgMatches,
@@ -2022,16 +2027,13 @@ impl ArgDispatcher {
         let days = sub_matches.get_one::<u32>("days").copied().unwrap_or(30);
         let weights = Self::parse_grade_weights(sub_matches, format)?;
 
-        let mut closed_trades = self
-            .trust
-            .search_closed_trades(account_id)
-            .map_err(|e| {
-                Self::report_error(
-                    format,
-                    "trading_data_unavailable",
-                    format!("Unable to retrieve closed trades: {e}"),
-                )
-            })?;
+        let mut closed_trades = self.trust.search_closed_trades(account_id).map_err(|e| {
+            Self::report_error(
+                format,
+                "trading_data_unavailable",
+                format!("Unable to retrieve closed trades: {e}"),
+            )
+        })?;
 
         closed_trades = PerformanceCalculator::filter_trades_by_days(&closed_trades, days);
 
@@ -2040,10 +2042,12 @@ impl ArgDispatcher {
             let latest = self.trust.latest_trade_grade(trade.id).unwrap_or(None);
             let needs = match latest {
                 None => true,
-                Some(g) => g.process_weight_permille != weights.process
-                    || g.risk_weight_permille != weights.risk
-                    || g.execution_weight_permille != weights.execution
-                    || g.documentation_weight_permille != weights.documentation,
+                Some(g) => {
+                    g.process_weight_permille != weights.process
+                        || g.risk_weight_permille != weights.risk
+                        || g.execution_weight_permille != weights.execution
+                        || g.documentation_weight_permille != weights.documentation
+                }
             };
             if needs {
                 let _ = self.trust.grade_trade(trade.id, weights).map_err(|e| {
@@ -2064,7 +2068,13 @@ impl ArgDispatcher {
         }
 
         let grades: Vec<model::TradeGrade> = per_trade_latest.into_values().collect();
-        let count = grades.len() as u32;
+        let count = u32::try_from(grades.len()).map_err(|_| {
+            Self::report_error(
+                format,
+                "grade_count_overflow",
+                "Too many grades to summarize safely",
+            )
+        })?;
 
         let avg = |xs: Vec<u8>| -> Decimal {
             if xs.is_empty() {
@@ -2084,7 +2094,8 @@ impl ArgDispatcher {
 
         let mut dist: std::collections::BTreeMap<String, u32> = std::collections::BTreeMap::new();
         for g in &grades {
-            *dist.entry(g.overall_grade.to_string()).or_insert(0) += 1;
+            let entry = dist.entry(g.overall_grade.to_string()).or_insert(0);
+            *entry = entry.saturating_add(1);
         }
 
         if format == ReportOutputFormat::Json {
@@ -2142,6 +2153,7 @@ impl ArgDispatcher {
         Ok(())
     }
 
+    #[allow(clippy::too_many_lines)]
     fn parse_grade_weights(
         matches: &ArgMatches,
         format: ReportOutputFormat,
@@ -2152,7 +2164,11 @@ impl ArgDispatcher {
             return Ok(GradingWeightsPermille::default());
         };
 
-        let parts: Vec<&str> = raw.split(',').map(str::trim).filter(|s| !s.is_empty()).collect();
+        let parts: Vec<&str> = raw
+            .split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .collect();
         if parts.len() != 4 {
             return Err(Self::report_error(
                 format,
@@ -2163,26 +2179,44 @@ impl ArgDispatcher {
 
         let parse_u16 = |s: &str| -> Result<u16, CliError> {
             s.parse::<u16>().map_err(|_| {
-                Self::report_error(
-                    format,
-                    "invalid_weights",
-                    "Weights must be valid integers",
-                )
+                Self::report_error(format, "invalid_weights", "Weights must be valid integers")
             })
         };
 
-        let a = parse_u16(parts[0])?;
-        let b = parse_u16(parts[1])?;
-        let c = parse_u16(parts[2])?;
-        let d = parse_u16(parts[3])?;
+        let a = parse_u16(parts.first().ok_or_else(|| {
+            Self::report_error(
+                format,
+                "invalid_weights",
+                "Weights must have 4 comma-separated numbers",
+            )
+        })?)?;
+        let b = parse_u16(parts.get(1).ok_or_else(|| {
+            Self::report_error(
+                format,
+                "invalid_weights",
+                "Weights must have 4 comma-separated numbers",
+            )
+        })?)?;
+        let c = parse_u16(parts.get(2).ok_or_else(|| {
+            Self::report_error(
+                format,
+                "invalid_weights",
+                "Weights must have 4 comma-separated numbers",
+            )
+        })?)?;
+        let d = parse_u16(parts.get(3).ok_or_else(|| {
+            Self::report_error(
+                format,
+                "invalid_weights",
+                "Weights must have 4 comma-separated numbers",
+            )
+        })?)?;
 
         let sum = u32::from(a)
             .checked_add(u32::from(b))
             .and_then(|v| v.checked_add(u32::from(c)))
             .and_then(|v| v.checked_add(u32::from(d)))
-            .ok_or_else(|| {
-                Self::report_error(format, "invalid_weights", "Weights sum overflow")
-            })?;
+            .ok_or_else(|| Self::report_error(format, "invalid_weights", "Weights sum overflow"))?;
 
         let (process, risk, execution, documentation) = if sum == 100 {
             (
@@ -2216,11 +2250,7 @@ impl ArgDispatcher {
             documentation,
         };
         weights.validate().map_err(|e| {
-            Self::report_error(
-                format,
-                "invalid_weights",
-                format!("Invalid weights: {e}"),
-            )
+            Self::report_error(format, "invalid_weights", format!("Invalid weights: {e}"))
         })?;
         Ok(weights)
     }
