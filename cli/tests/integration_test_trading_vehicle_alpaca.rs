@@ -3,6 +3,8 @@ use std::path::Path;
 use std::process::{Command, Output};
 use uuid::Uuid;
 
+const PROTECTED_KEYWORD: &str = "I_UNDERSTAND_RISK";
+
 fn cli_bin_path() -> String {
     std::env::var("CARGO_BIN_EXE_cli").unwrap_or_else(|_| {
         let candidate = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -37,6 +39,7 @@ impl Drop for TestDatabaseCleanup {
 fn run_command(database_url: &str, args: &[&str]) -> Output {
     Command::new(cli_bin_path())
         .env("TRUST_DB_URL", database_url)
+        .env("TRUST_PROTECTED_KEYWORD_EXPECTED", PROTECTED_KEYWORD)
         .args(args)
         .output()
         .expect("run cli command")
@@ -58,6 +61,8 @@ fn test_create_from_alpaca_requires_account() {
             "--from-alpaca",
             "--symbol",
             "AAPL",
+            "--confirm-protected",
+            PROTECTED_KEYWORD,
         ],
     );
 
@@ -83,6 +88,8 @@ fn test_create_from_alpaca_requires_symbol() {
             "--from-alpaca",
             "--account",
             "paper-account",
+            "--confirm-protected",
+            PROTECTED_KEYWORD,
         ],
     );
 
@@ -110,6 +117,8 @@ fn test_create_from_alpaca_unknown_account_fails() {
             "does-not-exist",
             "--symbol",
             "AAPL",
+            "--confirm-protected",
+            PROTECTED_KEYWORD,
         ],
     );
 
