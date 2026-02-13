@@ -34,11 +34,18 @@ use calculators_trade::QuantityCalculator;
 use model::database::TradingVehicleUpsert;
 use model::{
     Account, AccountBalance, Broker, BrokerLog, Currency, DatabaseFactory, DraftTrade, Environment,
-    Order, Rule, RuleLevel, RuleName, Status, Trade, TradeBalance, TradingVehicle,
-    TradingVehicleCategory, Transaction, TransactionCategory,
+    Level, LevelChange, LevelTrigger, Order, Rule, RuleLevel, RuleName, Status, Trade,
+    TradeBalance, TradingVehicle, TradingVehicleCategory, Transaction, TransactionCategory,
 };
 use rust_decimal::Decimal;
 use uuid::Uuid;
+use {
+    services::leveling::{
+        DefaultLevelTransitionPolicy, LevelEvaluationOutcome, LevelPerformanceSnapshot,
+        LevelingService,
+    },
+    std::error::Error as StdError,
+};
 
 /// Summary data combining all key trading metrics
 #[derive(Debug, Clone)]
@@ -63,6 +70,8 @@ pub struct TradingSummary {
 pub struct TrustFacade {
     factory: Box<dyn DatabaseFactory>,
     broker: Box<dyn Broker>,
+    protected_mode: bool,
+    protected_authorized: bool,
 }
 
 impl std::fmt::Debug for TrustFacade {
@@ -70,6 +79,7 @@ impl std::fmt::Debug for TrustFacade {
         f.debug_struct("TrustFacade")
             .field("factory", &"Box<dyn DatabaseFactory>")
             .field("broker", &"Box<dyn Broker>")
+            .field("protected_mode", &self.protected_mode)
             .finish()
     }
 }
@@ -80,7 +90,36 @@ impl std::fmt::Debug for TrustFacade {
 impl TrustFacade {
     /// Creates a new instance of Trust.
     pub fn new(factory: Box<dyn DatabaseFactory>, broker: Box<dyn Broker>) -> Self {
-        TrustFacade { factory, broker }
+        TrustFacade {
+            factory,
+            broker,
+            protected_mode: false,
+            protected_authorized: false,
+        }
+    }
+
+    /// Enables protected-mutation enforcement for this facade instance.
+    pub fn enable_protected_mode(&mut self) {
+        self.protected_mode = true;
+    }
+
+    /// Authorizes exactly one protected mutation operation.
+    pub fn authorize_protected_mutation(&mut self) {
+        self.protected_authorized = true;
+    }
+
+    fn consume_protected_authorization(
+        &mut self,
+        operation: &'static str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        if !self.protected_mode {
+            return Ok(());
+        }
+        if !self.protected_authorized {
+            return Err(format!("Protected mutation '{operation}' requires authorization").into());
+        }
+        self.protected_authorized = false;
+        Ok(())
     }
 
     /// Creates a new account.
@@ -92,16 +131,86 @@ impl TrustFacade {
         taxes_percentage: Decimal,
         earnings_percentage: Decimal,
     ) -> Result<Account, Box<dyn std::error::Error>> {
-        // Create the account first
-        let account = self.factory.account_write().create(
+        self.consume_protected_authorization("create_account")?;
+        let savepoint = "create_account_with_level";
+        self.factory.begin_savepoint(savepoint)?;
+
+        let account = match self.factory.account_write().create(
             name,
             description,
             environment,
             taxes_percentage,
             earnings_percentage,
-        )?;
+        ) {
+            Ok(account) => account,
+            Err(error) => {
+                let _ = self.factory.rollback_to_savepoint(savepoint);
+                return Err(error);
+            }
+        };
+
+        if let Err(error) = self.factory.level_write().create_default_level(&account) {
+            let _ = self.factory.rollback_to_savepoint(savepoint);
+            return Err(error);
+        }
+
+        self.factory.release_savepoint(savepoint)?;
 
         Ok(account)
+    }
+
+    /// Returns current level for an account.
+    pub fn level_for_account(&mut self, account_id: Uuid) -> Result<Level, Box<dyn StdError>> {
+        self.factory.level_read().level_for_account(account_id)
+    }
+
+    /// Returns account level change history. If `days` is provided, applies a recent-window filter.
+    pub fn level_history_for_account(
+        &mut self,
+        account_id: Uuid,
+        days: Option<u32>,
+    ) -> Result<Vec<LevelChange>, Box<dyn StdError>> {
+        if let Some(window_days) = days {
+            return self
+                .factory
+                .level_read()
+                .recent_level_changes(account_id, window_days);
+        }
+        self.factory
+            .level_read()
+            .level_changes_for_account(account_id)
+    }
+
+    /// Changes account level and records an immutable audit event atomically.
+    pub fn change_level(
+        &mut self,
+        account_id: Uuid,
+        target_level: u8,
+        reason: &str,
+        trigger_type: LevelTrigger,
+    ) -> Result<(Level, LevelChange), Box<dyn StdError>> {
+        self.consume_protected_authorization("change_level")?;
+        commands::level::change(
+            &mut *self.factory,
+            account_id,
+            target_level,
+            reason,
+            trigger_type,
+        )
+    }
+
+    /// Evaluates transition policy and optionally applies it.
+    pub fn evaluate_level_transition(
+        &mut self,
+        account_id: Uuid,
+        snapshot: LevelPerformanceSnapshot,
+        apply: bool,
+    ) -> Result<LevelEvaluationOutcome, Box<dyn StdError>> {
+        if apply {
+            self.consume_protected_authorization("evaluate_level_transition_apply")?;
+        }
+        let service: LevelingService<DefaultLevelTransitionPolicy> = LevelingService::default();
+        service.evaluate_and_apply(&mut *self.factory, account_id, &snapshot, apply)
     }
 
     /// Search for an account by name.
@@ -161,6 +270,7 @@ impl TrustFacade {
         amount: Decimal,
         currency: &Currency,
     ) -> Result<(Transaction, AccountBalance), Box<dyn std::error::Error>> {
+        self.consume_protected_authorization("create_transaction")?;
         commands::transaction::create(&mut *self.factory, category, amount, currency, account.id)
     }
 
@@ -219,6 +329,7 @@ impl TrustFacade {
         description: &str,
         level: &RuleLevel,
     ) -> Result<Rule, Box<dyn std::error::Error>> {
+        self.consume_protected_authorization("create_rule")?;
         commands::rule::create(&mut *self.factory, account, name, description, level)
     }
 
@@ -232,6 +343,7 @@ impl TrustFacade {
     ///
     /// Returns the deactivated rule, or an error if deactivation fails.
     pub fn deactivate_rule(&mut self, rule: &Rule) -> Result<Rule, Box<dyn std::error::Error>> {
+        self.consume_protected_authorization("deactivate_rule")?;
         self.factory.rule_write().make_rule_inactive(rule)
     }
 
@@ -270,6 +382,7 @@ impl TrustFacade {
         category: &TradingVehicleCategory,
         broker: &str,
     ) -> Result<TradingVehicle, Box<dyn std::error::Error>> {
+        self.consume_protected_authorization("create_trading_vehicle")?;
         self.factory
             .trading_vehicle_write()
             .create_trading_vehicle(symbol, isin, category, broker)
@@ -280,6 +393,7 @@ impl TrustFacade {
         &mut self,
         input: TradingVehicleUpsert,
     ) -> Result<TradingVehicle, Box<dyn std::error::Error>> {
+        self.consume_protected_authorization("upsert_trading_vehicle")?;
         self.factory
             .trading_vehicle_write()
             .upsert_trading_vehicle(input)
