@@ -30,6 +30,37 @@ pub struct Level {
     pub level_start_date: NaiveDate,
 }
 
+/// Configurable rules used by level transition policies.
+#[derive(PartialEq, Debug, Clone)]
+pub struct LevelAdjustmentRules {
+    /// Monthly loss threshold (%) to trigger downgrade.
+    pub monthly_loss_downgrade_pct: Decimal,
+    /// Largest single-trade loss threshold (%) to trigger downgrade.
+    pub single_loss_downgrade_pct: Decimal,
+    /// Profitable trade count needed to upgrade.
+    pub upgrade_profitable_trades: u32,
+    /// Win-rate threshold (%) needed to upgrade.
+    pub upgrade_win_rate_pct: Decimal,
+    /// Consecutive wins needed to upgrade.
+    pub upgrade_consecutive_wins: u32,
+    /// Profitable trade count for cooldown trigger.
+    pub cooldown_profitable_trades: u32,
+    /// Win-rate threshold (%) for cooldown trigger.
+    pub cooldown_win_rate_pct: Decimal,
+    /// Consecutive wins for cooldown trigger.
+    pub cooldown_consecutive_wins: u32,
+    /// Profitable trades needed to recover from cooldown.
+    pub recovery_profitable_trades: u32,
+    /// Win-rate threshold (%) needed for cooldown recovery.
+    pub recovery_win_rate_pct: Decimal,
+    /// Consecutive wins needed for cooldown recovery.
+    pub recovery_consecutive_wins: u32,
+    /// Minimum trades at level before allowing upgrades.
+    pub min_trades_at_level_for_upgrade: u32,
+    /// Maximum number of level changes allowed in rolling 30d.
+    pub max_changes_in_30_days: u32,
+}
+
 /// Immutable audit record for a level change event.
 #[derive(PartialEq, Debug, Clone)]
 pub struct LevelChange {
@@ -113,7 +144,19 @@ pub enum LevelError {
     EmptyTrigger,
 }
 
+/// Validation errors for configurable level-adjustment rules.
+#[derive(Debug, Clone, PartialEq)]
+pub enum LevelRulesError {
+    /// Field must be strictly negative (loss threshold).
+    LossThresholdMustBeNegative(&'static str),
+    /// Percentage field must be in range [0, 100].
+    PercentageOutOfRange(&'static str, Decimal),
+    /// Field must be greater than zero.
+    MustBeGreaterThanZero(&'static str),
+}
+
 impl std::error::Error for LevelError {}
+impl std::error::Error for LevelRulesError {}
 
 impl Display for LevelError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
@@ -124,6 +167,22 @@ impl Display for LevelError {
             }
             LevelError::EmptyReason => write!(f, "Level change reason cannot be empty"),
             LevelError::EmptyTrigger => write!(f, "Level change trigger cannot be empty"),
+        }
+    }
+}
+
+impl Display for LevelRulesError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            LevelRulesError::LossThresholdMustBeNegative(field) => {
+                write!(f, "{field} must be negative")
+            }
+            LevelRulesError::PercentageOutOfRange(field, value) => {
+                write!(f, "{field} must be between 0 and 100, got {value}")
+            }
+            LevelRulesError::MustBeGreaterThanZero(field) => {
+                write!(f, "{field} must be greater than zero")
+            }
         }
     }
 }
@@ -252,6 +311,78 @@ impl Level {
         };
 
         Ok((updated, event))
+    }
+}
+
+impl Default for LevelAdjustmentRules {
+    fn default() -> Self {
+        Self {
+            monthly_loss_downgrade_pct: dec!(-5.0),
+            single_loss_downgrade_pct: dec!(-2.0),
+            upgrade_profitable_trades: 10,
+            upgrade_win_rate_pct: dec!(70.0),
+            upgrade_consecutive_wins: 3,
+            cooldown_profitable_trades: 20,
+            cooldown_win_rate_pct: dec!(85.0),
+            cooldown_consecutive_wins: 8,
+            recovery_profitable_trades: 5,
+            recovery_win_rate_pct: dec!(65.0),
+            recovery_consecutive_wins: 2,
+            min_trades_at_level_for_upgrade: 5,
+            max_changes_in_30_days: 2,
+        }
+    }
+}
+
+impl LevelAdjustmentRules {
+    /// Validate safety invariants for persisted transition rules.
+    pub fn validate(&self) -> Result<(), LevelRulesError> {
+        if self.monthly_loss_downgrade_pct >= dec!(0) {
+            return Err(LevelRulesError::LossThresholdMustBeNegative(
+                "monthly_loss_downgrade_pct",
+            ));
+        }
+        if self.single_loss_downgrade_pct >= dec!(0) {
+            return Err(LevelRulesError::LossThresholdMustBeNegative(
+                "single_loss_downgrade_pct",
+            ));
+        }
+
+        for (field, value) in [
+            ("upgrade_win_rate_pct", self.upgrade_win_rate_pct),
+            ("cooldown_win_rate_pct", self.cooldown_win_rate_pct),
+            ("recovery_win_rate_pct", self.recovery_win_rate_pct),
+        ] {
+            if value < dec!(0) || value > dec!(100) {
+                return Err(LevelRulesError::PercentageOutOfRange(field, value));
+            }
+        }
+
+        for (field, value) in [
+            ("upgrade_profitable_trades", self.upgrade_profitable_trades),
+            ("upgrade_consecutive_wins", self.upgrade_consecutive_wins),
+            (
+                "cooldown_profitable_trades",
+                self.cooldown_profitable_trades,
+            ),
+            ("cooldown_consecutive_wins", self.cooldown_consecutive_wins),
+            (
+                "recovery_profitable_trades",
+                self.recovery_profitable_trades,
+            ),
+            ("recovery_consecutive_wins", self.recovery_consecutive_wins),
+            (
+                "min_trades_at_level_for_upgrade",
+                self.min_trades_at_level_for_upgrade,
+            ),
+            ("max_changes_in_30_days", self.max_changes_in_30_days),
+        ] {
+            if value == 0 {
+                return Err(LevelRulesError::MustBeGreaterThanZero(field));
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -510,5 +641,48 @@ mod tests {
                 assert_transition_invariants(&current, to, account_id, now);
             }
         }
+    }
+
+    #[test]
+    fn test_default_adjustment_rules_are_valid() {
+        let rules = LevelAdjustmentRules::default();
+        assert!(rules.validate().is_ok());
+    }
+
+    #[test]
+    fn test_adjustment_rules_reject_invalid_thresholds() {
+        let rules = LevelAdjustmentRules {
+            monthly_loss_downgrade_pct: dec!(0),
+            ..LevelAdjustmentRules::default()
+        };
+        assert!(matches!(
+            rules.validate(),
+            Err(LevelRulesError::LossThresholdMustBeNegative(
+                "monthly_loss_downgrade_pct"
+            ))
+        ));
+
+        let rules = LevelAdjustmentRules {
+            upgrade_win_rate_pct: dec!(101),
+            ..LevelAdjustmentRules::default()
+        };
+        assert!(matches!(
+            rules.validate(),
+            Err(LevelRulesError::PercentageOutOfRange(
+                "upgrade_win_rate_pct",
+                _
+            ))
+        ));
+
+        let rules = LevelAdjustmentRules {
+            max_changes_in_30_days: 0,
+            ..LevelAdjustmentRules::default()
+        };
+        assert!(matches!(
+            rules.validate(),
+            Err(LevelRulesError::MustBeGreaterThanZero(
+                "max_changes_in_30_days"
+            ))
+        ));
     }
 }

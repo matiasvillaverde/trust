@@ -10,11 +10,11 @@ use model::{
     database::TradingVehicleUpsert,
     database::{AccountWrite, WriteAccountBalanceDB},
     Account, AccountBalanceRead, AccountBalanceWrite, AccountRead, Currency, DatabaseFactory,
-    Level, LevelChange, Order, OrderAction, OrderCategory, OrderRead, OrderWrite, ReadLevelDB,
-    ReadRuleDB, ReadTradeDB, ReadTradeGradeDB, ReadTradingVehicleDB, ReadTransactionDB, Rule,
-    RuleName, Trade, TradeBalance, TradeGrade, TradingVehicle, TradingVehicleCategory, Transaction,
-    TransactionCategory, WriteLevelDB, WriteRuleDB, WriteTradeDB, WriteTradeGradeDB,
-    WriteTradingVehicleDB, WriteTransactionDB,
+    Level, LevelAdjustmentRules, LevelChange, Order, OrderAction, OrderCategory, OrderRead,
+    OrderWrite, ReadLevelDB, ReadRuleDB, ReadTradeDB, ReadTradeGradeDB, ReadTradingVehicleDB,
+    ReadTransactionDB, Rule, RuleName, Trade, TradeBalance, TradeGrade, TradingVehicle,
+    TradingVehicleCategory, Transaction, TransactionCategory, WriteLevelDB, WriteRuleDB,
+    WriteTradeDB, WriteTradeGradeDB, WriteTradingVehicleDB, WriteTransactionDB,
 };
 use rust_decimal::Decimal;
 use std::error::Error;
@@ -460,6 +460,19 @@ impl ReadLevelDB for SqliteDatabase {
             days,
         )
     }
+
+    fn level_adjustment_rules_for_account(
+        &mut self,
+        account_id: Uuid,
+    ) -> Result<LevelAdjustmentRules, Box<dyn Error>> {
+        WorkerLevel::read_adjustment_rules_for_account(
+            &mut self.connection.lock().unwrap_or_else(|e| {
+                eprintln!("Failed to acquire connection lock: {e}");
+                std::process::exit(1);
+            }),
+            account_id,
+        )
+    }
 }
 
 impl WriteLevelDB for SqliteDatabase {
@@ -493,6 +506,21 @@ impl WriteLevelDB for SqliteDatabase {
                 std::process::exit(1);
             }),
             level_change,
+        )
+    }
+
+    fn upsert_level_adjustment_rules(
+        &mut self,
+        account_id: Uuid,
+        rules: &LevelAdjustmentRules,
+    ) -> Result<LevelAdjustmentRules, Box<dyn Error>> {
+        WorkerLevel::upsert_adjustment_rules(
+            &mut self.connection.lock().unwrap_or_else(|e| {
+                eprintln!("Failed to acquire connection lock: {e}");
+                std::process::exit(1);
+            }),
+            account_id,
+            rules,
         )
     }
 }

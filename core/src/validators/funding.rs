@@ -1,4 +1,4 @@
-use crate::calculators_trade::{RiskCalculator, TradeCapitalRequired};
+use crate::calculators_trade::{QuantityCalculator, RiskCalculator, TradeCapitalRequired};
 use model::{AccountBalance, DatabaseFactory, Rule, RuleName, Trade, TradeCategory};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
@@ -19,7 +19,9 @@ pub fn can_fund(trade: &Trade, database: &mut dyn DatabaseFactory) -> FundingVal
             // 2. Validate that there is enough capital available to fund the trade
             validate_enough_capital(trade, &balance)?;
             // 3. Validate the trade against all the applicable rules
-            validate_rules(trade, &balance, database)
+            validate_rules(trade, &balance, database)?;
+            // 4. Validate level-adjusted position sizing caps.
+            validate_level_adjusted_quantity(trade, database)
         }
         Err(e) => {
             // If there is not enough funds in the account for the given currency, return an error
@@ -115,6 +117,54 @@ fn validate_rules(
     Ok(())
 }
 
+fn validate_level_adjusted_quantity(
+    trade: &Trade,
+    database: &mut dyn DatabaseFactory,
+) -> FundingValidationResult {
+    if trade.category == TradeCategory::Short {
+        return Ok(());
+    }
+
+    let sizing = QuantityCalculator::maximum_quantity_with_level(
+        trade.account_id,
+        trade.entry.unit_price,
+        trade.safety_stop.unit_price,
+        &trade.currency,
+        database,
+    )
+    .map_err(|error| {
+        Box::new(FundValidationError {
+            code: FundValidationErrorCode::NotEnoughFunds,
+            message: format!("Error calculating level-adjusted quantity: {error}"),
+        })
+    })?;
+
+    let allowed_quantity = u64::try_from(sizing.final_quantity).map_err(|_| {
+        Box::new(FundValidationError {
+            code: FundValidationErrorCode::NotEnoughFunds,
+            message: format!(
+                "Invalid level-adjusted quantity {} for account {}",
+                sizing.final_quantity, trade.account_id
+            ),
+        })
+    })?;
+
+    if trade.entry.quantity > allowed_quantity {
+        return Err(Box::new(FundValidationError {
+            code: FundValidationErrorCode::LevelAdjustedQuantityExceeded,
+            message: format!(
+                "Trade quantity {} exceeds level-adjusted maximum {} (base {}, multiplier {}x)",
+                trade.entry.quantity,
+                allowed_quantity,
+                sizing.base_quantity,
+                sizing.level_multiplier
+            ),
+        }));
+    }
+
+    Ok(())
+}
+
 // This function validates a trade based on the given risk parameters and account balance.
 // If the trade violates any of the rules, it returns an error.
 fn validate_risk_per_trade(
@@ -205,6 +255,7 @@ impl Error for FundValidationError {
 pub enum FundValidationErrorCode {
     RiskPerTradeExceeded,
     RiskPerMonthExceeded,
+    LevelAdjustedQuantityExceeded,
     NotEnoughFunds,
 }
 

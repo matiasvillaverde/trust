@@ -30,12 +30,14 @@
 // Standard Rust lints for code quality
 #![warn(missing_docs, rust_2018_idioms, missing_debug_implementations)]
 
-use calculators_trade::QuantityCalculator;
+use calculators_trade::{LevelAdjustedQuantity, QuantityCalculator};
+use events::trade::{CloseReason, TradeClosed};
 use model::database::TradingVehicleUpsert;
 use model::{
     Account, AccountBalance, Broker, BrokerLog, Currency, DatabaseFactory, DraftTrade, Environment,
-    Level, LevelChange, LevelTrigger, Order, Rule, RuleLevel, RuleName, Status, Trade,
-    TradeBalance, TradingVehicle, TradingVehicleCategory, Transaction, TransactionCategory,
+    Level, LevelAdjustmentRules, LevelChange, LevelTrigger, Order, Rule, RuleLevel, RuleName,
+    Status, Trade, TradeBalance, TradingVehicle, TradingVehicleCategory, Transaction,
+    TransactionCategory,
 };
 use rust_decimal::Decimal;
 use uuid::Uuid;
@@ -209,8 +211,31 @@ impl TrustFacade {
         if apply {
             self.consume_protected_authorization("evaluate_level_transition_apply")?;
         }
-        let service: LevelingService<DefaultLevelTransitionPolicy> = LevelingService::default();
+        let service = self.leveling_service_for_account(account_id)?;
         service.evaluate_and_apply(&mut *self.factory, account_id, &snapshot, apply)
+    }
+
+    /// Retrieve level-adjustment policy rules for an account.
+    pub fn level_adjustment_rules_for_account(
+        &mut self,
+        account_id: Uuid,
+    ) -> Result<LevelAdjustmentRules, Box<dyn StdError>> {
+        self.factory
+            .level_read()
+            .level_adjustment_rules_for_account(account_id)
+    }
+
+    /// Persist level-adjustment policy rules for an account.
+    pub fn set_level_adjustment_rules(
+        &mut self,
+        account_id: Uuid,
+        rules: &LevelAdjustmentRules,
+    ) -> Result<LevelAdjustmentRules, Box<dyn StdError>> {
+        self.consume_protected_authorization("set_level_adjustment_rules")?;
+        rules.validate()?;
+        self.factory
+            .level_write()
+            .upsert_level_adjustment_rules(account_id, rules)
     }
 
     /// Search for an account by name.
@@ -431,7 +456,25 @@ impl TrustFacade {
         stop_price: Decimal,
         currency: &Currency,
     ) -> Result<i64, Box<dyn std::error::Error>> {
-        QuantityCalculator::maximum_quantity(
+        let adjusted = QuantityCalculator::maximum_quantity_with_level(
+            account_id,
+            entry_price,
+            stop_price,
+            currency,
+            &mut *self.factory,
+        )?;
+        Ok(adjusted.final_quantity)
+    }
+
+    /// Calculate base and level-adjusted maximum quantity for visibility and validation.
+    pub fn calculate_level_adjusted_quantity(
+        &mut self,
+        account_id: Uuid,
+        entry_price: Decimal,
+        stop_price: Decimal,
+        currency: &Currency,
+    ) -> Result<LevelAdjustedQuantity, Box<dyn std::error::Error>> {
+        QuantityCalculator::maximum_quantity_with_level(
             account_id,
             entry_price,
             stop_price,
@@ -640,6 +683,13 @@ impl TrustFacade {
                     crate::services::grading::GradingWeightsPermille::default(),
                 );
             }
+
+            let close_reason = if status == Status::ClosedTarget {
+                CloseReason::Target
+            } else {
+                CloseReason::StopLoss
+            };
+            let _ = self.handle_trade_closed_event(trade.id, close_reason);
         }
 
         Ok((status, orders, log))
@@ -722,7 +772,9 @@ impl TrustFacade {
         fee: Decimal,
     ) -> Result<(Transaction, Transaction, TradeBalance, AccountBalance), Box<dyn std::error::Error>>
     {
-        commands::trade::stop_acquired(trade, fee, &mut *self.factory)
+        let result = commands::trade::stop_acquired(trade, fee, &mut *self.factory)?;
+        let _ = self.handle_trade_closed_event(trade.id, CloseReason::StopLoss);
+        Ok(result)
     }
 
     /// Close an open trade at market price.
@@ -738,7 +790,9 @@ impl TrustFacade {
         &mut self,
         trade: &Trade,
     ) -> Result<(TradeBalance, BrokerLog), Box<dyn std::error::Error>> {
-        commands::trade::close(trade, &mut *self.factory, &mut *self.broker)
+        let result = commands::trade::close(trade, &mut *self.factory, &mut *self.broker)?;
+        let _ = self.handle_trade_closed_event(trade.id, CloseReason::Manual);
+        Ok(result)
     }
 
     /// Cancel a funded trade and return capital to the account.
@@ -789,7 +843,64 @@ impl TrustFacade {
         fee: Decimal,
     ) -> Result<(Transaction, Transaction, TradeBalance, AccountBalance), Box<dyn std::error::Error>>
     {
-        commands::trade::target_acquired(trade, fee, &mut *self.factory)
+        let result = commands::trade::target_acquired(trade, fee, &mut *self.factory)?;
+        let _ = self.handle_trade_closed_event(trade.id, CloseReason::Target);
+        Ok(result)
+    }
+
+    fn handle_trade_closed_event(
+        &mut self,
+        trade_id: Uuid,
+        close_reason: CloseReason,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let trade = self.factory.trade_read().read_trade(trade_id)?;
+        let risk_per_share = match trade
+            .entry
+            .unit_price
+            .checked_sub(trade.safety_stop.unit_price)
+        {
+            Some(value) if value > Decimal::ZERO => value,
+            _ => Decimal::ZERO,
+        };
+        let qty = Decimal::from(trade.entry.quantity);
+        let risk_amount = risk_per_share.checked_mul(qty).unwrap_or(Decimal::ZERO);
+        let r_multiple = if risk_amount > Decimal::ZERO {
+            trade
+                .balance
+                .total_performance
+                .checked_div(risk_amount)
+                .unwrap_or(Decimal::ZERO)
+        } else {
+            Decimal::ZERO
+        };
+
+        let event = TradeClosed {
+            trade_id: trade.id,
+            account_id: trade.account_id,
+            final_pnl: trade.balance.total_performance,
+            r_multiple,
+            close_reason,
+            closed_at: trade.updated_at,
+        };
+
+        let service = self.leveling_service_for_account(trade.account_id)?;
+        let _ = service.handle_trade_closed(&mut *self.factory, &event)?;
+        Ok(())
+    }
+
+    fn leveling_service_for_account(
+        &mut self,
+        account_id: Uuid,
+    ) -> Result<LevelingService<DefaultLevelTransitionPolicy>, Box<dyn std::error::Error>> {
+        let rules = self
+            .factory
+            .level_read()
+            .level_adjustment_rules_for_account(account_id)?;
+        let policy = DefaultLevelTransitionPolicy::new(rules.clone());
+        Ok(LevelingService::new(policy).with_stabilization_rules(
+            rules.min_trades_at_level_for_upgrade,
+            rules.max_changes_in_30_days,
+        ))
     }
 
     /// Modify the stop loss price of an active trade.
@@ -996,6 +1107,8 @@ pub mod calculators_performance;
 pub mod calculators_risk;
 mod calculators_trade;
 mod commands;
+/// Domain events used by core workflows.
+pub mod events;
 mod mocks;
 /// Core service layer modules.
 pub mod services;

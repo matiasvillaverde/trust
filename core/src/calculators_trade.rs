@@ -15,5 +15,5 @@ pub use capital_out_of_market::TradeCapitalOutOfMarket;
 pub use capital_required::TradeCapitalRequired;
 pub use capital_taxable::TradeCapitalTaxable;
 pub use performance::TradePerformance;
-pub use quantity::QuantityCalculator;
+pub use quantity::{LevelAdjustedQuantity, QuantityCalculator};
 pub use risk::RiskCalculator;
