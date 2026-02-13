@@ -59,14 +59,18 @@ impl ArgDispatcher {
                 Some(("delete", _)) => self.delete_keys(),
                 _ => unreachable!("No subcommand provided"),
             },
-            Some(("account", sub_matches)) => match sub_matches.subcommand() {
-                Some(("create", create_matches)) => {
-                    self.create_account_with_hierarchy(create_matches)
+            Some(("account", sub_matches)) | Some(("accounts", sub_matches)) => {
+                match sub_matches.subcommand() {
+                    Some(("create", create_matches)) => {
+                        self.create_account_with_hierarchy(create_matches)
+                    }
+                    Some(("search", _)) => self.search_account(),
+                    Some(("transfer", transfer_matches)) => {
+                        self.transfer_accounts(transfer_matches)
+                    }
+                    _ => unreachable!("No subcommand provided"),
                 }
-                Some(("search", _)) => self.search_account(),
-                Some(("transfer", transfer_matches)) => self.transfer_accounts(transfer_matches),
-                _ => unreachable!("No subcommand provided"),
-            },
+            }
             Some(("transaction", sub_matches)) => match sub_matches.subcommand() {
                 Some(("deposit", _)) => self.deposit(),
                 Some(("withdraw", _)) => self.withdraw(),
@@ -532,14 +536,14 @@ impl ArgDispatcher {
         // Extract arguments from clap
         let name = matches.get_one::<String>("name").unwrap();
         let account_type = matches.get_one::<String>("type").unwrap();
-        let parent_id = matches.get_one::<String>("parent-id");
+        let parent_id = matches.get_one::<String>("parent");
 
         // Parse account type
         let account_type_enum = match account_type.as_str() {
-            "Primary" => model::AccountType::Primary,
-            "Earnings" => model::AccountType::Earnings,
-            "TaxReserve" => model::AccountType::TaxReserve,
-            "Reinvestment" => model::AccountType::Reinvestment,
+            "primary" => model::AccountType::Primary,
+            "earnings" => model::AccountType::Earnings,
+            "tax-reserve" => model::AccountType::TaxReserve,
+            "reinvestment" => model::AccountType::Reinvestment,
             _ => {
                 eprintln!("Invalid account type: {}", account_type);
                 return;
@@ -715,6 +719,7 @@ impl ArgDispatcher {
         let tax_str = matches.get_one::<String>("tax").unwrap();
         let reinvestment_str = matches.get_one::<String>("reinvestment").unwrap();
         let threshold_str = matches.get_one::<String>("threshold").unwrap();
+        let password = matches.get_one::<String>("password").unwrap();
 
         // Parse account ID
         let account_id = match uuid::Uuid::parse_str(account_id_str) {
@@ -774,6 +779,7 @@ impl ArgDispatcher {
             tax_percent,
             reinvestment_percent,
             threshold,
+            password,
         )?;
 
         progress.complete();
@@ -794,12 +800,9 @@ impl ArgDispatcher {
     fn execute_distribution(&mut self, matches: &ArgMatches) {
         // Extract arguments from clap
         let account_id_str = matches.get_one::<String>("account-id").unwrap();
-        let earnings_account_str = matches.get_one::<String>("earnings-account").unwrap();
-        let tax_account_str = matches.get_one::<String>("tax-account").unwrap();
-        let reinvestment_account_str = matches.get_one::<String>("reinvestment-account").unwrap();
         let amount_str = matches.get_one::<String>("amount").unwrap();
 
-        let mut progress = ProgressIndicator::new("Executing Profit Distribution".to_string(), 6);
+        let mut progress = ProgressIndicator::new("Executing Profit Distribution".to_string(), 3);
 
         progress.step("Parsing source account ID");
         let account_id = match uuid::Uuid::parse_str(account_id_str) {
@@ -811,54 +814,6 @@ impl ArgDispatcher {
                         "Source Account ID",
                         "Invalid UUID format",
                         "Please provide a valid UUID for the source account"
-                    )
-                );
-                return;
-            }
-        };
-
-        progress.step("Parsing earnings account ID");
-        let earnings_account_id = match uuid::Uuid::parse_str(earnings_account_str) {
-            Ok(uuid) => uuid,
-            Err(_) => {
-                println!(
-                    "{}",
-                    ErrorFormatter::format_validation_error(
-                        "Earnings Account ID",
-                        "Invalid UUID format",
-                        "Please provide a valid UUID for the earnings account"
-                    )
-                );
-                return;
-            }
-        };
-
-        progress.step("Parsing tax account ID");
-        let tax_account_id = match uuid::Uuid::parse_str(tax_account_str) {
-            Ok(uuid) => uuid,
-            Err(_) => {
-                println!(
-                    "{}",
-                    ErrorFormatter::format_validation_error(
-                        "Tax Account ID",
-                        "Invalid UUID format",
-                        "Please provide a valid UUID for the tax account"
-                    )
-                );
-                return;
-            }
-        };
-
-        progress.step("Parsing reinvestment account ID");
-        let reinvestment_account_id = match uuid::Uuid::parse_str(reinvestment_account_str) {
-            Ok(uuid) => uuid,
-            Err(_) => {
-                println!(
-                    "{}",
-                    ErrorFormatter::format_validation_error(
-                        "Reinvestment Account ID",
-                        "Invalid UUID format",
-                        "Please provide a valid UUID for the reinvestment account"
                     )
                 );
                 return;
@@ -887,14 +842,10 @@ impl ArgDispatcher {
         progress.step("Executing distribution transaction");
 
         // Execute the distribution
-        match self.trust.execute_distribution(
-            account_id,
-            earnings_account_id,
-            tax_account_id,
-            reinvestment_account_id,
-            amount,
-            currency,
-        ) {
+        match self
+            .trust
+            .execute_distribution(account_id, amount, currency)
+        {
             Ok(result) => {
                 progress.complete();
 

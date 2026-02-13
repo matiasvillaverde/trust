@@ -1,6 +1,6 @@
 use crate::{
-    Account, AccountBalance, BrokerLog, Currency, DistributionRules, Environment, Order,
-    OrderAction, OrderCategory, Rule, RuleLevel, RuleName, Status, Trade, TradeBalance,
+    Account, AccountBalance, AccountType, BrokerLog, Currency, DistributionRules, Environment,
+    Order, OrderAction, OrderCategory, Rule, RuleLevel, RuleName, Status, Trade, TradeBalance,
     TradeCategory, TradingVehicle, TradingVehicleCategory, Transaction, TransactionCategory,
 };
 use rust_decimal::Decimal;
@@ -82,6 +82,27 @@ pub trait AccountWrite {
         taxes_percentage: Decimal,
         earnings_percentage: Decimal,
     ) -> Result<Account, Box<dyn Error>>;
+
+    /// Creates a new account with hierarchy metadata
+    #[allow(clippy::too_many_arguments)]
+    fn create_with_hierarchy(
+        &mut self,
+        name: &str,
+        description: &str,
+        environment: Environment,
+        taxes_percentage: Decimal,
+        earnings_percentage: Decimal,
+        _account_type: AccountType,
+        _parent_account_id: Option<Uuid>,
+    ) -> Result<Account, Box<dyn Error>> {
+        self.create(
+            name,
+            description,
+            environment,
+            taxes_percentage,
+            earnings_percentage,
+        )
+    }
 }
 
 /// Trait for reading account balance data from the database
@@ -377,5 +398,6 @@ pub trait DistributionWrite {
         tax_percent: Decimal,
         reinvestment_percent: Decimal,
         minimum_threshold: Decimal,
+        configuration_password_hash: &str,
     ) -> Result<DistributionRules, Box<dyn Error>>;
 }

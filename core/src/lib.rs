@@ -39,6 +39,7 @@ use model::{
     TransactionCategory,
 };
 use rust_decimal::Decimal;
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 /// The main facade for interacting with the Trust financial trading system.
@@ -673,16 +674,17 @@ impl TrustFacade {
         environment: Environment,
         taxes_percentage: Decimal,
         earnings_percentage: Decimal,
-        _account_type: AccountType,
-        _parent_account_id: Option<Uuid>,
+        account_type: AccountType,
+        parent_account_id: Option<Uuid>,
     ) -> Result<Account, Box<dyn std::error::Error>> {
-        // TODO: Update when database layer supports hierarchy
-        self.factory.account_write().create(
+        self.factory.account_write().create_with_hierarchy(
             name,
             description,
             environment,
             taxes_percentage,
             earnings_percentage,
+            account_type,
+            parent_account_id,
         )
     }
 
@@ -695,6 +697,7 @@ impl TrustFacade {
         tax_percent: Decimal,
         reinvestment_percent: Decimal,
         minimum_threshold: Decimal,
+        configuration_password: &str,
     ) -> Result<DistributionRules, Box<dyn std::error::Error>> {
         // Validate percentages sum to 100%
         let total = earnings_percent
@@ -716,9 +719,23 @@ impl TrustFacade {
         // Validate the rules
         rules.validate()?;
 
-        // TODO: Save to database when distribution_write trait is updated
-        // self.factory.distribution_write().create_rules(&rules)?;
-        Ok(rules)
+        let password_hash = hash_distribution_password(configuration_password)?;
+
+        // Existing rules can only be updated with the existing configuration password.
+        if let Ok(existing_rules) = self.factory.distribution_read().for_account(account_id) {
+            if existing_rules.configuration_password_hash != password_hash {
+                return Err("Invalid distribution configuration password".into());
+            }
+        }
+
+        self.factory.distribution_write().create_or_update(
+            account_id,
+            earnings_percent,
+            tax_percent,
+            reinvestment_percent,
+            minimum_threshold,
+            &password_hash,
+        )
     }
 
     /// Execute profit distribution for an account
@@ -726,31 +743,17 @@ impl TrustFacade {
     pub fn execute_distribution(
         &mut self,
         source_account_id: Uuid,
-        earnings_account_id: Uuid,
-        tax_account_id: Uuid,
-        reinvestment_account_id: Uuid,
         profit_amount: Decimal,
         currency: Currency,
     ) -> Result<DistributionResult, Box<dyn std::error::Error>> {
-        // Get accounts
         let source_account = self.factory.account_read().id(source_account_id)?;
-        let earnings_account = self.factory.account_read().id(earnings_account_id)?;
-        let tax_account = self.factory.account_read().id(tax_account_id)?;
-        let reinvestment_account = self.factory.account_read().id(reinvestment_account_id)?;
+        let rules = self
+            .factory
+            .distribution_read()
+            .for_account(source_account_id)?;
+        let (earnings_account, tax_account, reinvestment_account) =
+            self.resolve_distribution_accounts(source_account_id)?;
 
-        // TODO: Get distribution rules from database when implemented
-        // let rules = self.factory.distribution_read().for_account(source_account_id)?;
-
-        // Use default rules for now (40% earnings, 30% tax, 30% reinvestment)
-        let rules = DistributionRules::new(
-            source_account_id,
-            Decimal::new(40, 2),  // 40%
-            Decimal::new(30, 2),  // 30%
-            Decimal::new(30, 2),  // 30%
-            Decimal::new(100, 0), // $100 minimum
-        );
-
-        // Execute distribution
         let mut distribution_service = ProfitDistributionService::new(&mut *self.factory);
         distribution_service.execute_distribution(
             &source_account,
@@ -786,6 +789,50 @@ impl TrustFacade {
             reason,
         )
     }
+}
+
+impl TrustFacade {
+    fn resolve_distribution_accounts(
+        &mut self,
+        source_account_id: Uuid,
+    ) -> Result<(Account, Account, Account), Box<dyn std::error::Error>> {
+        let child_accounts: Vec<Account> = self
+            .factory
+            .account_read()
+            .all()?
+            .into_iter()
+            .filter(|account| account.parent_account_id == Some(source_account_id))
+            .collect();
+
+        let earnings_account = child_accounts
+            .iter()
+            .find(|account| account.account_type == AccountType::Earnings)
+            .cloned()
+            .ok_or("Missing earnings subaccount for distribution")?;
+        let tax_account = child_accounts
+            .iter()
+            .find(|account| account.account_type == AccountType::TaxReserve)
+            .cloned()
+            .ok_or("Missing tax reserve subaccount for distribution")?;
+        let reinvestment_account = child_accounts
+            .iter()
+            .find(|account| account.account_type == AccountType::Reinvestment)
+            .cloned()
+            .ok_or("Missing reinvestment subaccount for distribution")?;
+
+        Ok((earnings_account, tax_account, reinvestment_account))
+    }
+}
+
+fn hash_distribution_password(password: &str) -> Result<String, Box<dyn std::error::Error>> {
+    if password.trim().len() < 8 {
+        return Err("Distribution password must be at least 8 characters".into());
+    }
+
+    let mut hasher = Sha256::new();
+    hasher.update(password.as_bytes());
+    let digest = hasher.finalize();
+    Ok(format!("{digest:x}"))
 }
 
 mod calculators_account;

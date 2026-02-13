@@ -62,6 +62,14 @@ impl DistributionCommandBuilder {
                         .value_name("DECIMAL")
                         .help("Minimum profit threshold for distribution")
                         .required(true),
+                )
+                .arg(
+                    Arg::new("password")
+                        .long("password")
+                        .short('p')
+                        .value_name("STRING")
+                        .help("Password required to create/update distribution rules")
+                        .required(true),
                 ),
         );
         self
@@ -77,30 +85,6 @@ impl DistributionCommandBuilder {
                         .short('a')
                         .value_name("UUID")
                         .help("Source account ID for distribution")
-                        .required(true),
-                )
-                .arg(
-                    Arg::new("earnings-account")
-                        .long("earnings-account")
-                        .short('e')
-                        .value_name("UUID")
-                        .help("Earnings account ID")
-                        .required(true),
-                )
-                .arg(
-                    Arg::new("tax-account")
-                        .long("tax-account")
-                        .short('t')
-                        .value_name("UUID")
-                        .help("Tax reserve account ID")
-                        .required(true),
-                )
-                .arg(
-                    Arg::new("reinvestment-account")
-                        .long("reinvestment-account")
-                        .short('r')
-                        .value_name("UUID")
-                        .help("Reinvestment account ID")
                         .required(true),
                 )
                 .arg(

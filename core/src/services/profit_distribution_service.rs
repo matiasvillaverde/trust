@@ -301,6 +301,7 @@ mod tests {
             tax_percent: dec!(0.30),          // 30%
             reinvestment_percent: dec!(0.30), // 30%
             minimum_threshold: dec!(100),
+            configuration_password_hash: "test-password-hash".to_string(),
         }
     }
 

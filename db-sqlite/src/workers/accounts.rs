@@ -65,6 +65,70 @@ impl AccountWrite for AccountDB {
             })?
             .into_domain_model()
     }
+
+    fn create_with_hierarchy(
+        &mut self,
+        name: &str,
+        description: &str,
+        environment: Environment,
+        taxes_percentage: Decimal,
+        earnings_percentage: Decimal,
+        account_type: AccountType,
+        parent_account_id: Option<Uuid>,
+    ) -> Result<Account, Box<dyn Error>> {
+        if account_type.requires_parent() && parent_account_id.is_none() {
+            return Err("Child account types require a parent account ID".into());
+        }
+
+        if account_type == AccountType::Primary && parent_account_id.is_some() {
+            return Err("Primary accounts cannot have parent accounts".into());
+        }
+
+        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap_or_else(|e| {
+            eprintln!("Failed to acquire connection lock: {e}");
+            std::process::exit(1);
+        });
+
+        if let Some(parent_id) = parent_account_id {
+            let parent = accounts::table
+                .filter(accounts::id.eq(parent_id.to_string()))
+                .first::<AccountSQLite>(connection)
+                .map_err(|error| {
+                    error!("Error reading parent account: {:?}", error);
+                    error
+                })?;
+
+            if parent.account_type != "primary" {
+                return Err("Parent account must be a primary account".into());
+            }
+        }
+
+        let uuid = Uuid::new_v4().to_string();
+        let now = Utc::now().naive_utc();
+
+        let new_account = NewAccount {
+            id: uuid,
+            created_at: now,
+            updated_at: now,
+            deleted_at: None,
+            name: name.to_lowercase(),
+            description: description.to_lowercase(),
+            environment: environment.to_string(),
+            taxes_percentage: taxes_percentage.to_string(),
+            earnings_percentage: earnings_percentage.to_string(),
+            account_type: account_type.to_string(),
+            parent_account_id: parent_account_id.map(|id| id.to_string()),
+        };
+
+        diesel::insert_into(accounts::table)
+            .values(&new_account)
+            .get_result::<AccountSQLite>(connection)
+            .map_err(|error| {
+                error!("Error creating hierarchical account: {:?}", error);
+                error
+            })?
+            .into_domain_model()
+    }
 }
 
 impl AccountRead for AccountDB {
@@ -143,7 +207,12 @@ impl TryFrom<AccountSQLite> for Account {
             "earnings" => AccountType::Earnings,
             "tax_reserve" => AccountType::TaxReserve,
             "reinvestment" => AccountType::Reinvestment,
-            _ => AccountType::Primary, // Default to Primary for unknown types
+            _ => {
+                return Err(ConversionError::new(
+                    "account_type",
+                    "Failed to parse account type",
+                ))
+            }
         };
 
         let parent_account_id = value

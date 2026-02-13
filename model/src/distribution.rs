@@ -17,6 +17,8 @@ pub struct DistributionRules {
     pub reinvestment_percent: Decimal,
     /// Minimum profit threshold for distribution
     pub minimum_threshold: Decimal,
+    /// Hash used to protect rule updates
+    pub configuration_password_hash: String,
     /// When the rules were created
     pub created_at: NaiveDateTime,
     /// When the rules were last updated
@@ -91,9 +93,17 @@ impl DistributionRules {
             tax_percent,
             reinvestment_percent,
             minimum_threshold,
+            configuration_password_hash: String::new(),
             created_at: now,
             updated_at: now,
         }
+    }
+
+    /// Sets a pre-hashed configuration password to protect updates
+    #[must_use]
+    pub fn with_password_hash(mut self, configuration_password_hash: String) -> Self {
+        self.configuration_password_hash = configuration_password_hash;
+        self
     }
 
     /// Creates default distribution rules for an account

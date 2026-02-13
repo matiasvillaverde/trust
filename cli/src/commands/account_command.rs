@@ -8,7 +8,8 @@ pub struct AccountCommandBuilder {
 impl AccountCommandBuilder {
     pub fn new() -> Self {
         AccountCommandBuilder {
-            command: Command::new("account")
+            command: Command::new("accounts")
+                .visible_alias("account")
                 .about("Manage the trading account information")
                 .arg_required_else_help(true),
             subcommands: Vec::new(),
@@ -36,13 +37,13 @@ impl AccountCommandBuilder {
                         .long("type")
                         .short('t')
                         .value_name("TYPE")
-                        .help("Account type (Primary, Earnings, TaxReserve, Reinvestment)")
-                        .value_parser(["Primary", "Earnings", "TaxReserve", "Reinvestment"])
-                        .default_value("Primary"),
+                        .help("Account type (primary, earnings, tax-reserve, reinvestment)")
+                        .value_parser(["primary", "earnings", "tax-reserve", "reinvestment"])
+                        .default_value("primary"),
                 )
                 .arg(
-                    Arg::new("parent-id")
-                        .long("parent-id")
+                    Arg::new("parent")
+                        .long("parent")
                         .short('p')
                         .value_name("UUID")
                         .help("Parent account ID for hierarchical accounts")

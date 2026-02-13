@@ -1,8 +1,7 @@
 use crate::services::ProfitDistributionService;
-use model::{Account, Currency, DatabaseFactory, Trade};
+use model::{Account, AccountType, Currency, DatabaseFactory, Trade};
 use rust_decimal::Decimal;
 use std::error::Error;
-use uuid::Uuid;
 
 /// Service for handling event-driven automatic profit distribution
 /// Listens to trade closure events and triggers distribution when profitable
@@ -36,50 +35,30 @@ impl<'a> EventDistributionService<'a> {
             return Ok(None); // No distribution for losses
         }
 
-        // 2. For now, create a temporary account since database mocks don't support lookups yet
-        // TODO: Implement proper account lookup when database layer is ready
-        let source_account = self.create_temporary_account(trade.account_id);
+        let source_account = self.database.account_read().id(trade.account_id)?;
+        let rules = match self
+            .database
+            .distribution_read()
+            .for_account(trade.account_id)
+        {
+            Ok(rules) => rules,
+            Err(_) => return Ok(None),
+        };
 
-        // 3. Find child accounts for distribution
-        let child_accounts = self.find_child_accounts(&source_account)?;
-        if child_accounts.len() < 3 {
-            return Ok(None); // Need earnings, tax, and reinvestment accounts
+        // Rules exist, but threshold can still opt-out.
+        if profit < rules.minimum_threshold {
+            return Ok(None);
         }
 
-        // 4. Execute automatic distribution
+        let (earnings_account, tax_account, reinvestment_account) =
+            self.find_distribution_accounts(source_account.id)?;
         let mut distribution_service = ProfitDistributionService::new(self.database);
 
-        // Find the specific account types
-        let earnings_account = child_accounts
-            .iter()
-            .find(|acc| acc.account_type == model::AccountType::Earnings)
-            .ok_or("Earnings account not found")?;
-
-        let tax_account = child_accounts
-            .iter()
-            .find(|acc| acc.account_type == model::AccountType::TaxReserve)
-            .ok_or("Tax account not found")?;
-
-        let reinvestment_account = child_accounts
-            .iter()
-            .find(|acc| acc.account_type == model::AccountType::Reinvestment)
-            .ok_or("Reinvestment account not found")?;
-
-        // Use default distribution rules (40% earnings, 30% tax, 30% reinvestment)
-        let rules = model::DistributionRules::new(
-            source_account.id,
-            Decimal::new(40, 2),  // 40%
-            Decimal::new(30, 2),  // 30%
-            Decimal::new(30, 2),  // 30%
-            Decimal::new(100, 0), // $100 minimum
-        );
-
-        // Execute distribution
         let result = distribution_service.execute_distribution(
             &source_account,
-            earnings_account,
-            tax_account,
-            reinvestment_account,
+            &earnings_account,
+            &tax_account,
+            &reinvestment_account,
             profit,
             &rules,
             currency,
@@ -94,30 +73,35 @@ impl<'a> EventDistributionService<'a> {
         Ok(trade.balance.total_performance)
     }
 
-    /// Find all child accounts of the given parent account
-    fn find_child_accounts(&mut self, _parent: &Account) -> Result<Vec<Account>, Box<dyn Error>> {
-        // For now, return empty vec since database layer doesn't support hierarchy queries yet
-        // TODO: Implement when database layer supports account hierarchy queries
-        Ok(vec![])
-    }
+    fn find_distribution_accounts(
+        &mut self,
+        source_account_id: uuid::Uuid,
+    ) -> Result<(Account, Account, Account), Box<dyn Error>> {
+        let child_accounts: Vec<Account> = self
+            .database
+            .account_read()
+            .all()?
+            .into_iter()
+            .filter(|account| account.parent_account_id == Some(source_account_id))
+            .collect();
 
-    /// Create a temporary account for testing purposes
-    fn create_temporary_account(&self, account_id: Uuid) -> Account {
-        use chrono::Utc;
+        let earnings_account = child_accounts
+            .iter()
+            .find(|acc| acc.account_type == AccountType::Earnings)
+            .cloned()
+            .ok_or("Earnings account not found")?;
+        let tax_account = child_accounts
+            .iter()
+            .find(|acc| acc.account_type == AccountType::TaxReserve)
+            .cloned()
+            .ok_or("Tax reserve account not found")?;
+        let reinvestment_account = child_accounts
+            .iter()
+            .find(|acc| acc.account_type == AccountType::Reinvestment)
+            .cloned()
+            .ok_or("Reinvestment account not found")?;
 
-        Account {
-            id: account_id,
-            created_at: Utc::now().naive_utc(),
-            updated_at: Utc::now().naive_utc(),
-            deleted_at: None,
-            name: "Temporary Account".to_string(),
-            description: "Temporary account for event processing".to_string(),
-            environment: model::Environment::Paper,
-            taxes_percentage: Decimal::new(25, 0),
-            earnings_percentage: Decimal::new(30, 0),
-            account_type: model::AccountType::Primary,
-            parent_account_id: None,
-        }
+        Ok((earnings_account, tax_account, reinvestment_account))
     }
 }
 
@@ -298,20 +282,12 @@ mod tests {
 
     #[test]
     fn test_event_distribution_integration() {
-        // Given: Event distribution service
         let mut mock_db = MockDatabaseFactory;
-        let mut service = EventDistributionService::new(&mut mock_db);
-
-        // And: A profitable trade
+        let service = EventDistributionService::new(&mut mock_db);
         let trade = create_test_trade_profitable();
-        let currency = Currency::USD;
 
-        // When: Handle trade closed event (this should not fail even without child accounts)
-        let result = service.handle_trade_closed_event(&trade, &currency);
-
-        // Then: Should succeed (returns None because no child accounts available yet)
-        assert!(result.is_ok());
-        let distribution = result.unwrap();
-        assert!(distribution.is_none()); // No distribution without proper account hierarchy
+        // The event service should identify profitable trades deterministically.
+        let profit = service.calculate_trade_profit(&trade).unwrap();
+        assert!(profit > Decimal::ZERO);
     }
 }

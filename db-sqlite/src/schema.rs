@@ -57,6 +57,7 @@ diesel::table! {
         tax_percent -> Text,
         reinvestment_percent -> Text,
         minimum_threshold -> Text,
+        configuration_password_hash -> Text,
     }
 }
 
