@@ -1,8 +1,11 @@
 use crate::error::{ConversionError, IntoDomainModel};
-use crate::schema::distribution_rules;
+use crate::schema::{distribution_history, distribution_rules};
 use chrono::{NaiveDateTime, Utc};
 use diesel::prelude::*;
-use model::{DistributionRead, DistributionRules, DistributionRulesNotFound, DistributionWrite};
+use model::{
+    DistributionHistory, DistributionRead, DistributionRules, DistributionRulesNotFound,
+    DistributionWrite,
+};
 use rust_decimal::Decimal;
 use std::error::Error;
 use std::str::FromStr;
@@ -44,6 +47,28 @@ impl DistributionRead for DistributionDB {
             Some(rule) => rule.into_domain_model(),
             None => Err(DistributionRulesNotFound { account_id }.into()),
         }
+    }
+
+    fn history_for_account(
+        &mut self,
+        account_id: Uuid,
+    ) -> Result<Vec<DistributionHistory>, Box<dyn Error>> {
+        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap_or_else(|e| {
+            eprintln!("Failed to acquire connection lock: {e}");
+            std::process::exit(1);
+        });
+
+        distribution_history::table
+            .filter(distribution_history::source_account_id.eq(account_id.to_string()))
+            .order(distribution_history::distribution_date.desc())
+            .load::<DistributionHistorySQLite>(connection)
+            .map_err(|error| {
+                error!("Error reading distribution history: {:?}", error);
+                error
+            })?
+            .into_iter()
+            .map(IntoDomainModel::into_domain_model)
+            .collect()
     }
 }
 
@@ -117,6 +142,45 @@ impl DistributionWrite for DistributionDB {
                 .into_domain_model()
         }
     }
+
+    fn create_history(
+        &mut self,
+        source_account_id: Uuid,
+        trade_id: Option<Uuid>,
+        original_amount: Decimal,
+        distribution_date: NaiveDateTime,
+        earnings_amount: Option<Decimal>,
+        tax_amount: Option<Decimal>,
+        reinvestment_amount: Option<Decimal>,
+    ) -> Result<DistributionHistory, Box<dyn Error>> {
+        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap_or_else(|e| {
+            eprintln!("Failed to acquire connection lock: {e}");
+            std::process::exit(1);
+        });
+
+        let now = Utc::now().naive_utc();
+        let new_history = NewDistributionHistory {
+            id: Uuid::new_v4().to_string(),
+            created_at: now,
+            updated_at: now,
+            source_account_id: source_account_id.to_string(),
+            trade_id: trade_id.map(|id| id.to_string()),
+            original_amount: original_amount.to_string(),
+            distribution_date,
+            earnings_amount: earnings_amount.map(|amount| amount.to_string()),
+            tax_amount: tax_amount.map(|amount| amount.to_string()),
+            reinvestment_amount: reinvestment_amount.map(|amount| amount.to_string()),
+        };
+
+        diesel::insert_into(distribution_history::table)
+            .values(&new_history)
+            .get_result::<DistributionHistorySQLite>(connection)
+            .map_err(|error| {
+                error!("Error creating distribution history: {:?}", error);
+                error
+            })?
+            .into_domain_model()
+    }
 }
 
 #[derive(Debug, Queryable, Identifiable, AsChangeset, Insertable)]
@@ -185,4 +249,94 @@ struct NewDistributionRules {
     reinvestment_percent: String,
     minimum_threshold: String,
     configuration_password_hash: String,
+}
+
+#[derive(Debug, Queryable, Identifiable, AsChangeset, Insertable)]
+#[diesel(table_name = distribution_history)]
+#[diesel(primary_key(id))]
+#[diesel(treat_none_as_null = true)]
+pub struct DistributionHistorySQLite {
+    pub id: String,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
+    pub source_account_id: String,
+    pub trade_id: Option<String>,
+    pub original_amount: String,
+    pub distribution_date: NaiveDateTime,
+    pub earnings_amount: Option<String>,
+    pub tax_amount: Option<String>,
+    pub reinvestment_amount: Option<String>,
+}
+
+impl TryFrom<DistributionHistorySQLite> for DistributionHistory {
+    type Error = ConversionError;
+
+    fn try_from(value: DistributionHistorySQLite) -> Result<Self, Self::Error> {
+        Ok(DistributionHistory {
+            id: Uuid::parse_str(&value.id)
+                .map_err(|_| ConversionError::new("id", "Failed to parse history ID"))?,
+            source_account_id: Uuid::parse_str(&value.source_account_id).map_err(|_| {
+                ConversionError::new("source_account_id", "Failed to parse source account ID")
+            })?,
+            trade_id: value
+                .trade_id
+                .as_deref()
+                .map(Uuid::parse_str)
+                .transpose()
+                .map_err(|_| ConversionError::new("trade_id", "Failed to parse trade ID"))?,
+            original_amount: Decimal::from_str(&value.original_amount).map_err(|_| {
+                ConversionError::new("original_amount", "Failed to parse original amount")
+            })?,
+            distribution_date: value.distribution_date,
+            earnings_amount: value
+                .earnings_amount
+                .as_deref()
+                .map(Decimal::from_str)
+                .transpose()
+                .map_err(|_| {
+                    ConversionError::new("earnings_amount", "Failed to parse earnings amount")
+                })?,
+            tax_amount: value
+                .tax_amount
+                .as_deref()
+                .map(Decimal::from_str)
+                .transpose()
+                .map_err(|_| ConversionError::new("tax_amount", "Failed to parse tax amount"))?,
+            reinvestment_amount: value
+                .reinvestment_amount
+                .as_deref()
+                .map(Decimal::from_str)
+                .transpose()
+                .map_err(|_| {
+                    ConversionError::new(
+                        "reinvestment_amount",
+                        "Failed to parse reinvestment amount",
+                    )
+                })?,
+            created_at: value.created_at,
+            updated_at: value.updated_at,
+        })
+    }
+}
+
+impl IntoDomainModel<DistributionHistory> for DistributionHistorySQLite {
+    fn into_domain_model(self) -> Result<DistributionHistory, Box<dyn Error>> {
+        self.try_into().map_err(Into::into)
+    }
+}
+
+#[derive(Insertable)]
+#[diesel(table_name = distribution_history)]
+#[diesel(treat_none_as_null = true)]
+struct NewDistributionHistory {
+    id: String,
+    created_at: NaiveDateTime,
+    updated_at: NaiveDateTime,
+    source_account_id: String,
+    trade_id: Option<String>,
+    original_amount: String,
+    distribution_date: NaiveDateTime,
+    earnings_amount: Option<String>,
+    tax_amount: Option<String>,
+    reinvestment_amount: Option<String>,
 }

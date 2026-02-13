@@ -26,13 +26,27 @@ pub fn create(
 ) -> Result<(Transaction, AccountBalance), Box<dyn Error>> {
     match category {
         TransactionCategory::Deposit => deposit(database, amount, currency, account_id),
-        TransactionCategory::Withdrawal => withdraw(database, amount, currency, account_id),
-        TransactionCategory::WithdrawalTax => {
-            unimplemented!("WithdrawalTax is not implemented yet")
-        }
-        TransactionCategory::WithdrawalEarnings => {
-            unimplemented!("WithdrawalEarnings is not implemented yet")
-        }
+        TransactionCategory::Withdrawal => withdraw(
+            database,
+            amount,
+            currency,
+            account_id,
+            TransactionCategory::Withdrawal,
+        ),
+        TransactionCategory::WithdrawalTax => withdraw(
+            database,
+            amount,
+            currency,
+            account_id,
+            TransactionCategory::WithdrawalTax,
+        ),
+        TransactionCategory::WithdrawalEarnings => withdraw(
+            database,
+            amount,
+            currency,
+            account_id,
+            TransactionCategory::WithdrawalEarnings,
+        ),
         default => {
             let message = format!("Manually creating transaction category {default:?} is not allowed. Only Withdrawals and deposits are allowed");
             Err(message.into())
@@ -104,6 +118,7 @@ fn withdraw(
     amount: Decimal,
     currency: &Currency,
     account_id: Uuid,
+    category: TransactionCategory,
 ) -> Result<(Transaction, AccountBalance), Box<dyn Error>> {
     // Validate that account has enough funds to withdraw
     transaction::can_transfer_withdraw(
@@ -120,7 +135,7 @@ fn withdraw(
             account_id,
             amount,
             currency,
-            TransactionCategory::Withdrawal,
+            category,
         )?;
 
     // Update account balance
@@ -128,7 +143,7 @@ fn withdraw(
         database,
         account_id,
         currency,
-        TransactionCategory::Withdrawal,
+        category,
         amount,
     )?;
 

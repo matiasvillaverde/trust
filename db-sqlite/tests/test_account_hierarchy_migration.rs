@@ -127,6 +127,25 @@ fn test_distribution_tables_exist_after_migration() {
         retrieved.configuration_password_hash,
         "test-lock-hash".to_string()
     );
+
+    let history_entry = db
+        .distribution_write()
+        .create_history(
+            account.id,
+            None,
+            Decimal::new(1000, 0),
+            chrono::Utc::now().naive_utc(),
+            Some(Decimal::new(400, 0)),
+            Some(Decimal::new(300, 0)),
+            Some(Decimal::new(300, 0)),
+        )
+        .unwrap();
+    let history = db
+        .distribution_read()
+        .history_for_account(account.id)
+        .unwrap();
+    assert_eq!(history.len(), 1);
+    assert_eq!(history[0].id, history_entry.id);
 }
 
 #[test]

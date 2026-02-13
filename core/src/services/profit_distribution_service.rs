@@ -46,6 +46,7 @@ impl<'a> ProfitDistributionService<'a> {
         profit_amount: Decimal,
         rules: &DistributionRules,
         currency: &Currency,
+        trade_id: Option<Uuid>,
     ) -> Result<DistributionResult, Box<dyn Error>> {
         // Calculate the distribution first
         let mut result = self.calculate_distribution(profit_amount, rules)?;
@@ -64,6 +65,15 @@ impl<'a> ProfitDistributionService<'a> {
         ) {
             Ok(transaction_ids) => {
                 result.transactions_created = transaction_ids;
+                self.database.distribution_write().create_history(
+                    result.source_account_id,
+                    trade_id,
+                    result.original_amount,
+                    result.distribution_date,
+                    result.earnings_amount,
+                    result.tax_amount,
+                    result.reinvestment_amount,
+                )?;
                 Ok(result)
             }
             Err(e) => {
@@ -177,6 +187,7 @@ impl<'a> ProfitDistributionService<'a> {
 mod tests {
     use super::*;
     use chrono::Utc;
+    use db_sqlite::SqliteDatabase;
     use model::{AccountType, DatabaseFactory};
     use rust_decimal_macros::dec;
     use uuid::Uuid;
@@ -305,6 +316,67 @@ mod tests {
         }
     }
 
+    fn create_real_hierarchy(
+        database: &SqliteDatabase,
+        prefix: &str,
+    ) -> (Account, Account, Account, Account) {
+        let source_account = database
+            .account_write()
+            .create_with_hierarchy(
+                &format!("{prefix}-main"),
+                &format!("{prefix}-main"),
+                model::Environment::Paper,
+                dec!(25),
+                dec!(30),
+                AccountType::Primary,
+                None,
+            )
+            .expect("source account should be created");
+        let earnings_account = database
+            .account_write()
+            .create_with_hierarchy(
+                &format!("{prefix}-earnings"),
+                &format!("{prefix}-earnings"),
+                model::Environment::Paper,
+                dec!(0),
+                dec!(0),
+                AccountType::Earnings,
+                Some(source_account.id),
+            )
+            .expect("earnings account should be created");
+        let tax_account = database
+            .account_write()
+            .create_with_hierarchy(
+                &format!("{prefix}-tax"),
+                &format!("{prefix}-tax"),
+                model::Environment::Paper,
+                dec!(0),
+                dec!(0),
+                AccountType::TaxReserve,
+                Some(source_account.id),
+            )
+            .expect("tax account should be created");
+        let reinvestment_account = database
+            .account_write()
+            .create_with_hierarchy(
+                &format!("{prefix}-reinvest"),
+                &format!("{prefix}-reinvest"),
+                model::Environment::Paper,
+                dec!(0),
+                dec!(0),
+                AccountType::Reinvestment,
+                Some(source_account.id),
+            )
+            .expect("reinvestment account should be created");
+
+        (
+            source_account,
+            earnings_account,
+            tax_account,
+            reinvestment_account,
+        )
+    }
+
     #[test]
     fn test_calculate_distribution_happy_path() {
         // Given: A profit distribution service
@@ -352,18 +424,14 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Mock database methods not fully implemented - requires actual database for this test"]
+    #[allow(clippy::too_many_lines)]
     fn test_execute_distribution_with_actual_transfers() {
-        // Given: A profit distribution service with database
-        let mut mock_db = MockDatabaseFactory::new();
-        let mut service = ProfitDistributionService::new(&mut mock_db);
+        // Given: A profit distribution service with real sqlite database
+        let mut database = SqliteDatabase::new_in_memory();
 
         // And: Account hierarchy for distribution
-        let source_account = create_test_account(AccountType::Primary, None);
-        let earnings_account = create_test_account(AccountType::Earnings, Some(source_account.id));
-        let tax_account = create_test_account(AccountType::TaxReserve, Some(source_account.id));
-        let reinvestment_account =
-            create_test_account(AccountType::Reinvestment, Some(source_account.id));
+        let (source_account, earnings_account, tax_account, reinvestment_account) =
+            create_real_hierarchy(&database, "main");
 
         // And: Distribution rules and parameters
         let rules = create_test_distribution_rules(source_account.id);
@@ -371,15 +439,19 @@ mod tests {
         let currency = Currency::USD;
 
         // When: We execute the distribution with actual transfers
-        let result = service.execute_distribution(
-            &source_account,
-            &earnings_account,
-            &tax_account,
-            &reinvestment_account,
-            profit_amount,
-            &rules,
-            &currency,
-        );
+        let result = {
+            let mut service = ProfitDistributionService::new(&mut database);
+            service.execute_distribution(
+                &source_account,
+                &earnings_account,
+                &tax_account,
+                &reinvestment_account,
+                profit_amount,
+                &rules,
+                &currency,
+                None,
+            )
+        };
 
         // Then: The distribution should be executed successfully
         let distribution_result = result.expect("Distribution execution should succeed");
@@ -393,6 +465,15 @@ mod tests {
 
         // Should have created 3 transactions (one for each allocation)
         assert_eq!(distribution_result.transactions_created.len(), 3);
+
+        // And history row is persisted
+        let history = database
+            .distribution_read()
+            .history_for_account(source_account.id)
+            .expect("history should be readable");
+        assert_eq!(history.len(), 1);
+        let first_history = history.first().expect("history entry should exist");
+        assert_eq!(first_history.original_amount, profit_amount);
     }
 
     #[test]
@@ -470,6 +551,7 @@ mod tests {
             profit_amount,
             &rules,
             &currency,
+            None,
         );
 
         // Then: The distribution should fail due to hierarchy validation
@@ -508,18 +590,14 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Mock database methods not fully implemented - requires actual database for this test"]
+    #[allow(clippy::too_many_lines)]
     fn test_execute_distribution_with_zero_amounts() {
-        // Given: A profit distribution service with database
-        let mut mock_db = MockDatabaseFactory::new();
-        let mut service = ProfitDistributionService::new(&mut mock_db);
+        // Given: A profit distribution service with real sqlite database
+        let mut database = SqliteDatabase::new_in_memory();
 
         // And: Account hierarchy for distribution
-        let source_account = create_test_account(AccountType::Primary, None);
-        let earnings_account = create_test_account(AccountType::Earnings, Some(source_account.id));
-        let tax_account = create_test_account(AccountType::TaxReserve, Some(source_account.id));
-        let reinvestment_account =
-            create_test_account(AccountType::Reinvestment, Some(source_account.id));
+        let (source_account, earnings_account, tax_account, reinvestment_account) =
+            create_real_hierarchy(&database, "zero");
 
         // And: Distribution rules with zero percentages for some allocations
         let mut rules = create_test_distribution_rules(source_account.id);
@@ -531,15 +609,19 @@ mod tests {
         let currency = Currency::USD;
 
         // When: We execute the distribution with zero amounts
-        let result = service.execute_distribution(
-            &source_account,
-            &earnings_account,
-            &tax_account,
-            &reinvestment_account,
-            profit_amount,
-            &rules,
-            &currency,
-        );
+        let result = {
+            let mut service = ProfitDistributionService::new(&mut database);
+            service.execute_distribution(
+                &source_account,
+                &earnings_account,
+                &tax_account,
+                &reinvestment_account,
+                profit_amount,
+                &rules,
+                &currency,
+                None,
+            )
+        };
 
         // Then: The distribution should succeed with only earnings transfer
         let distribution_result = result.expect("Distribution execution should succeed");
@@ -549,5 +631,16 @@ mod tests {
 
         // Should have created only 1 transaction (earnings only)
         assert_eq!(distribution_result.transactions_created.len(), 1);
+
+        // History is still persisted even with zero-value allocation legs
+        let history = database
+            .distribution_read()
+            .history_for_account(source_account.id)
+            .expect("history should be readable");
+        assert_eq!(history.len(), 1);
+        let first_history = history.first().expect("history entry should exist");
+        assert_eq!(first_history.earnings_amount, Some(dec!(1000)));
+        assert_eq!(first_history.tax_amount, None);
+        assert_eq!(first_history.reinvestment_amount, None);
     }
 }
