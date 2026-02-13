@@ -1,4 +1,4 @@
-use clap::Command;
+use clap::{Arg, Command};
 
 pub struct TradeCommandBuilder {
     command: Command,
@@ -96,6 +96,53 @@ impl TradeCommandBuilder {
     pub fn manually_close(mut self) -> Self {
         self.subcommands
             .push(Command::new("manually-close").about("Manually close a trade"));
+        self
+    }
+
+    pub fn size_preview(mut self) -> Self {
+        self.subcommands.push(
+            Command::new("size-preview")
+                .about("Preview base and level-adjusted position sizes")
+                .arg(
+                    Arg::new("account")
+                        .long("account")
+                        .short('a')
+                        .value_name("ACCOUNT_ID")
+                        .help("Target account ID")
+                        .required(true),
+                )
+                .arg(
+                    Arg::new("entry")
+                        .long("entry")
+                        .value_name("PRICE")
+                        .help("Planned entry price")
+                        .required(true),
+                )
+                .arg(
+                    Arg::new("stop")
+                        .long("stop")
+                        .value_name("PRICE")
+                        .help("Planned stop price")
+                        .required(true),
+                )
+                .arg(
+                    Arg::new("currency")
+                        .long("currency")
+                        .value_name("CURRENCY")
+                        .help("Currency code (USD by default)")
+                        .required(false)
+                        .default_value("usd"),
+                )
+                .arg(
+                    Arg::new("format")
+                        .long("format")
+                        .value_name("FORMAT")
+                        .help("Output format")
+                        .value_parser(["text", "json"])
+                        .default_value("text")
+                        .required(false),
+                ),
+        );
         self
     }
 }

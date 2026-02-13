@@ -109,6 +109,7 @@ fn build_cli() -> Command {
                 .manually_close()
                 .modify_stop()
                 .modify_target()
+                .size_preview()
                 .build(),
         )
         .subcommand(
@@ -129,6 +130,8 @@ fn build_cli() -> Command {
                 .history()
                 .change()
                 .evaluate()
+                .progress()
+                .rules()
                 .build(),
         )
         .subcommand(MetricsCommandBuilder::new().advanced().compare().build())

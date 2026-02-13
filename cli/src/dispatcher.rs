@@ -9,13 +9,17 @@ use crate::dialogs::{RuleDialogBuilder, RuleRemoveDialogBuilder};
 use crate::protected_keyword;
 use alpaca_broker::AlpacaBroker;
 use clap::ArgMatches;
-use core::services::leveling::{LevelEvaluationOutcome, LevelPerformanceSnapshot};
+use core::services::leveling::{
+    LevelCriterionProgress, LevelEvaluationOutcome, LevelPathProgress, LevelPerformanceSnapshot,
+    LevelProgressReport,
+};
 use core::TrustFacade;
 use db_sqlite::SqliteDatabase;
 use model::{
-    database::TradingVehicleUpsert, LevelTrigger, Trade, TradingVehicleCategory,
-    TransactionCategory,
+    database::TradingVehicleUpsert, Currency, Level, LevelAdjustmentRules, LevelTrigger, Trade,
+    TradingVehicleCategory, TransactionCategory,
 };
+use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use serde_json::{json, Value};
@@ -158,6 +162,10 @@ impl ArgDispatcher {
                 Some(("search", _)) => self.search_trade(),
                 Some(("modify-stop", _)) => self.modify_stop(),
                 Some(("modify-target", _)) => self.modify_target(),
+                Some(("size-preview", sub_sub_matches)) => self.trade_size_preview(
+                    sub_sub_matches,
+                    Self::parse_report_format(sub_sub_matches),
+                )?,
                 _ => unreachable!("No subcommand provided"),
             },
             Some(("report", sub_matches)) => match sub_matches.subcommand() {
@@ -205,6 +213,17 @@ impl ArgDispatcher {
                     }
                     Some(("evaluate", sub_sub_matches)) => self
                         .level_evaluate(sub_sub_matches, Self::parse_report_format(sub_matches))?,
+                    Some(("progress", sub_sub_matches)) => self
+                        .level_progress(sub_sub_matches, Self::parse_report_format(sub_matches))?,
+                    Some(("rules", sub_sub_matches)) => {
+                        match sub_sub_matches.subcommand() {
+                            Some(("show", nested)) => self
+                                .level_rules_show(nested, Self::parse_report_format(sub_matches))?,
+                            Some(("set", nested)) => self
+                                .level_rules_set(nested, Self::parse_report_format(sub_matches))?,
+                            _ => unreachable!("No subcommand provided"),
+                        }
+                    }
                     _ => unreachable!("No subcommand provided"),
                 }
             }
@@ -423,6 +442,7 @@ impl ArgDispatcher {
         } else if apply {
             println!("Applied: no change");
         }
+        Self::print_level_progress_text(&outcome.progress);
     }
 
     fn level_evaluation_payload(
@@ -446,8 +466,86 @@ impl ArgDispatcher {
                         "trigger_type": decision.trigger_type.to_string()
                     })
                 }),
-                "applied_level": outcome.applied_level.as_ref().map(|level| level.current_level)
+                "applied_level": outcome.applied_level.as_ref().map(|level| level.current_level),
+                "progress": Self::level_progress_payload(&outcome.progress),
             }
+        })
+    }
+
+    fn print_level_progress_text(progress: &LevelProgressReport) {
+        println!("Progress to adjacent levels:");
+
+        if progress.upgrade_paths.is_empty() {
+            println!("- Upgrade: unavailable at current bounds");
+        } else {
+            for path in &progress.upgrade_paths {
+                Self::print_level_path_text("Upgrade", path);
+            }
+        }
+
+        if progress.downgrade_paths.is_empty() {
+            println!("- Downgrade: unavailable at current bounds");
+        } else {
+            for path in &progress.downgrade_paths {
+                Self::print_level_path_text("Downgrade", path);
+            }
+        }
+    }
+
+    fn print_level_path_text(direction_label: &str, path: &LevelPathProgress) {
+        let target = path
+            .target_level
+            .map_or_else(|| "n/a".to_string(), |level| format!("L{level}"));
+        println!(
+            "- {direction_label} via {} -> {} [{}]",
+            path.path,
+            target,
+            if path.all_met { "ready" } else { "not ready" }
+        );
+        for criterion in &path.criteria {
+            Self::print_level_criterion_text(criterion);
+        }
+    }
+
+    fn print_level_criterion_text(criterion: &LevelCriterionProgress) {
+        println!(
+            "  - {} {} {} (actual {}, missing {})",
+            criterion.key,
+            criterion.comparator,
+            criterion.threshold,
+            criterion.actual,
+            criterion.missing
+        );
+    }
+
+    fn level_progress_payload(progress: &LevelProgressReport) -> Value {
+        json!({
+            "current_level": progress.current_level,
+            "status": progress.status.to_string(),
+            "upgrade_paths": progress.upgrade_paths.iter().map(Self::level_path_payload).collect::<Vec<_>>(),
+            "downgrade_paths": progress.downgrade_paths.iter().map(Self::level_path_payload).collect::<Vec<_>>(),
+        })
+    }
+
+    fn level_path_payload(path: &LevelPathProgress) -> Value {
+        json!({
+            "path": path.path,
+            "trigger_type": path.trigger_type.to_string(),
+            "direction": format!("{:?}", path.direction),
+            "target_level": path.target_level,
+            "all_met": path.all_met,
+            "criteria": path.criteria.iter().map(Self::level_criterion_payload).collect::<Vec<_>>(),
+        })
+    }
+
+    fn level_criterion_payload(criterion: &LevelCriterionProgress) -> Value {
+        json!({
+            "key": criterion.key,
+            "comparator": criterion.comparator,
+            "actual": Self::decimal_string(criterion.actual),
+            "threshold": Self::decimal_string(criterion.threshold),
+            "missing": Self::decimal_string(criterion.missing),
+            "met": criterion.met,
         })
     }
 
@@ -858,6 +956,245 @@ impl ArgDispatcher {
 
         Ok(())
     }
+
+    fn level_progress(
+        &mut self,
+        sub_matches: &ArgMatches,
+        format: ReportOutputFormat,
+    ) -> Result<(), CliError> {
+        let account_id = self.resolve_level_account_id(sub_matches, format)?;
+        let snapshot = Self::level_snapshot_from_args(sub_matches, format)?;
+        let outcome = self
+            .trust
+            .evaluate_level_transition(account_id, snapshot, false)
+            .map_err(|error| {
+                Self::report_error(
+                    format,
+                    "level_progress_failed",
+                    format!("Unable to calculate level progress: {error}"),
+                )
+            })?;
+
+        match format {
+            ReportOutputFormat::Text => Self::print_level_evaluation_text(&outcome, false),
+            ReportOutputFormat::Json => {
+                let payload = Self::level_evaluation_payload(account_id, false, &outcome);
+                Self::print_json(&payload)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn level_rules_show(
+        &mut self,
+        sub_matches: &ArgMatches,
+        format: ReportOutputFormat,
+    ) -> Result<(), CliError> {
+        let account_id = self.resolve_level_account_id(sub_matches, format)?;
+        let rules = self
+            .trust
+            .level_adjustment_rules_for_account(account_id)
+            .map_err(|error| {
+                Self::report_error(
+                    format,
+                    "level_rules_show_failed",
+                    format!("Unable to load level rules: {error}"),
+                )
+            })?;
+
+        match format {
+            ReportOutputFormat::Text => {
+                println!("Level Adjustment Rules");
+                println!("======================");
+                println!(
+                    "monthly_loss_downgrade_pct: {}",
+                    rules.monthly_loss_downgrade_pct
+                );
+                println!(
+                    "single_loss_downgrade_pct: {}",
+                    rules.single_loss_downgrade_pct
+                );
+                println!(
+                    "upgrade_profitable_trades: {}",
+                    rules.upgrade_profitable_trades
+                );
+                println!("upgrade_win_rate_pct: {}", rules.upgrade_win_rate_pct);
+                println!(
+                    "upgrade_consecutive_wins: {}",
+                    rules.upgrade_consecutive_wins
+                );
+                println!(
+                    "cooldown_profitable_trades: {}",
+                    rules.cooldown_profitable_trades
+                );
+                println!("cooldown_win_rate_pct: {}", rules.cooldown_win_rate_pct);
+                println!(
+                    "cooldown_consecutive_wins: {}",
+                    rules.cooldown_consecutive_wins
+                );
+                println!(
+                    "recovery_profitable_trades: {}",
+                    rules.recovery_profitable_trades
+                );
+                println!("recovery_win_rate_pct: {}", rules.recovery_win_rate_pct);
+                println!(
+                    "recovery_consecutive_wins: {}",
+                    rules.recovery_consecutive_wins
+                );
+                println!(
+                    "min_trades_at_level_for_upgrade: {}",
+                    rules.min_trades_at_level_for_upgrade
+                );
+                println!("max_changes_in_30_days: {}", rules.max_changes_in_30_days);
+            }
+            ReportOutputFormat::Json => {
+                let payload = json!({
+                    "report": "level_rules",
+                    "format_version": 1,
+                    "generated_at": chrono::Utc::now().to_rfc3339(),
+                    "scope": { "account_id": account_id.to_string() },
+                    "data": Self::level_rules_payload(&rules),
+                });
+                Self::print_json(&payload)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn level_rules_set(
+        &mut self,
+        sub_matches: &ArgMatches,
+        format: ReportOutputFormat,
+    ) -> Result<(), CliError> {
+        self.ensure_protected_keyword(sub_matches, format, "level rules update")?;
+        let account_id = self.resolve_level_account_id(sub_matches, format)?;
+        let rule_key = sub_matches
+            .get_one::<String>("rule")
+            .ok_or_else(|| Self::report_error(format, "missing_rule_key", "Missing --rule"))?;
+        let value = sub_matches
+            .get_one::<String>("value")
+            .ok_or_else(|| Self::report_error(format, "missing_rule_value", "Missing --value"))?;
+
+        let mut rules = self
+            .trust
+            .level_adjustment_rules_for_account(account_id)
+            .map_err(|error| {
+                Self::report_error(
+                    format,
+                    "level_rules_read_failed",
+                    format!("Unable to read current level rules: {error}"),
+                )
+            })?;
+
+        Self::apply_level_rule_update(&mut rules, rule_key, value, format)?;
+        let updated = self
+            .trust
+            .set_level_adjustment_rules(account_id, &rules)
+            .map_err(|error| {
+                Self::report_error(
+                    format,
+                    "level_rules_set_failed",
+                    format!("Unable to update level rules: {error}"),
+                )
+            })?;
+
+        match format {
+            ReportOutputFormat::Text => {
+                println!("Level rule updated: {}={}", rule_key, value);
+                println!();
+                self.level_rules_show(sub_matches, format)?;
+            }
+            ReportOutputFormat::Json => {
+                let payload = json!({
+                    "report": "level_rules_set",
+                    "format_version": 1,
+                    "generated_at": chrono::Utc::now().to_rfc3339(),
+                    "scope": { "account_id": account_id.to_string() },
+                    "data": {
+                        "updated_key": rule_key,
+                        "updated_value": value,
+                        "rules": Self::level_rules_payload(&updated),
+                    }
+                });
+                Self::print_json(&payload)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn apply_level_rule_update(
+        rules: &mut LevelAdjustmentRules,
+        key: &str,
+        value: &str,
+        format: ReportOutputFormat,
+    ) -> Result<(), CliError> {
+        let parse_decimal = || {
+            Decimal::from_str(value).map_err(|error| {
+                Self::report_error(
+                    format,
+                    "invalid_rule_value",
+                    format!("Invalid decimal value '{value}': {error}"),
+                )
+            })
+        };
+        let parse_u32 = || {
+            value.parse::<u32>().map_err(|error| {
+                Self::report_error(
+                    format,
+                    "invalid_rule_value",
+                    format!("Invalid integer value '{value}': {error}"),
+                )
+            })
+        };
+
+        match key {
+            "monthly_loss_downgrade_pct" => rules.monthly_loss_downgrade_pct = parse_decimal()?,
+            "single_loss_downgrade_pct" => rules.single_loss_downgrade_pct = parse_decimal()?,
+            "upgrade_profitable_trades" => rules.upgrade_profitable_trades = parse_u32()?,
+            "upgrade_win_rate_pct" => rules.upgrade_win_rate_pct = parse_decimal()?,
+            "upgrade_consecutive_wins" => rules.upgrade_consecutive_wins = parse_u32()?,
+            "cooldown_profitable_trades" => rules.cooldown_profitable_trades = parse_u32()?,
+            "cooldown_win_rate_pct" => rules.cooldown_win_rate_pct = parse_decimal()?,
+            "cooldown_consecutive_wins" => rules.cooldown_consecutive_wins = parse_u32()?,
+            "recovery_profitable_trades" => rules.recovery_profitable_trades = parse_u32()?,
+            "recovery_win_rate_pct" => rules.recovery_win_rate_pct = parse_decimal()?,
+            "recovery_consecutive_wins" => rules.recovery_consecutive_wins = parse_u32()?,
+            "min_trades_at_level_for_upgrade" => {
+                rules.min_trades_at_level_for_upgrade = parse_u32()?
+            }
+            "max_changes_in_30_days" => rules.max_changes_in_30_days = parse_u32()?,
+            _ => {
+                return Err(Self::report_error(
+                    format,
+                    "invalid_rule_key",
+                    format!("Unsupported --rule key '{key}'"),
+                ));
+            }
+        }
+
+        Ok(())
+    }
+
+    fn level_rules_payload(rules: &LevelAdjustmentRules) -> Value {
+        json!({
+            "monthly_loss_downgrade_pct": Self::decimal_string(rules.monthly_loss_downgrade_pct),
+            "single_loss_downgrade_pct": Self::decimal_string(rules.single_loss_downgrade_pct),
+            "upgrade_profitable_trades": rules.upgrade_profitable_trades,
+            "upgrade_win_rate_pct": Self::decimal_string(rules.upgrade_win_rate_pct),
+            "upgrade_consecutive_wins": rules.upgrade_consecutive_wins,
+            "cooldown_profitable_trades": rules.cooldown_profitable_trades,
+            "cooldown_win_rate_pct": Self::decimal_string(rules.cooldown_win_rate_pct),
+            "cooldown_consecutive_wins": rules.cooldown_consecutive_wins,
+            "recovery_profitable_trades": rules.recovery_profitable_trades,
+            "recovery_win_rate_pct": Self::decimal_string(rules.recovery_win_rate_pct),
+            "recovery_consecutive_wins": rules.recovery_consecutive_wins,
+            "min_trades_at_level_for_upgrade": rules.min_trades_at_level_for_upgrade,
+            "max_changes_in_30_days": rules.max_changes_in_30_days,
+        })
+    }
 }
 
 // Trading Vehicle
@@ -1000,6 +1337,140 @@ fn category_to_str(category: TradingVehicleCategory) -> &'static str {
 
 // Trade
 impl ArgDispatcher {
+    #[allow(clippy::too_many_lines)]
+    fn trade_size_preview(
+        &mut self,
+        sub_matches: &ArgMatches,
+        format: ReportOutputFormat,
+    ) -> Result<(), CliError> {
+        let account_id = self.resolve_level_account_id(sub_matches, format)?;
+        let entry_price = Self::parse_decimal_arg(sub_matches, "entry", format)?;
+        let stop_price = Self::parse_decimal_arg(sub_matches, "stop", format)?;
+        let currency_raw = sub_matches
+            .get_one::<String>("currency")
+            .map(String::as_str)
+            .unwrap_or("usd");
+        let currency = Currency::from_str(&currency_raw.to_ascii_uppercase()).map_err(|_| {
+            Self::report_error(
+                format,
+                "invalid_currency",
+                format!("Unsupported currency '{currency_raw}'. Use USD, EUR, or BTC."),
+            )
+        })?;
+
+        let sizing = self
+            .trust
+            .calculate_level_adjusted_quantity(account_id, entry_price, stop_price, &currency)
+            .map_err(|error| {
+                Self::report_error(
+                    format,
+                    "size_preview_failed",
+                    format!("Unable to calculate level-adjusted quantity: {error}"),
+                )
+            })?;
+
+        let current_level = self.trust.level_for_account(account_id).map_err(|error| {
+            Self::report_error(
+                format,
+                "size_preview_level_load_failed",
+                format!("Unable to read account level: {error}"),
+            )
+        })?;
+
+        let risk_per_share = entry_price
+            .checked_sub(stop_price)
+            .map(|value| value.abs())
+            .unwrap_or(Decimal::ZERO);
+
+        let levels: Vec<Value> = (0_u8..=4_u8)
+            .map(|level| {
+                let multiplier = Level::multiplier_for_level(level).unwrap_or(Decimal::ZERO);
+                let quantity = Decimal::from(sizing.base_quantity)
+                    .checked_mul(multiplier)
+                    .and_then(|value| value.to_i64())
+                    .unwrap_or(0)
+                    .max(0);
+                let risk_amount = risk_per_share
+                    .checked_mul(Decimal::from(quantity))
+                    .unwrap_or(Decimal::ZERO);
+
+                json!({
+                    "level": level,
+                    "description": Level::level_description(level),
+                    "multiplier": Self::decimal_string(multiplier),
+                    "quantity": quantity,
+                    "risk_amount": Self::decimal_string(risk_amount),
+                    "current": level == current_level.current_level,
+                })
+            })
+            .collect();
+
+        match format {
+            ReportOutputFormat::Text => {
+                println!("Position Size Preview");
+                println!("====================");
+                println!("Account: {account_id}");
+                println!(
+                    "Entry: {} {} | Stop: {} {} | Risk/Share: {} {}",
+                    Self::decimal_string(entry_price),
+                    currency,
+                    Self::decimal_string(stop_price),
+                    currency,
+                    Self::decimal_string(risk_per_share),
+                    currency
+                );
+                println!(
+                    "Base quantity (rules only): {} | Current level-adjusted: {} ({}x)",
+                    sizing.base_quantity,
+                    sizing.final_quantity,
+                    Self::decimal_string(sizing.level_multiplier)
+                );
+                println!();
+                println!("Level ladder:");
+                for item in &levels {
+                    let current_marker = if item["current"].as_bool().unwrap_or(false) {
+                        "  <- current"
+                    } else {
+                        ""
+                    };
+                    println!(
+                        "L{} ({}x): qty {} | risk {} {}{}",
+                        item["level"].as_u64().unwrap_or(0),
+                        item["multiplier"].as_str().unwrap_or("0"),
+                        item["quantity"].as_i64().unwrap_or(0),
+                        item["risk_amount"].as_str().unwrap_or("0"),
+                        currency,
+                        current_marker
+                    );
+                }
+            }
+            ReportOutputFormat::Json => {
+                let payload = json!({
+                    "report": "trade_size_preview",
+                    "format_version": 1,
+                    "generated_at": chrono::Utc::now().to_rfc3339(),
+                    "scope": {
+                        "account_id": account_id.to_string(),
+                    },
+                    "data": {
+                        "currency": currency.to_string(),
+                        "entry_price": Self::decimal_string(entry_price),
+                        "stop_price": Self::decimal_string(stop_price),
+                        "risk_per_share": Self::decimal_string(risk_per_share),
+                        "base_quantity": sizing.base_quantity,
+                        "current_level": current_level.current_level,
+                        "current_multiplier": Self::decimal_string(sizing.level_multiplier),
+                        "current_quantity": sizing.final_quantity,
+                        "levels": levels,
+                    }
+                });
+                Self::print_json(&payload)?;
+            }
+        }
+
+        Ok(())
+    }
+
     fn create_trade(&mut self) {
         TradeDialogBuilder::new()
             .account(&mut self.trust)
