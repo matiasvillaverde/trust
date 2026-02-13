@@ -1,5 +1,5 @@
 use crate::services::ProfitDistributionService;
-use model::{Account, AccountType, Currency, DatabaseFactory, Trade};
+use model::{Account, AccountType, Currency, DatabaseFactory, DistributionRulesNotFound, Trade};
 use rust_decimal::Decimal;
 use std::error::Error;
 
@@ -42,7 +42,12 @@ impl<'a> EventDistributionService<'a> {
             .for_account(trade.account_id)
         {
             Ok(rules) => rules,
-            Err(_) => return Ok(None),
+            Err(error) => {
+                if error.downcast_ref::<DistributionRulesNotFound>().is_some() {
+                    return Ok(None);
+                }
+                return Err(error);
+            }
         };
 
         // Rules exist, but threshold can still opt-out.
@@ -109,7 +114,7 @@ impl<'a> EventDistributionService<'a> {
 mod tests {
     use super::*;
     use chrono::Utc;
-    use model::{Currency, DatabaseFactory, Status};
+    use model::{Currency, DatabaseFactory, DistributionRulesNotFound, Status};
     use rust_decimal_macros::dec;
     use uuid::Uuid;
 
@@ -289,5 +294,166 @@ mod tests {
         // The event service should identify profitable trades deterministically.
         let profit = service.calculate_trade_profit(&trade).unwrap();
         assert!(profit > Decimal::ZERO);
+    }
+
+    #[derive(Debug)]
+    struct FailingDistributionRead;
+
+    impl model::DistributionRead for FailingDistributionRead {
+        fn for_account(
+            &mut self,
+            _account_id: uuid::Uuid,
+        ) -> Result<model::DistributionRules, Box<dyn std::error::Error>> {
+            Err("database unavailable".into())
+        }
+    }
+
+    #[derive(Debug)]
+    struct NotFoundDistributionRead {
+        account_id: uuid::Uuid,
+    }
+
+    impl model::DistributionRead for NotFoundDistributionRead {
+        fn for_account(
+            &mut self,
+            _account_id: uuid::Uuid,
+        ) -> Result<model::DistributionRules, Box<dyn std::error::Error>> {
+            Err(DistributionRulesNotFound {
+                account_id: self.account_id,
+            }
+            .into())
+        }
+    }
+
+    #[derive(Debug)]
+    struct FixedAccountRead {
+        account: Account,
+    }
+
+    impl model::AccountRead for FixedAccountRead {
+        fn for_name(&mut self, _name: &str) -> Result<Account, Box<dyn std::error::Error>> {
+            Ok(self.account.clone())
+        }
+
+        fn id(&mut self, _id: uuid::Uuid) -> Result<Account, Box<dyn std::error::Error>> {
+            Ok(self.account.clone())
+        }
+
+        fn all(&mut self) -> Result<Vec<Account>, Box<dyn std::error::Error>> {
+            Ok(vec![self.account.clone()])
+        }
+    }
+
+    #[derive(Debug)]
+    struct ErrorPropagationDatabase {
+        account: Account,
+        return_not_found: bool,
+    }
+
+    impl DatabaseFactory for ErrorPropagationDatabase {
+        fn account_read(&self) -> Box<dyn model::AccountRead> {
+            Box::new(FixedAccountRead {
+                account: self.account.clone(),
+            })
+        }
+        fn account_write(&self) -> Box<dyn model::AccountWrite> {
+            todo!("not used")
+        }
+        fn account_balance_read(&self) -> Box<dyn model::AccountBalanceRead> {
+            todo!("not used")
+        }
+        fn account_balance_write(&self) -> Box<dyn model::AccountBalanceWrite> {
+            todo!("not used")
+        }
+        fn order_read(&self) -> Box<dyn model::OrderRead> {
+            todo!("not used")
+        }
+        fn order_write(&self) -> Box<dyn model::OrderWrite> {
+            todo!("not used")
+        }
+        fn transaction_read(&self) -> Box<dyn model::ReadTransactionDB> {
+            todo!("not used")
+        }
+        fn transaction_write(&self) -> Box<dyn model::WriteTransactionDB> {
+            todo!("not used")
+        }
+        fn trade_read(&self) -> Box<dyn model::ReadTradeDB> {
+            todo!("not used")
+        }
+        fn trade_write(&self) -> Box<dyn model::WriteTradeDB> {
+            todo!("not used")
+        }
+        fn trade_balance_write(&self) -> Box<dyn model::database::WriteAccountBalanceDB> {
+            todo!("not used")
+        }
+        fn rule_read(&self) -> Box<dyn model::ReadRuleDB> {
+            todo!("not used")
+        }
+        fn rule_write(&self) -> Box<dyn model::WriteRuleDB> {
+            todo!("not used")
+        }
+        fn trading_vehicle_read(&self) -> Box<dyn model::ReadTradingVehicleDB> {
+            todo!("not used")
+        }
+        fn trading_vehicle_write(&self) -> Box<dyn model::WriteTradingVehicleDB> {
+            todo!("not used")
+        }
+        fn log_read(&self) -> Box<dyn model::ReadBrokerLogsDB> {
+            todo!("not used")
+        }
+        fn log_write(&self) -> Box<dyn model::WriteBrokerLogsDB> {
+            todo!("not used")
+        }
+        fn distribution_read(&self) -> Box<dyn model::DistributionRead> {
+            if self.return_not_found {
+                Box::new(NotFoundDistributionRead {
+                    account_id: self.account.id,
+                })
+            } else {
+                Box::new(FailingDistributionRead)
+            }
+        }
+        fn distribution_write(&self) -> Box<dyn model::DistributionWrite> {
+            todo!("not used")
+        }
+    }
+
+    #[test]
+    fn test_handle_trade_closed_event_propagates_distribution_read_errors() {
+        let trade = create_test_trade_profitable();
+        let source_account = Account {
+            id: trade.account_id,
+            ..Account::default()
+        };
+        let mut db = ErrorPropagationDatabase {
+            account: source_account,
+            return_not_found: false,
+        };
+        let mut service = EventDistributionService::new(&mut db);
+
+        let result = service.handle_trade_closed_event(&trade, &Currency::USD);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("database unavailable"));
+    }
+
+    #[test]
+    fn test_handle_trade_closed_event_treats_rules_not_found_as_none() {
+        let trade = create_test_trade_profitable();
+        let source_account = Account {
+            id: trade.account_id,
+            ..Account::default()
+        };
+        let mut db = ErrorPropagationDatabase {
+            account: source_account,
+            return_not_found: true,
+        };
+        let mut service = EventDistributionService::new(&mut db);
+
+        let result = service.handle_trade_closed_event(&trade, &Currency::USD);
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_none());
     }
 }

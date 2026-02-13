@@ -33,23 +33,12 @@ impl<'a> FundTransferService<'a> {
     ) -> Result<(Uuid, Uuid), Box<dyn Error>> {
         // Validate the transfer first
         self.validate_transfer(from_account, to_account, amount)?;
-
-        // Create withdrawal transaction
-        let withdrawal_amount = Decimal::ZERO
-            .checked_sub(amount)
-            .ok_or("Invalid withdrawal amount")?;
-        let withdrawal_tx = self.database.transaction_write().create_transaction(
+        let (withdrawal_tx, deposit_tx) = self.database.transaction_write().create_transfer_pair(
             from_account,
-            withdrawal_amount, // Negative for withdrawal
+            to_account,
+            amount,
             currency,
             TransactionCategory::Withdrawal,
-        )?;
-
-        // Create deposit transaction
-        let deposit_tx = self.database.transaction_write().create_transaction(
-            to_account,
-            amount, // Positive for deposit
-            currency,
             TransactionCategory::Deposit,
         )?;
 

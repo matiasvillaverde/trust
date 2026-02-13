@@ -239,6 +239,30 @@ pub trait WriteTransactionDB {
         currency: &Currency,
         category: TransactionCategory,
     ) -> Result<Transaction, Box<dyn Error>>;
+
+    /// Creates a paired transfer (withdrawal + deposit).
+    /// Implementations should provide atomicity when possible.
+    fn create_transfer_pair(
+        &mut self,
+        from_account: &Account,
+        to_account: &Account,
+        amount: Decimal,
+        currency: &Currency,
+        withdrawal_category: TransactionCategory,
+        deposit_category: TransactionCategory,
+    ) -> Result<(Transaction, Transaction), Box<dyn Error>> {
+        let withdrawal_amount = Decimal::ZERO
+            .checked_sub(amount)
+            .ok_or("Invalid withdrawal amount")?;
+        let withdrawal_tx = self.create_transaction(
+            from_account,
+            withdrawal_amount,
+            currency,
+            withdrawal_category,
+        )?;
+        let deposit_tx = self.create_transaction(to_account, amount, currency, deposit_category)?;
+        Ok((withdrawal_tx, deposit_tx))
+    }
 }
 
 // Trade DB
