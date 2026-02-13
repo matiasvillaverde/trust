@@ -430,6 +430,43 @@ impl WriteTransactionDB for SqliteDatabase {
             category,
         )
     }
+
+    fn create_transfer_pair(
+        &mut self,
+        from_account: &Account,
+        to_account: &Account,
+        amount: Decimal,
+        currency: &Currency,
+        withdrawal_category: TransactionCategory,
+        deposit_category: TransactionCategory,
+    ) -> Result<(Transaction, Transaction), Box<dyn Error>> {
+        let withdrawal_amount = Decimal::ZERO
+            .checked_sub(amount)
+            .ok_or("Invalid withdrawal amount")?;
+        let connection = &mut self.connection.lock().unwrap_or_else(|e| {
+            eprintln!("Failed to acquire connection lock: {e}");
+            std::process::exit(1);
+        });
+
+        connection.transaction::<(Transaction, Transaction), Box<dyn Error>, _>(|conn| {
+            let withdrawal_tx = WorkerTransaction::create_transaction(
+                conn,
+                from_account.id,
+                withdrawal_amount,
+                currency,
+                withdrawal_category,
+            )?;
+            let deposit_tx = WorkerTransaction::create_transaction(
+                conn,
+                to_account.id,
+                amount,
+                currency,
+                deposit_category,
+            )?;
+
+            Ok((withdrawal_tx, deposit_tx))
+        })
+    }
 }
 
 impl ReadTradeGradeDB for SqliteDatabase {

@@ -1605,17 +1605,12 @@ impl ArgDispatcher {
             println!("   If the trade is profitable, profits will be automatically distributed.");
         }
 
-        // Use existing close dialog
-        // TODO: Integrate with enhanced close_trade_with_auto_distribution when dialog supports it
         CloseDialogBuilder::new()
             .account(&mut self.trust)
             .search(&mut self.trust)
+            .auto_distribute(auto_distribute)
             .build(&mut self.trust)
             .display();
-
-        if auto_distribute {
-            println!("💡 Note: Automatic distribution integration will be available once account hierarchy is fully implemented in the database layer.");
-        }
     }
 
     fn modify_stop(&mut self) {

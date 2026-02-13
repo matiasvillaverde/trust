@@ -2,7 +2,7 @@ use crate::error::{ConversionError, IntoDomainModel};
 use crate::schema::distribution_rules;
 use chrono::{NaiveDateTime, Utc};
 use diesel::prelude::*;
-use model::{DistributionRead, DistributionRules, DistributionWrite};
+use model::{DistributionRead, DistributionRules, DistributionRulesNotFound, DistributionWrite};
 use rust_decimal::Decimal;
 use std::error::Error;
 use std::str::FromStr;
@@ -31,14 +31,19 @@ impl DistributionRead for DistributionDB {
             std::process::exit(1);
         });
 
-        distribution_rules::table
+        let rules = distribution_rules::table
             .filter(distribution_rules::account_id.eq(account_id.to_string()))
             .first::<DistributionRulesSQLite>(connection)
+            .optional()
             .map_err(|error| {
                 error!("Error reading distribution rules: {:?}", error);
                 error
-            })?
-            .into_domain_model()
+            })?;
+
+        match rules {
+            Some(rule) => rule.into_domain_model(),
+            None => Err(DistributionRulesNotFound { account_id }.into()),
+        }
     }
 }
 

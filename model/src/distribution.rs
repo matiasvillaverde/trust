@@ -57,6 +57,25 @@ pub enum DistributionError {
     InvalidProfitAmount,
 }
 
+/// Error raised when no distribution rules exist for an account.
+#[derive(Debug)]
+pub struct DistributionRulesNotFound {
+    /// Account missing distribution rules.
+    pub account_id: Uuid,
+}
+
+impl std::fmt::Display for DistributionRulesNotFound {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "No distribution rules configured for account {}",
+            self.account_id
+        )
+    }
+}
+
+impl std::error::Error for DistributionRulesNotFound {}
+
 impl std::fmt::Display for DistributionError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

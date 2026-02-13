@@ -820,10 +820,11 @@ impl TrustFacade {
         // 1. Close the trade normally
         let (balance, log) = self.close_trade(trade)?;
 
-        // 2. Trigger automatic distribution if trade was profitable
+        // 2. Read persisted post-close state and trigger distribution from fresh data.
+        let closed_trade = self.factory.trade_read().read_trade(trade.id)?;
         let mut event_service = EventDistributionService::new(&mut *self.factory);
         let distribution_result =
-            event_service.handle_trade_closed_event(trade, &trade.currency)?;
+            event_service.handle_trade_closed_event(&closed_trade, &closed_trade.currency)?;
 
         Ok((balance, log, distribution_result))
     }
