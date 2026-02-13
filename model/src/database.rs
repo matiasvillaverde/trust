@@ -1,7 +1,8 @@
 use crate::{
-    Account, AccountBalance, BrokerLog, Currency, Environment, Order, OrderAction, OrderCategory,
-    Rule, RuleLevel, RuleName, Status, Trade, TradeBalance, TradeCategory, TradeGrade,
-    TradingVehicle, TradingVehicleCategory, Transaction, TransactionCategory,
+    Account, AccountBalance, BrokerLog, Currency, Environment, Level, LevelChange, Order,
+    OrderAction, OrderCategory, Rule, RuleLevel, RuleName, Status, Trade, TradeBalance,
+    TradeCategory, TradeGrade, TradingVehicle, TradingVehicleCategory, Transaction,
+    TransactionCategory,
 };
 use rust_decimal::Decimal;
 use uuid::Uuid;
@@ -59,6 +60,10 @@ pub trait DatabaseFactory {
     fn trade_grade_read(&self) -> Box<dyn ReadTradeGradeDB>;
     /// Returns a writer for trade grade data operations
     fn trade_grade_write(&self) -> Box<dyn WriteTradeGradeDB>;
+    /// Returns a reader for level data operations
+    fn level_read(&self) -> Box<dyn ReadLevelDB>;
+    /// Returns a writer for level data operations
+    fn level_write(&self) -> Box<dyn WriteLevelDB>;
 
     /// Begins a named savepoint.
     ///
@@ -445,4 +450,38 @@ pub trait ReadTradeGradeDB {
 pub trait WriteTradeGradeDB {
     /// Persist a new grade record for a trade.
     fn create_trade_grade(&mut self, grade: &TradeGrade) -> Result<TradeGrade, Box<dyn Error>>;
+}
+
+/// Trait for reading level and level-change data.
+pub trait ReadLevelDB {
+    /// Retrieve current level for an account.
+    fn level_for_account(&mut self, account_id: Uuid) -> Result<Level, Box<dyn Error>>;
+
+    /// Retrieve all level change events for an account.
+    fn level_changes_for_account(
+        &mut self,
+        account_id: Uuid,
+    ) -> Result<Vec<LevelChange>, Box<dyn Error>>;
+
+    /// Retrieve recent level change events in the last `days`.
+    fn recent_level_changes(
+        &mut self,
+        account_id: Uuid,
+        days: u32,
+    ) -> Result<Vec<LevelChange>, Box<dyn Error>>;
+}
+
+/// Trait for writing level and level-change data.
+pub trait WriteLevelDB {
+    /// Create default Level 3 profile for new account.
+    fn create_default_level(&mut self, account: &Account) -> Result<Level, Box<dyn Error>>;
+
+    /// Persist a level row update.
+    fn update_level(&mut self, level: &Level) -> Result<Level, Box<dyn Error>>;
+
+    /// Persist a level change audit event.
+    fn create_level_change(
+        &mut self,
+        level_change: &LevelChange,
+    ) -> Result<LevelChange, Box<dyn Error>>;
 }
