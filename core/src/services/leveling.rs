@@ -170,21 +170,35 @@ impl DefaultLevelTransitionPolicy {
         snapshot: &LevelPerformanceSnapshot,
     ) -> Option<LevelPathProgress> {
         let target = Self::upgrade_target(current.current_level)?;
+        let (profitable_threshold, win_rate_threshold, consecutive_wins_threshold) =
+            if current.status == LevelStatus::Cooldown {
+                (
+                    self.rules.recovery_profitable_trades,
+                    self.rules.recovery_win_rate_pct,
+                    self.rules.recovery_consecutive_wins,
+                )
+            } else {
+                (
+                    self.rules.upgrade_profitable_trades,
+                    self.rules.upgrade_win_rate_pct,
+                    self.rules.upgrade_consecutive_wins,
+                )
+            };
         let criteria = vec![
             Self::at_least(
                 "profitable_trades",
                 Decimal::from(snapshot.profitable_trades),
-                Decimal::from(self.rules.upgrade_profitable_trades),
+                Decimal::from(profitable_threshold),
             ),
             Self::at_least(
                 "win_rate_percentage",
                 snapshot.win_rate_percentage,
-                self.rules.upgrade_win_rate_pct,
+                win_rate_threshold,
             ),
             Self::at_least(
                 "consecutive_wins",
                 Decimal::from(snapshot.consecutive_wins),
-                Decimal::from(self.rules.upgrade_consecutive_wins),
+                Decimal::from(consecutive_wins_threshold),
             ),
         ];
         let all_met = criteria.iter().all(|c| c.met);
@@ -515,11 +529,13 @@ impl<P: LevelTransitionPolicy> LevelingService<P> {
     ) -> Result<LevelPerformanceSnapshot, Box<dyn Error>> {
         let trade = factory.trade_read().read_trade(event.trade_id)?;
         let baseline = Self::account_balance_baseline(factory, event.account_id, &trade.currency);
-        let mut closed =
-            Self::collect_recent_closed_trades(factory, event.account_id, event.closed_at)?;
-        if closed.is_empty() {
-            closed.push(trade);
-        }
+        let mut closed = Self::collect_recent_closed_trades(
+            factory,
+            event.account_id,
+            event.closed_at,
+            &trade.currency,
+        )?;
+        Self::merge_trigger_trade(&mut closed, trade);
         closed.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
 
         Self::snapshot_from_closed_trades(&closed, baseline)
@@ -546,6 +562,7 @@ impl<P: LevelTransitionPolicy> LevelingService<P> {
         factory: &mut dyn DatabaseFactory,
         account_id: Uuid,
         closed_at: chrono::NaiveDateTime,
+        currency: &model::Currency,
     ) -> Result<Vec<model::Trade>, Box<dyn Error>> {
         let cutoff = closed_at
             .checked_sub_signed(chrono::Duration::days(Self::EVALUATION_WINDOW_DAYS))
@@ -558,8 +575,16 @@ impl<P: LevelTransitionPolicy> LevelingService<P> {
                 .trade_read()
                 .read_trades_with_status(account_id, model::Status::ClosedStopLoss)?,
         );
-        closed.retain(|trade| trade.updated_at >= cutoff);
+        closed.retain(|trade| trade.updated_at >= cutoff && trade.currency == *currency);
         Ok(closed)
+    }
+
+    fn merge_trigger_trade(closed: &mut Vec<model::Trade>, trigger_trade: model::Trade) {
+        if let Some(existing) = closed.iter_mut().find(|trade| trade.id == trigger_trade.id) {
+            *existing = trigger_trade;
+            return;
+        }
+        closed.push(trigger_trade);
     }
 
     fn snapshot_from_closed_trades(
@@ -892,5 +917,62 @@ mod tests {
         assert!(!largest.all_met);
         let largest_criterion = largest.criteria.first().expect("largest criterion");
         assert_eq!(largest_criterion.missing, dec!(0.3));
+    }
+
+    #[test]
+    fn test_progress_uses_recovery_thresholds_in_cooldown() {
+        let mut current = Level::default_for_account(Uuid::new_v4());
+        current.current_level = 2;
+        current.status = LevelStatus::Cooldown;
+
+        let snapshot = LevelPerformanceSnapshot {
+            profitable_trades: 5,
+            win_rate_percentage: dec!(65),
+            monthly_loss_percentage: dec!(-1),
+            largest_loss_percentage: dec!(-0.5),
+            consecutive_wins: 2,
+        };
+
+        let progress = DefaultLevelTransitionPolicy::default().progress(&current, &snapshot);
+        let recovery = progress
+            .upgrade_paths
+            .iter()
+            .find(|path| path.path == "cooldown_recovery")
+            .expect("cooldown recovery path");
+        assert!(recovery.all_met);
+    }
+
+    #[test]
+    fn test_merge_trigger_trade_includes_manual_close_even_when_recent_set_exists() {
+        let account_id = Uuid::new_v4();
+        let existing = model::Trade {
+            account_id,
+            status: model::Status::ClosedTarget,
+            currency: model::Currency::USD,
+            balance: model::TradeBalance {
+                total_performance: dec!(50),
+                ..model::TradeBalance::default()
+            },
+            ..model::Trade::default()
+        };
+
+        let manual = model::Trade {
+            account_id,
+            status: model::Status::Canceled,
+            currency: model::Currency::USD,
+            balance: model::TradeBalance {
+                total_performance: dec!(-25),
+                ..model::TradeBalance::default()
+            },
+            ..model::Trade::default()
+        };
+
+        let mut closed = vec![existing];
+        LevelingService::<DefaultLevelTransitionPolicy>::merge_trigger_trade(&mut closed, manual);
+
+        assert_eq!(closed.len(), 2);
+        assert!(closed.iter().any(|trade| {
+            trade.status == model::Status::Canceled && trade.balance.total_performance == dec!(-25)
+        }));
     }
 }
