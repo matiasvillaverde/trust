@@ -395,6 +395,7 @@ dependencies = [
  "core",
  "db-sqlite",
  "dialoguer",
+ "keyring",
  "rust_decimal",
  "rust_decimal_macros",
  "serde_json",
@@ -448,6 +449,7 @@ dependencies = [
  "rust_decimal",
  "rust_decimal_macros",
  "thiserror 1.0.69",
+ "tracing",
  "trust-model",
  "uuid",
 ]

@@ -6,11 +6,16 @@ use crate::dialogs::{
     TradingVehicleDialogBuilder, TradingVehicleSearchDialogBuilder, TransactionDialogBuilder,
 };
 use crate::dialogs::{RuleDialogBuilder, RuleRemoveDialogBuilder};
+use crate::protected_keyword;
 use alpaca_broker::AlpacaBroker;
 use clap::ArgMatches;
+use core::services::leveling::{LevelEvaluationOutcome, LevelPerformanceSnapshot};
 use core::TrustFacade;
 use db_sqlite::SqliteDatabase;
-use model::{database::TradingVehicleUpsert, Trade, TradingVehicleCategory, TransactionCategory};
+use model::{
+    database::TradingVehicleUpsert, LevelTrigger, Trade, TradingVehicleCategory,
+    TransactionCategory,
+};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use serde_json::{json, Value};
@@ -19,6 +24,7 @@ use std::ffi::OsString;
 use std::fmt::{Display, Formatter};
 use std::fs::create_dir_all;
 use std::path::Path;
+use std::str::FromStr;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -69,13 +75,16 @@ pub struct ArgDispatcher {
 }
 
 impl ArgDispatcher {
+    fn is_valid_protected_keyword(expected: &str, provided: &str) -> bool {
+        provided == expected
+    }
+
     pub fn new_sqlite() -> Self {
         create_dir_if_necessary();
         let database = SqliteDatabase::new(ArgDispatcher::database_url().as_str());
-
-        ArgDispatcher {
-            trust: TrustFacade::new(Box::new(database), Box::<AlpacaBroker>::default()),
-        }
+        let mut trust = TrustFacade::new(Box::new(database), Box::<AlpacaBroker>::default());
+        trust.enable_protected_mode();
+        ArgDispatcher { trust }
     }
 
     fn database_url() -> String {
@@ -98,24 +107,35 @@ impl ArgDispatcher {
     pub fn dispatch(mut self, matches: ArgMatches) -> Result<(), CliError> {
         match matches.subcommand() {
             Some(("keys", sub_matches)) => match sub_matches.subcommand() {
-                Some(("create", _)) => self.create_keys(),
+                Some(("create", sub_sub_matches)) => self.create_keys(sub_sub_matches)?,
                 Some(("show", _)) => self.show_keys(),
-                Some(("delete", _)) => self.delete_keys(),
+                Some(("delete", sub_sub_matches)) => self.delete_keys(sub_sub_matches)?,
+                Some(("protected-set", sub_sub_matches)) => {
+                    self.set_protected_keyword(sub_sub_matches)?
+                }
+                Some(("protected-show", _)) => self.show_protected_keyword(),
+                Some(("protected-delete", sub_sub_matches)) => {
+                    self.delete_protected_keyword(sub_sub_matches)?
+                }
                 _ => unreachable!("No subcommand provided"),
             },
             Some(("account", sub_matches)) => match sub_matches.subcommand() {
-                Some(("create", _)) => self.create_account(),
+                Some(("create", sub_sub_matches)) => self.create_account(sub_sub_matches)?,
                 Some(("search", _)) => self.search_account(),
                 _ => unreachable!("No subcommand provided"),
             },
             Some(("transaction", sub_matches)) => match sub_matches.subcommand() {
-                Some(("deposit", _)) => self.deposit(),
-                Some(("withdraw", _)) => self.withdraw(),
+                Some(("deposit", sub_sub_matches)) => self.deposit(sub_sub_matches)?,
+                Some(("withdraw", sub_sub_matches)) => self.withdraw(sub_sub_matches)?,
                 _ => unreachable!("No subcommand provided"),
             },
             Some(("rule", sub_matches)) => match sub_matches.subcommand() {
-                Some(("create", _)) => self.create_rule(),
-                Some(("remove", _)) => self.remove_rule(),
+                Some(("create", sub_sub_matches)) => {
+                    self.create_rule(sub_sub_matches, Self::parse_report_format(sub_matches))?
+                }
+                Some(("remove", sub_sub_matches)) => {
+                    self.remove_rule(sub_sub_matches, Self::parse_report_format(sub_matches))?
+                }
                 _ => unreachable!("No subcommand provided"),
             },
             Some(("trading-vehicle", sub_matches)) => match sub_matches.subcommand() {
@@ -170,6 +190,36 @@ impl ArgDispatcher {
                 }
                 _ => unreachable!("No subcommand provided"),
             },
+            Some(("level", sub_matches)) => {
+                match sub_matches.subcommand() {
+                    Some(("status", sub_sub_matches)) => {
+                        self.level_status(sub_sub_matches, Self::parse_report_format(sub_matches))?
+                    }
+                    Some(("triggers", sub_sub_matches)) => self
+                        .level_triggers(sub_sub_matches, Self::parse_report_format(sub_matches))?,
+                    Some(("history", sub_sub_matches)) => {
+                        self.level_history(sub_sub_matches, Self::parse_report_format(sub_matches))?
+                    }
+                    Some(("change", sub_sub_matches)) => {
+                        self.level_change(sub_sub_matches, Self::parse_report_format(sub_matches))?
+                    }
+                    Some(("evaluate", sub_sub_matches)) => self
+                        .level_evaluate(sub_sub_matches, Self::parse_report_format(sub_matches))?,
+                    _ => unreachable!("No subcommand provided"),
+                }
+            }
+            Some(("onboarding", sub_matches)) => match sub_matches.subcommand() {
+                Some(("init", sub_sub_matches)) => {
+                    self.onboarding_init(sub_sub_matches, Self::parse_report_format(sub_matches))?
+                }
+                Some(("status", _)) => {
+                    self.onboarding_status(Self::parse_report_format(sub_matches))?
+                }
+                _ => unreachable!("No subcommand provided"),
+            },
+            Some(("policy", sub_matches)) => {
+                self.policy_show(Self::parse_report_format(sub_matches))?
+            }
             Some(("metrics", sub_matches)) => match sub_matches.subcommand() {
                 Some(("advanced", sub_sub_matches)) => self.metrics_advanced(sub_sub_matches),
                 Some(("compare", sub_sub_matches)) => self.metrics_compare(sub_sub_matches),
@@ -231,6 +281,174 @@ impl ArgDispatcher {
             eprintln!("{error}");
         }
         error
+    }
+
+    fn parse_decimal_arg(
+        sub_matches: &ArgMatches,
+        key: &'static str,
+        format: ReportOutputFormat,
+    ) -> Result<Decimal, CliError> {
+        let raw = sub_matches.get_one::<String>(key).ok_or_else(|| {
+            Self::report_error(
+                format,
+                "missing_argument",
+                format!("Missing argument --{key}"),
+            )
+        })?;
+        Decimal::from_str(raw).map_err(|_| {
+            Self::report_error(
+                format,
+                "invalid_decimal",
+                format!("Invalid decimal value for --{key}: {raw}"),
+            )
+        })
+    }
+
+    fn ensure_protected_keyword(
+        &mut self,
+        sub_matches: &ArgMatches,
+        format: ReportOutputFormat,
+        operation: &'static str,
+    ) -> Result<(), CliError> {
+        let expected = protected_keyword::read_expected().map_err(|_| {
+            Self::report_error(
+                format,
+                "protected_keyword_not_configured",
+                "Protected keyword is not configured. Run: trust keys protected-set --value <KEYWORD>",
+            )
+        })?;
+
+        let provided = sub_matches
+            .get_one::<String>("confirm-protected")
+            .map(String::as_str)
+            .ok_or_else(|| {
+                Self::report_error(
+                    format,
+                    "protected_keyword_required",
+                    format!("{operation} is protected. Provide --confirm-protected <KEYWORD>"),
+                )
+            })?;
+
+        if !Self::is_valid_protected_keyword(&expected, provided) {
+            return Err(Self::report_error(
+                format,
+                "protected_keyword_invalid",
+                format!("Invalid protected keyword for {operation}."),
+            ));
+        }
+
+        self.trust.authorize_protected_mutation();
+        Ok(())
+    }
+
+    fn resolve_level_account_id(
+        &mut self,
+        sub_matches: &ArgMatches,
+        format: ReportOutputFormat,
+    ) -> Result<Uuid, CliError> {
+        if let Some(account_arg) = sub_matches.get_one::<String>("account") {
+            return Uuid::from_str(account_arg).map_err(|_| {
+                Self::report_error(format, "invalid_account_id", "Invalid account ID format")
+            });
+        }
+
+        let accounts = self.trust.search_all_accounts().map_err(|error| {
+            Self::report_error(
+                format,
+                "accounts_unavailable",
+                format!("Failed to load accounts: {error}"),
+            )
+        })?;
+
+        if accounts.len() == 1 {
+            let account = accounts.first().ok_or_else(|| {
+                Self::report_error(format, "accounts_unavailable", "No accounts available")
+            })?;
+            return Ok(account.id);
+        }
+
+        Err(Self::report_error(
+            format,
+            "account_selection_required",
+            "Use --account when multiple accounts exist",
+        ))
+    }
+
+    fn level_snapshot_from_args(
+        sub_matches: &ArgMatches,
+        format: ReportOutputFormat,
+    ) -> Result<LevelPerformanceSnapshot, CliError> {
+        Ok(LevelPerformanceSnapshot {
+            profitable_trades: *sub_matches.get_one::<u32>("profitable-trades").ok_or_else(
+                || {
+                    Self::report_error(
+                        format,
+                        "missing_profitable_trades",
+                        "Missing --profitable-trades",
+                    )
+                },
+            )?,
+            win_rate_percentage: Self::parse_decimal_arg(sub_matches, "win-rate", format)?,
+            monthly_loss_percentage: Self::parse_decimal_arg(sub_matches, "monthly-loss", format)?,
+            largest_loss_percentage: Self::parse_decimal_arg(sub_matches, "largest-loss", format)?,
+            consecutive_wins: *sub_matches
+                .get_one::<u32>("consecutive-wins")
+                .ok_or_else(|| {
+                    Self::report_error(
+                        format,
+                        "missing_consecutive_wins",
+                        "Missing --consecutive-wins",
+                    )
+                })?,
+        })
+    }
+
+    fn print_level_evaluation_text(outcome: &LevelEvaluationOutcome, apply: bool) {
+        println!("Level evaluation complete.");
+        println!(
+            "Current: L{} ({})",
+            outcome.current_level.current_level,
+            model::Level::level_description(outcome.current_level.current_level)
+        );
+        if let Some(decision) = &outcome.decision {
+            println!(
+                "Decision: {:?} to L{} ({})",
+                decision.direction, decision.target_level, decision.reason
+            );
+        } else {
+            println!("Decision: no change");
+        }
+        if let Some(applied) = &outcome.applied_level {
+            println!("Applied: new level L{}", applied.current_level);
+        } else if apply {
+            println!("Applied: no change");
+        }
+    }
+
+    fn level_evaluation_payload(
+        account_id: Uuid,
+        apply: bool,
+        outcome: &LevelEvaluationOutcome,
+    ) -> Value {
+        json!({
+            "report": "level_evaluate",
+            "format_version": 1,
+            "generated_at": chrono::Utc::now().to_rfc3339(),
+            "scope": { "account_id": account_id.to_string() },
+            "apply": apply,
+            "data": {
+                "current_level": outcome.current_level.current_level,
+                "decision": outcome.decision.as_ref().map(|decision| {
+                    json!({
+                        "target_level": decision.target_level,
+                        "direction": format!("{:?}", decision.direction),
+                        "reason": decision.reason,
+                        "trigger_type": decision.trigger_type.to_string()
+                    })
+                }),
+                "applied_level": outcome.applied_level.as_ref().map(|level| level.current_level)
+            }
+        })
     }
 
     fn summarize_agent_status(breaches: &[String]) -> &'static str {
@@ -329,7 +547,8 @@ impl ArgDispatcher {
 
 // Account
 impl ArgDispatcher {
-    fn create_account(&mut self) {
+    fn create_account(&mut self, sub_matches: &ArgMatches) -> Result<(), CliError> {
+        self.ensure_protected_keyword(sub_matches, ReportOutputFormat::Text, "account creation")?;
         AccountDialogBuilder::new()
             .name()
             .description()
@@ -338,6 +557,7 @@ impl ArgDispatcher {
             .earnings_percentage()
             .build(&mut self.trust)
             .display();
+        Ok(())
     }
 
     fn search_account(&mut self) {
@@ -349,28 +569,37 @@ impl ArgDispatcher {
 
 // Transaction
 impl ArgDispatcher {
-    fn deposit(&mut self) {
+    fn deposit(&mut self, sub_matches: &ArgMatches) -> Result<(), CliError> {
+        self.ensure_protected_keyword(sub_matches, ReportOutputFormat::Text, "deposit")?;
         TransactionDialogBuilder::new(TransactionCategory::Deposit)
             .account(&mut self.trust)
             .currency(&mut self.trust)
             .amount(&mut self.trust)
             .build(&mut self.trust)
             .display();
+        Ok(())
     }
 
-    fn withdraw(&mut self) {
+    fn withdraw(&mut self, sub_matches: &ArgMatches) -> Result<(), CliError> {
+        self.ensure_protected_keyword(sub_matches, ReportOutputFormat::Text, "withdrawal")?;
         TransactionDialogBuilder::new(TransactionCategory::Withdrawal)
             .account(&mut self.trust)
             .currency(&mut self.trust)
             .amount(&mut self.trust)
             .build(&mut self.trust)
             .display();
+        Ok(())
     }
 }
 
 // Rules
 impl ArgDispatcher {
-    fn create_rule(&mut self) {
+    fn create_rule(
+        &mut self,
+        sub_matches: &ArgMatches,
+        format: ReportOutputFormat,
+    ) -> Result<(), CliError> {
+        self.ensure_protected_keyword(sub_matches, format, "rule creation")?;
         RuleDialogBuilder::new()
             .account(&mut self.trust)
             .name()
@@ -379,20 +608,266 @@ impl ArgDispatcher {
             .level()
             .build(&mut self.trust)
             .display();
+        Ok(())
     }
 
-    fn remove_rule(&mut self) {
+    fn remove_rule(
+        &mut self,
+        sub_matches: &ArgMatches,
+        format: ReportOutputFormat,
+    ) -> Result<(), CliError> {
+        self.ensure_protected_keyword(sub_matches, format, "rule removal")?;
         RuleRemoveDialogBuilder::new()
             .account(&mut self.trust)
             .select_rule(&mut self.trust)
             .build(&mut self.trust)
             .display();
+        Ok(())
+    }
+}
+
+// Level
+impl ArgDispatcher {
+    fn level_triggers(
+        &mut self,
+        _sub_matches: &ArgMatches,
+        format: ReportOutputFormat,
+    ) -> Result<(), CliError> {
+        let triggers = model::LevelTrigger::known_values();
+
+        match format {
+            ReportOutputFormat::Text => {
+                println!("Supported level triggers");
+                println!("========================");
+                for trigger in triggers {
+                    println!("- {trigger}");
+                }
+                println!("- custom values are accepted and normalized to lowercase");
+            }
+            ReportOutputFormat::Json => {
+                let payload = json!({
+                    "report": "level_triggers",
+                    "format_version": 1,
+                    "generated_at": chrono::Utc::now().to_rfc3339(),
+                    "data": {
+                        "supported": triggers,
+                        "custom_allowed": true
+                    }
+                });
+                Self::print_json(&payload)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn level_status(
+        &mut self,
+        sub_matches: &ArgMatches,
+        format: ReportOutputFormat,
+    ) -> Result<(), CliError> {
+        use crate::views::LevelView;
+
+        let account_id = self.resolve_level_account_id(sub_matches, format)?;
+        let level = self.trust.level_for_account(account_id).map_err(|error| {
+            Self::report_error(
+                format,
+                "level_status_failed",
+                format!("Unable to load level status: {error}"),
+            )
+        })?;
+
+        match format {
+            ReportOutputFormat::Text => LevelView::status(&level),
+            ReportOutputFormat::Json => {
+                let payload = json!({
+                    "report": "level_status",
+                    "format_version": 1,
+                    "generated_at": chrono::Utc::now().to_rfc3339(),
+                    "scope": { "account_id": account_id.to_string() },
+                    "data": {
+                        "current_level": level.current_level,
+                        "description": model::Level::level_description(level.current_level),
+                        "risk_multiplier": Self::decimal_string(level.risk_multiplier),
+                        "status": level.status.to_string(),
+                        "trades_at_level": level.trades_at_level,
+                        "level_start_date": level.level_start_date.to_string()
+                    }
+                });
+                Self::print_json(&payload)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn level_history(
+        &mut self,
+        sub_matches: &ArgMatches,
+        format: ReportOutputFormat,
+    ) -> Result<(), CliError> {
+        use crate::views::LevelView;
+
+        let account_id = self.resolve_level_account_id(sub_matches, format)?;
+        let days = sub_matches.get_one::<u32>("days").copied();
+        let changes = self
+            .trust
+            .level_history_for_account(account_id, days)
+            .map_err(|error| {
+                Self::report_error(
+                    format,
+                    "level_history_failed",
+                    format!("Unable to load level history: {error}"),
+                )
+            })?;
+
+        match format {
+            ReportOutputFormat::Text => LevelView::history(&changes),
+            ReportOutputFormat::Json => {
+                let payload = json!({
+                    "report": "level_history",
+                    "format_version": 1,
+                    "generated_at": chrono::Utc::now().to_rfc3339(),
+                    "scope": { "account_id": account_id.to_string() },
+                    "filters": { "days": days },
+                    "data": changes.iter().map(|change| {
+                        json!({
+                            "id": change.id.to_string(),
+                            "old_level": change.old_level,
+                            "new_level": change.new_level,
+                            "change_reason": change.change_reason,
+                            "trigger_type": change.trigger_type.to_string(),
+                            "changed_at": change.changed_at.to_string()
+                        })
+                    }).collect::<Vec<_>>()
+                });
+                Self::print_json(&payload)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn level_change(
+        &mut self,
+        sub_matches: &ArgMatches,
+        format: ReportOutputFormat,
+    ) -> Result<(), CliError> {
+        use crate::views::LevelView;
+
+        self.ensure_protected_keyword(sub_matches, format, "manual level change")?;
+        let account_id = self.resolve_level_account_id(sub_matches, format)?;
+        let target_level = *sub_matches.get_one::<u8>("to").ok_or_else(|| {
+            Self::report_error(
+                format,
+                "missing_level",
+                "Missing required --to level argument",
+            )
+        })?;
+        let reason = sub_matches
+            .get_one::<String>("reason")
+            .ok_or_else(|| Self::report_error(format, "missing_reason", "Missing --reason"))?;
+        let trigger = sub_matches
+            .get_one::<String>("trigger")
+            .ok_or_else(|| Self::report_error(format, "missing_trigger", "Missing --trigger"))?;
+        let parsed_trigger = LevelTrigger::from_str(trigger).map_err(|error| {
+            Self::report_error(
+                format,
+                "invalid_trigger",
+                format!("Invalid --trigger value '{trigger}': {error}"),
+            )
+        })?;
+
+        let (level, change) = self
+            .trust
+            .change_level(account_id, target_level, reason, parsed_trigger)
+            .map_err(|error| {
+                Self::report_error(
+                    format,
+                    "level_change_failed",
+                    format!("Unable to apply level change: {error}"),
+                )
+            })?;
+
+        match format {
+            ReportOutputFormat::Text => {
+                println!("Level change applied successfully.");
+                LevelView::status(&level);
+                println!();
+                LevelView::history(&[change]);
+            }
+            ReportOutputFormat::Json => {
+                let payload = json!({
+                    "report": "level_change",
+                    "format_version": 1,
+                    "generated_at": chrono::Utc::now().to_rfc3339(),
+                    "scope": { "account_id": account_id.to_string() },
+                    "data": {
+                        "level": {
+                            "current_level": level.current_level,
+                            "description": model::Level::level_description(level.current_level),
+                            "risk_multiplier": Self::decimal_string(level.risk_multiplier),
+                            "status": level.status.to_string(),
+                            "level_start_date": level.level_start_date.to_string(),
+                        },
+                        "event": {
+                            "old_level": change.old_level,
+                            "new_level": change.new_level,
+                            "change_reason": change.change_reason,
+                            "trigger_type": change.trigger_type.to_string(),
+                            "changed_at": change.changed_at.to_string(),
+                        }
+                    }
+                });
+                Self::print_json(&payload)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn level_evaluate(
+        &mut self,
+        sub_matches: &ArgMatches,
+        format: ReportOutputFormat,
+    ) -> Result<(), CliError> {
+        let account_id = self.resolve_level_account_id(sub_matches, format)?;
+        let snapshot = Self::level_snapshot_from_args(sub_matches, format)?;
+        let apply = sub_matches.get_flag("apply");
+        if apply {
+            self.ensure_protected_keyword(sub_matches, format, "level policy apply")?;
+        }
+
+        let outcome = self
+            .trust
+            .evaluate_level_transition(account_id, snapshot, apply)
+            .map_err(|error| {
+                Self::report_error(
+                    format,
+                    "level_evaluation_failed",
+                    format!("Unable to evaluate level transition: {error}"),
+                )
+            })?;
+
+        match format {
+            ReportOutputFormat::Text => Self::print_level_evaluation_text(&outcome, apply),
+            ReportOutputFormat::Json => {
+                let payload = Self::level_evaluation_payload(account_id, apply, &outcome);
+                Self::print_json(&payload)?;
+            }
+        }
+
+        Ok(())
     }
 }
 
 // Trading Vehicle
 impl ArgDispatcher {
     fn create_trading_vehicle(&mut self, matches: &ArgMatches) -> Result<(), CliError> {
+        self.ensure_protected_keyword(
+            matches,
+            ReportOutputFormat::Text,
+            "trading-vehicle creation",
+        )?;
         if matches.get_flag("from-alpaca") {
             return self.create_trading_vehicle_from_alpaca(matches);
         }
@@ -677,7 +1152,12 @@ impl ArgDispatcher {
         out
     }
 
-    fn create_keys(&mut self) {
+    fn create_keys(&mut self, sub_matches: &ArgMatches) -> Result<(), CliError> {
+        self.ensure_protected_keyword(
+            sub_matches,
+            ReportOutputFormat::Text,
+            "broker key creation",
+        )?;
         KeysWriteDialogBuilder::new()
             .account(&mut self.trust)
             .environment()
@@ -686,6 +1166,7 @@ impl ArgDispatcher {
             .key_secret()
             .build()
             .display();
+        Ok(())
     }
 
     fn show_keys(&mut self) {
@@ -696,12 +1177,233 @@ impl ArgDispatcher {
             .display();
     }
 
-    fn delete_keys(&mut self) {
+    fn delete_keys(&mut self, sub_matches: &ArgMatches) -> Result<(), CliError> {
+        self.ensure_protected_keyword(
+            sub_matches,
+            ReportOutputFormat::Text,
+            "broker key deletion",
+        )?;
         KeysDeleteDialogBuilder::new()
             .account(&mut self.trust)
             .environment()
             .build()
             .display();
+        Ok(())
+    }
+
+    fn set_protected_keyword(&mut self, sub_matches: &ArgMatches) -> Result<(), CliError> {
+        let value = sub_matches.get_one::<String>("value").ok_or_else(|| {
+            CliError::new(
+                "missing_value",
+                "Missing --value for protected keyword configuration",
+            )
+        })?;
+        let current = sub_matches
+            .get_one::<String>("confirm-protected")
+            .map(String::as_str);
+        match protected_keyword::read_expected() {
+            Ok(expected) => {
+                let provided = current.ok_or_else(|| {
+                    CliError::new(
+                        "protected_keyword_required",
+                        "Protected keyword already configured. Provide --confirm-protected <CURRENT_KEYWORD> to rotate it.",
+                    )
+                })?;
+                if provided != expected {
+                    return Err(CliError::new(
+                        "protected_keyword_invalid",
+                        "Invalid protected keyword. Rotation denied.",
+                    ));
+                }
+                protected_keyword::store(value).map_err(|error| {
+                    CliError::new(
+                        "protected_keyword_store_failed",
+                        format!("Unable to rotate protected keyword: {error}"),
+                    )
+                })?;
+                println!("Protected mutation keyword rotated.");
+            }
+            Err(_) => {
+                protected_keyword::store(value).map_err(|error| {
+                    CliError::new(
+                        "protected_keyword_store_failed",
+                        format!("Unable to store protected keyword: {error}"),
+                    )
+                })?;
+                println!("Protected mutation keyword stored in keychain.");
+            }
+        }
+        Ok(())
+    }
+
+    fn show_protected_keyword(&mut self) {
+        match protected_keyword::read_expected() {
+            Ok(_) => println!("Protected mutation keyword is configured."),
+            Err(_) => println!("Protected mutation keyword is not configured."),
+        }
+    }
+
+    fn delete_protected_keyword(&mut self, sub_matches: &ArgMatches) -> Result<(), CliError> {
+        self.ensure_protected_keyword(
+            sub_matches,
+            ReportOutputFormat::Text,
+            "protected keyword deletion",
+        )?;
+        protected_keyword::delete().map_err(|error| {
+            CliError::new(
+                "protected_keyword_delete_failed",
+                format!("Unable to delete protected keyword: {error}"),
+            )
+        })?;
+        println!("Protected mutation keyword deleted.");
+        Ok(())
+    }
+
+    fn onboarding_init(
+        &mut self,
+        sub_matches: &ArgMatches,
+        format: ReportOutputFormat,
+    ) -> Result<(), CliError> {
+        if protected_keyword::read_expected().is_ok() {
+            return Err(Self::report_error(
+                format,
+                "onboarding_already_initialized",
+                "Protected keyword already configured. Use `trust keys protected-set --value <NEW> --confirm-protected <CURRENT>` to rotate.",
+            ));
+        }
+        let value = sub_matches
+            .get_one::<String>("protected-keyword")
+            .ok_or_else(|| {
+                Self::report_error(format, "missing_keyword", "Missing --protected-keyword")
+            })?;
+        protected_keyword::store(value).map_err(|error| {
+            Self::report_error(
+                format,
+                "onboarding_store_failed",
+                format!("Unable to store onboarding keyword: {error}"),
+            )
+        })?;
+        match format {
+            ReportOutputFormat::Text => {
+                println!("Onboarding initialized.");
+                println!("Protected mutation keyword is now configured.");
+                println!("Next steps:");
+                println!(
+                    "1. Configure broker keys with `trust keys create --confirm-protected <KEYWORD>`."
+                );
+                println!(
+                    "2. Configure risk rules with `trust rule create --confirm-protected <KEYWORD>`."
+                );
+                println!(
+                    "3. Use trading commands normally; protected operations will require the keyword."
+                );
+            }
+            ReportOutputFormat::Json => {
+                let payload = json!({
+                    "report": "onboarding_init",
+                    "format_version": 1,
+                    "generated_at": chrono::Utc::now().to_rfc3339(),
+                    "data": {
+                        "protected_keyword_configured": true,
+                        "next_steps": [
+                            "trust keys create --confirm-protected <KEYWORD>",
+                            "trust rule create --confirm-protected <KEYWORD>"
+                        ]
+                    }
+                });
+                Self::print_json(&payload)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn onboarding_status(&mut self, format: ReportOutputFormat) -> Result<(), CliError> {
+        let protected = protected_keyword::read_expected().is_ok();
+        match format {
+            ReportOutputFormat::Text => {
+                println!("Onboarding Status");
+                println!("=================");
+                println!(
+                    "Protected keyword: {}",
+                    if protected { "configured" } else { "missing" }
+                );
+                if !protected {
+                    println!("Run: trust onboarding init --protected-keyword <KEYWORD>");
+                }
+            }
+            ReportOutputFormat::Json => {
+                let payload = json!({
+                    "report": "onboarding_status",
+                    "format_version": 1,
+                    "generated_at": chrono::Utc::now().to_rfc3339(),
+                    "data": {
+                        "protected_keyword": if protected { "configured" } else { "missing" }
+                    }
+                });
+                Self::print_json(&payload)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn policy_show(&mut self, format: ReportOutputFormat) -> Result<(), CliError> {
+        let protected_operations = vec![
+            "account create",
+            "transaction deposit",
+            "transaction withdraw",
+            "rule create",
+            "rule remove",
+            "trading-vehicle create",
+            "level change",
+            "level evaluate --apply",
+            "keys create",
+            "keys delete",
+            "keys protected-set (rotation)",
+            "keys protected-delete",
+        ];
+        let unrestricted_operations = vec![
+            "trade *",
+            "report *",
+            "metrics *",
+            "grade *",
+            "level status",
+            "level history",
+            "level triggers",
+            "level evaluate (without --apply)",
+            "account search",
+            "keys show",
+            "keys protected-show",
+            "onboarding status",
+        ];
+
+        match format {
+            ReportOutputFormat::Text => {
+                println!("Trust CLI Policy");
+                println!("================");
+                println!("Protected operations require --confirm-protected <KEYWORD>.");
+                println!("Protected:");
+                for operation in &protected_operations {
+                    println!("- {operation}");
+                }
+                println!("Unrestricted:");
+                for operation in &unrestricted_operations {
+                    println!("- {operation}");
+                }
+            }
+            ReportOutputFormat::Json => {
+                let payload = json!({
+                    "report": "policy",
+                    "format_version": 1,
+                    "generated_at": chrono::Utc::now().to_rfc3339(),
+                    "data": {
+                        "protected": protected_operations,
+                        "unrestricted": unrestricted_operations
+                    }
+                });
+                Self::print_json(&payload)?;
+            }
+        }
+        Ok(())
     }
 
     #[allow(clippy::too_many_lines)]
@@ -2392,4 +3094,16 @@ fn create_dir_if_necessary() {
 
     // Create directory
     let _result = create_dir_all(&directory_path);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ArgDispatcher;
+
+    #[test]
+    fn test_protected_keyword_validator() {
+        assert!(ArgDispatcher::is_valid_protected_keyword("abc", "abc"));
+        assert!(!ArgDispatcher::is_valid_protected_keyword("abc", "abcd"));
+        assert!(!ArgDispatcher::is_valid_protected_keyword("abc", "ABC"));
+    }
 }

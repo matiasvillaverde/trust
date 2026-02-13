@@ -38,6 +38,8 @@ pub mod broker;
 pub mod currency;
 /// Database abstraction layer
 pub mod database;
+/// Trading level management and risk multipliers
+pub mod level;
 /// Market data types
 pub mod market_data;
 /// Order types and order management
@@ -61,9 +63,13 @@ pub use broker::{Broker, BrokerLog, OrderIds};
 pub use currency::Currency;
 pub use database::{
     AccountBalanceRead, AccountBalanceWrite, AccountRead, AccountWrite, DatabaseFactory,
-    DraftTrade, OrderRead, OrderWrite, ReadBrokerLogsDB, ReadRuleDB, ReadTradeDB, ReadTradeGradeDB,
-    ReadTradingVehicleDB, ReadTransactionDB, WriteBrokerLogsDB, WriteRuleDB, WriteTradeDB,
-    WriteTradeGradeDB, WriteTradingVehicleDB, WriteTransactionDB,
+    DraftTrade, OrderRead, OrderWrite, ReadBrokerLogsDB, ReadLevelDB, ReadRuleDB, ReadTradeDB,
+    ReadTradeGradeDB, ReadTradingVehicleDB, ReadTransactionDB, WriteBrokerLogsDB, WriteLevelDB,
+    WriteRuleDB, WriteTradeDB, WriteTradeGradeDB, WriteTradingVehicleDB, WriteTransactionDB,
+};
+pub use level::{
+    Level, LevelChange, LevelDirection, LevelError, LevelStatus, LevelStatusParseError,
+    LevelTrigger, LevelTriggerParseError,
 };
 pub use market_data::{BarTimeframe, MarketBar};
 pub use order::{Order, OrderAction, OrderCategory, OrderStatus, TimeInForce};

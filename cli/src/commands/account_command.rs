@@ -1,4 +1,4 @@
-use clap::Command;
+use clap::{Arg, Command};
 
 pub struct AccountCommandBuilder {
     command: Command,
@@ -20,8 +20,15 @@ impl AccountCommandBuilder {
     }
 
     pub fn create_account(mut self) -> Self {
-        self.subcommands
-            .push(Command::new("create").about("Create a new account"));
+        self.subcommands.push(
+            Command::new("create").about("Create a new account").arg(
+                Arg::new("confirm-protected")
+                    .long("confirm-protected")
+                    .value_name("KEYWORD")
+                    .help("Protected mutation keyword")
+                    .required(false),
+            ),
+        );
         self
     }
 

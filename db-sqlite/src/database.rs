@@ -1,5 +1,5 @@
 use crate::workers::{
-    AccountBalanceDB, AccountDB, BrokerLogDB, WorkerOrder, WorkerRule, WorkerTrade,
+    AccountBalanceDB, AccountDB, BrokerLogDB, WorkerLevel, WorkerOrder, WorkerRule, WorkerTrade,
     WorkerTradeGrade, WorkerTradingVehicle, WorkerTransaction,
 };
 use diesel::prelude::*;
@@ -10,10 +10,11 @@ use model::{
     database::TradingVehicleUpsert,
     database::{AccountWrite, WriteAccountBalanceDB},
     Account, AccountBalanceRead, AccountBalanceWrite, AccountRead, Currency, DatabaseFactory,
-    Order, OrderAction, OrderCategory, OrderRead, OrderWrite, ReadRuleDB, ReadTradeDB,
-    ReadTradeGradeDB, ReadTradingVehicleDB, ReadTransactionDB, Rule, RuleName, Trade, TradeBalance,
-    TradeGrade, TradingVehicle, TradingVehicleCategory, Transaction, TransactionCategory,
-    WriteRuleDB, WriteTradeDB, WriteTradeGradeDB, WriteTradingVehicleDB, WriteTransactionDB,
+    Level, LevelChange, Order, OrderAction, OrderCategory, OrderRead, OrderWrite, ReadLevelDB,
+    ReadRuleDB, ReadTradeDB, ReadTradeGradeDB, ReadTradingVehicleDB, ReadTransactionDB, Rule,
+    RuleName, Trade, TradeBalance, TradeGrade, TradingVehicle, TradingVehicleCategory, Transaction,
+    TransactionCategory, WriteLevelDB, WriteRuleDB, WriteTradeDB, WriteTradeGradeDB,
+    WriteTradingVehicleDB, WriteTransactionDB,
 };
 use rust_decimal::Decimal;
 use std::error::Error;
@@ -123,6 +124,14 @@ impl DatabaseFactory for SqliteDatabase {
     }
 
     fn trade_grade_write(&self) -> Box<dyn WriteTradeGradeDB> {
+        Box::new(SqliteDatabase::new_from(self.connection.clone()))
+    }
+
+    fn level_read(&self) -> Box<dyn ReadLevelDB> {
+        Box::new(SqliteDatabase::new_from(self.connection.clone()))
+    }
+
+    fn level_write(&self) -> Box<dyn WriteLevelDB> {
         Box::new(SqliteDatabase::new_from(self.connection.clone()))
     }
 }
@@ -409,6 +418,81 @@ impl WriteTradeGradeDB for SqliteDatabase {
                 std::process::exit(1);
             }),
             grade,
+        )
+    }
+}
+
+impl ReadLevelDB for SqliteDatabase {
+    fn level_for_account(&mut self, account_id: Uuid) -> Result<Level, Box<dyn Error>> {
+        WorkerLevel::read_for_account(
+            &mut self.connection.lock().unwrap_or_else(|e| {
+                eprintln!("Failed to acquire connection lock: {e}");
+                std::process::exit(1);
+            }),
+            account_id,
+        )
+    }
+
+    fn level_changes_for_account(
+        &mut self,
+        account_id: Uuid,
+    ) -> Result<Vec<LevelChange>, Box<dyn Error>> {
+        WorkerLevel::read_changes_for_account(
+            &mut self.connection.lock().unwrap_or_else(|e| {
+                eprintln!("Failed to acquire connection lock: {e}");
+                std::process::exit(1);
+            }),
+            account_id,
+        )
+    }
+
+    fn recent_level_changes(
+        &mut self,
+        account_id: Uuid,
+        days: u32,
+    ) -> Result<Vec<LevelChange>, Box<dyn Error>> {
+        WorkerLevel::read_recent_changes_for_account(
+            &mut self.connection.lock().unwrap_or_else(|e| {
+                eprintln!("Failed to acquire connection lock: {e}");
+                std::process::exit(1);
+            }),
+            account_id,
+            days,
+        )
+    }
+}
+
+impl WriteLevelDB for SqliteDatabase {
+    fn create_default_level(&mut self, account: &Account) -> Result<Level, Box<dyn Error>> {
+        WorkerLevel::create_default(
+            &mut self.connection.lock().unwrap_or_else(|e| {
+                eprintln!("Failed to acquire connection lock: {e}");
+                std::process::exit(1);
+            }),
+            account,
+        )
+    }
+
+    fn update_level(&mut self, level: &Level) -> Result<Level, Box<dyn Error>> {
+        WorkerLevel::update(
+            &mut self.connection.lock().unwrap_or_else(|e| {
+                eprintln!("Failed to acquire connection lock: {e}");
+                std::process::exit(1);
+            }),
+            level,
+        )
+    }
+
+    fn create_level_change(
+        &mut self,
+        level_change: &LevelChange,
+    ) -> Result<LevelChange, Box<dyn Error>> {
+        WorkerLevel::create_change(
+            &mut self.connection.lock().unwrap_or_else(|e| {
+                eprintln!("Failed to acquire connection lock: {e}");
+                std::process::exit(1);
+            }),
+            level_change,
         )
     }
 }

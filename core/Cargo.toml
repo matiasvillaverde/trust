@@ -17,3 +17,4 @@ rust_decimal_macros = {workspace = true}
 uuid = {workspace = true}
 chrono = {workspace = true}
 thiserror = {workspace = true}
+tracing = {workspace = true}
