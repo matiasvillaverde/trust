@@ -40,6 +40,13 @@ impl TradingVehicleCommandBuilder {
                         .long("symbol")
                         .value_name("SYMBOL")
                         .help("Trading symbol to fetch from broker metadata"),
+                )
+                .arg(
+                    Arg::new("confirm-protected")
+                        .long("confirm-protected")
+                        .value_name("KEYWORD")
+                        .help("Protected mutation keyword")
+                        .required(false),
                 ),
         );
         self

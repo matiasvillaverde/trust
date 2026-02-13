@@ -31,9 +31,9 @@
 #![warn(missing_docs, rust_2018_idioms, missing_debug_implementations)]
 
 use crate::commands::{
-    AccountCommandBuilder, GradeCommandBuilder, KeysCommandBuilder, MetricsCommandBuilder,
-    ReportCommandBuilder, TradeCommandBuilder, TradingVehicleCommandBuilder,
-    TransactionCommandBuilder,
+    AccountCommandBuilder, GradeCommandBuilder, KeysCommandBuilder, LevelCommandBuilder,
+    MetricsCommandBuilder, OnboardingCommandBuilder, PolicyCommandBuilder, ReportCommandBuilder,
+    TradeCommandBuilder, TradingVehicleCommandBuilder, TransactionCommandBuilder,
 };
 use crate::dispatcher::ArgDispatcher;
 use clap::Command;
@@ -42,21 +42,35 @@ mod commands;
 mod dialogs;
 mod dispatcher;
 mod exporters;
+mod protected_keyword;
 mod views;
 
-fn main() {
-    let matches = Command::new("trust")
+fn build_keys_subcommand() -> Command {
+    KeysCommandBuilder::new()
+        .create_keys()
+        .read_environment()
+        .delete_environment()
+        .protected_set()
+        .protected_show()
+        .protected_delete()
+        .build()
+}
+
+fn build_onboarding_subcommand() -> Command {
+    OnboardingCommandBuilder::new().init().status().build()
+}
+
+fn build_policy_subcommand() -> Command {
+    PolicyCommandBuilder::new().build()
+}
+
+fn build_cli() -> Command {
+    Command::new("trust")
         .about("A tool for managing tradings")
         .version(env!("CARGO_PKG_VERSION"))
         .subcommand_required(true)
         .arg_required_else_help(true)
-        .subcommand(
-            KeysCommandBuilder::new()
-                .create_keys()
-                .read_environment()
-                .delete_environment()
-                .build(),
-        )
+        .subcommand(build_keys_subcommand())
         .subcommand(
             AccountCommandBuilder::new()
                 .create_account()
@@ -108,8 +122,22 @@ fn main() {
                 .build(),
         )
         .subcommand(GradeCommandBuilder::new().show().summary().build())
+        .subcommand(
+            LevelCommandBuilder::new()
+                .status()
+                .triggers()
+                .history()
+                .change()
+                .evaluate()
+                .build(),
+        )
         .subcommand(MetricsCommandBuilder::new().advanced().compare().build())
-        .get_matches();
+        .subcommand(build_onboarding_subcommand())
+        .subcommand(build_policy_subcommand())
+}
+
+fn main() {
+    let matches = build_cli().get_matches();
 
     let dispatcher = ArgDispatcher::new_sqlite();
     if let Err(error) = dispatcher.dispatch(matches) {

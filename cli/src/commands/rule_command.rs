@@ -1,4 +1,4 @@
-use clap::Command;
+use clap::{Arg, Command};
 
 pub struct RuleCommandBuilder {
     command: Command,
@@ -20,14 +20,32 @@ impl RuleCommandBuilder {
     }
 
     pub fn create_rule(mut self) -> Self {
-        self.subcommands
-            .push(Command::new("create").about("Create a new rule to your account"));
+        self.subcommands.push(
+            Command::new("create")
+                .about("Create a new rule to your account")
+                .arg(
+                    Arg::new("confirm-protected")
+                        .long("confirm-protected")
+                        .value_name("KEYWORD")
+                        .help("Required confirmation keyword for protected risk mutations")
+                        .required(false),
+                ),
+        );
         self
     }
 
     pub fn remove_rule(mut self) -> Self {
-        self.subcommands
-            .push(Command::new("remove").about("Remove a new rule from your account"));
+        self.subcommands.push(
+            Command::new("remove")
+                .about("Remove a new rule from your account")
+                .arg(
+                    Arg::new("confirm-protected")
+                        .long("confirm-protected")
+                        .value_name("KEYWORD")
+                        .help("Required confirmation keyword for protected risk mutations")
+                        .required(false),
+                ),
+        );
         self
     }
 }
