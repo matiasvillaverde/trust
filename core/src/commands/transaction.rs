@@ -26,13 +26,27 @@ pub fn create(
 ) -> Result<(Transaction, AccountBalance), Box<dyn Error>> {
     match category {
         TransactionCategory::Deposit => deposit(database, amount, currency, account_id),
-        TransactionCategory::Withdrawal => withdraw(database, amount, currency, account_id),
-        TransactionCategory::WithdrawalTax => {
-            unimplemented!("WithdrawalTax is not implemented yet")
-        }
-        TransactionCategory::WithdrawalEarnings => {
-            unimplemented!("WithdrawalEarnings is not implemented yet")
-        }
+        TransactionCategory::Withdrawal => withdraw(
+            database,
+            amount,
+            currency,
+            account_id,
+            TransactionCategory::Withdrawal,
+        ),
+        TransactionCategory::WithdrawalTax => withdraw(
+            database,
+            amount,
+            currency,
+            account_id,
+            TransactionCategory::WithdrawalTax,
+        ),
+        TransactionCategory::WithdrawalEarnings => withdraw(
+            database,
+            amount,
+            currency,
+            account_id,
+            TransactionCategory::WithdrawalEarnings,
+        ),
         default => {
             let message = format!("Manually creating transaction category {default:?} is not allowed. Only Withdrawals and deposits are allowed");
             Err(message.into())
@@ -89,6 +103,7 @@ fn withdraw(
     amount: Decimal,
     currency: &Currency,
     account_id: Uuid,
+    category: TransactionCategory,
 ) -> Result<(Transaction, AccountBalance), Box<dyn Error>> {
     let account = database.account_read().id(account_id)?;
 
@@ -101,12 +116,9 @@ fn withdraw(
     )?;
 
     // Create transaction
-    let transaction = database.transaction_write().create_transaction(
-        &account,
-        amount,
-        currency,
-        TransactionCategory::Withdrawal,
-    )?;
+    let transaction = database
+        .transaction_write()
+        .create_transaction(&account, amount, currency, category)?;
 
     // Update account balance
     let updated_balance = balance::calculate_account(database, &account, currency)?;

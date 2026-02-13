@@ -84,6 +84,12 @@ impl WorkerTransaction {
             currency,
             TransactionCategory::Withdrawal,
         )?;
+        let tx_withdrawal_earnings = WorkerTransaction::read_all_account_transactions_for_category(
+            connection,
+            account_id,
+            currency,
+            TransactionCategory::WithdrawalEarnings,
+        )?;
 
         let tx_fee_open = WorkerTransaction::read_all_account_transactions_for_category(
             connection,
@@ -112,13 +118,21 @@ impl WorkerTransaction {
             currency,
             TransactionCategory::PaymentFromTrade(Uuid::new_v4()),
         )?;
+        let tx_payment_earnings = WorkerTransaction::read_all_account_transactions_for_category(
+            connection,
+            account_id,
+            currency,
+            TransactionCategory::PaymentEarnings(Uuid::new_v4()),
+        )?;
         Ok(tx_deposit
             .into_iter()
             .chain(tx_withdrawal)
+            .chain(tx_withdrawal_earnings)
             .chain(tx_fee_open)
             .chain(tx_fee_close)
             .chain(tx_output)
             .chain(tx_input)
+            .chain(tx_payment_earnings)
             .collect())
     }
 
@@ -277,6 +291,13 @@ impl WorkerTransaction {
             currency,
             TransactionCategory::Withdrawal,
         )?;
+        let tx_withdrawals_earnings =
+            WorkerTransaction::read_all_transaction_beginning_of_the_month(
+                connection,
+                account_id,
+                currency,
+                TransactionCategory::WithdrawalEarnings,
+            )?;
         let tx_outputs = WorkerTransaction::read_all_transaction_beginning_of_the_month(
             connection,
             account_id,
@@ -289,12 +310,20 @@ impl WorkerTransaction {
             currency,
             TransactionCategory::PaymentFromTrade(Uuid::new_v4()),
         )?;
+        let tx_payment_earnings = WorkerTransaction::read_all_transaction_beginning_of_the_month(
+            connection,
+            account_id,
+            currency,
+            TransactionCategory::PaymentEarnings(Uuid::new_v4()),
+        )?;
 
         Ok(tx_deposits
             .into_iter()
             .chain(tx_withdrawals)
+            .chain(tx_withdrawals_earnings)
             .chain(tx_outputs)
             .chain(tx_inputs)
+            .chain(tx_payment_earnings)
             .collect())
     }
 

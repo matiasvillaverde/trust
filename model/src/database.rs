@@ -1,7 +1,8 @@
 use crate::{
-    Account, AccountBalance, AccountType, BrokerLog, Currency, DistributionRules, Environment,
-    Order, OrderAction, OrderCategory, Rule, RuleLevel, RuleName, Status, Trade, TradeBalance,
-    TradeCategory, TradingVehicle, TradingVehicleCategory, Transaction, TransactionCategory,
+    Account, AccountBalance, AccountType, BrokerLog, Currency, DistributionHistory,
+    DistributionRules, Environment, Order, OrderAction, OrderCategory, Rule, RuleLevel, RuleName,
+    Status, Trade, TradeBalance, TradeCategory, TradingVehicle, TradingVehicleCategory,
+    Transaction, TransactionCategory,
 };
 use rust_decimal::Decimal;
 use uuid::Uuid;
@@ -410,6 +411,12 @@ pub trait ReadBrokerLogsDB {
 pub trait DistributionRead {
     /// Retrieves distribution rules for a specific account
     fn for_account(&mut self, account_id: Uuid) -> Result<DistributionRules, Box<dyn Error>>;
+
+    /// Retrieves distribution execution history for a specific account
+    fn history_for_account(
+        &mut self,
+        account_id: Uuid,
+    ) -> Result<Vec<DistributionHistory>, Box<dyn Error>>;
 }
 
 /// Trait for writing distribution rules to the database
@@ -424,4 +431,17 @@ pub trait DistributionWrite {
         minimum_threshold: Decimal,
         configuration_password_hash: &str,
     ) -> Result<DistributionRules, Box<dyn Error>>;
+
+    /// Persists an execution event for distribution audit/history
+    #[allow(clippy::too_many_arguments)]
+    fn create_history(
+        &mut self,
+        source_account_id: Uuid,
+        trade_id: Option<Uuid>,
+        original_amount: Decimal,
+        distribution_date: chrono::NaiveDateTime,
+        earnings_amount: Option<Decimal>,
+        tax_amount: Option<Decimal>,
+        reinvestment_amount: Option<Decimal>,
+    ) -> Result<DistributionHistory, Box<dyn Error>>;
 }

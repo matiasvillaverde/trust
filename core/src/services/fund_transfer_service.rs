@@ -80,6 +80,7 @@ impl<'a> FundTransferService<'a> {
 mod tests {
     use super::*;
     use chrono::Utc;
+    use db_sqlite::SqliteDatabase;
     use model::database::WriteAccountBalanceDB;
     use model::{AccountType, DatabaseFactory, Environment};
     use rust_decimal_macros::dec;
@@ -200,15 +201,35 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Mock database methods not fully implemented - requires actual database for this test"]
     fn test_transfer_between_accounts_creates_transactions() {
-        // Given: A fund transfer service with mock database
-        let mut mock_db = MockDatabaseFactory::new();
-        let mut service = FundTransferService::new(&mut mock_db);
+        // Given: A fund transfer service with real sqlite database
+        let mut database = SqliteDatabase::new_in_memory();
 
-        // And: Two accounts for transfer
-        let from_account = create_test_account(AccountType::Primary, None);
-        let to_account = create_test_account(AccountType::Earnings, Some(from_account.id));
+        // And: Two accounts for transfer in a real hierarchy
+        let from_account = database
+            .account_write()
+            .create_with_hierarchy(
+                "main",
+                "main",
+                Environment::Paper,
+                dec!(25),
+                dec!(30),
+                AccountType::Primary,
+                None,
+            )
+            .expect("source account should be created");
+        let to_account = database
+            .account_write()
+            .create_with_hierarchy(
+                "earnings",
+                "earnings",
+                Environment::Paper,
+                dec!(0),
+                dec!(0),
+                AccountType::Earnings,
+                Some(from_account.id),
+            )
+            .expect("child account should be created");
 
         // And: Transfer parameters
         let amount = dec!(500);
@@ -216,13 +237,10 @@ mod tests {
         let reason = "Profit distribution transfer";
 
         // When: We transfer funds between accounts
-        let result = service.transfer_between_accounts(
-            &from_account,
-            &to_account,
-            amount,
-            &currency,
-            reason,
-        );
+        let result = {
+            let mut service = FundTransferService::new(&mut database);
+            service.transfer_between_accounts(&from_account, &to_account, amount, &currency, reason)
+        };
 
         // Then: The transfer should succeed and return transaction IDs
         assert!(result.is_ok(), "Fund transfer should succeed");
@@ -231,6 +249,18 @@ mod tests {
             withdrawal_tx_id, deposit_tx_id,
             "Transaction IDs should be different"
         );
+
+        // And: Both transactions are persisted
+        let source_transactions = database
+            .transaction_read()
+            .all_transactions(from_account.id, &currency)
+            .expect("source transactions should be readable");
+        let child_transactions = database
+            .transaction_read()
+            .all_transactions(to_account.id, &currency)
+            .expect("child transactions should be readable");
+        assert_eq!(source_transactions.len(), 1);
+        assert_eq!(child_transactions.len(), 1);
     }
 
     #[test]

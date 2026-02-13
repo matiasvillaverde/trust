@@ -184,6 +184,7 @@ pub struct TransactionCategoryParseError;
 
 impl TransactionCategory {
     /// Parses a string into a TransactionCategory, with optional trade ID for categories that require it
+    #[allow(clippy::too_many_lines)]
     pub fn parse(s: &str, trade_id: Option<Uuid>) -> Result<Self, TransactionCategoryParseError> {
         match s {
             "deposit" => Ok(TransactionCategory::Deposit),
@@ -210,6 +211,14 @@ impl TransactionCategory {
                 }
             }
             "withdrawal_tax" => Ok(TransactionCategory::WithdrawalTax),
+            "withdrawal_earnings" => Ok(TransactionCategory::WithdrawalEarnings),
+            "payment_earnings" => {
+                if let Some(trade_id) = trade_id {
+                    Ok(TransactionCategory::PaymentEarnings(trade_id))
+                } else {
+                    Err(TransactionCategoryParseError)
+                }
+            }
             "open_trade" => {
                 if let Some(trade_id) = trade_id {
                     Ok(TransactionCategory::OpenTrade(trade_id))
@@ -320,6 +329,21 @@ mod tests {
         let result = TransactionCategory::parse("fee_close", Some(id))
             .expect("Failed to parse TransactionCategory from string");
         assert_eq!(result, TransactionCategory::FeeClose(id));
+    }
+
+    #[test]
+    fn test_transaction_category_from_string_withdrawal_earnings() {
+        let result = TransactionCategory::parse("withdrawal_earnings", None)
+            .expect("Failed to parse TransactionCategory from string");
+        assert_eq!(result, TransactionCategory::WithdrawalEarnings);
+    }
+
+    #[test]
+    fn test_transaction_category_from_string_payment_earnings() {
+        let id = Uuid::new_v4();
+        let result = TransactionCategory::parse("payment_earnings", Some(id))
+            .expect("Failed to parse TransactionCategory from string");
+        assert_eq!(result, TransactionCategory::PaymentEarnings(id));
     }
 
     #[test]

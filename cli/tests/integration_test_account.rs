@@ -195,6 +195,61 @@ fn test_risk_rules() {
     assert_eq!(quantity, 500);
 }
 
+#[test]
+fn test_withdrawal_tax_and_earnings_transactions() {
+    let mut trust = create_trust();
+
+    let account = trust
+        .create_account(
+            "alpaca-special-withdrawals",
+            "default",
+            model::Environment::Paper,
+            dec!(20),
+            dec!(10),
+        )
+        .unwrap();
+
+    trust
+        .create_transaction(
+            &account,
+            &TransactionCategory::Deposit,
+            dec!(1000),
+            &Currency::USD,
+        )
+        .unwrap();
+
+    let (tax_withdrawal_tx, _) = trust
+        .create_transaction(
+            &account,
+            &TransactionCategory::WithdrawalTax,
+            dec!(120),
+            &Currency::USD,
+        )
+        .unwrap();
+    assert_eq!(
+        tax_withdrawal_tx.category,
+        TransactionCategory::WithdrawalTax
+    );
+    assert_eq!(tax_withdrawal_tx.amount, dec!(120));
+
+    let (earnings_withdrawal_tx, balance) = trust
+        .create_transaction(
+            &account,
+            &TransactionCategory::WithdrawalEarnings,
+            dec!(80),
+            &Currency::USD,
+        )
+        .unwrap();
+    assert_eq!(
+        earnings_withdrawal_tx.category,
+        TransactionCategory::WithdrawalEarnings
+    );
+    assert_eq!(earnings_withdrawal_tx.amount, dec!(80));
+
+    assert_eq!(balance.total_balance, dec!(800));
+    assert_eq!(balance.total_available, dec!(920));
+}
+
 struct MockBroker;
 impl Broker for MockBroker {
     fn submit_trade(

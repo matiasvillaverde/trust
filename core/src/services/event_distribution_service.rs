@@ -67,6 +67,7 @@ impl<'a> EventDistributionService<'a> {
             profit,
             &rules,
             currency,
+            Some(trade.id),
         )?;
 
         Ok(Some(result))
@@ -306,6 +307,13 @@ mod tests {
         ) -> Result<model::DistributionRules, Box<dyn std::error::Error>> {
             Err("database unavailable".into())
         }
+
+        fn history_for_account(
+            &mut self,
+            _account_id: uuid::Uuid,
+        ) -> Result<Vec<model::DistributionHistory>, Box<dyn std::error::Error>> {
+            Ok(Vec::new())
+        }
     }
 
     #[derive(Debug)]
@@ -322,6 +330,13 @@ mod tests {
                 account_id: self.account_id,
             }
             .into())
+        }
+
+        fn history_for_account(
+            &mut self,
+            _account_id: uuid::Uuid,
+        ) -> Result<Vec<model::DistributionHistory>, Box<dyn std::error::Error>> {
+            Ok(Vec::new())
         }
     }
 

@@ -64,7 +64,8 @@ pub use database::{
     WriteRuleDB, WriteTradeDB, WriteTradingVehicleDB, WriteTransactionDB,
 };
 pub use distribution::{
-    DistributionError, DistributionResult, DistributionRules, DistributionRulesNotFound,
+    DistributionError, DistributionHistory, DistributionResult, DistributionRules,
+    DistributionRulesNotFound,
 };
 pub use order::{Order, OrderAction, OrderCategory, OrderStatus, TimeInForce};
 pub use rule::{Rule, RuleLevel, RuleName};

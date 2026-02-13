@@ -44,6 +44,31 @@ pub struct DistributionResult {
     pub transactions_created: Vec<Uuid>,
 }
 
+/// Persisted history record for a distribution execution
+#[derive(Debug, Clone, PartialEq)]
+pub struct DistributionHistory {
+    /// Unique identifier for the history row
+    pub id: Uuid,
+    /// Account from which profit was distributed
+    pub source_account_id: Uuid,
+    /// Related trade when distribution came from trade close
+    pub trade_id: Option<Uuid>,
+    /// Original distributed amount
+    pub original_amount: Decimal,
+    /// Distribution execution timestamp
+    pub distribution_date: NaiveDateTime,
+    /// Distributed earnings amount
+    pub earnings_amount: Option<Decimal>,
+    /// Distributed tax amount
+    pub tax_amount: Option<Decimal>,
+    /// Distributed reinvestment amount
+    pub reinvestment_amount: Option<Decimal>,
+    /// Row creation timestamp
+    pub created_at: NaiveDateTime,
+    /// Row update timestamp
+    pub updated_at: NaiveDateTime,
+}
+
 /// Error types for distribution operations
 #[derive(Debug, Clone, PartialEq)]
 pub enum DistributionError {

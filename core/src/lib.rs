@@ -764,6 +764,7 @@ impl TrustFacade {
             profit_amount,
             &rules,
             &currency,
+            None,
         )
     }
 
