@@ -8,6 +8,13 @@ use crate::calculators_trade::RiskCalculator;
 
 pub struct QuantityCalculator;
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct LevelAdjustedQuantity {
+    pub base_quantity: i64,
+    pub level_multiplier: Decimal,
+    pub final_quantity: i64,
+}
+
 impl QuantityCalculator {
     pub fn maximum_quantity(
         account_id: Uuid,
@@ -64,6 +71,35 @@ impl QuantityCalculator {
             .ok_or_else(|| format!("Cannot convert {max_quantity} to i64").into())
     }
 
+    pub fn maximum_quantity_with_level(
+        account_id: Uuid,
+        entry_price: Decimal,
+        stop_price: Decimal,
+        currency: &Currency,
+        database: &mut dyn DatabaseFactory,
+    ) -> Result<LevelAdjustedQuantity, Box<dyn std::error::Error>> {
+        let base_quantity =
+            Self::maximum_quantity(account_id, entry_price, stop_price, currency, database)?;
+        let level = database.level_read().level_for_account(account_id)?;
+        let final_quantity =
+            Self::apply_multiplier_to_quantity(base_quantity, level.risk_multiplier);
+
+        Ok(LevelAdjustedQuantity {
+            base_quantity,
+            level_multiplier: level.risk_multiplier,
+            final_quantity,
+        })
+    }
+
+    fn apply_multiplier_to_quantity(quantity: i64, multiplier: Decimal) -> i64 {
+        let base = Decimal::from(quantity);
+        let adjusted = match base.checked_mul(multiplier) {
+            Some(value) => value,
+            None => return 0,
+        };
+        adjusted.to_i64().unwrap_or(0).max(0)
+    }
+
     fn max_quantity_per_trade(
         available: Decimal,
         entry_price: Decimal,
@@ -74,8 +110,15 @@ impl QuantityCalculator {
             return 0;
         }
 
-        let Some(price_diff) = entry_price.checked_sub(stop_price) else {
+        let Some(raw_price_diff) = entry_price.checked_sub(stop_price) else {
             return 0; // Entry price must be greater than stop price
+        };
+        let price_diff = if raw_price_diff < dec!(0) {
+            raw_price_diff
+                .checked_mul(dec!(-1))
+                .unwrap_or(Decimal::ZERO)
+        } else {
+            raw_price_diff
         };
 
         if price_diff <= dec!(0.0) || risk <= 0.0 {
@@ -183,6 +226,18 @@ mod tests {
         assert_eq!(
             QuantityCalculator::max_quantity_per_trade(available, entry_price, stop_price, risk),
             99
+        );
+    }
+
+    #[test]
+    fn test_apply_multiplier_to_quantity_rounds_down() {
+        assert_eq!(
+            QuantityCalculator::apply_multiplier_to_quantity(101, dec!(0.5)),
+            50
+        );
+        assert_eq!(
+            QuantityCalculator::apply_multiplier_to_quantity(101, dec!(1.5)),
+            151
         );
     }
 }

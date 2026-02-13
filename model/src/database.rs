@@ -1,7 +1,7 @@
 use crate::{
-    Account, AccountBalance, BrokerLog, Currency, Environment, Level, LevelChange, Order,
-    OrderAction, OrderCategory, Rule, RuleLevel, RuleName, Status, Trade, TradeBalance,
-    TradeCategory, TradeGrade, TradingVehicle, TradingVehicleCategory, Transaction,
+    Account, AccountBalance, BrokerLog, Currency, Environment, Level, LevelAdjustmentRules,
+    LevelChange, Order, OrderAction, OrderCategory, Rule, RuleLevel, RuleName, Status, Trade,
+    TradeBalance, TradeCategory, TradeGrade, TradingVehicle, TradingVehicleCategory, Transaction,
     TransactionCategory,
 };
 use rust_decimal::Decimal;
@@ -469,6 +469,12 @@ pub trait ReadLevelDB {
         account_id: Uuid,
         days: u32,
     ) -> Result<Vec<LevelChange>, Box<dyn Error>>;
+
+    /// Retrieve level-adjustment policy rules for an account.
+    fn level_adjustment_rules_for_account(
+        &mut self,
+        account_id: Uuid,
+    ) -> Result<LevelAdjustmentRules, Box<dyn Error>>;
 }
 
 /// Trait for writing level and level-change data.
@@ -484,4 +490,11 @@ pub trait WriteLevelDB {
         &mut self,
         level_change: &LevelChange,
     ) -> Result<LevelChange, Box<dyn Error>>;
+
+    /// Persist level-adjustment policy rules for an account.
+    fn upsert_level_adjustment_rules(
+        &mut self,
+        account_id: Uuid,
+        rules: &LevelAdjustmentRules,
+    ) -> Result<LevelAdjustmentRules, Box<dyn Error>>;
 }

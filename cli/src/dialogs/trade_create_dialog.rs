@@ -164,19 +164,27 @@ impl TradeDialogBuilder {
     }
 
     pub fn quantity(mut self, trust: &mut TrustFacade) -> Self {
-        let maximum = trust
-            .calculate_maximum_quantity(
+        let (base_quantity, level_multiplier, maximum) = match trust
+            .calculate_level_adjusted_quantity(
                 self.account.clone().unwrap().id,
                 self.entry_price.unwrap(),
                 self.stop_price.unwrap(),
                 &self.currency.unwrap(),
-            )
-            .unwrap_or_else(|error| {
+            ) {
+            Ok(sizing) => (
+                sizing.base_quantity,
+                sizing.level_multiplier,
+                sizing.final_quantity,
+            ),
+            Err(error) => {
                 println!("Error calculating maximum quantity {error}");
-                0
-            });
+                (0, rust_decimal::Decimal::ONE, 0)
+            }
+        };
 
-        println!("Maximum quantity: {maximum}");
+        println!("Base quantity (rules only): {base_quantity}");
+        println!("Level multiplier: {level_multiplier}x");
+        println!("Maximum quantity (level-adjusted): {maximum}");
 
         let quantity = Input::new()
             .with_prompt("Quantity")

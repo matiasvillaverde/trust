@@ -189,6 +189,128 @@ impl LevelCommandBuilder {
         );
         self
     }
+
+    pub fn progress(mut self) -> Self {
+        self.subcommands.push(
+            Command::new("progress")
+                .about("Show what is missing to move one level up/down")
+                .arg(
+                    Arg::new("account")
+                        .long("account")
+                        .short('a')
+                        .value_name("ACCOUNT_ID")
+                        .help("Target account ID")
+                        .required(true),
+                )
+                .arg(
+                    Arg::new("profitable-trades")
+                        .long("profitable-trades")
+                        .value_name("COUNT")
+                        .help("Profitable trades in evaluation window")
+                        .value_parser(clap::value_parser!(u32))
+                        .required(true),
+                )
+                .arg(
+                    Arg::new("win-rate")
+                        .long("win-rate")
+                        .value_name("PERCENT")
+                        .help("Win rate percentage, e.g. 70")
+                        .required(true),
+                )
+                .arg(
+                    Arg::new("monthly-loss")
+                        .long("monthly-loss")
+                        .value_name("PERCENT")
+                        .help("Monthly loss percentage, use negative values for losses")
+                        .required(true),
+                )
+                .arg(
+                    Arg::new("largest-loss")
+                        .long("largest-loss")
+                        .value_name("PERCENT")
+                        .help("Largest single-trade loss percentage, negative for losses")
+                        .required(true),
+                )
+                .arg(
+                    Arg::new("consecutive-wins")
+                        .long("consecutive-wins")
+                        .value_name("COUNT")
+                        .help("Current consecutive wins")
+                        .value_parser(clap::value_parser!(u32))
+                        .default_value("0")
+                        .required(false),
+                ),
+        );
+        self
+    }
+
+    pub fn rules(mut self) -> Self {
+        self.subcommands.push(
+            Command::new("rules")
+                .about("Manage level-adjustment policy rules")
+                .subcommand(
+                    Command::new("show")
+                        .about("Show policy rules for an account")
+                        .arg(
+                            Arg::new("account")
+                                .long("account")
+                                .short('a')
+                                .value_name("ACCOUNT_ID")
+                                .help("Target account ID")
+                                .required(true),
+                        ),
+                )
+                .subcommand(
+                    Command::new("set")
+                        .about("Set one policy rule value for an account")
+                        .arg(
+                            Arg::new("account")
+                                .long("account")
+                                .short('a')
+                                .value_name("ACCOUNT_ID")
+                                .help("Target account ID")
+                                .required(true),
+                        )
+                        .arg(
+                            Arg::new("rule")
+                                .long("rule")
+                                .value_name("RULE_KEY")
+                                .help("Rule key to update")
+                                .value_parser([
+                                    "monthly_loss_downgrade_pct",
+                                    "single_loss_downgrade_pct",
+                                    "upgrade_profitable_trades",
+                                    "upgrade_win_rate_pct",
+                                    "upgrade_consecutive_wins",
+                                    "cooldown_profitable_trades",
+                                    "cooldown_win_rate_pct",
+                                    "cooldown_consecutive_wins",
+                                    "recovery_profitable_trades",
+                                    "recovery_win_rate_pct",
+                                    "recovery_consecutive_wins",
+                                    "min_trades_at_level_for_upgrade",
+                                    "max_changes_in_30_days",
+                                ])
+                                .required(true),
+                        )
+                        .arg(
+                            Arg::new("value")
+                                .long("value")
+                                .value_name("VALUE")
+                                .help("New value for selected rule")
+                                .required(true),
+                        )
+                        .arg(
+                            Arg::new("confirm-protected")
+                                .long("confirm-protected")
+                                .value_name("KEYWORD")
+                                .help("Required confirmation keyword for protected risk mutations")
+                                .required(false),
+                        ),
+                ),
+        );
+        self
+    }
 }
 
 impl Default for LevelCommandBuilder {
@@ -209,6 +331,8 @@ mod tests {
             .history()
             .change()
             .evaluate()
+            .progress()
+            .rules()
             .build();
 
         let names: Vec<&str> = cmd.get_subcommands().map(|s| s.get_name()).collect();
@@ -217,5 +341,7 @@ mod tests {
         assert!(names.contains(&"history"));
         assert!(names.contains(&"change"));
         assert!(names.contains(&"evaluate"));
+        assert!(names.contains(&"progress"));
+        assert!(names.contains(&"rules"));
     }
 }

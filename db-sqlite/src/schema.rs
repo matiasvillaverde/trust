@@ -31,6 +31,29 @@ diesel::table! {
 }
 
 diesel::table! {
+    level_adjustment_rules (id) {
+        id -> Text,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        deleted_at -> Nullable<Timestamp>,
+        account_id -> Text,
+        monthly_loss_downgrade_pct -> Text,
+        single_loss_downgrade_pct -> Text,
+        upgrade_profitable_trades -> Integer,
+        upgrade_win_rate_pct -> Text,
+        upgrade_consecutive_wins -> Integer,
+        cooldown_profitable_trades -> Integer,
+        cooldown_win_rate_pct -> Text,
+        cooldown_consecutive_wins -> Integer,
+        recovery_profitable_trades -> Integer,
+        recovery_win_rate_pct -> Text,
+        recovery_consecutive_wins -> Integer,
+        min_trades_at_level_for_upgrade -> Integer,
+        max_changes_in_30_days -> Integer,
+    }
+}
+
+diesel::table! {
     level_changes (id) {
         id -> Text,
         created_at -> Timestamp,
@@ -211,6 +234,7 @@ diesel::table! {
 }
 
 diesel::joinable!(accounts_balances -> accounts (account_id));
+diesel::joinable!(level_adjustment_rules -> accounts (account_id));
 diesel::joinable!(level_changes -> accounts (account_id));
 diesel::joinable!(levels -> accounts (account_id));
 diesel::joinable!(logs -> trades (trade_id));
@@ -225,6 +249,7 @@ diesel::joinable!(transactions -> accounts (account_id));
 diesel::allow_tables_to_appear_in_same_query!(
     accounts,
     accounts_balances,
+    level_adjustment_rules,
     level_changes,
     levels,
     logs,

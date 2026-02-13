@@ -1,8 +1,8 @@
 use crate::error::{ConversionError, IntoDomainModel, IntoDomainModels};
-use crate::schema::{level_changes, levels};
+use crate::schema::{level_adjustment_rules, level_changes, levels};
 use chrono::{Duration, NaiveDate, NaiveDateTime, Utc};
 use diesel::prelude::*;
-use model::{Account, Level, LevelChange, LevelStatus, LevelTrigger};
+use model::{Account, Level, LevelAdjustmentRules, LevelChange, LevelStatus, LevelTrigger};
 use rust_decimal::Decimal;
 use std::error::Error;
 use std::str::FromStr;
@@ -43,6 +43,11 @@ impl WorkerLevel {
                 db_error
             })?
             .into_domain_model()
+            .and_then(|level| {
+                let defaults = LevelAdjustmentRules::default();
+                let _ = Self::upsert_adjustment_rules(connection, account.id, &defaults)?;
+                Ok(level)
+            })
     }
 
     pub fn read_for_account(
@@ -162,6 +167,114 @@ impl WorkerLevel {
             })?
             .into_domain_model()
     }
+
+    pub fn read_adjustment_rules_for_account(
+        connection: &mut SqliteConnection,
+        account_id: Uuid,
+    ) -> Result<LevelAdjustmentRules, Box<dyn Error>> {
+        let maybe = level_adjustment_rules::table
+            .filter(level_adjustment_rules::account_id.eq(account_id.to_string()))
+            .filter(level_adjustment_rules::deleted_at.is_null())
+            .first::<LevelAdjustmentRulesSQLite>(connection)
+            .optional()
+            .map_err(|db_error| {
+                error!(
+                    "Error reading level adjustment rules for account {}: {db_error:?}",
+                    account_id
+                );
+                db_error
+            })?;
+
+        match maybe {
+            Some(row) => row.into_domain_model(),
+            None => {
+                let defaults = LevelAdjustmentRules::default();
+                Self::upsert_adjustment_rules(connection, account_id, &defaults)
+            }
+        }
+    }
+
+    pub fn upsert_adjustment_rules(
+        connection: &mut SqliteConnection,
+        account_id: Uuid,
+        rules: &LevelAdjustmentRules,
+    ) -> Result<LevelAdjustmentRules, Box<dyn Error>> {
+        let now = Utc::now().naive_utc();
+        let record = NewLevelAdjustmentRules {
+            id: Uuid::new_v4().to_string(),
+            created_at: now,
+            updated_at: now,
+            deleted_at: None,
+            account_id: account_id.to_string(),
+            monthly_loss_downgrade_pct: rules.monthly_loss_downgrade_pct.to_string(),
+            single_loss_downgrade_pct: rules.single_loss_downgrade_pct.to_string(),
+            upgrade_profitable_trades: i32::try_from(rules.upgrade_profitable_trades)
+                .map_err(|_| ConversionError::new("upgrade_profitable_trades", "overflow i32"))?,
+            upgrade_win_rate_pct: rules.upgrade_win_rate_pct.to_string(),
+            upgrade_consecutive_wins: i32::try_from(rules.upgrade_consecutive_wins)
+                .map_err(|_| ConversionError::new("upgrade_consecutive_wins", "overflow i32"))?,
+            cooldown_profitable_trades: i32::try_from(rules.cooldown_profitable_trades)
+                .map_err(|_| ConversionError::new("cooldown_profitable_trades", "overflow i32"))?,
+            cooldown_win_rate_pct: rules.cooldown_win_rate_pct.to_string(),
+            cooldown_consecutive_wins: i32::try_from(rules.cooldown_consecutive_wins)
+                .map_err(|_| ConversionError::new("cooldown_consecutive_wins", "overflow i32"))?,
+            recovery_profitable_trades: i32::try_from(rules.recovery_profitable_trades)
+                .map_err(|_| ConversionError::new("recovery_profitable_trades", "overflow i32"))?,
+            recovery_win_rate_pct: rules.recovery_win_rate_pct.to_string(),
+            recovery_consecutive_wins: i32::try_from(rules.recovery_consecutive_wins)
+                .map_err(|_| ConversionError::new("recovery_consecutive_wins", "overflow i32"))?,
+            min_trades_at_level_for_upgrade: i32::try_from(rules.min_trades_at_level_for_upgrade)
+                .map_err(|_| {
+                ConversionError::new("min_trades_at_level_for_upgrade", "overflow i32")
+            })?,
+            max_changes_in_30_days: i32::try_from(rules.max_changes_in_30_days)
+                .map_err(|_| ConversionError::new("max_changes_in_30_days", "overflow i32"))?,
+        };
+
+        diesel::insert_into(level_adjustment_rules::table)
+            .values(&record)
+            .on_conflict(level_adjustment_rules::account_id)
+            .do_update()
+            .set((
+                level_adjustment_rules::updated_at.eq(now),
+                level_adjustment_rules::monthly_loss_downgrade_pct
+                    .eq(record.monthly_loss_downgrade_pct.clone()),
+                level_adjustment_rules::single_loss_downgrade_pct
+                    .eq(record.single_loss_downgrade_pct.clone()),
+                level_adjustment_rules::upgrade_profitable_trades
+                    .eq(record.upgrade_profitable_trades),
+                level_adjustment_rules::upgrade_win_rate_pct
+                    .eq(record.upgrade_win_rate_pct.clone()),
+                level_adjustment_rules::upgrade_consecutive_wins
+                    .eq(record.upgrade_consecutive_wins),
+                level_adjustment_rules::cooldown_profitable_trades
+                    .eq(record.cooldown_profitable_trades),
+                level_adjustment_rules::cooldown_win_rate_pct
+                    .eq(record.cooldown_win_rate_pct.clone()),
+                level_adjustment_rules::cooldown_consecutive_wins
+                    .eq(record.cooldown_consecutive_wins),
+                level_adjustment_rules::recovery_profitable_trades
+                    .eq(record.recovery_profitable_trades),
+                level_adjustment_rules::recovery_win_rate_pct
+                    .eq(record.recovery_win_rate_pct.clone()),
+                level_adjustment_rules::recovery_consecutive_wins
+                    .eq(record.recovery_consecutive_wins),
+                level_adjustment_rules::min_trades_at_level_for_upgrade
+                    .eq(record.min_trades_at_level_for_upgrade),
+                level_adjustment_rules::max_changes_in_30_days.eq(record.max_changes_in_30_days),
+                level_adjustment_rules::deleted_at.eq::<Option<NaiveDateTime>>(None),
+            ))
+            .execute(connection)
+            .map_err(|db_error| {
+                error!(
+                    "Error upserting level adjustment rules for account {}: {db_error:?}",
+                    account_id
+                );
+                db_error
+            })?;
+
+        Self::read_adjustment_rules_for_account(connection, account_id)
+    }
 }
 
 #[derive(Debug, Queryable, Identifiable, Selectable)]
@@ -192,6 +305,29 @@ struct LevelChangeSQLite {
     change_reason: String,
     trigger_type: String,
     changed_at: NaiveDateTime,
+}
+
+#[derive(Debug, Queryable, Identifiable, Selectable)]
+#[diesel(table_name = level_adjustment_rules)]
+struct LevelAdjustmentRulesSQLite {
+    id: String,
+    created_at: NaiveDateTime,
+    updated_at: NaiveDateTime,
+    deleted_at: Option<NaiveDateTime>,
+    account_id: String,
+    monthly_loss_downgrade_pct: String,
+    single_loss_downgrade_pct: String,
+    upgrade_profitable_trades: i32,
+    upgrade_win_rate_pct: String,
+    upgrade_consecutive_wins: i32,
+    cooldown_profitable_trades: i32,
+    cooldown_win_rate_pct: String,
+    cooldown_consecutive_wins: i32,
+    recovery_profitable_trades: i32,
+    recovery_win_rate_pct: String,
+    recovery_consecutive_wins: i32,
+    min_trades_at_level_for_upgrade: i32,
+    max_changes_in_30_days: i32,
 }
 
 impl TryFrom<LevelSQLite> for Level {
@@ -245,6 +381,57 @@ impl TryFrom<LevelChangeSQLite> for LevelChange {
     }
 }
 
+impl TryFrom<LevelAdjustmentRulesSQLite> for LevelAdjustmentRules {
+    type Error = ConversionError;
+
+    fn try_from(value: LevelAdjustmentRulesSQLite) -> Result<Self, Self::Error> {
+        let _ = &value.id;
+        let _ = &value.created_at;
+        let _ = &value.updated_at;
+        let _ = &value.deleted_at;
+        let _ = &value.account_id;
+        Ok(LevelAdjustmentRules {
+            monthly_loss_downgrade_pct: Decimal::from_str(&value.monthly_loss_downgrade_pct)
+                .map_err(|_| {
+                    ConversionError::new("monthly_loss_downgrade_pct", "invalid decimal")
+                })?,
+            single_loss_downgrade_pct: Decimal::from_str(&value.single_loss_downgrade_pct)
+                .map_err(|_| {
+                    ConversionError::new("single_loss_downgrade_pct", "invalid decimal")
+                })?,
+            upgrade_profitable_trades: u32::try_from(value.upgrade_profitable_trades).map_err(
+                |_| ConversionError::new("upgrade_profitable_trades", "invalid integer"),
+            )?,
+            upgrade_win_rate_pct: Decimal::from_str(&value.upgrade_win_rate_pct)
+                .map_err(|_| ConversionError::new("upgrade_win_rate_pct", "invalid decimal"))?,
+            upgrade_consecutive_wins: u32::try_from(value.upgrade_consecutive_wins)
+                .map_err(|_| ConversionError::new("upgrade_consecutive_wins", "invalid integer"))?,
+            cooldown_profitable_trades: u32::try_from(value.cooldown_profitable_trades).map_err(
+                |_| ConversionError::new("cooldown_profitable_trades", "invalid integer"),
+            )?,
+            cooldown_win_rate_pct: Decimal::from_str(&value.cooldown_win_rate_pct)
+                .map_err(|_| ConversionError::new("cooldown_win_rate_pct", "invalid decimal"))?,
+            cooldown_consecutive_wins: u32::try_from(value.cooldown_consecutive_wins).map_err(
+                |_| ConversionError::new("cooldown_consecutive_wins", "invalid integer"),
+            )?,
+            recovery_profitable_trades: u32::try_from(value.recovery_profitable_trades).map_err(
+                |_| ConversionError::new("recovery_profitable_trades", "invalid integer"),
+            )?,
+            recovery_win_rate_pct: Decimal::from_str(&value.recovery_win_rate_pct)
+                .map_err(|_| ConversionError::new("recovery_win_rate_pct", "invalid decimal"))?,
+            recovery_consecutive_wins: u32::try_from(value.recovery_consecutive_wins).map_err(
+                |_| ConversionError::new("recovery_consecutive_wins", "invalid integer"),
+            )?,
+            min_trades_at_level_for_upgrade: u32::try_from(value.min_trades_at_level_for_upgrade)
+                .map_err(|_| {
+                ConversionError::new("min_trades_at_level_for_upgrade", "invalid integer")
+            })?,
+            max_changes_in_30_days: u32::try_from(value.max_changes_in_30_days)
+                .map_err(|_| ConversionError::new("max_changes_in_30_days", "invalid integer"))?,
+        })
+    }
+}
+
 impl IntoDomainModel<Level> for LevelSQLite {
     fn into_domain_model(self) -> Result<Level, Box<dyn Error>> {
         self.try_into().map_err(Into::into)
@@ -253,6 +440,12 @@ impl IntoDomainModel<Level> for LevelSQLite {
 
 impl IntoDomainModel<LevelChange> for LevelChangeSQLite {
     fn into_domain_model(self) -> Result<LevelChange, Box<dyn Error>> {
+        self.try_into().map_err(Into::into)
+    }
+}
+
+impl IntoDomainModel<LevelAdjustmentRules> for LevelAdjustmentRulesSQLite {
+    fn into_domain_model(self) -> Result<LevelAdjustmentRules, Box<dyn Error>> {
         self.try_into().map_err(Into::into)
     }
 }
@@ -287,6 +480,30 @@ struct NewLevelChange {
     change_reason: String,
     trigger_type: String,
     changed_at: NaiveDateTime,
+}
+
+#[derive(Insertable)]
+#[diesel(table_name = level_adjustment_rules)]
+#[diesel(treat_none_as_null = true)]
+struct NewLevelAdjustmentRules {
+    id: String,
+    created_at: NaiveDateTime,
+    updated_at: NaiveDateTime,
+    deleted_at: Option<NaiveDateTime>,
+    account_id: String,
+    monthly_loss_downgrade_pct: String,
+    single_loss_downgrade_pct: String,
+    upgrade_profitable_trades: i32,
+    upgrade_win_rate_pct: String,
+    upgrade_consecutive_wins: i32,
+    cooldown_profitable_trades: i32,
+    cooldown_win_rate_pct: String,
+    cooldown_consecutive_wins: i32,
+    recovery_profitable_trades: i32,
+    recovery_win_rate_pct: String,
+    recovery_consecutive_wins: i32,
+    min_trades_at_level_for_upgrade: i32,
+    max_changes_in_30_days: i32,
 }
 
 #[cfg(test)]

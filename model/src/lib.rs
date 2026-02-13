@@ -68,8 +68,8 @@ pub use database::{
     WriteRuleDB, WriteTradeDB, WriteTradeGradeDB, WriteTradingVehicleDB, WriteTransactionDB,
 };
 pub use level::{
-    Level, LevelChange, LevelDirection, LevelError, LevelStatus, LevelStatusParseError,
-    LevelTrigger, LevelTriggerParseError,
+    Level, LevelAdjustmentRules, LevelChange, LevelDirection, LevelError, LevelRulesError,
+    LevelStatus, LevelStatusParseError, LevelTrigger, LevelTriggerParseError,
 };
 pub use market_data::{BarTimeframe, MarketBar};
 pub use order::{Order, OrderAction, OrderCategory, OrderStatus, TimeInForce};

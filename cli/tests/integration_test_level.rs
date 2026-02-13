@@ -2,7 +2,11 @@ use core::services::leveling::LevelPerformanceSnapshot;
 use core::TrustFacade;
 use db_sqlite::SqliteDatabase;
 use model::Broker;
-use model::{Account, BrokerLog, Environment, LevelTrigger, Order, OrderIds, Status, Trade};
+use model::{
+    Account, BrokerLog, Currency, DraftTrade, Environment, LevelAdjustmentRules, LevelTrigger,
+    Order, OrderIds, RuleLevel, RuleName, Status, Trade, TradeCategory, TradingVehicleCategory,
+    TransactionCategory,
+};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use std::error::Error;
@@ -17,6 +21,79 @@ fn create_protected_trust() -> TrustFacade {
     let mut trust = create_trust();
     trust.enable_protected_mode();
     trust
+}
+
+fn setup_account_with_capital_and_rules(
+    trust: &mut TrustFacade,
+    name: &str,
+    capital: rust_decimal::Decimal,
+) -> Account {
+    let account = trust
+        .create_account(name, "test", Environment::Paper, dec!(20), dec!(10))
+        .expect("create account");
+    trust
+        .create_transaction(
+            &account,
+            &TransactionCategory::Deposit,
+            capital,
+            &Currency::USD,
+        )
+        .expect("deposit");
+    trust
+        .create_rule(
+            &account,
+            &RuleName::RiskPerMonth(20.0),
+            "max monthly risk",
+            &RuleLevel::Error,
+        )
+        .expect("risk per month rule");
+    trust
+        .create_rule(
+            &account,
+            &RuleName::RiskPerTrade(2.0),
+            "max trade risk",
+            &RuleLevel::Error,
+        )
+        .expect("risk per trade rule");
+    account
+}
+
+fn create_new_trade(
+    trust: &mut TrustFacade,
+    account: &Account,
+    quantity: i64,
+    entry_price: rust_decimal::Decimal,
+    stop_price: rust_decimal::Decimal,
+    target_price: rust_decimal::Decimal,
+) -> Trade {
+    let vehicle = trust
+        .create_trading_vehicle(
+            "TSLA",
+            Some("US88160R1014"),
+            &TradingVehicleCategory::Stock,
+            "NASDAQ",
+        )
+        .expect("create vehicle");
+    let draft = DraftTrade {
+        account: account.clone(),
+        trading_vehicle: vehicle,
+        quantity,
+        currency: Currency::USD,
+        category: TradeCategory::Long,
+        thesis: None,
+        sector: None,
+        asset_class: None,
+        context: None,
+    };
+    trust
+        .create_trade(draft, stop_price, entry_price, target_price)
+        .expect("create trade");
+    trust
+        .search_trades(account.id, Status::New)
+        .expect("search new trades")
+        .first()
+        .expect("one trade")
+        .clone()
 }
 
 #[test]
@@ -266,6 +343,150 @@ fn test_core_protected_mode_allows_single_authorized_level_mutation() {
         second_without_auth.is_err(),
         "authorization should be one-shot"
     );
+}
+
+#[test]
+fn test_level_adjusted_quantity_changes_with_level() {
+    let mut trust = create_trust();
+    let account = setup_account_with_capital_and_rules(&mut trust, "level-sized", dec!(50_000));
+
+    let sized_l3 = trust
+        .calculate_level_adjusted_quantity(account.id, dec!(40), dec!(38), &Currency::USD)
+        .expect("size L3");
+    assert_eq!(sized_l3.base_quantity, 500);
+    assert_eq!(sized_l3.final_quantity, 500);
+    assert_eq!(sized_l3.level_multiplier, dec!(1));
+
+    trust
+        .change_level(account.id, 2, "reduce size", LevelTrigger::ManualReview)
+        .expect("change level");
+
+    let sized_l2 = trust
+        .calculate_level_adjusted_quantity(account.id, dec!(40), dec!(38), &Currency::USD)
+        .expect("size L2");
+    assert_eq!(sized_l2.base_quantity, 500);
+    assert_eq!(sized_l2.final_quantity, 250);
+    assert_eq!(sized_l2.level_multiplier, dec!(0.5));
+}
+
+#[test]
+fn test_funding_rejects_quantity_above_level_adjusted_limit() {
+    let mut trust = create_trust();
+    let account =
+        setup_account_with_capital_and_rules(&mut trust, "level-fund-guard", dec!(50_000));
+    trust
+        .change_level(account.id, 2, "recovery mode", LevelTrigger::ManualReview)
+        .expect("change level");
+
+    let trade = create_new_trade(&mut trust, &account, 300, dec!(40), dec!(38), dec!(50));
+    let result = trust.fund_trade(&trade);
+    assert!(result.is_err(), "funding should enforce level-adjusted cap");
+    let error = result.expect_err("expected funding error");
+    assert!(
+        error.to_string().contains("level-adjusted maximum"),
+        "expected level-adjusted guardrail in error"
+    );
+}
+
+#[test]
+fn test_level_adjustment_rules_update_requires_authorization_in_protected_mode() {
+    let mut trust = create_protected_trust();
+    trust.authorize_protected_mutation();
+    let account = trust
+        .create_account(
+            "level-rules-protected",
+            "test",
+            Environment::Paper,
+            dec!(20),
+            dec!(10),
+        )
+        .expect("authorized account create");
+
+    let rules = LevelAdjustmentRules::default();
+    let without_auth = trust.set_level_adjustment_rules(account.id, &rules);
+    assert!(
+        without_auth.is_err(),
+        "rules mutation should require explicit authorization"
+    );
+
+    trust.authorize_protected_mutation();
+    let with_auth = trust.set_level_adjustment_rules(account.id, &rules);
+    assert!(
+        with_auth.is_ok(),
+        "authorized rules mutation should succeed"
+    );
+}
+
+#[test]
+fn test_custom_level_rules_change_upgrade_behavior() {
+    let mut trust = create_trust();
+    let account = trust
+        .create_account(
+            "level-rules-behavior",
+            "test",
+            Environment::Paper,
+            dec!(20),
+            dec!(10),
+        )
+        .expect("create account");
+
+    let mut strict = trust
+        .level_adjustment_rules_for_account(account.id)
+        .expect("load default rules");
+    strict.upgrade_profitable_trades = 20;
+    strict.upgrade_win_rate_pct = dec!(90);
+    strict.upgrade_consecutive_wins = 4;
+    trust
+        .set_level_adjustment_rules(account.id, &strict)
+        .expect("persist strict rules");
+
+    let borderline_snapshot = LevelPerformanceSnapshot {
+        profitable_trades: 12,
+        win_rate_percentage: dec!(75),
+        monthly_loss_percentage: dec!(-1),
+        largest_loss_percentage: dec!(-0.5),
+        consecutive_wins: 4,
+    };
+    let no_upgrade = trust
+        .evaluate_level_transition(account.id, borderline_snapshot, false)
+        .expect("evaluate strict rules");
+    assert!(
+        no_upgrade.decision.is_none(),
+        "strict rules should block default-like upgrade snapshot"
+    );
+
+    let strong_snapshot = LevelPerformanceSnapshot {
+        profitable_trades: 23,
+        win_rate_percentage: dec!(92),
+        monthly_loss_percentage: dec!(-0.8),
+        largest_loss_percentage: dec!(-0.4),
+        consecutive_wins: 5,
+    };
+    let upgrade = trust
+        .evaluate_level_transition(account.id, strong_snapshot, false)
+        .expect("evaluate upgraded snapshot");
+    assert_eq!(upgrade.decision.expect("decision").target_level, 4);
+}
+
+#[test]
+fn test_invalid_level_adjustment_rules_are_rejected() {
+    let mut trust = create_trust();
+    let account = trust
+        .create_account(
+            "level-rules-invalid",
+            "test",
+            Environment::Paper,
+            dec!(20),
+            dec!(10),
+        )
+        .expect("create account");
+
+    let invalid = LevelAdjustmentRules {
+        monthly_loss_downgrade_pct: dec!(1),
+        ..LevelAdjustmentRules::default()
+    };
+    let result = trust.set_level_adjustment_rules(account.id, &invalid);
+    assert!(result.is_err(), "invalid rules should be rejected");
 }
 
 struct MockBroker;
