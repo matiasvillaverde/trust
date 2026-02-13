@@ -141,12 +141,16 @@ impl ArgDispatcher {
                 }
                 _ => unreachable!("No subcommand provided"),
             },
-            Some(("account", sub_matches)) => match sub_matches.subcommand() {
-                Some(("create", sub_sub_matches)) => self.create_account(sub_sub_matches)?,
-                Some(("search", _)) => self.search_account(),
-                Some(("transfer", transfer_matches)) => self.transfer_accounts(transfer_matches)?,
-                _ => unreachable!("No subcommand provided"),
-            },
+            Some(("account", sub_matches)) | Some(("accounts", sub_matches)) => {
+                match sub_matches.subcommand() {
+                    Some(("create", sub_sub_matches)) => self.create_account(sub_sub_matches)?,
+                    Some(("search", _)) => self.search_account(),
+                    Some(("transfer", transfer_matches)) => {
+                        self.transfer_accounts(transfer_matches)?
+                    }
+                    _ => unreachable!("No subcommand provided"),
+                }
+            }
             Some(("transaction", sub_matches)) => match sub_matches.subcommand() {
                 Some(("deposit", sub_sub_matches)) => self.deposit(sub_sub_matches)?,
                 Some(("withdraw", sub_sub_matches)) => self.withdraw(sub_sub_matches)?,
@@ -3659,14 +3663,14 @@ impl ArgDispatcher {
         // Extract arguments from clap
         let name = matches.get_one::<String>("name").unwrap();
         let account_type = matches.get_one::<String>("type").unwrap();
-        let parent_id = matches.get_one::<String>("parent-id");
+        let parent_id = matches.get_one::<String>("parent");
 
         // Parse account type
         let account_type_enum = match account_type.as_str() {
-            "Primary" => model::AccountType::Primary,
-            "Earnings" => model::AccountType::Earnings,
-            "TaxReserve" => model::AccountType::TaxReserve,
-            "Reinvestment" => model::AccountType::Reinvestment,
+            "primary" => model::AccountType::Primary,
+            "earnings" => model::AccountType::Earnings,
+            "tax-reserve" => model::AccountType::TaxReserve,
+            "reinvestment" => model::AccountType::Reinvestment,
             _ => {
                 eprintln!("Invalid account type: {}", account_type);
                 return;
@@ -3755,6 +3759,7 @@ impl ArgDispatcher {
         let tax_str = matches.get_one::<String>("tax").unwrap();
         let reinvestment_str = matches.get_one::<String>("reinvestment").unwrap();
         let threshold_str = matches.get_one::<String>("threshold").unwrap();
+        let password = matches.get_one::<String>("password").unwrap();
 
         let account_id = Uuid::parse_str(account_id_str)
             .map_err(|_| CliError::new("invalid_uuid", "Invalid --account-id UUID"))?;

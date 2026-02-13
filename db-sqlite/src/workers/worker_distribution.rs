@@ -50,6 +50,7 @@ impl DistributionWrite for DistributionDB {
         tax_percent: Decimal,
         reinvestment_percent: Decimal,
         minimum_threshold: Decimal,
+        configuration_password_hash: &str,
     ) -> Result<DistributionRules, Box<dyn Error>> {
         let uuid = Uuid::new_v4().to_string();
         let now = Utc::now().naive_utc();
@@ -63,6 +64,7 @@ impl DistributionWrite for DistributionDB {
             tax_percent: tax_percent.to_string(),
             reinvestment_percent: reinvestment_percent.to_string(),
             minimum_threshold: minimum_threshold.to_string(),
+            configuration_password_hash: configuration_password_hash.to_string(),
         };
 
         let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap_or_else(|e| {
@@ -70,23 +72,45 @@ impl DistributionWrite for DistributionDB {
             std::process::exit(1);
         });
 
-        diesel::insert_into(distribution_rules::table)
-            .values(&new_rules)
-            .on_conflict(distribution_rules::account_id)
-            .do_update()
+        let existing = distribution_rules::table
+            .filter(distribution_rules::account_id.eq(account_id.to_string()))
+            .first::<DistributionRulesSQLite>(connection)
+            .optional()
+            .map_err(|error| {
+                error!("Error reading existing distribution rules: {:?}", error);
+                error
+            })?;
+
+        if existing.is_some() {
+            diesel::update(
+                distribution_rules::table
+                    .filter(distribution_rules::account_id.eq(account_id.to_string())),
+            )
             .set((
                 distribution_rules::earnings_percent.eq(&new_rules.earnings_percent),
                 distribution_rules::tax_percent.eq(&new_rules.tax_percent),
                 distribution_rules::reinvestment_percent.eq(&new_rules.reinvestment_percent),
                 distribution_rules::minimum_threshold.eq(&new_rules.minimum_threshold),
+                distribution_rules::configuration_password_hash
+                    .eq(&new_rules.configuration_password_hash),
                 distribution_rules::updated_at.eq(&new_rules.updated_at),
             ))
             .get_result::<DistributionRulesSQLite>(connection)
             .map_err(|error| {
-                error!("Error creating/updating distribution rules: {:?}", error);
+                error!("Error updating distribution rules: {:?}", error);
                 error
             })?
             .into_domain_model()
+        } else {
+            diesel::insert_into(distribution_rules::table)
+                .values(&new_rules)
+                .get_result::<DistributionRulesSQLite>(connection)
+                .map_err(|error| {
+                    error!("Error creating distribution rules: {:?}", error);
+                    error
+                })?
+                .into_domain_model()
+        }
     }
 }
 
@@ -103,6 +127,7 @@ pub struct DistributionRulesSQLite {
     pub tax_percent: String,
     pub reinvestment_percent: String,
     pub minimum_threshold: String,
+    pub configuration_password_hash: String,
 }
 
 impl TryFrom<DistributionRulesSQLite> for DistributionRules {
@@ -131,6 +156,7 @@ impl TryFrom<DistributionRulesSQLite> for DistributionRules {
             minimum_threshold: Decimal::from_str(&value.minimum_threshold).map_err(|_| {
                 ConversionError::new("minimum_threshold", "Failed to parse minimum threshold")
             })?,
+            configuration_password_hash: value.configuration_password_hash,
         })
     }
 }
@@ -153,4 +179,5 @@ struct NewDistributionRules {
     tax_percent: String,
     reinvestment_percent: String,
     minimum_threshold: String,
+    configuration_password_hash: String,
 }

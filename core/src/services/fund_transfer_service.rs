@@ -68,6 +68,10 @@ impl<'a> FundTransferService<'a> {
             return Err("Transfer amount must be positive".into());
         }
 
+        if from_account.id == to_account.id {
+            return Err("Cannot transfer funds to the same account".into());
+        }
+
         // Validate accounts have hierarchy relationship
         let accounts_related = from_account.id == to_account.parent_account_id.unwrap_or_default()
             || to_account.id == from_account.parent_account_id.unwrap_or_default()
@@ -75,7 +79,7 @@ impl<'a> FundTransferService<'a> {
                 && to_account.parent_account_id.is_some()
                 && from_account.parent_account_id == to_account.parent_account_id);
 
-        if !accounts_related && from_account.id != to_account.id {
+        if !accounts_related {
             return Err("Accounts must have a hierarchy relationship".into());
         }
 
@@ -311,5 +315,16 @@ mod tests {
         );
         let error_msg = result.unwrap_err().to_string();
         assert!(error_msg.contains("hierarchy") || error_msg.contains("relationship"));
+    }
+
+    #[test]
+    fn test_validate_transfer_same_account_rejected() {
+        let mut mock_db = MockDatabaseFactory::new();
+        let service = FundTransferService::new(&mut mock_db);
+        let account = create_test_account(AccountType::Primary, None);
+
+        let result = service.validate_transfer(&account, &account, dec!(100));
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("same account"));
     }
 }

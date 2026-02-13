@@ -1366,7 +1366,6 @@ fn hash_distribution_password_legacy_sha256(
     if password.trim().len() < 8 {
         return Err("Distribution password must be at least 8 characters".into());
     }
-
     let mut hasher = Sha256::new();
     hasher.update(password.as_bytes());
     let digest = hasher.finalize();

@@ -45,7 +45,6 @@ fn test_account_hierarchy_fields_exist_after_migration() {
 }
 
 #[test]
-#[ignore = "Database layer account type assignment not fully implemented - tracking issue needs to be created"]
 fn test_account_hierarchy_child_parent_relationship() {
     // Given: A fresh database with parent account
     let db = SqliteDatabase::new_in_memory();
@@ -65,47 +64,69 @@ fn test_account_hierarchy_child_parent_relationship() {
     // When: We create parent and child accounts
     let _created_parent = db
         .account_write()
-        .create(
+        .create_with_hierarchy(
             &parent.name,
             &parent.description,
             parent.environment,
             parent.taxes_percentage,
             parent.earnings_percentage,
+            AccountType::Primary,
+            None,
         )
         .unwrap();
 
     // Then: Child account creation should succeed
-    let result = db.account_write().create(
+    let result = db.account_write().create_with_hierarchy(
         "Earnings Account",
         "Personal earnings allocation",
         model::Environment::Paper,
         Decimal::new(0, 2),
         Decimal::new(0, 2),
+        AccountType::Earnings,
+        Some(_created_parent.id),
     );
     assert!(result.is_ok(), "Child account creation should succeed");
 
     // And: Child should maintain parent relationship
     let created_child = result.unwrap();
     let retrieved_child = db.account_read().id(created_child.id).unwrap();
-    // Note: For this test, we'll validate the account_type since parent relationships
-    // will be implemented in the database layer migration
     assert_eq!(retrieved_child.account_type, AccountType::Earnings);
+    assert_eq!(retrieved_child.parent_account_id, Some(_created_parent.id));
 }
 
 #[test]
 fn test_distribution_tables_exist_after_migration() {
     // Given: A fresh database with migrations applied
-    let _db = SqliteDatabase::new_in_memory();
+    let db = SqliteDatabase::new_in_memory();
+    let account = db
+        .account_write()
+        .create(
+            "distribution-main",
+            "distribution-main",
+            model::Environment::Paper,
+            Decimal::new(25, 2),
+            Decimal::new(30, 2),
+        )
+        .unwrap();
 
-    // When: We try to access distribution-related operations
-    // This test will fail until we implement DistributionRead/Write traits
+    let created = db
+        .distribution_write()
+        .create_or_update(
+            account.id,
+            Decimal::new(40, 2),
+            Decimal::new(30, 2),
+            Decimal::new(30, 2),
+            Decimal::new(100, 0),
+            "test-lock-hash",
+        )
+        .unwrap();
 
-    // For now, we'll test that the database can be created without errors
-    // indicating the schema migration succeeded
-    // Note: Replace with actual distribution table queries when traits are implemented
-
-    // TODO: Implement actual distribution table operations test
-    // when we add DistributionRead/Write traits
+    let retrieved = db.distribution_read().for_account(account.id).unwrap();
+    assert_eq!(created.account_id, retrieved.account_id);
+    assert_eq!(
+        retrieved.configuration_password_hash,
+        "test-lock-hash".to_string()
+    );
 }
 
 #[test]

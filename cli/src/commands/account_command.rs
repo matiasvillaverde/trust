@@ -8,7 +8,8 @@ pub struct AccountCommandBuilder {
 impl AccountCommandBuilder {
     pub fn new() -> Self {
         AccountCommandBuilder {
-            command: Command::new("account")
+            command: Command::new("accounts")
+                .visible_alias("account")
                 .about("Manage the trading account information")
                 .arg_required_else_help(true),
             subcommands: Vec::new(),
