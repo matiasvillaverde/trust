@@ -31,9 +31,10 @@
 #![warn(missing_docs, rust_2018_idioms, missing_debug_implementations)]
 
 use crate::commands::{
-    AccountCommandBuilder, GradeCommandBuilder, KeysCommandBuilder, LevelCommandBuilder,
-    MetricsCommandBuilder, OnboardingCommandBuilder, PolicyCommandBuilder, ReportCommandBuilder,
-    TradeCommandBuilder, TradingVehicleCommandBuilder, TransactionCommandBuilder,
+    AccountCommandBuilder, DbCommandBuilder, GradeCommandBuilder, KeysCommandBuilder,
+    LevelCommandBuilder, MetricsCommandBuilder, OnboardingCommandBuilder, PolicyCommandBuilder,
+    ReportCommandBuilder, TradeCommandBuilder, TradingVehicleCommandBuilder,
+    TransactionCommandBuilder,
 };
 use crate::dispatcher::ArgDispatcher;
 use clap::Command;
@@ -70,6 +71,7 @@ fn build_cli() -> Command {
         .version(env!("CARGO_PKG_VERSION"))
         .subcommand_required(true)
         .arg_required_else_help(true)
+        .subcommand(DbCommandBuilder::new().export().import().build())
         .subcommand(build_keys_subcommand())
         .subcommand(
             AccountCommandBuilder::new()

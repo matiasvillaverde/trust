@@ -15,6 +15,7 @@ use core::services::leveling::{
 };
 use core::TrustFacade;
 use db_sqlite::SqliteDatabase;
+use db_sqlite::{ImportMode, ImportOptions};
 use model::{
     database::TradingVehicleUpsert, Currency, Level, LevelAdjustmentRules, LevelTrigger, Trade,
     TradingVehicleCategory, TransactionCategory,
@@ -110,6 +111,11 @@ impl ArgDispatcher {
     #[allow(clippy::too_many_lines)]
     pub fn dispatch(mut self, matches: ArgMatches) -> Result<(), CliError> {
         match matches.subcommand() {
+            Some(("db", sub_matches)) => match sub_matches.subcommand() {
+                Some(("export", sub_sub_matches)) => self.db_export(sub_sub_matches)?,
+                Some(("import", sub_sub_matches)) => self.db_import(sub_sub_matches)?,
+                _ => unreachable!("No subcommand provided"),
+            },
             Some(("keys", sub_matches)) => match sub_matches.subcommand() {
                 Some(("create", sub_sub_matches)) => self.create_keys(sub_sub_matches)?,
                 Some(("show", _)) => self.show_keys(),
@@ -3550,6 +3556,57 @@ impl ArgDispatcher {
         println!("  • Comparative metric calculations");
         println!("  • Trend analysis and direction indicators");
         println!("  • Export capabilities");
+    }
+
+    fn db_export(&mut self, sub_matches: &ArgMatches) -> Result<(), CliError> {
+        let output = sub_matches
+            .get_one::<String>("output")
+            .map(String::as_str)
+            .unwrap_or("trust-backup.json");
+
+        let db = SqliteDatabase::new(Self::database_url().as_str());
+        db.export_backup_to_path(Path::new(output))
+            .map_err(|error| {
+                CliError::new(
+                    "db_export_failed",
+                    format!("Unable to export DB backup to {output}: {error}"),
+                )
+            })?;
+
+        // Print the output path so scripts can capture it.
+        println!("{output}");
+        Ok(())
+    }
+
+    fn db_import(&mut self, sub_matches: &ArgMatches) -> Result<(), CliError> {
+        let input = sub_matches
+            .get_one::<String>("input")
+            .ok_or_else(|| CliError::new("missing_input", "Missing --input for db import"))?;
+
+        // DB import mutates persisted state, so keep it protected.
+        self.ensure_protected_keyword(sub_matches, ReportOutputFormat::Text, "database import")?;
+
+        let mode = match sub_matches.get_one::<String>("mode").map(String::as_str) {
+            Some("replace") => ImportMode::Replace,
+            _ => ImportMode::Strict,
+        };
+        let dry_run = sub_matches.get_flag("dry-run");
+
+        let mut db = SqliteDatabase::new(Self::database_url().as_str());
+        let report = db
+            .import_backup_from_path(Path::new(input), ImportOptions { mode, dry_run })
+            .map_err(|error| {
+                CliError::new(
+                    "db_import_failed",
+                    format!("Unable to import DB backup from {input}: {error}"),
+                )
+            })?;
+
+        println!(
+            "cleared_rows={} inserted_rows={}",
+            report.cleared_rows, report.inserted_rows
+        );
+        Ok(())
     }
 }
 
