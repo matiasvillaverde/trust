@@ -105,6 +105,7 @@ fn build_cli() -> Command {
                 .cancel_trade()
                 .submit_trade()
                 .sync_trade()
+                .watch_trade()
                 .manually_fill()
                 .manually_stop()
                 .manually_target()
