@@ -85,13 +85,19 @@ pub struct Execution {
     pub id: Uuid,
 
     // Entity timestamps
+    /// When the execution row was created locally.
     pub created_at: NaiveDateTime,
+    /// When the execution row was last updated locally.
     pub updated_at: NaiveDateTime,
+    /// When the execution row was soft-deleted locally (if ever).
     pub deleted_at: Option<NaiveDateTime>,
 
     // Identity / ownership
+    /// Broker identifier (e.g., `alpaca`).
     pub broker: String,
+    /// Where this execution was sourced from.
     pub source: ExecutionSource,
+    /// Account this execution belongs to.
     pub account_id: Uuid,
 
     /// Optional linkage to a trade we know about.
@@ -106,6 +112,7 @@ pub struct Execution {
 
     /// Executed symbol (as reported by broker).
     pub symbol: String,
+    /// Broker-reported side for this execution.
     pub side: ExecutionSide,
 
     /// Filled quantity. Decimal to support fractional fills (e.g., crypto).
@@ -121,6 +128,7 @@ pub struct Execution {
 
 impl Execution {
     /// Construct a new execution.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         broker: String,
         source: ExecutionSource,
