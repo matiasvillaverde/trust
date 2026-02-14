@@ -1206,6 +1206,7 @@ impl TrustFacade {
         );
         rules.validate()?;
 
+        // Existing rules can only be updated with the existing configuration password.
         match self.factory.distribution_read().for_account(account_id) {
             Ok(existing_rules) => {
                 if !verify_distribution_password(
@@ -1216,6 +1217,7 @@ impl TrustFacade {
                 }
             }
             Err(e) => {
+                // Treat only explicit not-found as "no rules configured"; propagate all other errors.
                 if !e.as_ref().is::<model::DistributionRulesNotFound>() {
                     return Err(e);
                 }
