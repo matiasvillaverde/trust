@@ -53,6 +53,44 @@ impl TradeCommandBuilder {
         self
     }
 
+    pub fn watch_trade(mut self) -> Self {
+        self.subcommands.push(
+            Command::new("watch")
+                .about("Watch a trade live (WebSocket-first with reconciliation)")
+                .arg(
+                    Arg::new("account")
+                        .long("account")
+                        .help("Account name (non-interactive mode)")
+                        .num_args(1),
+                )
+                .arg(
+                    Arg::new("trade-id")
+                        .long("trade-id")
+                        .help("Trade UUID to watch (non-interactive mode)")
+                        .num_args(1),
+                )
+                .arg(
+                    Arg::new("json")
+                        .long("json")
+                        .help("Emit machine-readable JSON lines")
+                        .action(clap::ArgAction::SetTrue),
+                )
+                .arg(
+                    Arg::new("timeout-secs")
+                        .long("timeout-secs")
+                        .help("Stop watching after N seconds (0 = no timeout)")
+                        .num_args(1),
+                )
+                .arg(
+                    Arg::new("reconcile-secs")
+                        .long("reconcile-secs")
+                        .help("REST reconciliation interval in seconds")
+                        .num_args(1),
+                ),
+        );
+        self
+    }
+
     pub fn manually_fill(mut self) -> Self {
         self.subcommands.push(
             Command::new("manually-fill").about("Execute manually the filling of a trade. Meaning that the entry order was filled and we own the trading vehicle."),
