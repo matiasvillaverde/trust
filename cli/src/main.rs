@@ -101,6 +101,7 @@ fn main() {
             DistributionCommandBuilder::new()
                 .configure_distribution()
                 .execute_distribution()
+                .history()
                 .build(),
         )
         .subcommand(

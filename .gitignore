@@ -18,3 +18,7 @@ db-sqlite/*.db
 
 # Act configuration (local GitHub Actions runner)
 .actrc
+
+# Local caches
+.cache_alpaca_docs/
+.cache_apca/

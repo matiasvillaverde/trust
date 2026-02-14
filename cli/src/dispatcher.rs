@@ -22,6 +22,7 @@ use alpaca_broker::AlpacaBroker;
 use clap::ArgMatches;
 use core::TrustFacade;
 use db_sqlite::SqliteDatabase;
+use dialoguer::Password;
 use model::TransactionCategory;
 use shellexpand::tilde;
 use std::ffi::OsString;
@@ -106,6 +107,7 @@ impl ArgDispatcher {
                     self.configure_distribution(configure_matches)
                 }
                 Some(("execute", execute_matches)) => self.execute_distribution(execute_matches),
+                Some(("history", history_matches)) => self.distribution_history(history_matches),
                 _ => unreachable!("No subcommand provided"),
             },
             Some(("report", sub_matches)) => match sub_matches.subcommand() {
@@ -714,7 +716,13 @@ impl ArgDispatcher {
         let tax_str = matches.get_one::<String>("tax").unwrap();
         let reinvestment_str = matches.get_one::<String>("reinvestment").unwrap();
         let threshold_str = matches.get_one::<String>("threshold").unwrap();
-        let password = matches.get_one::<String>("password").unwrap();
+        let password = match matches.get_one::<String>("password") {
+            Some(p) => p.to_string(),
+            None => Password::new()
+                .with_prompt("Distribution configuration password")
+                .with_confirmation("Confirm password", "Passwords do not match")
+                .interact()?,
+        };
 
         // Parse account ID
         let account_id = match uuid::Uuid::parse_str(account_id_str) {
@@ -774,7 +782,7 @@ impl ArgDispatcher {
             tax_percent,
             reinvestment_percent,
             threshold,
-            password,
+            &password,
         )?;
 
         progress.complete();
@@ -860,6 +868,50 @@ impl ArgDispatcher {
                     ErrorFormatter::format_system_error(
                         &format!("Distribution execution failed: {}", e),
                         "Please verify all accounts exist and have sufficient balance"
+                    )
+                );
+            }
+        }
+    }
+
+    fn distribution_history(&mut self, matches: &ArgMatches) {
+        let account_id_str = matches.get_one::<String>("account-id").unwrap();
+        let limit = matches
+            .get_one::<String>("limit")
+            .and_then(|s| s.parse::<usize>().ok())
+            .unwrap_or(20);
+
+        let account_id = match uuid::Uuid::parse_str(account_id_str) {
+            Ok(uuid) => uuid,
+            Err(_) => {
+                println!(
+                    "{}",
+                    ErrorFormatter::format_validation_error(
+                        "Account ID",
+                        "Invalid UUID format",
+                        "Please provide a valid UUID for the account"
+                    )
+                );
+                return;
+            }
+        };
+
+        match self.trust.distribution_history(account_id) {
+            Ok(mut entries) => {
+                if entries.len() > limit {
+                    entries.truncate(limit);
+                }
+                println!(
+                    "{}",
+                    DistributionFormatter::format_distribution_history(&entries)
+                );
+            }
+            Err(e) => {
+                println!(
+                    "{}",
+                    ErrorFormatter::format_system_error(
+                        &format!("Failed to read distribution history: {}", e),
+                        "Please verify the account exists and try again"
                     )
                 );
             }

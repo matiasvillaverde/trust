@@ -69,7 +69,7 @@ impl DistributionCommandBuilder {
                         .short('p')
                         .value_name("STRING")
                         .help("Password required to create/update distribution rules")
-                        .required(true),
+                        .required(false),
                 ),
         );
         self
@@ -97,5 +97,70 @@ impl DistributionCommandBuilder {
                 ),
         );
         self
+    }
+
+    pub fn history(mut self) -> Self {
+        self.subcommands.push(
+            Command::new("history")
+                .about("Show profit distribution execution history for an account")
+                .arg(
+                    Arg::new("account-id")
+                        .long("account-id")
+                        .short('a')
+                        .value_name("UUID")
+                        .help("Account ID to show distribution history for")
+                        .required(true),
+                )
+                .arg(
+                    Arg::new("limit")
+                        .long("limit")
+                        .short('l')
+                        .value_name("N")
+                        .help("Maximum number of entries to show (default: 20)")
+                        .required(false),
+                ),
+        );
+        self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn configure_allows_missing_password_flag() {
+        let cmd = DistributionCommandBuilder::new()
+            .configure_distribution()
+            .execute_distribution()
+            .history()
+            .build();
+
+        let account_id = "550e8400-e29b-41d4-a716-446655440000";
+        let result = cmd.try_get_matches_from([
+            "distribution",
+            "configure",
+            "--account-id",
+            account_id,
+            "--earnings",
+            "40.0",
+            "--tax",
+            "30.0",
+            "--reinvestment",
+            "30.0",
+            "--threshold",
+            "100.0",
+        ]);
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn history_subcommand_parses() {
+        let cmd = DistributionCommandBuilder::new().history().build();
+        let account_id = "550e8400-e29b-41d4-a716-446655440000";
+        let result =
+            cmd.try_get_matches_from(["distribution", "history", "--account-id", account_id]);
+        assert!(result.is_ok());
     }
 }
