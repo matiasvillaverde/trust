@@ -446,6 +446,22 @@ pub fn sync_with_broker(
     database: &mut dyn DatabaseFactory,
     broker: &mut dyn Broker,
 ) -> Result<(Status, Vec<Order>, BrokerLog), Box<dyn std::error::Error>> {
+    // Best-effort execution reconciliation window.
+    // This is intentionally outside the DB savepoint because it may involve broker I/O.
+    let after = database
+        .execution_read()
+        .latest_trade_execution_at(trade.id)?;
+    let after = after.map(|t| chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(t, chrono::Utc));
+    let executions = match broker.fetch_executions(trade, account, after) {
+        Ok(executions) => executions,
+        Err(e) => {
+            // Execution ingestion must never block core sync reliability.
+            // We still persist the normal trade/order snapshot. The reconciliation can be retried.
+            eprintln!("Execution reconciliation failed for trade {}: {e}", trade.id);
+            vec![]
+        }
+    };
+
     // 1. Sync Trade with Broker
     let (status, orders, log) = broker.sync_trade(trade, account)?;
 
@@ -482,12 +498,75 @@ pub fn sync_with_broker(
         trade_with_synced_orders.safety_stop = resolved.stop;
         let (trade, _) = update_status(&trade_with_synced_orders, status, database)?;
 
+        // 2.6 Persist executions (fills) for execution-level accounting, idempotently.
+        //
+        // Important: we only attribute executions to this trade when the broker order ID matches
+        // one of the trade orders. This prevents cross-trade contamination on the same symbol.
+        persist_executions_for_trade(database, &trade, &executions)?;
+
         // 2.6 Ensure sibling exit orders are consistently closed in terminal states.
         reconcile_sibling_exit_orders(&trade, status, database)?;
         Ok(())
     })?;
 
     Ok((status, orders, log))
+}
+
+fn persist_executions_for_trade(
+    database: &mut dyn DatabaseFactory,
+    trade: &Trade,
+    executions: &[model::Execution],
+) -> Result<(), Box<dyn Error>> {
+    let trade_symbol = trade.trading_vehicle.symbol.as_str();
+    let entry_broker_id = trade.entry.broker_order_id;
+    let target_broker_id = trade.target.broker_order_id;
+    let stop_broker_id = trade.safety_stop.broker_order_id;
+
+    let mut write = database.execution_write();
+    for exec in executions {
+        // Strict validation: never store garbage amounts.
+        if exec.qty <= rust_decimal_macros::dec!(0) {
+            return Err(format!(
+                "invalid execution qty for broker_execution_id {}: {}",
+                exec.broker_execution_id, exec.qty
+            )
+            .into());
+        }
+        if exec.price <= rust_decimal_macros::dec!(0) {
+            return Err(format!(
+                "invalid execution price for broker_execution_id {}: {}",
+                exec.broker_execution_id, exec.price
+            )
+            .into());
+        }
+        if exec.symbol != trade_symbol {
+            // Broker impl should have filtered, but keep this as a hard safety check.
+            continue;
+        }
+
+        let Some(broker_order_id) = exec.broker_order_id else {
+            continue;
+        };
+
+        let order_id = if Some(broker_order_id) == entry_broker_id {
+            Some(trade.entry.id)
+        } else if Some(broker_order_id) == target_broker_id {
+            Some(trade.target.id)
+        } else if Some(broker_order_id) == stop_broker_id {
+            Some(trade.safety_stop.id)
+        } else {
+            // Execution on same symbol but not part of this trade.
+            continue;
+        };
+
+        let mut attributed = exec.clone();
+        attributed.trade_id = Some(trade.id);
+        attributed.order_id = order_id;
+
+        let _ = write.upsert_execution(&attributed)?;
+    }
+
+    Ok(())
 }
 
 fn validate_sync_payload(

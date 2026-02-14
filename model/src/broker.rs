@@ -1,4 +1,4 @@
-use crate::{Account, BarTimeframe, MarketBar, Order, Status, Trade};
+use crate::{Account, BarTimeframe, Execution, MarketBar, Order, Status, Trade};
 use chrono::NaiveDateTime;
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
@@ -109,5 +109,18 @@ pub trait Broker {
         _account: &Account,
     ) -> Result<Vec<MarketBar>, Box<dyn Error>> {
         Err("Market data not supported by this broker".into())
+    }
+
+    /// Fetch broker executions (fills) for a trade since an optional timestamp.
+    ///
+    /// Default implementation returns an empty list. Brokers that support an execution feed
+    /// (REST and/or websocket) should override this to enable execution-level accounting.
+    fn fetch_executions(
+        &self,
+        _trade: &Trade,
+        _account: &Account,
+        _after: Option<DateTime<Utc>>,
+    ) -> Result<Vec<Execution>, Box<dyn Error>> {
+        Ok(vec![])
     }
 }
