@@ -30,6 +30,7 @@
 // Standard Rust lints for code quality
 #![warn(missing_docs, rust_2018_idioms, missing_debug_implementations)]
 
+mod backup;
 mod database;
 mod error;
 mod schema;
@@ -38,4 +39,5 @@ mod workers;
 #[cfg(test)]
 mod migration_fk_safety_tests;
 
+pub use backup::{ImportMode, ImportOptions, ImportReport};
 pub use database::SqliteDatabase;
