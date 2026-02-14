@@ -724,7 +724,7 @@ impl TrustFacade {
             trade,
             account,
             &mut *self.factory,
-            &mut *self.broker,
+            &*self.broker,
             options,
             |t, e| on_tick(t, e),
         )

@@ -1549,6 +1549,7 @@ impl ArgDispatcher {
             .display();
     }
 
+    #[allow(clippy::too_many_lines)]
     fn watch_trade(&mut self, matches: &ArgMatches) -> Result<(), CliError> {
         use model::{Status as TradeStatus, WatchControl, WatchOptions};
         use std::time::Duration;

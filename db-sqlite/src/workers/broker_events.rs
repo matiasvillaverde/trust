@@ -187,7 +187,8 @@ mod tests {
 
         let events = db.read_all_for_trade(event.trade_id).unwrap();
         assert_eq!(events.len(), 1);
-        assert_eq!(events[0].id, event.id);
-        assert_eq!(events[0].payload_json, event.payload_json);
+        let first = events.first().unwrap();
+        assert_eq!(first.id, event.id);
+        assert_eq!(first.payload_json, event.payload_json);
     }
 }
