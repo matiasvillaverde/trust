@@ -34,6 +34,8 @@
 pub mod account;
 /// Broker integration traits and types
 pub mod broker;
+/// Broker event records for audit/replay
+pub mod broker_event;
 /// Currency definitions and operations
 pub mod currency;
 /// Database abstraction layer
@@ -59,13 +61,15 @@ pub mod transaction;
 
 // Re-export the types from the model crate.
 pub use account::{Account, AccountBalance, Environment};
-pub use broker::{Broker, BrokerLog, OrderIds};
+pub use broker::{Broker, BrokerLog, OrderIds, WatchControl, WatchEvent, WatchOptions};
+pub use broker_event::BrokerEvent;
 pub use currency::Currency;
 pub use database::{
     AccountBalanceRead, AccountBalanceWrite, AccountRead, AccountWrite, DatabaseFactory,
     DraftTrade, OrderRead, OrderWrite, ReadBrokerLogsDB, ReadLevelDB, ReadRuleDB, ReadTradeDB,
-    ReadTradeGradeDB, ReadTradingVehicleDB, ReadTransactionDB, WriteBrokerLogsDB, WriteLevelDB,
-    WriteRuleDB, WriteTradeDB, WriteTradeGradeDB, WriteTradingVehicleDB, WriteTransactionDB,
+    ReadBrokerEventsDB, ReadTradeGradeDB, ReadTradingVehicleDB, ReadTransactionDB, WriteBrokerLogsDB,
+    WriteBrokerEventsDB, WriteLevelDB, WriteRuleDB, WriteTradeDB, WriteTradeGradeDB,
+    WriteTradingVehicleDB, WriteTransactionDB,
 };
 pub use level::{
     Level, LevelAdjustmentRules, LevelChange, LevelDirection, LevelError, LevelRulesError,

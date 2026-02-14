@@ -16,5 +16,9 @@ db-sqlite/*.db
 # Ignore all environmental files
 .env
 
+# Allow Diesel migrations even if a developer has global `*.sql` ignores.
+!db-sqlite/migrations/**/up.sql
+!db-sqlite/migrations/**/down.sql
+
 # Act configuration (local GitHub Actions runner)
 .actrc

@@ -1,8 +1,8 @@
 use crate::{
-    Account, AccountBalance, BrokerLog, Currency, Environment, Level, LevelAdjustmentRules,
-    LevelChange, Order, OrderAction, OrderCategory, Rule, RuleLevel, RuleName, Status, Trade,
-    TradeBalance, TradeCategory, TradeGrade, TradingVehicle, TradingVehicleCategory, Transaction,
-    TransactionCategory,
+    Account, AccountBalance, BrokerEvent, BrokerLog, Currency, Environment, Level,
+    LevelAdjustmentRules, LevelChange, Order, OrderAction, OrderCategory, Rule, RuleLevel,
+    RuleName, Status, Trade, TradeBalance, TradeCategory, TradeGrade, TradingVehicle,
+    TradingVehicleCategory, Transaction, TransactionCategory,
 };
 use rust_decimal::Decimal;
 use uuid::Uuid;
@@ -56,6 +56,10 @@ pub trait DatabaseFactory {
     fn log_read(&self) -> Box<dyn ReadBrokerLogsDB>;
     /// Returns a writer for broker log data operations
     fn log_write(&self) -> Box<dyn WriteBrokerLogsDB>;
+    /// Returns a reader for broker event data operations
+    fn broker_event_read(&self) -> Box<dyn ReadBrokerEventsDB>;
+    /// Returns a writer for broker event data operations
+    fn broker_event_write(&self) -> Box<dyn WriteBrokerEventsDB>;
     /// Returns a reader for trade grade data operations
     fn trade_grade_read(&self) -> Box<dyn ReadTradeGradeDB>;
     /// Returns a writer for trade grade data operations
@@ -428,6 +432,18 @@ pub trait ReadBrokerLogsDB {
     /// Retrieves all logs associated with a specific trade
     fn read_all_logs_for_trade(&mut self, trade_id: Uuid)
         -> Result<Vec<BrokerLog>, Box<dyn Error>>;
+}
+
+/// Trait for reading broker event records from the database.
+pub trait ReadBrokerEventsDB {
+    /// Reads all broker events for a trade ordered by creation time.
+    fn read_all_for_trade(&mut self, trade_id: Uuid) -> Result<Vec<BrokerEvent>, Box<dyn Error>>;
+}
+
+/// Trait for writing broker event records to the database.
+pub trait WriteBrokerEventsDB {
+    /// Persist a broker event record (raw payload must be preserved).
+    fn create_event(&mut self, event: &BrokerEvent) -> Result<BrokerEvent, Box<dyn Error>>;
 }
 
 /// Trait for reading trade grades from the database.

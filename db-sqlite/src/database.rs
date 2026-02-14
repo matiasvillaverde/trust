@@ -1,6 +1,6 @@
 use crate::workers::{
-    AccountBalanceDB, AccountDB, BrokerLogDB, WorkerLevel, WorkerOrder, WorkerRule, WorkerTrade,
-    WorkerTradeGrade, WorkerTradingVehicle, WorkerTransaction,
+    AccountBalanceDB, AccountDB, BrokerEventDB, BrokerLogDB, WorkerLevel, WorkerOrder, WorkerRule,
+    WorkerTrade, WorkerTradeGrade, WorkerTradingVehicle, WorkerTransaction,
 };
 use diesel::prelude::*;
 use diesel::sql_query;
@@ -56,6 +56,18 @@ impl DatabaseFactory for SqliteDatabase {
 
     fn log_write(&self) -> Box<dyn model::WriteBrokerLogsDB> {
         Box::new(BrokerLogDB {
+            connection: self.connection.clone(),
+        })
+    }
+
+    fn broker_event_read(&self) -> Box<dyn model::ReadBrokerEventsDB> {
+        Box::new(BrokerEventDB {
+            connection: self.connection.clone(),
+        })
+    }
+
+    fn broker_event_write(&self) -> Box<dyn model::WriteBrokerEventsDB> {
+        Box::new(BrokerEventDB {
             connection: self.connection.clone(),
         })
     }
