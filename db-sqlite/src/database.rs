@@ -2,6 +2,7 @@ use crate::workers::{
     AccountBalanceDB, AccountDB, BrokerLogDB, WorkerLevel, WorkerOrder, WorkerRule, WorkerTrade,
     WorkerTradeGrade, WorkerTradingVehicle, WorkerTransaction,
 };
+use crate::{backup, backup::ImportOptions};
 use diesel::prelude::*;
 use diesel::sql_query;
 use model::DraftTrade;
@@ -18,6 +19,7 @@ use model::{
 };
 use rust_decimal::Decimal;
 use std::error::Error;
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::Mutex;
 use uuid::Uuid;
@@ -274,6 +276,33 @@ impl SqliteDatabase {
 
         Self::configure_connection(&mut connection);
         connection
+    }
+
+    /// Export a full JSON backup of the DB to `path`.
+    pub fn export_backup_to_path(&self, path: &Path) -> Result<(), Box<dyn Error>> {
+        let mut connection = self.connection.lock().unwrap_or_else(|e| {
+            eprintln!("Failed to acquire connection lock: {e}");
+            std::process::exit(1);
+        });
+        backup::export_to_path(&mut connection, path).map_err(|e| Box::new(e) as Box<dyn Error>)
+    }
+
+    /// Import a full JSON backup from `path`.
+    ///
+    /// This operation is atomic. See `backup::ImportMode` for behavior.
+    pub fn import_backup_from_path(
+        &mut self,
+        path: &Path,
+        options: ImportOptions,
+    ) -> Result<backup::ImportReport, Box<dyn Error>> {
+        let mut connection = self.connection.lock().unwrap_or_else(|e| {
+            eprintln!("Failed to acquire connection lock: {e}");
+            std::process::exit(1);
+        });
+        let backup =
+            backup::read_backup_from_path(path).map_err(|e| Box::new(e) as Box<dyn Error>)?;
+        backup::import_backup(&mut connection, &backup, options)
+            .map_err(|e| Box::new(e) as Box<dyn Error>)
     }
 }
 
