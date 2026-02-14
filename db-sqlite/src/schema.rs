@@ -31,6 +31,28 @@ diesel::table! {
 }
 
 diesel::table! {
+    executions (id) {
+        id -> Text,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        deleted_at -> Nullable<Timestamp>,
+        broker -> Text,
+        source -> Text,
+        account_id -> Text,
+        trade_id -> Nullable<Text>,
+        order_id -> Nullable<Text>,
+        broker_execution_id -> Text,
+        broker_order_id -> Nullable<Text>,
+        symbol -> Text,
+        side -> Text,
+        qty -> Text,
+        price -> Text,
+        executed_at -> Timestamp,
+        raw_json -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
     level_adjustment_rules (id) {
         id -> Text,
         created_at -> Timestamp,
@@ -234,6 +256,9 @@ diesel::table! {
 }
 
 diesel::joinable!(accounts_balances -> accounts (account_id));
+diesel::joinable!(executions -> accounts (account_id));
+diesel::joinable!(executions -> orders (order_id));
+diesel::joinable!(executions -> trades (trade_id));
 diesel::joinable!(level_adjustment_rules -> accounts (account_id));
 diesel::joinable!(level_changes -> accounts (account_id));
 diesel::joinable!(levels -> accounts (account_id));
@@ -245,10 +270,12 @@ diesel::joinable!(trades -> accounts (account_id));
 diesel::joinable!(trades -> trades_balances (balance_id));
 diesel::joinable!(trades -> trading_vehicles (trading_vehicle_id));
 diesel::joinable!(transactions -> accounts (account_id));
+diesel::joinable!(transactions -> trades (trade_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     accounts,
     accounts_balances,
+    executions,
     level_adjustment_rules,
     level_changes,
     levels,

@@ -1,6 +1,6 @@
 use crate::workers::{
-    AccountBalanceDB, AccountDB, BrokerLogDB, WorkerLevel, WorkerOrder, WorkerRule, WorkerTrade,
-    WorkerTradeGrade, WorkerTradingVehicle, WorkerTransaction,
+    AccountBalanceDB, AccountDB, BrokerLogDB, WorkerExecution, WorkerLevel, WorkerOrder, WorkerRule,
+    WorkerTrade, WorkerTradeGrade, WorkerTradingVehicle, WorkerTransaction,
 };
 use crate::{backup, backup::ImportOptions};
 use diesel::prelude::*;
@@ -11,11 +11,12 @@ use model::{
     database::TradingVehicleUpsert,
     database::{AccountWrite, WriteAccountBalanceDB},
     Account, AccountBalanceRead, AccountBalanceWrite, AccountRead, Currency, DatabaseFactory,
-    Level, LevelAdjustmentRules, LevelChange, Order, OrderAction, OrderCategory, OrderRead,
-    OrderWrite, ReadLevelDB, ReadRuleDB, ReadTradeDB, ReadTradeGradeDB, ReadTradingVehicleDB,
-    ReadTransactionDB, Rule, RuleName, Trade, TradeBalance, TradeGrade, TradingVehicle,
-    TradingVehicleCategory, Transaction, TransactionCategory, WriteLevelDB, WriteRuleDB,
-    WriteTradeDB, WriteTradeGradeDB, WriteTradingVehicleDB, WriteTransactionDB,
+    Execution, Level, LevelAdjustmentRules, LevelChange, Order, OrderAction, OrderCategory,
+    OrderRead, OrderWrite, ReadExecutionDB, ReadLevelDB, ReadRuleDB, ReadTradeDB, ReadTradeGradeDB,
+    ReadTradingVehicleDB, ReadTransactionDB, Rule, RuleName, Trade, TradeBalance, TradeGrade,
+    TradingVehicle, TradingVehicleCategory, Transaction, TransactionCategory, WriteExecutionDB,
+    WriteLevelDB, WriteRuleDB, WriteTradeDB, WriteTradeGradeDB, WriteTradingVehicleDB,
+    WriteTransactionDB,
 };
 use rust_decimal::Decimal;
 use std::error::Error;
@@ -60,6 +61,14 @@ impl DatabaseFactory for SqliteDatabase {
         Box::new(BrokerLogDB {
             connection: self.connection.clone(),
         })
+    }
+
+    fn execution_read(&self) -> Box<dyn ReadExecutionDB> {
+        Box::new(SqliteDatabase::new_from(self.connection.clone()))
+    }
+
+    fn execution_write(&self) -> Box<dyn WriteExecutionDB> {
+        Box::new(SqliteDatabase::new_from(self.connection.clone()))
     }
 
     fn begin_savepoint(&mut self, name: &str) -> Result<(), Box<dyn Error>> {
@@ -906,6 +915,53 @@ impl OrderRead for SqliteDatabase {
                 std::process::exit(1);
             }),
             id,
+        )
+    }
+}
+
+impl ReadExecutionDB for SqliteDatabase {
+    fn all_trade_executions(&mut self, trade_id: Uuid) -> Result<Vec<Execution>, Box<dyn Error>> {
+        WorkerExecution::read_for_trade(
+            &mut self.connection.lock().unwrap_or_else(|e| {
+                eprintln!("Failed to acquire connection lock: {e}");
+                std::process::exit(1);
+            }),
+            trade_id,
+        )
+    }
+
+    fn all_order_executions(&mut self, order_id: Uuid) -> Result<Vec<Execution>, Box<dyn Error>> {
+        WorkerExecution::read_for_order(
+            &mut self.connection.lock().unwrap_or_else(|e| {
+                eprintln!("Failed to acquire connection lock: {e}");
+                std::process::exit(1);
+            }),
+            order_id,
+        )
+    }
+
+    fn latest_trade_execution_at(
+        &mut self,
+        trade_id: Uuid,
+    ) -> Result<Option<chrono::NaiveDateTime>, Box<dyn Error>> {
+        WorkerExecution::latest_for_trade(
+            &mut self.connection.lock().unwrap_or_else(|e| {
+                eprintln!("Failed to acquire connection lock: {e}");
+                std::process::exit(1);
+            }),
+            trade_id,
+        )
+    }
+}
+
+impl WriteExecutionDB for SqliteDatabase {
+    fn upsert_execution(&mut self, execution: &Execution) -> Result<Execution, Box<dyn Error>> {
+        WorkerExecution::upsert(
+            &mut self.connection.lock().unwrap_or_else(|e| {
+                eprintln!("Failed to acquire connection lock: {e}");
+                std::process::exit(1);
+            }),
+            execution,
         )
     }
 }
