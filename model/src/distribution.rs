@@ -1,3 +1,4 @@
+use crate::{Currency, TransactionCategory};
 use chrono::{NaiveDateTime, Utc};
 use rust_decimal::Decimal;
 use uuid::Uuid;
@@ -67,6 +68,46 @@ pub struct DistributionHistory {
     pub created_at: NaiveDateTime,
     /// Row update timestamp
     pub updated_at: NaiveDateTime,
+}
+
+/// One leg of a distribution execution (source -> destination).
+#[derive(Debug, Clone, PartialEq)]
+pub struct DistributionExecutionLeg {
+    /// Destination account receiving funds.
+    pub to_account_id: Uuid,
+    /// Amount to transfer for this leg (must be > 0).
+    pub amount: Decimal,
+    /// Category used for the source-side withdrawal.
+    pub withdrawal_category: TransactionCategory,
+    /// Category used for the destination-side deposit.
+    pub deposit_category: TransactionCategory,
+    /// Optional override IDs used for deterministic testing / fault injection.
+    pub forced_withdrawal_tx_id: Option<Uuid>,
+    /// Optional override IDs used for deterministic testing / fault injection.
+    pub forced_deposit_tx_id: Option<Uuid>,
+}
+
+/// A full distribution execution request to be written atomically.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DistributionExecutionPlan {
+    /// Source account from which profit is being distributed.
+    pub source_account_id: Uuid,
+    /// Currency being transferred.
+    pub currency: Currency,
+    /// Optional related trade when distribution was triggered from a close.
+    pub trade_id: Option<Uuid>,
+    /// Original profit amount being distributed (for history/audit).
+    pub original_amount: Decimal,
+    /// When this distribution was executed.
+    pub distribution_date: NaiveDateTime,
+    /// Transfer legs to execute (each produces a withdrawal + deposit).
+    pub legs: Vec<DistributionExecutionLeg>,
+    /// Amounts written to history (for audit/reporting).
+    pub earnings_amount: Option<Decimal>,
+    /// Amounts written to history (for audit/reporting).
+    pub tax_amount: Option<Decimal>,
+    /// Amounts written to history (for audit/reporting).
+    pub reinvestment_amount: Option<Decimal>,
 }
 
 /// Error types for distribution operations

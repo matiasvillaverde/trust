@@ -23,10 +23,28 @@ impl WorkerTransaction {
         currency: &Currency,
         category: TransactionCategory,
     ) -> Result<Transaction, Box<dyn Error>> {
+        Self::create_transaction_with_id(
+            connection,
+            Uuid::new_v4(),
+            account_id,
+            amount,
+            currency,
+            category,
+        )
+    }
+
+    pub fn create_transaction_with_id(
+        connection: &mut SqliteConnection,
+        transaction_id: Uuid,
+        account_id: Uuid,
+        amount: Decimal,
+        currency: &Currency,
+        category: TransactionCategory,
+    ) -> Result<Transaction, Box<dyn Error>> {
         let now = Utc::now().naive_utc();
 
         let new_transaction = NewTransaction {
-            id: Uuid::new_v4().to_string(),
+            id: transaction_id.to_string(),
             created_at: now,
             updated_at: now,
             deleted_at: None,
