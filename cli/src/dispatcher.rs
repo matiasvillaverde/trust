@@ -120,7 +120,7 @@ impl ArgDispatcher {
         }
     }
 
-    #[allow(clippy::too_many_lines)]
+    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)]
     pub fn dispatch(mut self, matches: ArgMatches) -> Result<(), CliError> {
         match matches.subcommand() {
             Some(("db", sub_matches)) => match sub_matches.subcommand() {

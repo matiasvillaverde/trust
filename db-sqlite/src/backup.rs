@@ -109,6 +109,14 @@ pub struct AccountRow {
     pub environment: String,
     pub taxes_percentage: String,
     pub earnings_percentage: String,
+    #[serde(default = "default_account_type")]
+    pub account_type: String,
+    #[serde(default)]
+    pub parent_account_id: Option<String>,
+}
+
+fn default_account_type() -> String {
+    "primary".to_string()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Queryable, Insertable)]
@@ -611,6 +619,8 @@ mod tests {
                 environment: "paper".to_string(),
                 taxes_percentage: "0".to_string(),
                 earnings_percentage: "0".to_string(),
+                account_type: "primary".to_string(),
+                parent_account_id: None,
             })
             .execute(&mut conn1)
             .unwrap();

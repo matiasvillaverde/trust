@@ -32,9 +32,8 @@
 
 use crate::commands::{
     AccountCommandBuilder, DbCommandBuilder, DistributionCommandBuilder, GradeCommandBuilder,
-    KeysCommandBuilder,
-    LevelCommandBuilder, MetricsCommandBuilder, OnboardingCommandBuilder, PolicyCommandBuilder,
-    ReportCommandBuilder, TradeCommandBuilder, TradingVehicleCommandBuilder,
+    KeysCommandBuilder, LevelCommandBuilder, MetricsCommandBuilder, OnboardingCommandBuilder,
+    PolicyCommandBuilder, ReportCommandBuilder, TradeCommandBuilder, TradingVehicleCommandBuilder,
     TransactionCommandBuilder,
 };
 use crate::dispatcher::ArgDispatcher;
