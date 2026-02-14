@@ -3,8 +3,8 @@ use crate::schema::{distribution_history, distribution_rules};
 use chrono::{NaiveDateTime, Utc};
 use diesel::prelude::*;
 use model::{
-    DistributionHistory, DistributionRead, DistributionRules, DistributionRulesNotFound,
-    DistributionWrite,
+    DistributionExecutionPlan, DistributionHistory, DistributionRead, DistributionRules,
+    DistributionRulesNotFound, DistributionWrite,
 };
 use rust_decimal::Decimal;
 use std::error::Error;
@@ -13,6 +13,8 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use tracing::error;
 use uuid::Uuid;
+
+use super::WorkerTransaction;
 
 /// Database worker for distribution operations
 pub struct DistributionDB {
@@ -180,6 +182,81 @@ impl DistributionWrite for DistributionDB {
                 error
             })?
             .into_domain_model()
+    }
+
+    fn execute_distribution_plan_atomic(
+        &mut self,
+        plan: &DistributionExecutionPlan,
+    ) -> Result<Vec<Uuid>, Box<dyn Error>> {
+        if plan.legs.is_empty() {
+            return Err("Distribution plan must contain at least one transfer leg".into());
+        }
+
+        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap_or_else(|e| {
+            eprintln!("Failed to acquire connection lock: {e}");
+            std::process::exit(1);
+        });
+
+        connection.transaction::<Vec<Uuid>, Box<dyn Error>, _>(|conn| {
+            let mut deposit_ids: Vec<Uuid> = Vec::new();
+
+            for leg in &plan.legs {
+                if leg.amount <= Decimal::ZERO {
+                    return Err("Distribution leg amount must be positive".into());
+                }
+
+                let withdrawal_amount = Decimal::ZERO
+                    .checked_sub(leg.amount)
+                    .ok_or("Invalid withdrawal amount")?;
+
+                let withdrawal_id = leg.forced_withdrawal_tx_id.unwrap_or_else(Uuid::new_v4);
+                let deposit_id = leg.forced_deposit_tx_id.unwrap_or_else(Uuid::new_v4);
+
+                WorkerTransaction::create_transaction_with_id(
+                    conn,
+                    withdrawal_id,
+                    plan.source_account_id,
+                    withdrawal_amount,
+                    &plan.currency,
+                    leg.withdrawal_category,
+                )?;
+
+                let deposit_tx = WorkerTransaction::create_transaction_with_id(
+                    conn,
+                    deposit_id,
+                    leg.to_account_id,
+                    leg.amount,
+                    &plan.currency,
+                    leg.deposit_category,
+                )?;
+
+                deposit_ids.push(deposit_tx.id);
+            }
+
+            let now = Utc::now().naive_utc();
+            let new_history = NewDistributionHistory {
+                id: Uuid::new_v4().to_string(),
+                created_at: now,
+                updated_at: now,
+                source_account_id: plan.source_account_id.to_string(),
+                trade_id: plan.trade_id.map(|id| id.to_string()),
+                original_amount: plan.original_amount.to_string(),
+                distribution_date: plan.distribution_date,
+                earnings_amount: plan.earnings_amount.map(|amount| amount.to_string()),
+                tax_amount: plan.tax_amount.map(|amount| amount.to_string()),
+                reinvestment_amount: plan.reinvestment_amount.map(|amount| amount.to_string()),
+            };
+
+            diesel::insert_into(distribution_history::table)
+                .values(&new_history)
+                .execute(conn)
+                .map_err(|error| {
+                    error!("Error creating distribution history: {:?}", error);
+                    error
+                })?;
+
+            Ok(deposit_ids)
+        })
     }
 }
 

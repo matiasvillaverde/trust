@@ -1,8 +1,8 @@
 use crate::{
-    Account, AccountBalance, AccountType, BrokerLog, Currency, DistributionHistory,
-    DistributionRules, Environment, Order, OrderAction, OrderCategory, Rule, RuleLevel, RuleName,
-    Status, Trade, TradeBalance, TradeCategory, TradingVehicle, TradingVehicleCategory,
-    Transaction, TransactionCategory,
+    Account, AccountBalance, AccountType, BrokerLog, Currency, DistributionExecutionPlan,
+    DistributionHistory, DistributionRules, Environment, Order, OrderAction, OrderCategory, Rule,
+    RuleLevel, RuleName, Status, Trade, TradeBalance, TradeCategory, TradingVehicle,
+    TradingVehicleCategory, Transaction, TransactionCategory,
 };
 use rust_decimal::Decimal;
 use uuid::Uuid;
@@ -444,4 +444,12 @@ pub trait DistributionWrite {
         tax_amount: Option<Decimal>,
         reinvestment_amount: Option<Decimal>,
     ) -> Result<DistributionHistory, Box<dyn Error>>;
+
+    /// Executes all distribution transfers and writes a history row atomically.
+    ///
+    /// Returns destination-side transaction IDs (deposits) created for this distribution.
+    fn execute_distribution_plan_atomic(
+        &mut self,
+        plan: &DistributionExecutionPlan,
+    ) -> Result<Vec<Uuid>, Box<dyn Error>>;
 }

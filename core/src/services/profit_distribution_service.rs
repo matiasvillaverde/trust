@@ -1,5 +1,8 @@
 use crate::services::fund_transfer_service::FundTransferService;
-use model::{Account, Currency, DatabaseFactory, DistributionResult, DistributionRules};
+use model::{
+    Account, Currency, DatabaseFactory, DistributionExecutionLeg, DistributionExecutionPlan,
+    DistributionResult, DistributionRules, TransactionCategory,
+};
 use rust_decimal::Decimal;
 use std::error::Error;
 use uuid::Uuid;
@@ -54,114 +57,81 @@ impl<'a> ProfitDistributionService<'a> {
         // Update the source account ID to match the provided account
         result.source_account_id = source_account.id;
 
-        // Execute atomic distribution with rollback capability
-        match self.execute_atomic_distribution(
-            source_account,
-            earnings_account,
-            tax_account,
-            reinvestment_account,
-            &result,
-            currency,
-        ) {
-            Ok(transaction_ids) => {
-                result.transactions_created = transaction_ids;
-                self.database.distribution_write().create_history(
-                    result.source_account_id,
-                    trade_id,
-                    result.original_amount,
-                    result.distribution_date,
-                    result.earnings_amount,
-                    result.tax_amount,
-                    result.reinvestment_amount,
-                )?;
-                Ok(result)
-            }
-            Err(e) => {
-                // Transaction handling will be implemented in database layer
-                // For now, just propagate the error
-                Err(e)
-            }
-        }
-    }
+        let mut legs: Vec<DistributionExecutionLeg> = Vec::new();
 
-    /// Executes the actual transfers atomically
-    fn execute_atomic_distribution(
-        &mut self,
-        source_account: &Account,
-        earnings_account: &Account,
-        tax_account: &Account,
-        reinvestment_account: &Account,
-        distribution_result: &DistributionResult,
-        currency: &Currency,
-    ) -> Result<Vec<Uuid>, Box<dyn Error>> {
-        // Validate all accounts before starting any transfers
-        // Create a separate transfer service for validation
+        if let Some(amount) = result.earnings_amount {
+            legs.push(DistributionExecutionLeg {
+                to_account_id: earnings_account.id,
+                amount,
+                withdrawal_category: TransactionCategory::Withdrawal,
+                deposit_category: trade_id
+                    .map(TransactionCategory::PaymentEarnings)
+                    .unwrap_or(TransactionCategory::Deposit),
+                forced_withdrawal_tx_id: None,
+                forced_deposit_tx_id: None,
+            });
+        }
+
+        if let Some(amount) = result.tax_amount {
+            legs.push(DistributionExecutionLeg {
+                to_account_id: tax_account.id,
+                amount,
+                withdrawal_category: TransactionCategory::Withdrawal,
+                deposit_category: trade_id
+                    .map(TransactionCategory::PaymentTax)
+                    .unwrap_or(TransactionCategory::Deposit),
+                forced_withdrawal_tx_id: None,
+                forced_deposit_tx_id: None,
+            });
+        }
+
+        if let Some(amount) = result.reinvestment_amount {
+            legs.push(DistributionExecutionLeg {
+                to_account_id: reinvestment_account.id,
+                amount,
+                withdrawal_category: TransactionCategory::Withdrawal,
+                deposit_category: TransactionCategory::Deposit,
+                forced_withdrawal_tx_id: None,
+                forced_deposit_tx_id: None,
+            });
+        }
+
+        // Validate hierarchy constraints before any write.
         {
             let transfer_service = FundTransferService::new(self.database);
-
-            // Validate each account relationship with a minimal amount for validation only
-            let validation_amount = Decimal::new(1, 0); // $1 for validation
-
-            // Validate earnings account relationship
-            transfer_service.validate_transfer(
-                source_account,
-                earnings_account,
-                validation_amount,
-            )?;
-
-            // Validate tax account relationship
-            transfer_service.validate_transfer(source_account, tax_account, validation_amount)?;
-
-            // Validate reinvestment account relationship
-            transfer_service.validate_transfer(
-                source_account,
-                reinvestment_account,
-                validation_amount,
-            )?;
+            for leg in &legs {
+                let destination = if leg.to_account_id == earnings_account.id {
+                    earnings_account
+                } else if leg.to_account_id == tax_account.id {
+                    tax_account
+                } else if leg.to_account_id == reinvestment_account.id {
+                    reinvestment_account
+                } else {
+                    return Err("Unknown distribution destination account".into());
+                };
+                transfer_service.validate_transfer(source_account, destination, leg.amount)?;
+            }
         }
 
-        // Create fund transfer service for actual transfers
-        let mut transfer_service = FundTransferService::new(self.database);
-        let mut transaction_ids = Vec::new();
+        let plan = DistributionExecutionPlan {
+            source_account_id: source_account.id,
+            currency: *currency,
+            trade_id,
+            original_amount: result.original_amount,
+            distribution_date: result.distribution_date,
+            legs,
+            earnings_amount: result.earnings_amount,
+            tax_amount: result.tax_amount,
+            reinvestment_amount: result.reinvestment_amount,
+        };
 
-        // Execute all transfers - each transfer validates hierarchy independently
-        // Transfer earnings amount if applicable
-        if let Some(earnings_amount) = distribution_result.earnings_amount {
-            let (_, deposit_id) = transfer_service.transfer_between_accounts(
-                source_account,
-                earnings_account,
-                earnings_amount,
-                currency,
-                "Profit distribution - Earnings allocation",
-            )?;
-            transaction_ids.push(deposit_id);
-        }
+        let deposit_ids = self
+            .database
+            .distribution_write()
+            .execute_distribution_plan_atomic(&plan)?;
 
-        // Transfer tax amount if applicable
-        if let Some(tax_amount) = distribution_result.tax_amount {
-            let (_, deposit_id) = transfer_service.transfer_between_accounts(
-                source_account,
-                tax_account,
-                tax_amount,
-                currency,
-                "Profit distribution - Tax reserve allocation",
-            )?;
-            transaction_ids.push(deposit_id);
-        }
-
-        // Transfer reinvestment amount if applicable
-        if let Some(reinvestment_amount) = distribution_result.reinvestment_amount {
-            let (_, deposit_id) = transfer_service.transfer_between_accounts(
-                source_account,
-                reinvestment_account,
-                reinvestment_amount,
-                currency,
-                "Profit distribution - Reinvestment allocation",
-            )?;
-            transaction_ids.push(deposit_id);
-        }
-
-        Ok(transaction_ids)
+        result.transactions_created = deposit_ids;
+        Ok(result)
     }
 
     /// Transfers funds between accounts in hierarchy
