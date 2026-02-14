@@ -66,6 +66,7 @@ fn build_policy_subcommand() -> Command {
     PolicyCommandBuilder::new().build()
 }
 
+#[allow(clippy::too_many_lines)]
 fn build_cli() -> Command {
     Command::new("trust")
         .about("A tool for managing tradings")

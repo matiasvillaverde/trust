@@ -30,7 +30,7 @@
 // Standard Rust lints for code quality
 #![warn(missing_docs, rust_2018_idioms, missing_debug_implementations)]
 
-use crate::services::{EventDistributionService, FundTransferService, ProfitDistributionService};
+use crate::services::{FundTransferService, ProfitDistributionService};
 use argon2::{
     password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2,
@@ -47,6 +47,7 @@ use model::{
 };
 use rand_core::OsRng;
 use rust_decimal::Decimal;
+use rust_decimal_macros::dec;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 use {
@@ -54,6 +55,7 @@ use {
         DefaultLevelTransitionPolicy, LevelEvaluationOutcome, LevelPerformanceSnapshot,
         LevelingService,
     },
+    std::collections::HashMap,
     std::error::Error as StdError,
 };
 
@@ -82,6 +84,191 @@ pub struct TrustFacade {
     broker: Box<dyn Broker>,
     protected_mode: bool,
     protected_authorized: bool,
+    distribution_rules_cache: HashMap<Uuid, Option<DistributionRules>>,
+    level_snapshot_cache: HashMap<(Uuid, Currency), LevelSnapshotCache>,
+}
+
+#[derive(Debug, Clone)]
+struct LevelSnapshotCache {
+    points: std::collections::VecDeque<(chrono::NaiveDateTime, Decimal)>,
+    sum_performance: Decimal,
+    min_performance: Option<Decimal>,
+    profitable_trades: u32,
+    consecutive_wins: u32,
+    last_closed_at: Option<chrono::NaiveDateTime>,
+}
+
+impl LevelSnapshotCache {
+    fn new() -> Self {
+        Self {
+            points: std::collections::VecDeque::new(),
+            sum_performance: Decimal::ZERO,
+            min_performance: None,
+            profitable_trades: 0,
+            consecutive_wins: 0,
+            last_closed_at: None,
+        }
+    }
+
+    fn seed_from_points(&mut self, points: Vec<(chrono::NaiveDateTime, Decimal)>) {
+        self.points = points.into_iter().collect();
+        self.last_closed_at = self.points.back().map(|(ts, _)| *ts);
+        self.recompute_aggregates();
+    }
+
+    fn push_and_prune(&mut self, closed_at: chrono::NaiveDateTime, performance: Decimal) {
+        let cutoff = closed_at
+            .checked_sub_signed(chrono::Duration::days(
+                LevelingService::<DefaultLevelTransitionPolicy>::EVALUATION_WINDOW_DAYS,
+            ))
+            .unwrap_or(closed_at);
+
+        // Prune oldest.
+        while let Some((ts, value)) = self.points.front().cloned() {
+            if ts >= cutoff {
+                break;
+            }
+            self.points.pop_front();
+            self.sum_performance = self
+                .sum_performance
+                .checked_sub(value)
+                .unwrap_or(self.sum_performance);
+            if value > Decimal::ZERO {
+                self.profitable_trades = self.profitable_trades.saturating_sub(1);
+            }
+            if self.min_performance == Some(value) {
+                // Recompute min lazily when the current min falls out of window.
+                self.min_performance = None;
+                for (_, v) in &self.points {
+                    self.min_performance = Some(match self.min_performance {
+                        None => *v,
+                        Some(min) => {
+                            if *v < min {
+                                *v
+                            } else {
+                                min
+                            }
+                        }
+                    });
+                }
+            }
+        }
+
+        // Append newest.
+        self.points.push_back((closed_at, performance));
+        self.sum_performance = self
+            .sum_performance
+            .checked_add(performance)
+            .unwrap_or(self.sum_performance);
+        if performance > Decimal::ZERO {
+            self.profitable_trades = self.profitable_trades.saturating_add(1);
+        }
+        self.min_performance = Some(match self.min_performance {
+            None => performance,
+            Some(min) => {
+                if performance < min {
+                    performance
+                } else {
+                    min
+                }
+            }
+        });
+
+        // Update consecutive wins. If timestamps are out of order, fall back to recompute.
+        let in_order = self
+            .last_closed_at
+            .map(|prev| closed_at >= prev)
+            .unwrap_or(true);
+        self.last_closed_at = Some(closed_at);
+        if in_order {
+            if performance > Decimal::ZERO {
+                self.consecutive_wins = self.consecutive_wins.saturating_add(1);
+            } else {
+                self.consecutive_wins = 0;
+            }
+        } else {
+            self.recompute_consecutive_wins();
+        }
+    }
+
+    fn recompute_aggregates(&mut self) {
+        self.sum_performance = Decimal::ZERO;
+        self.min_performance = None;
+        self.profitable_trades = 0;
+        for (_, v) in &self.points {
+            self.sum_performance = self
+                .sum_performance
+                .checked_add(*v)
+                .unwrap_or(self.sum_performance);
+            if *v > Decimal::ZERO {
+                self.profitable_trades = self.profitable_trades.saturating_add(1);
+            }
+            self.min_performance = Some(match self.min_performance {
+                None => *v,
+                Some(min) => {
+                    if *v < min {
+                        *v
+                    } else {
+                        min
+                    }
+                }
+            });
+        }
+        self.recompute_consecutive_wins();
+    }
+
+    fn recompute_consecutive_wins(&mut self) {
+        let mut wins = 0u32;
+        for (_, v) in self.points.iter().rev() {
+            if *v > Decimal::ZERO {
+                wins = wins.saturating_add(1);
+            } else {
+                break;
+            }
+        }
+        self.consecutive_wins = wins;
+    }
+
+    fn snapshot(&self, baseline: Decimal) -> LevelPerformanceSnapshot {
+        let total_trades = u32::try_from(self.points.len()).unwrap_or(u32::MAX);
+        let total_trades_dec = Decimal::from(total_trades);
+        let win_rate_percentage = if total_trades_dec > Decimal::ZERO {
+            Decimal::from(self.profitable_trades)
+                .checked_div(total_trades_dec)
+                .and_then(|ratio| ratio.checked_mul(dec!(100)))
+                .unwrap_or(Decimal::ZERO)
+        } else {
+            Decimal::ZERO
+        };
+
+        let monthly_loss_percentage =
+            if self.sum_performance < Decimal::ZERO && baseline > Decimal::ZERO {
+                self.sum_performance
+                    .checked_div(baseline)
+                    .and_then(|ratio| ratio.checked_mul(dec!(100)))
+                    .unwrap_or(Decimal::ZERO)
+            } else {
+                Decimal::ZERO
+            };
+
+        let largest_loss = self.min_performance.unwrap_or(Decimal::ZERO);
+        let largest_loss_percentage = if largest_loss < Decimal::ZERO && baseline > Decimal::ZERO {
+            largest_loss
+                .checked_div(baseline)
+                .and_then(|ratio| ratio.checked_mul(dec!(100)))
+                .unwrap_or(Decimal::ZERO)
+        } else {
+            Decimal::ZERO
+        };
+
+        LevelPerformanceSnapshot {
+            profitable_trades: self.profitable_trades,
+            win_rate_percentage,
+            monthly_loss_percentage,
+            largest_loss_percentage,
+            consecutive_wins: self.consecutive_wins,
+        }
+    }
 }
 
 impl std::fmt::Debug for TrustFacade {
@@ -105,6 +292,8 @@ impl TrustFacade {
             broker,
             protected_mode: false,
             protected_authorized: false,
+            distribution_rules_cache: HashMap::new(),
+            level_snapshot_cache: HashMap::new(),
         }
     }
 
@@ -670,42 +859,47 @@ impl TrustFacade {
         trade: &Trade,
         account: &Account,
     ) -> Result<(Status, Vec<Order>, BrokerLog), Box<dyn std::error::Error>> {
-        let (status, orders, log) = commands::trade::sync_with_broker(
-            trade,
-            account,
-            &mut *self.factory,
-            &mut *self.broker,
-        )?;
+        let (status, orders, log, transitioned_to_closed, persisted_trade) =
+            commands::trade::sync_with_broker(
+                trade,
+                account,
+                &mut *self.factory,
+                &mut *self.broker,
+            )?;
 
-        // Best-effort auto-grade when the trade closes. Never fail the sync because grading
-        // depends on optional broker market data.
-        if status == Status::ClosedTarget || status == Status::ClosedStopLoss {
-            let has_grade = match self
-                .factory
-                .trade_grade_read()
-                .read_latest_for_trade(trade.id)
-            {
-                Ok(opt) => opt.is_some(),
-                Err(_) => true, // Can't read grades; treat as "don't try" to keep sync reliable.
-            };
-
-            if !has_grade {
-                let mut grader = crate::services::grading::TradeGradeService::new(
-                    &mut *self.factory,
-                    &mut *self.broker,
-                );
-                let _ = grader.grade_trade(
-                    trade.id,
-                    crate::services::grading::GradingWeightsPermille::default(),
-                );
-            }
-
+        if transitioned_to_closed {
+            // Close-event handler (leveling, distribution, etc). We keep this best-effort so the
+            // sync path remains reliable, but individual components can still surface errors in
+            // direct/manual flows.
             let close_reason = if status == Status::ClosedTarget {
                 CloseReason::Target
             } else {
                 CloseReason::StopLoss
             };
-            let _ = self.handle_trade_closed_event(trade.id, close_reason);
+            let _ = self.handle_trade_closed_event_from_trade(&persisted_trade, close_reason);
+
+            // Auto-grading is expensive/optional (can require broker market data). Keep it opt-in.
+            if std::env::var_os("TRUST_AUTO_GRADE_ON_CLOSE").is_some() {
+                let has_grade = match self
+                    .factory
+                    .trade_grade_read()
+                    .read_latest_for_trade(trade.id)
+                {
+                    Ok(opt) => opt.is_some(),
+                    Err(_) => true, // Can't read grades; treat as "don't try" to keep sync reliable.
+                };
+
+                if !has_grade {
+                    let mut grader = crate::services::grading::TradeGradeService::new(
+                        &mut *self.factory,
+                        &mut *self.broker,
+                    );
+                    let _ = grader.grade_trade(
+                        trade.id,
+                        crate::services::grading::GradingWeightsPermille::default(),
+                    );
+                }
+            }
         }
 
         Ok((status, orders, log))
@@ -789,7 +983,7 @@ impl TrustFacade {
     ) -> Result<(Transaction, Transaction, TradeBalance, AccountBalance), Box<dyn std::error::Error>>
     {
         let result = commands::trade::stop_acquired(trade, fee, &mut *self.factory)?;
-        let _ = self.handle_trade_closed_event(trade.id, CloseReason::StopLoss);
+        self.handle_trade_closed_event(trade.id, CloseReason::StopLoss)?;
         Ok(result)
     }
 
@@ -822,9 +1016,7 @@ impl TrustFacade {
 
         // 2. Read persisted post-close state and trigger distribution from fresh data.
         let closed_trade = self.factory.trade_read().read_trade(trade.id)?;
-        let mut event_service = EventDistributionService::new(&mut *self.factory);
-        let distribution_result =
-            event_service.handle_trade_closed_event(&closed_trade, &closed_trade.currency)?;
+        let distribution_result = self.try_auto_distribute_profit_for_trade(&closed_trade)?;
 
         Ok((balance, log, distribution_result))
     }
@@ -878,7 +1070,7 @@ impl TrustFacade {
     ) -> Result<(Transaction, Transaction, TradeBalance, AccountBalance), Box<dyn std::error::Error>>
     {
         let result = commands::trade::target_acquired(trade, fee, &mut *self.factory)?;
-        let _ = self.handle_trade_closed_event(trade.id, CloseReason::Target);
+        self.handle_trade_closed_event(trade.id, CloseReason::Target)?;
         Ok(result)
     }
 
@@ -888,6 +1080,14 @@ impl TrustFacade {
         close_reason: CloseReason,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let trade = self.factory.trade_read().read_trade(trade_id)?;
+        self.handle_trade_closed_event_from_trade(&trade, close_reason)
+    }
+
+    fn handle_trade_closed_event_from_trade(
+        &mut self,
+        trade: &Trade,
+        close_reason: CloseReason,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let risk_per_share = match trade
             .entry
             .unit_price
@@ -917,9 +1117,138 @@ impl TrustFacade {
             closed_at: trade.updated_at,
         };
 
+        let snapshot = self.cached_level_snapshot_for_trade_close(trade)?;
         let service = self.leveling_service_for_account(trade.account_id)?;
-        let _ = service.handle_trade_closed(&mut *self.factory, &event)?;
+        let _ = service.handle_trade_closed_with_snapshot(&mut *self.factory, &event, &snapshot)?;
+
+        // Trigger profit distribution (if configured) based on persisted post-close state.
+        // We cache rule lookups to keep the sync/close hot path performant.
+        let _ = self.try_auto_distribute_profit_for_trade(trade)?;
         Ok(())
+    }
+
+    fn cached_level_snapshot_for_trade_close(
+        &mut self,
+        trade: &Trade,
+    ) -> Result<LevelPerformanceSnapshot, Box<dyn std::error::Error>> {
+        let key = (trade.account_id, trade.currency);
+        let closed_at = trade.updated_at;
+
+        let mut seeded = false;
+        if !self.level_snapshot_cache.contains_key(&key) {
+            let cutoff = closed_at
+                .checked_sub_signed(chrono::Duration::days(
+                    LevelingService::<DefaultLevelTransitionPolicy>::EVALUATION_WINDOW_DAYS,
+                ))
+                .unwrap_or(closed_at);
+            let points = self
+                .factory
+                .trade_read()
+                .read_recent_closed_trade_performance_points(
+                    trade.account_id,
+                    &trade.currency,
+                    cutoff,
+                )?;
+
+            let mut cache = LevelSnapshotCache::new();
+            cache.seed_from_points(points);
+            self.level_snapshot_cache.insert(key, cache);
+            seeded = true;
+        }
+
+        let cache = self
+            .level_snapshot_cache
+            .get_mut(&key)
+            .ok_or_else(|| "level snapshot cache missing entry after insert".to_string())?;
+
+        if seeded {
+            // When seeding from DB, closed stop/target trades are already included in the points query.
+            // Manual closes (e.g. canceled) are not; we need to push them explicitly.
+            let is_db_closed =
+                trade.status == Status::ClosedTarget || trade.status == Status::ClosedStopLoss;
+            let db_includes_trigger =
+                is_db_closed && cache.points.back().is_some_and(|(ts, _)| *ts == closed_at);
+            if !db_includes_trigger {
+                cache.push_and_prune(closed_at, trade.balance.total_performance);
+            }
+        } else {
+            // Incremental update for subsequent closes.
+            cache.push_and_prune(closed_at, trade.balance.total_performance);
+        }
+
+        let baseline = self
+            .factory
+            .account_balance_read()
+            .for_currency(trade.account_id, &trade.currency)
+            .map(|balance| balance.total_balance)
+            .unwrap_or(dec!(1));
+        let baseline = if baseline > Decimal::ZERO {
+            baseline
+        } else {
+            dec!(1)
+        };
+
+        Ok(cache.snapshot(baseline))
+    }
+
+    fn cached_distribution_rules(
+        &mut self,
+        account_id: Uuid,
+    ) -> Result<Option<DistributionRules>, Box<dyn std::error::Error>> {
+        if let Some(cached) = self.distribution_rules_cache.get(&account_id) {
+            return Ok(cached.clone());
+        }
+
+        let rules = match self.factory.distribution_read().for_account(account_id) {
+            Ok(rules) => Some(rules),
+            Err(error) => {
+                if error.as_ref().is::<model::DistributionRulesNotFound>() {
+                    None
+                } else {
+                    return Err(error);
+                }
+            }
+        };
+
+        self.distribution_rules_cache
+            .insert(account_id, rules.clone());
+        Ok(rules)
+    }
+
+    fn try_auto_distribute_profit_for_trade(
+        &mut self,
+        trade: &Trade,
+    ) -> Result<Option<DistributionResult>, Box<dyn std::error::Error>> {
+        let profit = trade.balance.total_performance;
+        if profit <= Decimal::ZERO {
+            return Ok(None);
+        }
+
+        let Some(rules) = self.cached_distribution_rules(trade.account_id)? else {
+            return Ok(None);
+        };
+
+        if profit < rules.minimum_threshold {
+            return Ok(None);
+        }
+
+        let source_account = self.factory.account_read().id(trade.account_id)?;
+        let (earnings_account, tax_account, reinvestment_account) =
+            self.resolve_distribution_accounts(source_account.id)?;
+        let mut distribution_service = ProfitDistributionService::new(&mut *self.factory);
+
+        let result = distribution_service.execute_distribution(
+            &source_account,
+            &earnings_account,
+            &tax_account,
+            &reinvestment_account,
+            profit,
+            &rules,
+            &trade.currency,
+            Some(trade.id),
+        )?;
+
+        Ok(Some(result))
     }
 
     fn leveling_service_for_account(
@@ -1225,14 +1554,20 @@ impl TrustFacade {
         }
 
         let password_hash = hash_distribution_password(configuration_password)?;
-        self.factory.distribution_write().create_or_update(
+        let rules = self.factory.distribution_write().create_or_update(
             account_id,
             earnings_percent,
             tax_percent,
             reinvestment_percent,
             minimum_threshold,
             &password_hash,
-        )
+        )?;
+
+        // Cache for this facade instance to avoid repeated DB reads on high-frequency closes.
+        self.distribution_rules_cache
+            .insert(account_id, Some(rules.clone()));
+
+        Ok(rules)
     }
 
     /// Execute profit distribution for an account using persisted rules.
@@ -1340,7 +1675,7 @@ fn hash_distribution_password(password: &str) -> Result<String, Box<dyn std::err
     let argon2 = Argon2::default();
     let hash = argon2
         .hash_password(password.as_bytes(), &salt)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+        .map_err(|e| std::io::Error::other(e.to_string()))?;
     Ok(hash.to_string())
 }
 
@@ -1349,12 +1684,8 @@ fn verify_distribution_password(
     stored_hash: &str,
 ) -> Result<bool, Box<dyn std::error::Error>> {
     if stored_hash.starts_with("$argon2") {
-        let parsed = PasswordHash::new(stored_hash).map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Invalid password hash: {e}"),
-            )
-        })?;
+        let parsed = PasswordHash::new(stored_hash)
+            .map_err(|e| std::io::Error::other(format!("Invalid password hash: {e}")))?;
         Ok(Argon2::default()
             .verify_password(password.as_bytes(), &parsed)
             .is_ok())

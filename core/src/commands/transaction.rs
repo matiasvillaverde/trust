@@ -131,20 +131,11 @@ fn withdraw(
     // Create transaction
     let transaction = database
         .transaction_write()
-        .create_transaction_by_account_id(
-            account_id,
-            amount,
-            currency,
-            category,
-        )?;
+        .create_transaction_by_account_id(account_id, amount, currency, category)?;
 
     // Update account balance
     let updated_balance = balance::apply_account_projection_for_transaction_by_id(
-        database,
-        account_id,
-        currency,
-        category,
-        amount,
+        database, account_id, currency, category, amount,
     )?;
 
     Ok((transaction, updated_balance))

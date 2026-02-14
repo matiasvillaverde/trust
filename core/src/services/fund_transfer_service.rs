@@ -182,6 +182,34 @@ mod tests {
             use model::database::DistributionWrite;
             todo!("Mock not needed for this test")
         }
+
+        fn trade_grade_read(&self) -> Box<dyn model::ReadTradeGradeDB> {
+            todo!("Mock not needed for this test")
+        }
+
+        fn trade_grade_write(&self) -> Box<dyn model::WriteTradeGradeDB> {
+            todo!("Mock not needed for this test")
+        }
+
+        fn level_read(&self) -> Box<dyn model::ReadLevelDB> {
+            todo!("Mock not needed for this test")
+        }
+
+        fn level_write(&self) -> Box<dyn model::WriteLevelDB> {
+            todo!("Mock not needed for this test")
+        }
+
+        fn begin_savepoint(&mut self, _name: &str) -> Result<(), Box<dyn Error>> {
+            Ok(())
+        }
+
+        fn release_savepoint(&mut self, _name: &str) -> Result<(), Box<dyn Error>> {
+            Ok(())
+        }
+
+        fn rollback_to_savepoint(&mut self, _name: &str) -> Result<(), Box<dyn Error>> {
+            Ok(())
+        }
     }
 
     fn create_test_account(account_type: AccountType, parent_id: Option<Uuid>) -> Account {
@@ -261,6 +289,69 @@ mod tests {
             .expect("child transactions should be readable");
         assert_eq!(source_transactions.len(), 1);
         assert_eq!(child_transactions.len(), 1);
+    }
+
+    #[test]
+    fn test_transfer_between_accounts_rolls_back_if_deposit_write_fails() {
+        // This is a regression test for atomicity: if the deposit leg fails, the withdrawal
+        // must not remain committed.
+
+        let mut database = SqliteDatabase::new_in_memory();
+
+        let from_account = database
+            .account_write()
+            .create_with_hierarchy(
+                "main",
+                "main",
+                Environment::Paper,
+                dec!(25),
+                dec!(30),
+                AccountType::Primary,
+                None,
+            )
+            .expect("source account should be created");
+
+        // Create a destination Account value that is related (passes validation),
+        // but does not exist in the DB, to force the deposit insert to fail via FK constraint.
+        let to_account = Account {
+            id: Uuid::new_v4(),
+            created_at: Utc::now().naive_utc(),
+            updated_at: Utc::now().naive_utc(),
+            deleted_at: None,
+            name: "missing-child".to_string(),
+            description: "missing child".to_string(),
+            environment: Environment::Paper,
+            taxes_percentage: dec!(0),
+            earnings_percentage: dec!(0),
+            account_type: AccountType::Earnings,
+            parent_account_id: Some(from_account.id),
+        };
+
+        let amount = dec!(500);
+        let currency = Currency::USD;
+
+        let result = {
+            let mut service = FundTransferService::new(&mut database);
+            service.transfer_between_accounts(
+                &from_account,
+                &to_account,
+                amount,
+                &currency,
+                "atomicity regression test",
+            )
+        };
+
+        assert!(result.is_err());
+
+        let source_transactions = database
+            .transaction_read()
+            .all_transactions(from_account.id, &currency)
+            .expect("source transactions should be readable");
+        assert_eq!(
+            source_transactions.len(),
+            0,
+            "withdrawal leg must be rolled back on deposit failure"
+        );
     }
 
     #[test]

@@ -197,10 +197,7 @@ impl ArgDispatcher {
                     self.configure_distribution(configure_matches)?
                 }
                 Some(("execute", execute_matches)) => self.execute_distribution(execute_matches)?,
-                Some(("execute", execute_matches)) => self.execute_distribution(execute_matches)?,
-                Some(("history", history_matches)) => {
-                    self.distribution_history(history_matches)?
-                }
+                Some(("history", history_matches)) => self.distribution_history(history_matches)?,
                 _ => unreachable!("No subcommand provided"),
             },
             Some(("report", sub_matches)) => match sub_matches.subcommand() {
@@ -3801,17 +3798,21 @@ impl ArgDispatcher {
             println!(
                 "- at={} trade_id={} amount={} earnings={} tax={} reinvestment={}",
                 entry.distribution_date,
-                entry.trade_id
+                entry
+                    .trade_id
                     .map(|id| id.to_string())
                     .unwrap_or_else(|| "N/A".to_string()),
                 entry.original_amount,
-                entry.earnings_amount
+                entry
+                    .earnings_amount
                     .map(|v| v.to_string())
                     .unwrap_or_else(|| "0".to_string()),
-                entry.tax_amount
+                entry
+                    .tax_amount
                     .map(|v| v.to_string())
                     .unwrap_or_else(|| "0".to_string()),
-                entry.reinvestment_amount
+                entry
+                    .reinvestment_amount
                     .map(|v| v.to_string())
                     .unwrap_or_else(|| "0".to_string()),
             );

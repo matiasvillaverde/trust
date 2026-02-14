@@ -349,8 +349,33 @@ pub trait ReadTradeDB {
     /// Retrieves a specific trade by its ID
     fn read_trade(&mut self, id: Uuid) -> Result<Trade, Box<dyn Error>>;
 
+    /// Retrieves the status for a trade by ID.
+    ///
+    /// This is a lightweight alternative to `read_trade` for hot paths that only need
+    /// to validate state transitions.
+    fn read_trade_status(&mut self, id: Uuid) -> Result<Status, Box<dyn Error>>;
+
     /// Retrieves a specific trade balance by its ID
     fn read_trade_balance(&mut self, balance_id: Uuid) -> Result<TradeBalance, Box<dyn Error>>;
+
+    /// Retrieves recent closed trade performance rows for analytics.
+    ///
+    /// This is a lightweight alternative to loading full `Trade` graphs when only
+    /// `(updated_at, total_performance)` is required.
+    fn read_recent_closed_trade_performances(
+        &mut self,
+        account_id: Uuid,
+        currency: &Currency,
+        cutoff: chrono::NaiveDateTime,
+    ) -> Result<Vec<crate::ClosedTradePerformance>, Box<dyn Error>>;
+
+    /// Retrieves recent closed trade `(updated_at, total_performance)` points for analytics caching.
+    fn read_recent_closed_trade_performance_points(
+        &mut self,
+        account_id: Uuid,
+        currency: &Currency,
+        cutoff: chrono::NaiveDateTime,
+    ) -> Result<Vec<(chrono::NaiveDateTime, rust_decimal::Decimal)>, Box<dyn Error>>;
 }
 
 /// Structure representing a draft trade before it's created in the database

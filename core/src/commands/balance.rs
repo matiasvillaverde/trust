@@ -74,7 +74,8 @@ fn reduce_account_total_available(
         TransactionCategory::Withdrawal
         | TransactionCategory::FundTrade(_)
         | TransactionCategory::FeeOpen(_)
-        | TransactionCategory::FeeClose(_) => {
+        | TransactionCategory::FeeClose(_)
+        | TransactionCategory::WithdrawalEarnings => {
             checked_sub(current, amount, "account total_available decrease")
         }
         TransactionCategory::OpenTrade(_)
@@ -83,8 +84,7 @@ fn reduce_account_total_available(
         | TransactionCategory::CloseSafetyStopSlippage(_)
         | TransactionCategory::PaymentTax(_)
         | TransactionCategory::WithdrawalTax
-        | TransactionCategory::PaymentEarnings(_)
-        | TransactionCategory::WithdrawalEarnings => Ok(current),
+        | TransactionCategory::PaymentEarnings(_) => Ok(current),
     }
 }
 

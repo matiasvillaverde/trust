@@ -191,6 +191,14 @@ impl SqliteDatabase {
     }
 
     fn configure_connection(connection: &mut SqliteConnection) {
+        // Enforce relational integrity. SQLite does not enable FK constraints by default.
+        sql_query("PRAGMA foreign_keys = ON;")
+            .execute(connection)
+            .unwrap_or_else(|e| {
+                eprintln!("Failed to enable foreign_keys pragma: {e}");
+                std::process::exit(1);
+            });
+
         sql_query(
             "CREATE INDEX IF NOT EXISTS idx_transactions_account_currency_category_active \
              ON transactions(account_id, currency, category, created_at) \
@@ -892,6 +900,16 @@ impl ReadTradeDB for SqliteDatabase {
         )
     }
 
+    fn read_trade_status(&mut self, id: Uuid) -> Result<Status, Box<dyn Error>> {
+        WorkerTrade::read_trade_status(
+            &mut self.connection.lock().unwrap_or_else(|e| {
+                eprintln!("Failed to acquire connection lock: {e}");
+                std::process::exit(1);
+            }),
+            id,
+        )
+    }
+
     fn read_trade_balance(&mut self, balance_id: Uuid) -> Result<TradeBalance, Box<dyn Error>> {
         WorkerTrade::read_balance(
             &mut self.connection.lock().unwrap_or_else(|e| {
@@ -929,6 +947,40 @@ impl ReadTradeDB for SqliteDatabase {
             }),
             account_id,
             status,
+        )
+    }
+
+    fn read_recent_closed_trade_performances(
+        &mut self,
+        account_id: Uuid,
+        currency: &Currency,
+        cutoff: chrono::NaiveDateTime,
+    ) -> Result<Vec<model::ClosedTradePerformance>, Box<dyn Error>> {
+        WorkerTrade::read_recent_closed_trade_performances(
+            &mut self.connection.lock().unwrap_or_else(|e| {
+                eprintln!("Failed to acquire connection lock: {e}");
+                std::process::exit(1);
+            }),
+            account_id,
+            currency,
+            cutoff,
+        )
+    }
+
+    fn read_recent_closed_trade_performance_points(
+        &mut self,
+        account_id: Uuid,
+        currency: &Currency,
+        cutoff: chrono::NaiveDateTime,
+    ) -> Result<Vec<(chrono::NaiveDateTime, rust_decimal::Decimal)>, Box<dyn Error>> {
+        WorkerTrade::read_recent_closed_trade_performance_points(
+            &mut self.connection.lock().unwrap_or_else(|e| {
+                eprintln!("Failed to acquire connection lock: {e}");
+                std::process::exit(1);
+            }),
+            account_id,
+            currency,
+            cutoff,
         )
     }
 }

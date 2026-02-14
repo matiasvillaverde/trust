@@ -254,6 +254,34 @@ mod tests {
         fn distribution_write(&self) -> Box<dyn model::DistributionWrite> {
             todo!("Mock not needed for this test")
         }
+
+        fn trade_grade_read(&self) -> Box<dyn model::ReadTradeGradeDB> {
+            todo!("Mock not needed for this test")
+        }
+
+        fn trade_grade_write(&self) -> Box<dyn model::WriteTradeGradeDB> {
+            todo!("Mock not needed for this test")
+        }
+
+        fn level_read(&self) -> Box<dyn model::ReadLevelDB> {
+            todo!("Mock not needed for this test")
+        }
+
+        fn level_write(&self) -> Box<dyn model::WriteLevelDB> {
+            todo!("Mock not needed for this test")
+        }
+
+        fn begin_savepoint(&mut self, _name: &str) -> Result<(), Box<dyn Error>> {
+            Ok(())
+        }
+
+        fn release_savepoint(&mut self, _name: &str) -> Result<(), Box<dyn Error>> {
+            Ok(())
+        }
+
+        fn rollback_to_savepoint(&mut self, _name: &str) -> Result<(), Box<dyn Error>> {
+            Ok(())
+        }
     }
 
     fn create_test_account(account_type: AccountType, parent_id: Option<Uuid>) -> Account {

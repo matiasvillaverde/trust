@@ -22,3 +22,6 @@ db-sqlite/*.db
 # Local caches
 .cache_alpaca_docs/
 .cache_apca/
+
+# Local scratch/backup worktrees
+trust-wt-db-backup/

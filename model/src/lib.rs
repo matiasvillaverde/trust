@@ -88,6 +88,7 @@ pub use market_data::{BarTimeframe, MarketBar};
 pub use order::{Order, OrderAction, OrderCategory, OrderStatus, TimeInForce};
 pub use rule::{Rule, RuleLevel, RuleName};
 pub use strategy::Strategy;
+pub use trade::ClosedTradePerformance;
 pub use trade::{Status, Trade, TradeBalance, TradeCategory};
 pub use trade_grade::{Grade, TradeGrade};
 pub use trading_vehicle::{TradingVehicle, TradingVehicleCategory};

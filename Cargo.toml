@@ -38,4 +38,4 @@ thiserror = "1.0.69"
 sha2 = "0.10.9"
 argon2 = "0.5.3"
 password-hash = "0.5.0"
-rand_core = "0.6.4"
+rand_core = { version = "0.6.4", features = ["getrandom"] }

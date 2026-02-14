@@ -131,7 +131,8 @@ fn test_execute_distribution_plan_atomic_happy_path_writes_transfers_and_history
     let plan = DistributionExecutionPlan {
         source_account_id: source.id,
         currency: Currency::USD,
-        trade_id: Some(Uuid::new_v4()),
+        // Foreign keys are enforced; this test doesn't need a real trade row.
+        trade_id: None,
         original_amount: dec!(1000),
         distribution_date: chrono::Utc::now().naive_utc(),
         legs: vec![

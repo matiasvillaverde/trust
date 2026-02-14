@@ -411,7 +411,7 @@ pub struct LevelingService<P: LevelTransitionPolicy> {
 }
 
 impl<P: LevelTransitionPolicy> LevelingService<P> {
-    const EVALUATION_WINDOW_DAYS: i64 = 30;
+    pub(crate) const EVALUATION_WINDOW_DAYS: i64 = 30;
 
     /// Build service with explicit policy implementation.
     pub fn new(policy: P) -> Self {
@@ -463,6 +463,7 @@ impl<P: LevelTransitionPolicy> LevelingService<P> {
         &self,
         factory: &mut dyn DatabaseFactory,
         event: &TradeClosed,
+        currency: &model::Currency,
     ) -> Result<LevelEvaluationOutcome, Box<dyn Error>> {
         let mut level = factory.level_read().level_for_account(event.account_id)?;
         level.trades_at_level = level
@@ -471,12 +472,50 @@ impl<P: LevelTransitionPolicy> LevelingService<P> {
             .ok_or_else(|| "Trade count overflow in level progression".to_string())?;
         let _ = factory.level_write().update_level(&level)?;
 
-        let snapshot = Self::build_snapshot_from_recent_closures(factory, event)?;
+        let snapshot = Self::build_snapshot_from_recent_closures(factory, event, currency)?;
         let current = factory.level_read().level_for_account(event.account_id)?;
         let raw_decision = self.policy.evaluate(&current, &snapshot);
         let decision =
             self.apply_stabilization_rules(factory, event.account_id, &current, raw_decision)?;
         let progress = self.policy.progress(&current, &snapshot);
+
+        let mut outcome = LevelEvaluationOutcome {
+            current_level: current,
+            decision,
+            applied_level: None,
+            progress,
+        };
+
+        if let Some(decision) = outcome.decision.clone() {
+            let persisted = Self::apply_decision(factory, &outcome.current_level, &decision)?;
+            outcome.applied_level = Some(persisted);
+        }
+
+        Ok(outcome)
+    }
+
+    /// Same as [`Self::handle_trade_closed`], but uses a caller-provided snapshot.
+    ///
+    /// This is used in hot paths (e.g. sync loops) where repeatedly rebuilding the snapshot from
+    /// the database would be prohibitively expensive.
+    pub fn handle_trade_closed_with_snapshot(
+        &self,
+        factory: &mut dyn DatabaseFactory,
+        event: &TradeClosed,
+        snapshot: &LevelPerformanceSnapshot,
+    ) -> Result<LevelEvaluationOutcome, Box<dyn Error>> {
+        let mut level = factory.level_read().level_for_account(event.account_id)?;
+        level.trades_at_level = level
+            .trades_at_level
+            .checked_add(1)
+            .ok_or_else(|| "Trade count overflow in level progression".to_string())?;
+        let _ = factory.level_write().update_level(&level)?;
+
+        let current = factory.level_read().level_for_account(event.account_id)?;
+        let raw_decision = self.policy.evaluate(&current, snapshot);
+        let decision =
+            self.apply_stabilization_rules(factory, event.account_id, &current, raw_decision)?;
+        let progress = self.policy.progress(&current, snapshot);
 
         let mut outcome = LevelEvaluationOutcome {
             current_level: current,
@@ -526,19 +565,29 @@ impl<P: LevelTransitionPolicy> LevelingService<P> {
     fn build_snapshot_from_recent_closures(
         factory: &mut dyn DatabaseFactory,
         event: &TradeClosed,
+        currency: &model::Currency,
     ) -> Result<LevelPerformanceSnapshot, Box<dyn Error>> {
-        let trade = factory.trade_read().read_trade(event.trade_id)?;
-        let baseline = Self::account_balance_baseline(factory, event.account_id, &trade.currency);
-        let mut closed = Self::collect_recent_closed_trades(
+        let baseline = Self::account_balance_baseline(factory, event.account_id, currency);
+        let mut points = Self::collect_recent_closed_trade_points(
             factory,
             event.account_id,
             event.closed_at,
-            &trade.currency,
+            currency,
         )?;
-        Self::merge_trigger_trade(&mut closed, trade);
-        closed.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        Self::ensure_trigger_point_present(&mut points, event);
+        points.sort_by(|a, b| b.0.cmp(&a.0));
 
-        Self::snapshot_from_closed_trades(&closed, baseline)
+        Self::snapshot_from_closed_trade_points(&points, baseline)
+    }
+
+    fn ensure_trigger_point_present(
+        points: &mut Vec<(chrono::NaiveDateTime, Decimal)>,
+        event: &TradeClosed,
+    ) {
+        // Ensure the triggering trade is represented in the window even if the read is stale.
+        if points.last().is_none_or(|(ts, _)| *ts != event.closed_at) {
+            points.push((event.closed_at, event.final_pnl));
+        }
     }
 
     fn account_balance_baseline(
@@ -558,42 +607,28 @@ impl<P: LevelTransitionPolicy> LevelingService<P> {
         }
     }
 
-    fn collect_recent_closed_trades(
+    fn collect_recent_closed_trade_points(
         factory: &mut dyn DatabaseFactory,
         account_id: Uuid,
         closed_at: chrono::NaiveDateTime,
         currency: &model::Currency,
-    ) -> Result<Vec<model::Trade>, Box<dyn Error>> {
+    ) -> Result<Vec<(chrono::NaiveDateTime, Decimal)>, Box<dyn Error>> {
         let cutoff = closed_at
             .checked_sub_signed(chrono::Duration::days(Self::EVALUATION_WINDOW_DAYS))
             .ok_or_else(|| "Invalid trade close timestamp window".to_string())?;
-        let mut closed = factory
+
+        factory
             .trade_read()
-            .read_trades_with_status(account_id, model::Status::ClosedTarget)?;
-        closed.extend(
-            factory
-                .trade_read()
-                .read_trades_with_status(account_id, model::Status::ClosedStopLoss)?,
-        );
-        closed.retain(|trade| trade.updated_at >= cutoff && trade.currency == *currency);
-        Ok(closed)
+            .read_recent_closed_trade_performance_points(account_id, currency, cutoff)
     }
 
-    fn merge_trigger_trade(closed: &mut Vec<model::Trade>, trigger_trade: model::Trade) {
-        if let Some(existing) = closed.iter_mut().find(|trade| trade.id == trigger_trade.id) {
-            *existing = trigger_trade;
-            return;
-        }
-        closed.push(trigger_trade);
-    }
-
-    fn snapshot_from_closed_trades(
-        closed: &[model::Trade],
+    fn snapshot_from_closed_trade_points(
+        closed: &[(chrono::NaiveDateTime, Decimal)],
         baseline: Decimal,
     ) -> Result<LevelPerformanceSnapshot, Box<dyn Error>> {
         let profitable_trades_count = closed
             .iter()
-            .filter(|trade| trade.balance.total_performance > Decimal::ZERO)
+            .filter(|(_, perf)| *perf > Decimal::ZERO)
             .count();
         let profitable_trades = u32::try_from(profitable_trades_count)
             .map_err(|_| "profitable trades count overflow".to_string())?;
@@ -609,9 +644,8 @@ impl<P: LevelTransitionPolicy> LevelingService<P> {
             Decimal::ZERO
         };
 
-        let total_performance = closed.iter().fold(Decimal::ZERO, |acc, trade| {
-            acc.checked_add(trade.balance.total_performance)
-                .unwrap_or(Decimal::ZERO)
+        let total_performance = closed.iter().fold(Decimal::ZERO, |acc, (_, perf)| {
+            acc.checked_add(*perf).unwrap_or(Decimal::ZERO)
         });
         let monthly_loss_percentage = if total_performance < Decimal::ZERO {
             total_performance
@@ -624,7 +658,7 @@ impl<P: LevelTransitionPolicy> LevelingService<P> {
 
         let largest_loss = closed
             .iter()
-            .map(|trade| trade.balance.total_performance)
+            .map(|(_, perf)| *perf)
             .min()
             .unwrap_or(Decimal::ZERO);
         let largest_loss_percentage = if largest_loss < Decimal::ZERO {
@@ -636,9 +670,10 @@ impl<P: LevelTransitionPolicy> LevelingService<P> {
             Decimal::ZERO
         };
 
+        // `closed` is sorted descending by `updated_at` when built.
         let consecutive_wins_count = closed
             .iter()
-            .take_while(|trade| trade.balance.total_performance > Decimal::ZERO)
+            .take_while(|(_, perf)| *perf > Decimal::ZERO)
             .count();
         let consecutive_wins = u32::try_from(consecutive_wins_count)
             .map_err(|_| "consecutive wins overflow".to_string())?;
@@ -943,36 +978,31 @@ mod tests {
     }
 
     #[test]
-    fn test_merge_trigger_trade_includes_manual_close_even_when_recent_set_exists() {
+    fn test_ensure_trigger_point_present_appends_when_missing() {
+        use crate::events::trade::CloseReason;
+
+        let trade_id = Uuid::new_v4();
         let account_id = Uuid::new_v4();
-        let existing = model::Trade {
+        let now = Utc::now().naive_utc();
+
+        let event = TradeClosed {
+            trade_id,
             account_id,
-            status: model::Status::ClosedTarget,
-            currency: model::Currency::USD,
-            balance: model::TradeBalance {
-                total_performance: dec!(50),
-                ..model::TradeBalance::default()
-            },
-            ..model::Trade::default()
+            final_pnl: dec!(-25),
+            r_multiple: Decimal::ZERO,
+            close_reason: CloseReason::Manual,
+            closed_at: now,
         };
 
-        let manual = model::Trade {
-            account_id,
-            status: model::Status::Canceled,
-            currency: model::Currency::USD,
-            balance: model::TradeBalance {
-                total_performance: dec!(-25),
-                ..model::TradeBalance::default()
-            },
-            ..model::Trade::default()
-        };
+        let mut points = vec![(now - chrono::Duration::minutes(1), dec!(50))];
+        LevelingService::<DefaultLevelTransitionPolicy>::ensure_trigger_point_present(
+            &mut points,
+            &event,
+        );
 
-        let mut closed = vec![existing];
-        LevelingService::<DefaultLevelTransitionPolicy>::merge_trigger_trade(&mut closed, manual);
-
-        assert_eq!(closed.len(), 2);
-        assert!(closed.iter().any(|trade| {
-            trade.status == model::Status::Canceled && trade.balance.total_performance == dec!(-25)
-        }));
+        assert_eq!(points.len(), 2);
+        let appended = points.get(1).expect("appended trigger point");
+        assert_eq!(appended.0, now);
+        assert_eq!(appended.1, dec!(-25));
     }
 }
