@@ -3,7 +3,7 @@
 //! This module provides structured output formatting for CLI commands
 //! following KISS principles with simple, testable functions.
 
-use model::{Account, DistributionResult};
+use model::{Account, DistributionHistory, DistributionResult};
 use rust_decimal::Decimal;
 
 /// Formats account information in a structured table
@@ -102,6 +102,50 @@ impl DistributionFormatter {
                 .unwrap_or(reinvestment_pct),
             minimum
         )
+    }
+
+    pub fn format_distribution_history(entries: &[DistributionHistory]) -> String {
+        if entries.is_empty() {
+            return "📜 Distribution History\n(No entries found)".to_string();
+        }
+
+        let mut lines: Vec<String> = vec![
+            "📜 Distribution History".to_string(),
+            "┌──────────────────────────────────────────────────────────────────────────┐"
+                .to_string(),
+            "│ Date (UTC)           │ Trade      │ Profit    │ Earnings │ Tax    │ Reinv │"
+                .to_string(),
+            "├──────────────────────────────────────────────────────────────────────────┤"
+                .to_string(),
+        ];
+
+        for entry in entries {
+            let trade = entry
+                .trade_id
+                .map(|id| id.to_string())
+                .unwrap_or_else(|| "-".to_string());
+            let trade_short = if trade == "-" {
+                trade
+            } else {
+                trade[..8].to_string()
+            };
+
+            lines.push(format!(
+                "│ {:19} │ {:8} │ {:8} │ {:8} │ {:6} │ {:5} │",
+                entry.distribution_date.format("%Y-%m-%d %H:%M:%S"),
+                trade_short,
+                entry.original_amount,
+                entry.earnings_amount.unwrap_or_default(),
+                entry.tax_amount.unwrap_or_default(),
+                entry.reinvestment_amount.unwrap_or_default(),
+            ));
+        }
+
+        lines.push(
+            "└──────────────────────────────────────────────────────────────────────────┘"
+                .to_string(),
+        );
+        lines.join("\n")
     }
 }
 

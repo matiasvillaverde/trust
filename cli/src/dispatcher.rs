@@ -197,6 +197,10 @@ impl ArgDispatcher {
                     self.configure_distribution(configure_matches)?
                 }
                 Some(("execute", execute_matches)) => self.execute_distribution(execute_matches)?,
+                Some(("execute", execute_matches)) => self.execute_distribution(execute_matches)?,
+                Some(("history", history_matches)) => {
+                    self.distribution_history(history_matches)?
+                }
                 _ => unreachable!("No subcommand provided"),
             },
             Some(("report", sub_matches)) => match sub_matches.subcommand() {
@@ -3652,70 +3656,7 @@ impl ArgDispatcher {
     }
 }
 
-// Enhanced Account Operations
 impl ArgDispatcher {
-    fn create_account_with_hierarchy(&mut self, matches: &ArgMatches) {
-        // Extract arguments from clap
-        let name = matches.get_one::<String>("name").unwrap();
-        let account_type = matches.get_one::<String>("type").unwrap();
-        let parent_id = matches.get_one::<String>("parent");
-
-        // Parse account type
-        let account_type_enum = match account_type.as_str() {
-            "primary" => model::AccountType::Primary,
-            "earnings" => model::AccountType::Earnings,
-            "tax-reserve" => model::AccountType::TaxReserve,
-            "reinvestment" => model::AccountType::Reinvestment,
-            _ => {
-                eprintln!("Invalid account type: {}", account_type);
-                return;
-            }
-        };
-
-        // Parse parent ID if provided
-        let parent_uuid = if let Some(id_str) = parent_id {
-            match uuid::Uuid::parse_str(id_str) {
-                Ok(uuid) => Some(uuid),
-                Err(_) => {
-                    eprintln!("Invalid parent account ID format: {}", id_str);
-                    return;
-                }
-            }
-        } else {
-            None
-        };
-
-        // Use default values for now - in a real implementation, these could be arguments too
-        let description = format!("{} account", name);
-        let environment = model::Environment::Paper; // Default to paper trading
-        let taxes_percentage = rust_decimal::Decimal::new(25, 0); // 25%
-        let earnings_percentage = rust_decimal::Decimal::new(30, 0); // 30%
-
-        // Create the account
-        match self.trust.create_account_with_hierarchy(
-            name,
-            &description,
-            environment,
-            taxes_percentage,
-            earnings_percentage,
-            account_type_enum,
-            parent_uuid,
-        ) {
-            Ok(account) => {
-                println!("✅ Account created successfully!");
-                println!("   ID: {}", account.id);
-                println!("   Name: {}", account.name);
-                println!("   Type: {:?}", account.account_type);
-                if let Some(parent) = account.parent_account_id {
-                    println!("   Parent ID: {}", parent);
-                }
-            }
-            Err(e) => {
-                eprintln!("❌ Failed to create account: {}", e);
-            }
-        }
-    }
-
     fn transfer_accounts(&mut self, matches: &ArgMatches) -> Result<(), CliError> {
         let from_id_str = matches.get_one::<String>("from").unwrap();
         let to_id_str = matches.get_one::<String>("to").unwrap();
@@ -3754,7 +3695,15 @@ impl ArgDispatcher {
         let tax_str = matches.get_one::<String>("tax").unwrap();
         let reinvestment_str = matches.get_one::<String>("reinvestment").unwrap();
         let threshold_str = matches.get_one::<String>("threshold").unwrap();
-        let password = matches.get_one::<String>("password").unwrap();
+        let password = if let Some(p) = matches.get_one::<String>("password") {
+            p.to_string()
+        } else {
+            Password::new()
+                .with_prompt("Distribution configuration password")
+                .with_confirmation("Confirm password", "Passwords do not match")
+                .interact()
+                .map_err(|e| CliError::new("password_prompt_failed", e.to_string()))?
+        };
 
         let account_id = Uuid::parse_str(account_id_str)
             .map_err(|_| CliError::new("invalid_uuid", "Invalid --account-id UUID"))?;
@@ -3773,11 +3722,6 @@ impl ArgDispatcher {
             .ok_or_else(|| CliError::new("invalid_decimal", "Invalid --reinvestment percentage"))?;
         let threshold = Decimal::from_str_exact(threshold_str)
             .map_err(|_| CliError::new("invalid_decimal", "Invalid --threshold decimal"))?;
-
-        let password = Password::new()
-            .with_prompt("Distribution configuration password")
-            .interact()
-            .map_err(|e| CliError::new("password_prompt_failed", e.to_string()))?;
 
         self.trust
             .configure_distribution(
@@ -3801,9 +3745,6 @@ impl ArgDispatcher {
 
     fn execute_distribution(&mut self, matches: &ArgMatches) -> Result<(), CliError> {
         let account_id_str = matches.get_one::<String>("account-id").unwrap();
-        let _earnings_account_str = matches.get_one::<String>("earnings-account").unwrap();
-        let _tax_account_str = matches.get_one::<String>("tax-account").unwrap();
-        let _reinvestment_account_str = matches.get_one::<String>("reinvestment-account").unwrap();
         let amount_str = matches.get_one::<String>("amount").unwrap();
 
         let account_id = Uuid::parse_str(account_id_str)
@@ -3833,6 +3774,49 @@ impl ArgDispatcher {
             "  transactions_created: {}",
             result.transactions_created.len()
         );
+        Ok(())
+    }
+
+    fn distribution_history(&mut self, matches: &ArgMatches) -> Result<(), CliError> {
+        let account_id_str = matches.get_one::<String>("account-id").unwrap();
+        let limit = matches
+            .get_one::<String>("limit")
+            .and_then(|s| s.parse::<usize>().ok())
+            .unwrap_or(20);
+
+        let account_id = Uuid::parse_str(account_id_str)
+            .map_err(|_| CliError::new("invalid_uuid", "Invalid --account-id UUID"))?;
+
+        let mut entries = self
+            .trust
+            .distribution_history(account_id)
+            .map_err(|e| CliError::new("distribution_history_failed", e.to_string()))?;
+
+        if entries.len() > limit {
+            entries.truncate(limit);
+        }
+
+        println!("Distribution History (most recent first):");
+        for entry in entries {
+            println!(
+                "- at={} trade_id={} amount={} earnings={} tax={} reinvestment={}",
+                entry.distribution_date,
+                entry.trade_id
+                    .map(|id| id.to_string())
+                    .unwrap_or_else(|| "N/A".to_string()),
+                entry.original_amount,
+                entry.earnings_amount
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "0".to_string()),
+                entry.tax_amount
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "0".to_string()),
+                entry.reinvestment_amount
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "0".to_string()),
+            );
+        }
+
         Ok(())
     }
 }
