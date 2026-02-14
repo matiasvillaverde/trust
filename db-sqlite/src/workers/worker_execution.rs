@@ -98,7 +98,11 @@ impl WorkerExecution {
 
         let insert_result = diesel::insert_into(executions::table)
             .values(&row)
-            .on_conflict((executions::broker, executions::account_id, executions::broker_execution_id))
+            .on_conflict((
+                executions::broker,
+                executions::account_id,
+                executions::broker_execution_id,
+            ))
             .do_nothing()
             .execute(connection)?;
 
@@ -219,6 +223,9 @@ mod tests {
         let second = db.execution_write().upsert_execution(&exec).unwrap();
 
         assert_eq!(first.broker_execution_id, second.broker_execution_id);
-        assert_eq!(first.id, second.id, "should return existing row on conflict");
+        assert_eq!(
+            first.id, second.id,
+            "should return existing row on conflict"
+        );
     }
 }

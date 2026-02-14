@@ -1,6 +1,6 @@
 use crate::workers::{
-    AccountBalanceDB, AccountDB, BrokerLogDB, WorkerExecution, WorkerLevel, WorkerOrder, WorkerRule,
-    WorkerTrade, WorkerTradeGrade, WorkerTradingVehicle, WorkerTransaction,
+    AccountBalanceDB, AccountDB, BrokerLogDB, WorkerExecution, WorkerLevel, WorkerOrder,
+    WorkerRule, WorkerTrade, WorkerTradeGrade, WorkerTradingVehicle, WorkerTransaction,
 };
 use crate::{backup, backup::ImportOptions};
 use diesel::prelude::*;

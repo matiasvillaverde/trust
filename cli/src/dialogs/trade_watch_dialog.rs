@@ -49,7 +49,11 @@ impl TradeWatchDialogBuilder {
         let account = self.account.clone().unwrap();
         let mut trades = trust.search_trades(account.id, Status::Submitted).unwrap();
         trades.append(&mut trust.search_trades(account.id, Status::Filled).unwrap());
-        trades.append(&mut trust.search_trades(account.id, Status::PartiallyFilled).unwrap());
+        trades.append(
+            &mut trust
+                .search_trades(account.id, Status::PartiallyFilled)
+                .unwrap(),
+        );
 
         if trades.is_empty() {
             panic!("No trade found with status Submitted / PartiallyFilled / Filled");
@@ -77,7 +81,10 @@ impl TradeWatchDialogBuilder {
     }
 
     pub fn display(self) {
-        match self.result.expect("No result found, did you forget to call build()?") {
+        match self
+            .result
+            .expect("No result found, did you forget to call build()?")
+        {
             Ok(()) => {}
             Err(error) => println!("Trade watch error: {error:?}"),
         }
@@ -142,4 +149,3 @@ fn watch_loop(
 
     Ok(())
 }
-

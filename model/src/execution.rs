@@ -174,4 +174,3 @@ mod tests {
         assert_eq!(side.to_string(), "sell_short");
     }
 }
-

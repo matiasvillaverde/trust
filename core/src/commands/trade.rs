@@ -451,13 +451,17 @@ pub fn sync_with_broker(
     let after = database
         .execution_read()
         .latest_trade_execution_at(trade.id)?;
-    let after = after.map(|t| chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(t, chrono::Utc));
+    let after =
+        after.map(|t| chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(t, chrono::Utc));
     let executions = match broker.fetch_executions(trade, account, after) {
         Ok(executions) => executions,
         Err(e) => {
             // Execution ingestion must never block core sync reliability.
             // We still persist the normal trade/order snapshot. The reconciliation can be retried.
-            eprintln!("Execution reconciliation failed for trade {}: {e}", trade.id);
+            eprintln!(
+                "Execution reconciliation failed for trade {}: {e}",
+                trade.id
+            );
             vec![]
         }
     };

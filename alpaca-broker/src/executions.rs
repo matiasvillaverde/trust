@@ -19,7 +19,8 @@ fn map_side(side: apca::api::v2::account_activities::Side) -> ExecutionSide {
 }
 
 fn num_to_decimal(n: &num_decimal::Num) -> Result<Decimal, Box<dyn Error>> {
-    Decimal::from_str(&n.to_string()).map_err(|e| format!("failed to parse num as decimal: {e}").into())
+    Decimal::from_str(&n.to_string())
+        .map_err(|e| format!("failed to parse num as decimal: {e}").into())
 }
 
 pub fn fetch_executions(
