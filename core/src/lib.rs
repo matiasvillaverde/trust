@@ -34,10 +34,10 @@ use calculators_trade::{LevelAdjustedQuantity, QuantityCalculator};
 use events::trade::{CloseReason, TradeClosed};
 use model::database::TradingVehicleUpsert;
 use model::{
-    Account, AccountBalance, Broker, BrokerLog, Currency, DatabaseFactory, DraftTrade, Environment,
-    Level, LevelAdjustmentRules, LevelChange, LevelTrigger, Order, Rule, RuleLevel, RuleName,
-    Status, Trade, TradeBalance, TradingVehicle, TradingVehicleCategory, Transaction,
-    TransactionCategory,
+    Account, AccountBalance, Broker, BrokerEvent, BrokerLog, Currency, DatabaseFactory, DraftTrade,
+    Environment, Level, LevelAdjustmentRules, LevelChange, LevelTrigger, Order, Rule, RuleLevel,
+    RuleName, Status, Trade, TradeBalance, TradingVehicle, TradingVehicleCategory, Transaction,
+    TransactionCategory, WatchControl, WatchEvent, WatchOptions,
 };
 use rust_decimal::Decimal;
 use uuid::Uuid;
@@ -249,6 +249,19 @@ impl TrustFacade {
     /// Returns the account if found, or an error if not found.
     pub fn search_account(&mut self, name: &str) -> Result<Account, Box<dyn std::error::Error>> {
         self.factory.account_read().for_name(name)
+    }
+
+    /// Read a trade by id.
+    pub fn read_trade(&mut self, trade_id: Uuid) -> Result<Trade, Box<dyn std::error::Error>> {
+        self.factory.trade_read().read_trade(trade_id)
+    }
+
+    /// Read broker events for a trade ordered by creation time.
+    pub fn read_broker_events_for_trade(
+        &mut self,
+        trade_id: Uuid,
+    ) -> Result<Vec<BrokerEvent>, Box<dyn std::error::Error>> {
+        self.factory.broker_event_read().read_all_for_trade(trade_id)
     }
 
     /// Retrieve all accounts in the system.
@@ -693,6 +706,26 @@ impl TrustFacade {
         }
 
         Ok((status, orders, log))
+    }
+
+    /// Watch a trade in near real-time using broker streaming (when supported).
+    ///
+    /// This blocks until the watch ends (terminal trade state, timeout, or caller stops).
+    pub fn watch_trade(
+        &mut self,
+        trade: &Trade,
+        account: &Account,
+        options: WatchOptions,
+        mut on_tick: impl FnMut(&Trade, &WatchEvent) -> Result<WatchControl, Box<dyn std::error::Error>>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        commands::trade_watch::watch_trade(
+            trade,
+            account,
+            &mut *self.factory,
+            &mut *self.broker,
+            options,
+            |t, e| on_tick(t, e),
+        )
     }
 
     /// Grade a closed trade and persist its grade.

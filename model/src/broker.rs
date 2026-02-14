@@ -3,6 +3,7 @@ use chrono::NaiveDateTime;
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use std::error::Error;
+use std::time::Duration;
 use uuid::Uuid;
 
 /// Log entry for broker operations
@@ -49,6 +50,61 @@ pub struct OrderIds {
     pub entry: Uuid,
     /// ID of the target/take profit order
     pub target: Uuid,
+}
+
+/// Options controlling broker watch behavior.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WatchOptions {
+    /// Periodic REST reconciliation interval to heal missed websocket events.
+    pub reconcile_every: Duration,
+    /// Optional overall timeout for a watch session.
+    pub timeout: Option<Duration>,
+}
+
+impl Default for WatchOptions {
+    fn default() -> Self {
+        Self {
+            reconcile_every: Duration::from_secs(20),
+            timeout: None,
+        }
+    }
+}
+
+/// Control flow signal returned by watch callbacks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WatchControl {
+    /// Keep watching.
+    Continue,
+    /// Stop the watch session gracefully.
+    Stop,
+}
+
+/// A broker-emitted watch event containing domain-order updates plus the raw payload.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WatchEvent {
+    /// Broker/source identifier, e.g. `alpaca`.
+    pub broker_source: String,
+    /// Stream identifier, e.g. `trade_updates` or `market_data`.
+    pub broker_stream: String,
+    /// Updated domain orders (subset) affected by this broker event.
+    pub updated_orders: Vec<Order>,
+    /// Optional human-readable broker message.
+    pub message: Option<String>,
+    /// Broker-native event type (e.g. `fill`, `partial_fill`).
+    pub broker_event_type: String,
+    /// Broker-native order id when available.
+    pub broker_order_id: Option<Uuid>,
+    /// Optional market price observed during this watch session.
+    ///
+    /// This is typically populated from a market-data websocket stream and
+    /// should be treated as informational (not authoritative for fills).
+    pub market_price: Option<Decimal>,
+    /// Optional market timestamp associated with `market_price`.
+    pub market_timestamp: Option<DateTime<Utc>>,
+    /// Optional market symbol associated with `market_price`.
+    pub market_symbol: Option<String>,
+    /// Raw JSON payload for audit/replay.
+    pub payload_json: String,
 }
 
 /// Trait for implementing broker integrations
@@ -109,5 +165,21 @@ pub trait Broker {
         _account: &Account,
     ) -> Result<Vec<MarketBar>, Box<dyn Error>> {
         Err("Market data not supported by this broker".into())
+    }
+
+    /// Watch a trade in near real-time, emitting order updates as broker events occur.
+    ///
+    /// Implementations should be resilient to websocket disconnects and should
+    /// periodically reconcile via REST (per `options.reconcile_every`) to heal gaps.
+    ///
+    /// Default implementation returns an error so non-streaming brokers do not break.
+    fn watch_trade(
+        &self,
+        _trade: &Trade,
+        _account: &Account,
+        _options: WatchOptions,
+        _on_event: &mut dyn FnMut(WatchEvent) -> Result<WatchControl, Box<dyn Error>>,
+    ) -> Result<(), Box<dyn Error>> {
+        Err("watch_trade not supported by this broker".into())
     }
 }
