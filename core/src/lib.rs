@@ -261,7 +261,9 @@ impl TrustFacade {
         &mut self,
         trade_id: Uuid,
     ) -> Result<Vec<BrokerEvent>, Box<dyn std::error::Error>> {
-        self.factory.broker_event_read().read_all_for_trade(trade_id)
+        self.factory
+            .broker_event_read()
+            .read_all_for_trade(trade_id)
     }
 
     /// Retrieve all accounts in the system.

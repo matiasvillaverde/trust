@@ -1556,7 +1556,7 @@ impl ArgDispatcher {
         let account = if let Some(name) = matches.get_one::<String>("account") {
             self.trust
                 .search_account(name)
-                .map_err(|e| CliError::new("watch_account_not_found", format!("{e}")))? 
+                .map_err(|e| CliError::new("watch_account_not_found", format!("{e}")))?
         } else {
             AccountSearchDialog::new()
                 .search(&mut self.trust)
@@ -1565,8 +1565,8 @@ impl ArgDispatcher {
         };
 
         let trade = if let Some(id) = matches.get_one::<String>("trade-id") {
-            let trade_id =
-                Uuid::from_str(id).map_err(|e| CliError::new("watch_invalid_trade_id", format!("{e}")))?;
+            let trade_id = Uuid::from_str(id)
+                .map_err(|e| CliError::new("watch_invalid_trade_id", format!("{e}")))?;
             self.trust
                 .read_trade(trade_id)
                 .map_err(|e| CliError::new("watch_trade_read_failed", format!("{e}")))?

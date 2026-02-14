@@ -2,7 +2,7 @@ use crate::keys;
 use crate::order_mapper;
 use apca::api::v2::order::{Get, Id, Order as AlpacaOrder};
 use apca::api::v2::updates;
-use apca::data::v2::stream::{IEX, MarketData, RealtimeData};
+use apca::data::v2::stream::{MarketData, RealtimeData, IEX};
 use apca::Client;
 use apca::Subscribable;
 use broker_sync::{BrokerState, StateTransition};
@@ -113,7 +113,9 @@ async fn watch_async(
     let mut target = trade.target.clone();
 
     // Basic sanity: to watch we need broker ids for the 3 orders.
-    if entry.broker_order_id.is_none() || stop.broker_order_id.is_none() || target.broker_order_id.is_none()
+    if entry.broker_order_id.is_none()
+        || stop.broker_order_id.is_none()
+        || target.broker_order_id.is_none()
     {
         return Err(
             "Trade orders are missing broker_order_id; submit the trade before watching".into(),
@@ -228,7 +230,9 @@ async fn watch_async(
                             .unwrap_or(BrokerState::Reconciling { start_time: now });
 
                         // After connecting, force a reconciliation so we "heal" any missed messages.
-                        if let Ok(reconciled) = reconcile_once(&client, &entry, &stop, &target).await {
+                        if let Ok(reconciled) =
+                            reconcile_once(&client, &entry, &stop, &target).await
+                        {
                             let mut updated_orders = Vec::new();
                             for (id, alpaca_order) in reconciled {
                                 if alpaca_order.symbol.to_uppercase() != symbol_expected {

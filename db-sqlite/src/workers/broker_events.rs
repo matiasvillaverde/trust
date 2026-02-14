@@ -128,7 +128,9 @@ impl TryFrom<BrokerEventSQLite> for BrokerEvent {
                 .broker_order_id
                 .map(|s| Uuid::parse_str(&s))
                 .transpose()
-                .map_err(|_| ConversionError::new("broker_order_id", "Failed to parse broker order ID"))?,
+                .map_err(|_| {
+                    ConversionError::new("broker_order_id", "Failed to parse broker order ID")
+                })?,
 
             payload_json: value.payload_json,
         })
@@ -189,4 +191,3 @@ mod tests {
         assert_eq!(events[0].payload_json, event.payload_json);
     }
 }
-

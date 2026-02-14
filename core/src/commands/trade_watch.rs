@@ -1,9 +1,12 @@
 use crate::commands;
 use crate::commands::trade;
-use model::{Account, Broker, BrokerEvent, DatabaseFactory, OrderStatus, Status, Trade, WatchControl, WatchEvent, WatchOptions};
+use model::{
+    Account, Broker, BrokerEvent, DatabaseFactory, OrderStatus, Status, Trade, WatchControl,
+    WatchEvent, WatchOptions,
+};
+use serde_json::Value as JsonValue;
 use std::error::Error;
 use uuid::Uuid;
-use serde_json::Value as JsonValue;
 
 fn derive_broker_status_from_trade(trade: &Trade) -> Option<Status> {
     // Exit fills have priority.
@@ -108,7 +111,11 @@ pub fn watch_trade(
                 Status::Canceled | Status::Expired | Status::Rejected => {
                     // If the entry never filled, unwind trade funding back to account.
                     if trade_after_orders.status == Status::Submitted {
-                        let _ = cancel_submitted_due_to_broker(&trade_after_orders, next_status, database)?;
+                        let _ = cancel_submitted_due_to_broker(
+                            &trade_after_orders,
+                            next_status,
+                            database,
+                        )?;
                     } else {
                         // If we were already filled, do not allow entry-cancel to overwrite terminal states.
                     }

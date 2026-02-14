@@ -217,5 +217,8 @@ fn watch_trade_persists_events_and_updates_trade_status() {
     assert_eq!(events[0].source, "alpaca");
     assert_eq!(events[0].stream, "trade_updates");
     assert_eq!(events[0].event_type, "test_invalid_payload");
-    assert_eq!(events[0].payload_json, "{\"error\":\"payload_invalid_json\"}");
+    assert_eq!(
+        events[0].payload_json,
+        "{\"error\":\"payload_invalid_json\"}"
+    );
 }
