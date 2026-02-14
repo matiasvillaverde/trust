@@ -32,7 +32,7 @@
 
 use model::{
     Account, BarTimeframe, Broker, BrokerLog, Environment, MarketBar, Order, OrderIds, Status,
-    Trade,
+    Trade, WatchControl, WatchEvent, WatchOptions,
 };
 use std::error::Error;
 use uuid::Uuid;
@@ -47,6 +47,7 @@ mod modify_target;
 mod order_mapper;
 mod submit_trade;
 mod sync_trade;
+mod watch_trade;
 pub use asset_lookup::AssetMetadata;
 pub use keys::Keys;
 
@@ -113,6 +114,16 @@ impl Broker for AlpacaBroker {
         account: &Account,
     ) -> Result<Vec<MarketBar>, Box<dyn Error>> {
         market_data::get_bars(symbol, start, end, timeframe, account)
+    }
+
+    fn watch_trade(
+        &self,
+        trade: &Trade,
+        account: &Account,
+        options: WatchOptions,
+        on_event: &mut dyn FnMut(WatchEvent) -> Result<WatchControl, Box<dyn Error>>,
+    ) -> Result<(), Box<dyn Error>> {
+        watch_trade::watch(trade, account, options, on_event)
     }
 }
 

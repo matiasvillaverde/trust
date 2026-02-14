@@ -24,7 +24,9 @@ name = "alpaca-broker"
 version = "0.3.0"
 dependencies = [
  "apca",
+ "broker-sync",
  "chrono",
+ "futures-util",
  "keyring",
  "num-decimal",
  "rust_decimal",
@@ -446,8 +448,10 @@ name = "core"
 version = "0.3.0"
 dependencies = [
  "chrono",
+ "db-sqlite",
  "rust_decimal",
  "rust_decimal_macros",
+ "serde_json",
  "thiserror 1.0.69",
  "tracing",
  "trust-model",

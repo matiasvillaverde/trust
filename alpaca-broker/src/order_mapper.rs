@@ -77,6 +77,13 @@ pub fn map_target(alpaca_order: AlpacaOrder, trade: &Trade) -> Result<Vec<Order>
     Ok(vec![map(&alpaca_order, trade.target.clone())?])
 }
 
+/// Map a single Alpaca order into the corresponding domain order (by broker id).
+///
+/// This is useful for streaming (`trade_updates`) where legs are typically not present.
+pub fn map_single(alpaca_order: &AlpacaOrder, order: &Order) -> Result<Order, Box<dyn Error>> {
+    map(alpaca_order, order.clone())
+}
+
 // Alternative approach using helper functions for cleaner code
 
 fn apply_updates_to_order(original: &Order, updates: &[Order]) -> Order {

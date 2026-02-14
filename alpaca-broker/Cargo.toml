@@ -17,3 +17,5 @@ tokio = {workspace = true}
 keyring = {workspace = true}
 serde_json = {workspace = true}
 num-decimal = {workspace = true}
+futures-util = {workspace = true}
+broker-sync = { path = "../broker-sync" }
