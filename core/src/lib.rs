@@ -31,6 +31,10 @@
 #![warn(missing_docs, rust_2018_idioms, missing_debug_implementations)]
 
 use crate::services::{EventDistributionService, FundTransferService, ProfitDistributionService};
+use argon2::{
+    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
+    Argon2,
+};
 use calculators_trade::QuantityCalculator;
 use model::{
     Account, AccountBalance, AccountType, Broker, BrokerLog, Currency, DatabaseFactory,
@@ -38,6 +42,7 @@ use model::{
     RuleName, Status, Trade, TradeBalance, TradingVehicle, TradingVehicleCategory, Transaction,
     TransactionCategory,
 };
+use rand_core::OsRng;
 use rust_decimal::Decimal;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
@@ -720,14 +725,25 @@ impl TrustFacade {
         // Validate the rules
         rules.validate()?;
 
-        let password_hash = hash_distribution_password(configuration_password)?;
-
         // Existing rules can only be updated with the existing configuration password.
-        if let Ok(existing_rules) = self.factory.distribution_read().for_account(account_id) {
-            if existing_rules.configuration_password_hash != password_hash {
-                return Err("Invalid distribution configuration password".into());
+        match self.factory.distribution_read().for_account(account_id) {
+            Ok(existing_rules) => {
+                if !verify_distribution_password(
+                    configuration_password,
+                    &existing_rules.configuration_password_hash,
+                )? {
+                    return Err("Invalid distribution configuration password".into());
+                }
+            }
+            Err(e) => {
+                // Treat only explicit not-found as "no rules configured"; propagate all other errors.
+                if !e.as_ref().is::<model::DistributionRulesNotFound>() {
+                    return Err(e);
+                }
             }
         }
+
+        let password_hash = hash_distribution_password(configuration_password)?;
 
         self.factory.distribution_write().create_or_update(
             account_id,
@@ -766,6 +782,16 @@ impl TrustFacade {
             &currency,
             None,
         )
+    }
+
+    /// Returns persisted profit distribution execution history for an account.
+    pub fn distribution_history(
+        &mut self,
+        source_account_id: Uuid,
+    ) -> Result<Vec<model::DistributionHistory>, Box<dyn std::error::Error>> {
+        self.factory
+            .distribution_read()
+            .history_for_account(source_account_id)
     }
 
     /// Transfer funds between accounts in hierarchy
@@ -827,6 +853,40 @@ impl TrustFacade {
 }
 
 fn hash_distribution_password(password: &str) -> Result<String, Box<dyn std::error::Error>> {
+    if password.trim().len() < 8 {
+        return Err("Distribution password must be at least 8 characters".into());
+    }
+
+    let salt = SaltString::generate(&mut OsRng);
+    let argon2 = Argon2::default();
+    let hash = argon2
+        .hash_password(password.as_bytes(), &salt)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+    Ok(hash.to_string())
+}
+
+fn verify_distribution_password(
+    password: &str,
+    stored_hash: &str,
+) -> Result<bool, Box<dyn std::error::Error>> {
+    if stored_hash.starts_with("$argon2") {
+        let parsed = PasswordHash::new(stored_hash).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Invalid password hash: {e}"),
+            )
+        })?;
+        Ok(Argon2::default()
+            .verify_password(password.as_bytes(), &parsed)
+            .is_ok())
+    } else {
+        Ok(hash_distribution_password_legacy_sha256(password)? == stored_hash)
+    }
+}
+
+fn hash_distribution_password_legacy_sha256(
+    password: &str,
+) -> Result<String, Box<dyn std::error::Error>> {
     if password.trim().len() < 8 {
         return Err("Distribution password must be at least 8 characters".into());
     }
