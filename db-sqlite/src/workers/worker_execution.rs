@@ -170,7 +170,10 @@ impl WorkerExecution {
 mod tests {
     use super::*;
     use crate::SqliteDatabase;
-    use model::{Account, DatabaseFactory, Environment, Execution, ExecutionSide, ExecutionSource};
+    use model::{
+        Account, AccountType, DatabaseFactory, Environment, Execution, ExecutionSide,
+        ExecutionSource,
+    };
     use rust_decimal_macros::dec;
 
     fn sample_account() -> Account {
@@ -185,6 +188,8 @@ mod tests {
             environment: Environment::Paper,
             taxes_percentage: dec!(0),
             earnings_percentage: dec!(0),
+            account_type: AccountType::Primary,
+            parent_account_id: None,
         }
     }
 

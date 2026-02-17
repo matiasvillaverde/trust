@@ -255,6 +255,14 @@ mod tests {
             todo!("Mock not needed for this test")
         }
 
+        fn execution_read(&self) -> Box<dyn model::ReadExecutionDB> {
+            todo!("Mock not needed for this test")
+        }
+
+        fn execution_write(&self) -> Box<dyn model::WriteExecutionDB> {
+            todo!("Mock not needed for this test")
+        }
+
         fn trade_grade_read(&self) -> Box<dyn model::ReadTradeGradeDB> {
             todo!("Mock not needed for this test")
         }
