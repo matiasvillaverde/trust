@@ -11,6 +11,7 @@ mod trade_funding_dialog;
 mod trade_search_dialog;
 mod trade_submit_dialog;
 mod trade_sync_dialog;
+mod trade_watch_dialog;
 mod trading_vehicle_dialog;
 mod transaction_dialog;
 
@@ -31,5 +32,6 @@ pub use trade_funding_dialog::FundingDialogBuilder;
 pub use trade_search_dialog::TradeSearchDialogBuilder;
 pub use trade_submit_dialog::SubmitDialogBuilder;
 pub use trade_sync_dialog::SyncTradeDialogBuilder;
+pub use trade_watch_dialog::TradeWatchDialogBuilder;
 pub use trading_vehicle_dialog::{TradingVehicleDialogBuilder, TradingVehicleSearchDialogBuilder};
 pub use transaction_dialog::TransactionDialogBuilder;

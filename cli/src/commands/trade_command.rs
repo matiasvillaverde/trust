@@ -53,6 +53,13 @@ impl TradeCommandBuilder {
         self
     }
 
+    pub fn watch_trade(mut self) -> Self {
+        self.subcommands.push(Command::new("watch").about(
+            "Watch a trade until it reaches a terminal status (polls sync + shows new executions)",
+        ));
+        self
+    }
+
     pub fn manually_fill(mut self) -> Self {
         self.subcommands.push(
             Command::new("manually-fill").about("Execute manually the filling of a trade. Meaning that the entry order was filled and we own the trading vehicle."),

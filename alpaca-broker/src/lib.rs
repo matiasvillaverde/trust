@@ -40,6 +40,7 @@ use uuid::Uuid;
 mod asset_lookup;
 mod cancel_trade;
 mod close_trade;
+mod executions;
 mod keys;
 mod market_data;
 mod modify_stop;
@@ -113,6 +114,15 @@ impl Broker for AlpacaBroker {
         account: &Account,
     ) -> Result<Vec<MarketBar>, Box<dyn Error>> {
         market_data::get_bars(symbol, start, end, timeframe, account)
+    }
+
+    fn fetch_executions(
+        &self,
+        trade: &Trade,
+        account: &Account,
+        after: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> Result<Vec<model::Execution>, Box<dyn Error>> {
+        executions::fetch_executions(trade, account, after)
     }
 }
 

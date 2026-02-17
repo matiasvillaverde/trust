@@ -35,8 +35,8 @@ use events::trade::{CloseReason, TradeClosed};
 use model::database::TradingVehicleUpsert;
 use model::{
     Account, AccountBalance, Broker, BrokerLog, Currency, DatabaseFactory, DraftTrade, Environment,
-    Level, LevelAdjustmentRules, LevelChange, LevelTrigger, Order, Rule, RuleLevel, RuleName,
-    Status, Trade, TradeBalance, TradingVehicle, TradingVehicleCategory, Transaction,
+    Execution, Level, LevelAdjustmentRules, LevelChange, LevelTrigger, Order, Rule, RuleLevel,
+    RuleName, Status, Trade, TradeBalance, TradingVehicle, TradingVehicleCategory, Transaction,
     TransactionCategory,
 };
 use rust_decimal::Decimal;
@@ -529,6 +529,14 @@ impl TrustFacade {
         self.factory
             .trade_read()
             .read_trades_with_status(account_id, status)
+    }
+
+    /// Retrieve all executions (fills) attributed to a trade.
+    pub fn executions_for_trade(
+        &mut self,
+        trade_id: Uuid,
+    ) -> Result<Vec<Execution>, Box<dyn std::error::Error>> {
+        self.factory.execution_read().all_trade_executions(trade_id)
     }
 
     /// Get all transactions for a specific account

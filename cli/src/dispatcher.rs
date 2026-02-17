@@ -2,7 +2,7 @@ use crate::dialogs::{
     AccountDialogBuilder, AccountSearchDialog, CancelDialogBuilder, CloseDialogBuilder,
     ExitDialogBuilder, FillTradeDialogBuilder, FundingDialogBuilder, KeysDeleteDialogBuilder,
     KeysReadDialogBuilder, KeysWriteDialogBuilder, ModifyDialogBuilder, SubmitDialogBuilder,
-    SyncTradeDialogBuilder, TradeDialogBuilder, TradeSearchDialogBuilder,
+    SyncTradeDialogBuilder, TradeDialogBuilder, TradeSearchDialogBuilder, TradeWatchDialogBuilder,
     TradingVehicleDialogBuilder, TradingVehicleSearchDialogBuilder, TransactionDialogBuilder,
 };
 use crate::dialogs::{RuleDialogBuilder, RuleRemoveDialogBuilder};
@@ -165,6 +165,7 @@ impl ArgDispatcher {
                 Some(("manually-target", _)) => self.create_target(),
                 Some(("manually-close", _)) => self.close(),
                 Some(("sync", _)) => self.create_sync(),
+                Some(("watch", _)) => self.create_watch(),
                 Some(("search", _)) => self.search_trade(),
                 Some(("modify-stop", _)) => self.modify_stop(),
                 Some(("modify-target", _)) => self.modify_target(),
@@ -1548,6 +1549,14 @@ impl ArgDispatcher {
 
     fn create_sync(&mut self) {
         SyncTradeDialogBuilder::new()
+            .account(&mut self.trust)
+            .search(&mut self.trust)
+            .build(&mut self.trust)
+            .display();
+    }
+
+    fn create_watch(&mut self) {
+        TradeWatchDialogBuilder::new()
             .account(&mut self.trust)
             .search(&mut self.trust)
             .build(&mut self.trust)

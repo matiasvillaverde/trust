@@ -1,8 +1,8 @@
 use crate::{
-    Account, AccountBalance, BrokerLog, Currency, Environment, Level, LevelAdjustmentRules,
-    LevelChange, Order, OrderAction, OrderCategory, Rule, RuleLevel, RuleName, Status, Trade,
-    TradeBalance, TradeCategory, TradeGrade, TradingVehicle, TradingVehicleCategory, Transaction,
-    TransactionCategory,
+    Account, AccountBalance, BrokerLog, Currency, Environment, Execution, Level,
+    LevelAdjustmentRules, LevelChange, Order, OrderAction, OrderCategory, Rule, RuleLevel,
+    RuleName, Status, Trade, TradeBalance, TradeCategory, TradeGrade, TradingVehicle,
+    TradingVehicleCategory, Transaction, TransactionCategory,
 };
 use rust_decimal::Decimal;
 use uuid::Uuid;
@@ -56,6 +56,10 @@ pub trait DatabaseFactory {
     fn log_read(&self) -> Box<dyn ReadBrokerLogsDB>;
     /// Returns a writer for broker log data operations
     fn log_write(&self) -> Box<dyn WriteBrokerLogsDB>;
+    /// Returns a reader for execution data operations
+    fn execution_read(&self) -> Box<dyn ReadExecutionDB>;
+    /// Returns a writer for execution data operations
+    fn execution_write(&self) -> Box<dyn WriteExecutionDB>;
     /// Returns a reader for trade grade data operations
     fn trade_grade_read(&self) -> Box<dyn ReadTradeGradeDB>;
     /// Returns a writer for trade grade data operations
@@ -245,6 +249,29 @@ pub trait WriteTransactionDB {
     ) -> Result<Transaction, Box<dyn Error>> {
         self.create_transaction_by_account_id(account.id, amount, currency, category)
     }
+}
+
+/// Trait for reading execution data from the database.
+pub trait ReadExecutionDB {
+    /// Retrieve all executions for a trade.
+    fn all_trade_executions(&mut self, trade_id: Uuid) -> Result<Vec<Execution>, Box<dyn Error>>;
+
+    /// Retrieve all executions for an order.
+    fn all_order_executions(&mut self, order_id: Uuid) -> Result<Vec<Execution>, Box<dyn Error>>;
+
+    /// Retrieve the latest execution timestamp for a trade (if any).
+    fn latest_trade_execution_at(
+        &mut self,
+        trade_id: Uuid,
+    ) -> Result<Option<chrono::NaiveDateTime>, Box<dyn Error>>;
+}
+
+/// Trait for writing execution data to the database.
+pub trait WriteExecutionDB {
+    /// Insert an execution if not already present (idempotent).
+    ///
+    /// Dedupe is expected to be enforced by `(broker, account_id, broker_execution_id)`.
+    fn upsert_execution(&mut self, execution: &Execution) -> Result<Execution, Box<dyn Error>>;
 }
 
 // Trade DB

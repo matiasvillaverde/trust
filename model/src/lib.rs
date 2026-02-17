@@ -38,6 +38,8 @@ pub mod broker;
 pub mod currency;
 /// Database abstraction layer
 pub mod database;
+/// Execution (fill) primitives for execution-level accounting and auditability
+pub mod execution;
 /// Trading level management and risk multipliers
 pub mod level;
 /// Market data types
@@ -63,9 +65,13 @@ pub use broker::{Broker, BrokerLog, OrderIds};
 pub use currency::Currency;
 pub use database::{
     AccountBalanceRead, AccountBalanceWrite, AccountRead, AccountWrite, DatabaseFactory,
-    DraftTrade, OrderRead, OrderWrite, ReadBrokerLogsDB, ReadLevelDB, ReadRuleDB, ReadTradeDB,
-    ReadTradeGradeDB, ReadTradingVehicleDB, ReadTransactionDB, WriteBrokerLogsDB, WriteLevelDB,
-    WriteRuleDB, WriteTradeDB, WriteTradeGradeDB, WriteTradingVehicleDB, WriteTransactionDB,
+    DraftTrade, OrderRead, OrderWrite, ReadBrokerLogsDB, ReadExecutionDB, ReadLevelDB, ReadRuleDB,
+    ReadTradeDB, ReadTradeGradeDB, ReadTradingVehicleDB, ReadTransactionDB, WriteBrokerLogsDB,
+    WriteExecutionDB, WriteLevelDB, WriteRuleDB, WriteTradeDB, WriteTradeGradeDB,
+    WriteTradingVehicleDB, WriteTransactionDB,
+};
+pub use execution::{
+    Execution, ExecutionSide, ExecutionSideParseError, ExecutionSource, ExecutionSourceParseError,
 };
 pub use level::{
     Level, LevelAdjustmentRules, LevelChange, LevelDirection, LevelError, LevelRulesError,
