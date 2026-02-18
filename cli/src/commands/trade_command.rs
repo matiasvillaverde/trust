@@ -54,9 +54,18 @@ impl TradeCommandBuilder {
     }
 
     pub fn watch_trade(mut self) -> Self {
-        self.subcommands.push(Command::new("watch").about(
-            "Watch a trade until it reaches a terminal status (polls sync + shows new executions)",
-        ));
+        self.subcommands.push(
+            Command::new("watch")
+                .about(
+                    "Watch a trade until it reaches a terminal status (polls sync + shows new executions)",
+                )
+                .arg(
+                    Arg::new("latest")
+                        .long("latest")
+                        .help("Watch the most recently updated open trade without prompting")
+                        .action(clap::ArgAction::SetTrue),
+                ),
+        );
         self
     }
 

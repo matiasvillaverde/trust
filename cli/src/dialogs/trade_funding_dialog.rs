@@ -12,9 +12,11 @@
 
 use crate::views::{AccountBalanceView, TradeBalanceView, TradeView};
 use crate::{dialogs::AccountSearchDialog, views::TransactionView};
+use core::services::{AdvisoryAlertLevel, TradeProposal};
 use core::TrustFacade;
-use dialoguer::{theme::ColorfulTheme, FuzzySelect};
+use dialoguer::{theme::ColorfulTheme, Confirm, FuzzySelect};
 use model::{Account, AccountBalance, Status, Trade, TradeBalance, Transaction};
+use rust_decimal::Decimal;
 use std::error::Error;
 
 type TradeDialogApproverBuilderResult =
@@ -37,7 +39,46 @@ impl FundingDialogBuilder {
 
     pub fn build(mut self, trust: &mut TrustFacade) -> FundingDialogBuilder {
         let trade: Trade = self.trade.clone().unwrap();
-        self.result = Some(trust.fund_trade(&trade));
+        let advisory = trust.advisory_check_trade(TradeProposal {
+            account_id: trade.account_id,
+            symbol: trade.trading_vehicle.symbol.clone(),
+            sector: trade.sector.clone(),
+            asset_class: trade.asset_class.clone(),
+            entry_price: trade.entry.unit_price,
+            quantity: Decimal::from(trade.entry.quantity),
+        });
+
+        match advisory {
+            Ok(result) => {
+                match result.level {
+                    AdvisoryAlertLevel::Block => {
+                        self.result = Some(Err("Trade blocked by advisory limits".into()));
+                        return self;
+                    }
+                    AdvisoryAlertLevel::Warning | AdvisoryAlertLevel::Caution => {
+                        println!("Advisory {:?}:", result.level);
+                        for warning in result.warnings {
+                            println!("  - {warning}");
+                        }
+                        let proceed = Confirm::with_theme(&ColorfulTheme::default())
+                            .with_prompt("Proceed with funding anyway?")
+                            .default(false)
+                            .interact()
+                            .unwrap_or(false);
+                        if !proceed {
+                            self.result =
+                                Some(Err("Funding canceled by user after advisory".into()));
+                            return self;
+                        }
+                    }
+                    AdvisoryAlertLevel::Ok => {}
+                }
+                self.result = Some(trust.fund_trade(&trade));
+            }
+            Err(error) => {
+                self.result = Some(Err(error));
+            }
+        }
         self
     }
 

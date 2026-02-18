@@ -42,6 +42,8 @@ pub mod database;
 pub mod distribution;
 /// Execution (fill) primitives for execution-level accounting and auditability
 pub mod execution;
+/// Fee/pass-through activity primitives used for execution accounting.
+pub mod fee_activity;
 /// Trading level management and risk multipliers
 pub mod level;
 /// Market data types
@@ -79,6 +81,7 @@ pub use distribution::{
 pub use execution::{
     Execution, ExecutionSide, ExecutionSideParseError, ExecutionSource, ExecutionSourceParseError,
 };
+pub use fee_activity::FeeActivity;
 pub use level::{
     Level, LevelAdjustmentRules, LevelChange, LevelDirection, LevelError, LevelRulesError,
     LevelStatus, LevelStatusParseError, LevelTrigger, LevelTriggerParseError,

@@ -31,10 +31,10 @@
 #![warn(missing_docs, rust_2018_idioms, missing_debug_implementations)]
 
 use crate::commands::{
-    AccountCommandBuilder, DbCommandBuilder, DistributionCommandBuilder, GradeCommandBuilder,
-    KeysCommandBuilder, LevelCommandBuilder, MetricsCommandBuilder, OnboardingCommandBuilder,
-    PolicyCommandBuilder, ReportCommandBuilder, TradeCommandBuilder, TradingVehicleCommandBuilder,
-    TransactionCommandBuilder,
+    AccountCommandBuilder, AdvisorCommandBuilder, DbCommandBuilder, DistributionCommandBuilder,
+    GradeCommandBuilder, KeysCommandBuilder, LevelCommandBuilder, MetricsCommandBuilder,
+    OnboardingCommandBuilder, PolicyCommandBuilder, ReportCommandBuilder, TradeCommandBuilder,
+    TradingVehicleCommandBuilder, TransactionCommandBuilder,
 };
 use crate::dispatcher::ArgDispatcher;
 use clap::Command;
@@ -78,6 +78,8 @@ fn build_cli() -> Command {
             AccountCommandBuilder::new()
                 .create_account()
                 .read_account()
+                .list_accounts()
+                .balance_accounts()
                 .transfer_account()
                 .build(),
         )
@@ -122,6 +124,7 @@ fn build_cli() -> Command {
                 .configure_distribution()
                 .execute_distribution()
                 .history()
+                .show_rules()
                 .build(),
         )
         .subcommand(
@@ -147,6 +150,14 @@ fn build_cli() -> Command {
                 .build(),
         )
         .subcommand(MetricsCommandBuilder::new().advanced().compare().build())
+        .subcommand(
+            AdvisorCommandBuilder::new()
+                .configure()
+                .check()
+                .status()
+                .history()
+                .build(),
+        )
         .subcommand(build_onboarding_subcommand())
         .subcommand(build_policy_subcommand())
 }

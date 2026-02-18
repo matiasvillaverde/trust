@@ -41,6 +41,7 @@ mod asset_lookup;
 mod cancel_trade;
 mod close_trade;
 mod executions;
+mod fees;
 mod keys;
 mod market_data;
 mod modify_stop;
@@ -123,6 +124,15 @@ impl Broker for AlpacaBroker {
         after: Option<chrono::DateTime<chrono::Utc>>,
     ) -> Result<Vec<model::Execution>, Box<dyn Error>> {
         executions::fetch_executions(trade, account, after)
+    }
+
+    fn fetch_fee_activities(
+        &self,
+        trade: &Trade,
+        account: &Account,
+        after: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> Result<Vec<model::FeeActivity>, Box<dyn Error>> {
+        fees::fetch_fee_activities(trade, account, after)
     }
 }
 

@@ -122,6 +122,32 @@ impl DistributionCommandBuilder {
         );
         self
     }
+
+    pub fn show_rules(mut self) -> Self {
+        self.subcommands.push(
+            Command::new("rules")
+                .about("Show distribution rules for an account")
+                .subcommand(
+                    Command::new("show")
+                        .about("Show distribution rules for an account")
+                        .arg(
+                            Arg::new("account-id")
+                                .long("account-id")
+                                .value_name("UUID")
+                                .help("Account ID to show distribution rules for")
+                                .required(true),
+                        ),
+                )
+                .arg(
+                    Arg::new("account-id")
+                        .long("account-id")
+                        .value_name("UUID")
+                        .help("Account ID to show distribution rules for (legacy: distribution rules --account-id ...)")
+                        .required(false),
+                ),
+        );
+        self
+    }
 }
 
 #[cfg(test)]
@@ -161,6 +187,24 @@ mod tests {
         let account_id = "550e8400-e29b-41d4-a716-446655440000";
         let result =
             cmd.try_get_matches_from(["distribution", "history", "--account-id", account_id]);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn rules_subcommand_parses() {
+        let cmd = DistributionCommandBuilder::new().show_rules().build();
+        let account_id = "550e8400-e29b-41d4-a716-446655440000";
+        let result =
+            cmd.try_get_matches_from(["distribution", "rules", "--account-id", account_id]);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn rules_show_subcommand_parses() {
+        let cmd = DistributionCommandBuilder::new().show_rules().build();
+        let account_id = "550e8400-e29b-41d4-a716-446655440000";
+        let result =
+            cmd.try_get_matches_from(["distribution", "rules", "show", "--account-id", account_id]);
         assert!(result.is_ok());
     }
 }

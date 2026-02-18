@@ -1,8 +1,11 @@
+#![allow(clippy::items_after_test_module)]
+
 use crate::commands;
 use chrono::Utc;
 use model::{
-    Account, AccountBalance, Broker, BrokerLog, DatabaseFactory, DraftTrade, Order, OrderStatus,
-    Status, Trade, TradeBalance, Transaction,
+    Account, AccountBalance, Broker, BrokerLog, DatabaseFactory, DraftTrade, Execution,
+    ExecutionSide, ExecutionSource, FeeActivity, Order, OrderStatus, Status, Trade, TradeBalance,
+    TradeCategory, TradingVehicleCategory, Transaction, TransactionCategory,
 };
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
@@ -174,7 +177,7 @@ pub fn update_status(
             return Err(format!("Status can not be updated in trade: {status:?}").into());
         }
     }
-    unimplemented!()
+    Err(format!("Unsupported status transition in trade update: {status:?}").into())
 }
 
 fn fill_trade_internal(
@@ -451,7 +454,10 @@ pub fn sync_with_broker(
         .latest_trade_execution_at(trade.id)?;
     let after =
         after.map(|t| chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(t, chrono::Utc));
-    let executions = match broker.fetch_executions(trade, account, after) {
+    // 1. Sync Trade with Broker
+    let (status, orders, log) = broker.sync_trade(trade, account)?;
+
+    let reconciled_executions = match broker.fetch_executions(trade, account, after) {
         Ok(executions) => executions,
         Err(e) => {
             // Execution ingestion must never block core sync reliability.
@@ -463,9 +469,13 @@ pub fn sync_with_broker(
             vec![]
         }
     };
-    // 1. Sync Trade with Broker
-    let (status, orders, log) = broker.sync_trade(trade, account)?;
-
+    let fees = match broker.fetch_fee_activities(trade, account, after) {
+        Ok(fees) => fees,
+        Err(e) => {
+            eprintln!("Fee reconciliation failed for trade {}: {e}", trade.id);
+            vec![]
+        }
+    };
     // 2. Persist the whole sync lifecycle atomically.
     let (transitioned_to_closed, persisted_trade) =
         with_savepoint(database, "sync_trade_lifecycle", |database| {
@@ -506,16 +516,24 @@ pub fn sync_with_broker(
             }
 
             // 2.5 Update trade status from the latest persisted trade snapshot.
+            let mut normalized_executions = derive_trade_update_executions(
+                &current_trade,
+                &resolved,
+                account.id,
+                &trade.trading_vehicle.symbol,
+            );
             let mut trade_with_synced_orders = current_trade;
             trade_with_synced_orders.entry = resolved.entry;
             trade_with_synced_orders.target = resolved.target;
             trade_with_synced_orders.safety_stop = resolved.stop;
+            normalized_executions.extend(reconciled_executions.clone());
             let (trade, _) = update_status(&trade_with_synced_orders, status, database)?;
             // 2.6 Persist executions (fills) for execution-level accounting, idempotently.
             //
             // Important: we only attribute executions to this trade when the broker order ID matches
             // one of the trade orders. This prevents cross-trade contamination on the same symbol.
-            persist_executions_for_trade(database, &trade, &executions)?;
+            persist_executions_for_trade(database, &trade, &normalized_executions)?;
+            reconcile_fee_activities_for_trade(database, &trade, &fees)?;
 
             // 2.6 Ensure sibling exit orders are consistently closed in terminal states.
             reconcile_sibling_exit_orders(&trade, status, database)?;
@@ -552,6 +570,13 @@ fn persist_executions_for_trade(
             )
             .into());
         }
+        if must_reject_fractional_qty(trade) && !is_integer_decimal(exec.qty) {
+            return Err(format!(
+                "fractional execution qty is not allowed for non-fractionable stock {}: {}",
+                trade.trading_vehicle.symbol, exec.qty
+            )
+            .into());
+        }
         if exec.symbol != trade_symbol {
             // Broker impl should have filtered, but keep this as a hard safety check.
             continue;
@@ -580,6 +605,189 @@ fn persist_executions_for_trade(
     }
 
     Ok(())
+}
+
+fn derive_trade_update_executions(
+    previous_trade: &Trade,
+    resolved: &ResolvedSyncOrders,
+    account_id: uuid::Uuid,
+    symbol: &str,
+) -> Vec<Execution> {
+    let mut out = Vec::new();
+    for (previous_order, updated_order, side) in [
+        (
+            &previous_trade.entry,
+            &resolved.entry,
+            side_for_entry(previous_trade.category),
+        ),
+        (
+            &previous_trade.target,
+            &resolved.target,
+            side_for_exit(previous_trade.category),
+        ),
+        (
+            &previous_trade.safety_stop,
+            &resolved.stop,
+            side_for_exit(previous_trade.category),
+        ),
+    ] {
+        if updated_order.filled_quantity == 0
+            || updated_order.filled_quantity <= previous_order.filled_quantity
+        {
+            continue;
+        }
+        let Some(broker_order_id) = updated_order.broker_order_id else {
+            continue;
+        };
+        let Some(price) = updated_order.average_filled_price else {
+            continue;
+        };
+        let executed_at = updated_order
+            .filled_at
+            .unwrap_or_else(|| chrono::Utc::now().naive_utc());
+        let Some(delta_qty) = updated_order
+            .filled_quantity
+            .checked_sub(previous_order.filled_quantity)
+        else {
+            continue;
+        };
+        let qty = Decimal::from(delta_qty);
+        let broker_execution_id = format!(
+            "trade_updates:{}:{}:{}",
+            broker_order_id,
+            updated_order.filled_quantity,
+            executed_at.and_utc().timestamp_millis()
+        );
+        let mut exec = Execution::new(
+            "alpaca".to_string(),
+            ExecutionSource::TradeUpdates,
+            account_id,
+            broker_execution_id,
+            Some(broker_order_id),
+            symbol.to_string(),
+            side,
+            qty,
+            price,
+            executed_at,
+        );
+        exec.raw_json = None;
+        out.push(exec);
+    }
+    out
+}
+
+fn side_for_entry(category: TradeCategory) -> ExecutionSide {
+    match category {
+        TradeCategory::Long => ExecutionSide::Buy,
+        TradeCategory::Short => ExecutionSide::SellShort,
+    }
+}
+
+fn side_for_exit(category: TradeCategory) -> ExecutionSide {
+    match category {
+        TradeCategory::Long => ExecutionSide::Sell,
+        TradeCategory::Short => ExecutionSide::Buy,
+    }
+}
+
+fn must_reject_fractional_qty(trade: &Trade) -> bool {
+    trade.trading_vehicle.category == TradingVehicleCategory::Stock
+        && trade.trading_vehicle.fractionable != Some(true)
+}
+
+fn is_integer_decimal(value: Decimal) -> bool {
+    value.fract().is_zero()
+}
+
+fn reconcile_fee_activities_for_trade(
+    database: &mut dyn DatabaseFactory,
+    trade: &Trade,
+    fees: &[FeeActivity],
+) -> Result<(), Box<dyn Error>> {
+    if fees.is_empty() {
+        return Ok(());
+    }
+
+    let (allocated_open, allocated_close) = allocated_fee_totals_for_trade(trade, fees);
+    let (existing_open, existing_close) = existing_fee_totals_for_trade(database, trade.id)?;
+
+    if let Some(delta_open) = allocated_open.checked_sub(existing_open) {
+        if delta_open > Decimal::ZERO {
+            let _ = commands::transaction::transfer_opening_fee(delta_open, trade, database)?;
+        }
+    }
+    if let Some(delta_close) = allocated_close.checked_sub(existing_close) {
+        if delta_close > Decimal::ZERO {
+            let _ = commands::transaction::transfer_closing_fee(delta_close, trade, database)?;
+        }
+    }
+    Ok(())
+}
+
+fn existing_fee_totals_for_trade(
+    database: &mut dyn DatabaseFactory,
+    trade_id: uuid::Uuid,
+) -> Result<(Decimal, Decimal), Box<dyn Error>> {
+    let transactions = database
+        .transaction_read()
+        .all_trade_transactions(trade_id)?;
+    let mut open = Decimal::ZERO;
+    let mut close = Decimal::ZERO;
+
+    for transaction in transactions {
+        match transaction.category {
+            TransactionCategory::FeeOpen(_) => {
+                open = open.checked_add(transaction.amount).unwrap_or(open);
+            }
+            TransactionCategory::FeeClose(_) => {
+                close = close.checked_add(transaction.amount).unwrap_or(close);
+            }
+            _ => {}
+        }
+    }
+    Ok((open, close))
+}
+
+fn allocated_fee_totals_for_trade(trade: &Trade, fees: &[FeeActivity]) -> (Decimal, Decimal) {
+    let mut open = Decimal::ZERO;
+    let mut close = Decimal::ZERO;
+    let symbol = trade.trading_vehicle.symbol.as_str();
+    let entry_day = trade.entry.filled_at.map(|d| d.date());
+    let exit_day = match trade.status {
+        Status::ClosedTarget => trade.target.filled_at.map(|d| d.date()),
+        Status::ClosedStopLoss => trade.safety_stop.filled_at.map(|d| d.date()),
+        _ => None,
+    };
+
+    for fee in fees {
+        // Direct matching by broker order id has highest priority.
+        if let Some(fee_order_id) = fee.broker_order_id {
+            if trade.entry.broker_order_id == Some(fee_order_id) {
+                open = open.checked_add(fee.amount).unwrap_or(open);
+                continue;
+            }
+            if trade.target.broker_order_id == Some(fee_order_id)
+                || trade.safety_stop.broker_order_id == Some(fee_order_id)
+            {
+                close = close.checked_add(fee.amount).unwrap_or(close);
+                continue;
+            }
+        }
+
+        // Heuristic matching: symbol + day fallback.
+        if fee.symbol.as_deref() == Some(symbol) {
+            let fee_day = fee.occurred_at.date();
+            if Some(fee_day) == entry_day {
+                open = open.checked_add(fee.amount).unwrap_or(open);
+                continue;
+            }
+            if Some(fee_day) == exit_day {
+                close = close.checked_add(fee.amount).unwrap_or(close);
+            }
+        }
+    }
+
+    (open, close)
 }
 
 fn validate_sync_payload(
@@ -798,6 +1006,144 @@ fn is_terminal_order_status(status: OrderStatus) -> bool {
         status,
         OrderStatus::Filled | OrderStatus::Canceled | OrderStatus::Expired | OrderStatus::Rejected
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        allocated_fee_totals_for_trade, derive_trade_update_executions, is_integer_decimal,
+        must_reject_fractional_qty,
+    };
+    use model::{ExecutionSource, FeeActivity, Trade, TradeCategory, TradingVehicleCategory};
+    use rust_decimal_macros::dec;
+    use uuid::Uuid;
+
+    fn sample_fee(
+        amount: rust_decimal::Decimal,
+        symbol: Option<&str>,
+        day: chrono::NaiveDate,
+    ) -> FeeActivity {
+        FeeActivity {
+            broker: "alpaca".to_string(),
+            broker_activity_id: Uuid::new_v4().to_string(),
+            account_id: Uuid::new_v4(),
+            broker_order_id: None,
+            symbol: symbol.map(str::to_string),
+            activity_type: "FEE".to_string(),
+            amount,
+            occurred_at: day.and_hms_opt(12, 0, 0).unwrap(),
+            raw_json: None,
+        }
+    }
+
+    #[test]
+    fn test_integer_decimal_detection() {
+        assert!(is_integer_decimal(dec!(10)));
+        assert!(is_integer_decimal(dec!(10.000)));
+        assert!(!is_integer_decimal(dec!(10.25)));
+    }
+
+    #[test]
+    fn test_fractional_qty_policy_for_stock() {
+        let mut trade = Trade::default();
+        trade.trading_vehicle.category = TradingVehicleCategory::Stock;
+        trade.trading_vehicle.fractionable = Some(false);
+        assert!(must_reject_fractional_qty(&trade));
+
+        trade.trading_vehicle.fractionable = Some(true);
+        assert!(!must_reject_fractional_qty(&trade));
+
+        trade.trading_vehicle.category = TradingVehicleCategory::Crypto;
+        assert!(!must_reject_fractional_qty(&trade));
+    }
+
+    #[test]
+    fn test_allocate_fee_totals_by_symbol_and_day() {
+        let mut trade = Trade::default();
+        trade.trading_vehicle.symbol = "AAPL".to_string();
+        trade.entry.filled_at = Some(
+            chrono::NaiveDate::from_ymd_opt(2026, 2, 10)
+                .unwrap()
+                .and_hms_opt(12, 0, 0)
+                .unwrap(),
+        );
+        trade.target.filled_at = Some(
+            chrono::NaiveDate::from_ymd_opt(2026, 2, 11)
+                .unwrap()
+                .and_hms_opt(12, 0, 0)
+                .unwrap(),
+        );
+        trade.status = model::Status::ClosedTarget;
+
+        let entry_day = trade.entry.filled_at.unwrap().date();
+        let exit_day = trade.target.filled_at.unwrap().date();
+        let fees = vec![
+            sample_fee(dec!(1.25), Some("AAPL"), entry_day),
+            sample_fee(dec!(0.75), Some("AAPL"), exit_day),
+            sample_fee(dec!(9.99), Some("MSFT"), exit_day),
+        ];
+
+        let (open, close) = allocated_fee_totals_for_trade(&trade, &fees);
+        assert_eq!(open, dec!(1.25));
+        assert_eq!(close, dec!(0.75));
+    }
+
+    #[test]
+    #[allow(clippy::field_reassign_with_default)]
+    fn test_derive_trade_update_executions_normalizes_entry_and_exit() {
+        let mut previous = Trade {
+            category: TradeCategory::Long,
+            ..Trade::default()
+        };
+        previous.trading_vehicle.symbol = "AAPL".to_string();
+        previous.entry.broker_order_id = Some(Uuid::new_v4());
+        previous.entry.filled_quantity = 5;
+        previous.entry.average_filled_price = Some(dec!(100.50));
+
+        let mut resolved = super::ResolvedSyncOrders {
+            entry: previous.entry.clone(),
+            target: previous.target.clone(),
+            stop: previous.safety_stop.clone(),
+        };
+        resolved.entry.filled_quantity = 10;
+        resolved.entry.filled_at = Some(
+            chrono::NaiveDate::from_ymd_opt(2026, 2, 18)
+                .unwrap()
+                .and_hms_opt(10, 0, 0)
+                .unwrap(),
+        );
+        resolved.target.broker_order_id = Some(Uuid::new_v4());
+        resolved.target.filled_quantity = 10;
+        resolved.target.average_filled_price = Some(dec!(102.75));
+        resolved.target.filled_at = Some(
+            chrono::NaiveDate::from_ymd_opt(2026, 2, 18)
+                .unwrap()
+                .and_hms_opt(11, 0, 0)
+                .unwrap(),
+        );
+
+        let rows = derive_trade_update_executions(&previous, &resolved, Uuid::new_v4(), "AAPL");
+        assert_eq!(rows.len(), 2);
+        assert!(rows
+            .iter()
+            .all(|row| row.source == ExecutionSource::TradeUpdates));
+        assert!(rows.iter().all(|row| row.symbol == "AAPL"));
+        assert!(rows.iter().any(|row| row.qty == dec!(5)));
+        assert!(rows.iter().any(|row| row.qty == dec!(10)));
+    }
+
+    #[test]
+    #[allow(clippy::field_reassign_with_default)]
+    fn test_derive_trade_update_executions_skips_unfilled_orders() {
+        let trade = Trade::default();
+        let resolved = super::ResolvedSyncOrders {
+            entry: trade.entry.clone(),
+            target: trade.target.clone(),
+            stop: trade.safety_stop.clone(),
+        };
+        let rows = derive_trade_update_executions(&trade, &resolved, Uuid::new_v4(), "AAPL");
+        assert!(rows.is_empty());
+    }
 }
 
 pub fn close(
