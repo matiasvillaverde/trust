@@ -28,8 +28,8 @@ make ci                 # Full CI: fmt, clippy, build, tests, snapshots, perf
 ```bash
 # Specific crate/test
 cargo test -p core
-cargo test -p cli -- --test-threads=1
-cargo test -p cli --test integration_test_trade -- test_name
+cargo test -p trust-cli -- --test-threads=1
+cargo test -p trust-cli --test integration_test_trade -- test_name
 ```
 
 ```bash

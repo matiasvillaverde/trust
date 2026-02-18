@@ -21,7 +21,7 @@ dependencies = [
 
 [[package]]
 name = "alpaca-broker"
-version = "0.3.0"
+version = "0.3.2"
 dependencies = [
  "apca",
  "chrono",
@@ -266,7 +266,7 @@ dependencies = [
 
 [[package]]
 name = "broker-sync"
-version = "0.1.0"
+version = "0.3.2"
 dependencies = [
  "proptest",
  "rand 0.10.0",
@@ -413,27 +413,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a822ea5bc7590f9d40f1ba12c0dc3c2760f3482c6984db1573ad11031420831"
 
 [[package]]
-name = "cli"
-version = "0.3.0"
-dependencies = [
- "alpaca-broker",
- "broker-sync",
- "chrono",
- "clap",
- "core",
- "db-sqlite",
- "dialoguer",
- "keyring",
- "rust_decimal",
- "rust_decimal_macros",
- "serde_json",
- "shellexpand",
- "tabled",
- "trust-model",
- "uuid",
-]
-
-[[package]]
 name = "colorchoice"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -471,7 +450,7 @@ dependencies = [
 
 [[package]]
 name = "core"
-version = "0.3.0"
+version = "0.3.2"
 dependencies = [
  "argon2",
  "chrono",
@@ -2547,8 +2526,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "trust-cli"
+version = "0.3.2"
+dependencies = [
+ "alpaca-broker",
+ "broker-sync",
+ "chrono",
+ "clap",
+ "core",
+ "db-sqlite",
+ "dialoguer",
+ "keyring",
+ "rust_decimal",
+ "rust_decimal_macros",
+ "serde_json",
+ "shellexpand",
+ "tabled",
+ "trust-model",
+ "uuid",
+]
+
+[[package]]
 name = "trust-model"
-version = "0.3.0"
+version = "0.3.2"
 dependencies = [
  "chrono",
  "rust_decimal",

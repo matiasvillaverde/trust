@@ -11,12 +11,12 @@ use uuid::Uuid;
 const PROTECTED_KEYWORD: &str = "I_UNDERSTAND_RISK";
 
 fn cli_bin_path() -> String {
-    std::env::var("CARGO_BIN_EXE_cli").unwrap_or_else(|_| {
+    std::env::var("CARGO_BIN_EXE_trust").unwrap_or_else(|_| {
         let candidate = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("..")
             .join("target")
             .join("debug")
-            .join("cli");
+            .join("trust");
         candidate.to_string_lossy().to_string()
     })
 }

@@ -105,20 +105,25 @@ jobs:
 
       - name: Build
         run: |
-          cargo build --release --target ${{ matrix.target }} --bin cli
+          cargo build --release --target ${{ matrix.target }} --bin trust
 
       - name: Create archive
         run: |
           cd target/${{ matrix.target }}/release
-          tar czf ../../../v${{ needs.check-version.outputs.new_version }}-${{ matrix.archive_name }}.tar.gz cli
+          tar czf ../../../v${{ needs.check-version.outputs.new_version }}-${{ matrix.archive_name }}.tar.gz trust
           cd ../../../
+
+      - name: Generate checksum
+        run: |
+          shasum -a 256 v${{ needs.check-version.outputs.new_version }}-${{ matrix.archive_name }}.tar.gz > v${{ needs.check-version.outputs.new_version }}-${{ matrix.archive_name }}.tar.gz.sha256
 
       - name: Upload Release Asset
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release upload "v${{ needs.check-version.outputs.new_version }}" \
-            "./v${{ needs.check-version.outputs.new_version }}-${{ matrix.archive_name }}.tar.gz"
+            "./v${{ needs.check-version.outputs.new_version }}-${{ matrix.archive_name }}.tar.gz" \
+            "./v${{ needs.check-version.outputs.new_version }}-${{ matrix.archive_name }}.tar.gz.sha256"
 
   build-universal-macos:
     name: Build Universal macOS Binary
@@ -147,24 +152,29 @@ jobs:
 
       - name: Build for both architectures
         run: |
-          cargo build --release --target aarch64-apple-darwin --bin cli
-          cargo build --release --target x86_64-apple-darwin --bin cli
+          cargo build --release --target aarch64-apple-darwin --bin trust
+          cargo build --release --target x86_64-apple-darwin --bin trust
 
       - name: Create universal binary
         run: |
           lipo -create \
-            target/aarch64-apple-darwin/release/cli \
-            target/x86_64-apple-darwin/release/cli \
-            -output cli-universal
-          chmod +x cli-universal
+            target/aarch64-apple-darwin/release/trust \
+            target/x86_64-apple-darwin/release/trust \
+            -output trust
+          chmod +x trust
 
       - name: Create archive
         run: |
-          tar czf v${{ needs.check-version.outputs.new_version }}-universal-apple-darwin.tar.gz cli-universal
+          tar czf v${{ needs.check-version.outputs.new_version }}-universal-apple-darwin.tar.gz trust
+
+      - name: Generate checksum
+        run: |
+          shasum -a 256 v${{ needs.check-version.outputs.new_version }}-universal-apple-darwin.tar.gz > v${{ needs.check-version.outputs.new_version }}-universal-apple-darwin.tar.gz.sha256
 
       - name: Upload Release Asset
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release upload "v${{ needs.check-version.outputs.new_version }}" \
-            "./v${{ needs.check-version.outputs.new_version }}-universal-apple-darwin.tar.gz"
+            "./v${{ needs.check-version.outputs.new_version }}-universal-apple-darwin.tar.gz" \
+            "./v${{ needs.check-version.outputs.new_version }}-universal-apple-darwin.tar.gz.sha256"

@@ -24,8 +24,8 @@ make pre-push           # Full pre-push validation (quality gate + CI)
 # Individual crates
 cargo build -p trust-model
 cargo test -p core
-cargo test -p cli -- --test-threads=1    # CLI tests must be single-threaded
-cargo test -p cli --test integration_test_trade -- test_name  # Run specific test
+cargo test -p trust-cli -- --test-threads=1    # CLI tests must be single-threaded
+cargo test -p trust-cli --test integration_test_trade -- test_name  # Run specific test
 ```
 
 ```bash
