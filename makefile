@@ -2,7 +2,7 @@
 # Professional CI/CD and Development Commands
 
 # Configuration
-CLI_NAME = cli
+CLI_NAME = trust
 MIGRATIONS_DIRECTORY = ./db-sqlite/migrations
 DIESEL_CONFIG_FILE = ./db-sqlite/diesel.toml
 CLI_DATABASE_URL = ~/.trust/debug.db
@@ -189,12 +189,12 @@ ci-test: setup
 .PHONY: ci-snapshots
 ci-snapshots:
 	@echo "$(BLUE)Verifying CLI report JSON snapshots...$(NC)"
-	@$(CARGO) test -p cli --test integration_test_report_json_snapshots $(CARGO_FLAGS)
+	@$(CARGO) test -p trust-cli --test integration_test_report_json_snapshots $(CARGO_FLAGS)
 
 .PHONY: snapshots-update
 snapshots-update:
 	@echo "$(YELLOW)Updating CLI report JSON snapshots...$(NC)"
-	@UPDATE_SNAPSHOTS=1 $(CARGO) test -p cli --test integration_test_report_json_snapshots $(CARGO_FLAGS)
+	@UPDATE_SNAPSHOTS=1 $(CARGO) test -p trust-cli --test integration_test_report_json_snapshots $(CARGO_FLAGS)
 
 .PHONY: ci-perf
 ci-perf:
@@ -203,7 +203,7 @@ ci-perf:
 	TRUST_PERF_GATE_WARMUP_ITERATIONS=$${TRUST_PERF_GATE_WARMUP_ITERATIONS:-1} \
 	TRUST_PERF_GATE_MAX_CASE_200_MS=$${TRUST_PERF_GATE_MAX_CASE_200_MS:-26000} \
 	TRUST_PERF_GATE_MAX_CASE_211_MS=$${TRUST_PERF_GATE_MAX_CASE_211_MS:-6000} \
-	$(CARGO) test -p cli --test integration_test_use_cases $(CARGO_FLAGS) -- test_case_212_perf_gate_sync_lifecycle_regression_guard --ignored --nocapture
+	$(CARGO) test -p trust-cli --test integration_test_use_cases $(CARGO_FLAGS) -- test_case_212_perf_gate_sync_lifecycle_regression_guard --ignored --nocapture
 
 .PHONY: ci-build
 ci-build: setup
@@ -212,7 +212,7 @@ ci-build: setup
 	@$(CARGO) check $(CARGO_FLAGS) --no-default-features --workspace
 	@$(CARGO) build -p trust-model $(CARGO_FLAGS) --release
 	@$(CARGO) build -p core $(CARGO_FLAGS) --release
-	@$(CARGO) build -p cli $(CARGO_FLAGS) --release
+	@$(CARGO) build -p trust-cli $(CARGO_FLAGS) --release
 	@$(CARGO) build --all $(CARGO_FLAGS) --release
 
 # Git Workflow Commands
@@ -237,7 +237,7 @@ perf-gate:
 	TRUST_PERF_GATE_WARMUP_ITERATIONS=$${TRUST_PERF_GATE_WARMUP_ITERATIONS:-1} \
 	TRUST_PERF_GATE_MAX_CASE_200_MS=$${TRUST_PERF_GATE_MAX_CASE_200_MS:-26000} \
 	TRUST_PERF_GATE_MAX_CASE_211_MS=$${TRUST_PERF_GATE_MAX_CASE_211_MS:-6000} \
-	$(CARGO) test -p cli --test integration_test_use_cases $(CARGO_FLAGS) -- test_case_212_perf_gate_sync_lifecycle_regression_guard --ignored --nocapture
+	$(CARGO) test -p trust-cli --test integration_test_use_cases $(CARGO_FLAGS) -- test_case_212_perf_gate_sync_lifecycle_regression_guard --ignored --nocapture
 
 .PHONY: install-tools
 install-tools:
@@ -268,11 +268,11 @@ release-local:
 	@echo "$(YELLOW)Installing required targets...$(NC)"
 	@rustup target add aarch64-apple-darwin x86_64-apple-darwin x86_64-unknown-linux-gnu || true
 	@echo "$(BLUE)Building for aarch64-apple-darwin...$(NC)"
-	@$(CARGO) build --release --target aarch64-apple-darwin --bin cli
+	@$(CARGO) build --release --target aarch64-apple-darwin --bin trust
 	@echo "$(BLUE)Building for x86_64-apple-darwin...$(NC)"
-	@$(CARGO) build --release --target x86_64-apple-darwin --bin cli
+	@$(CARGO) build --release --target x86_64-apple-darwin --bin trust
 	@echo "$(BLUE)Building for x86_64-unknown-linux-gnu...$(NC)"
-	@$(CARGO) build --release --target x86_64-unknown-linux-gnu --bin cli || echo "$(YELLOW)Warning: Linux target may not be available on this platform$(NC)"
+	@$(CARGO) build --release --target x86_64-unknown-linux-gnu --bin trust || echo "$(YELLOW)Warning: Linux target may not be available on this platform$(NC)"
 	@echo "$(GREEN)✓ All available targets built successfully!$(NC)"
 
 .PHONY: check-version

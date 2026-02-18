@@ -136,11 +136,34 @@ Make sure you have Rust installed.
 
 ## Installation
 
-Clone this repository:
+### Homebrew (macOS)
 
-``` bash
+```bash
+brew install matiasvillaverde/tap/trust
+```
+
+### Shell script (macOS / Linux)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/matiasvillaverde/trust/main/install.sh | sh
+```
+
+### From source
+
+```bash
+cargo install --git https://github.com/matiasvillaverde/trust.git --bin trust
+```
+
+### GitHub Releases
+
+Download pre-built binaries from the [Releases page](https://github.com/matiasvillaverde/trust/releases).
+
+### From repository
+
+```bash
 git clone https://github.com/matiasvillaverde/trust.git
 cd trust
+make build
 ```
 
 ## Quick Start
@@ -187,65 +210,65 @@ Here's a typical workflow for setting up and executing a trade with Trust:
 
 ```bash
 # 1. Initial Setup
-cargo run --bin cli -- account create          # Create a trading account
-cargo run --bin cli -- rule create              # Set risk parameters (e.g., 2% per trade, 6% per month)
-cargo run --bin cli -- transaction deposit      # Fund your account
+cargo run --bin trust -- account create          # Create a trading account
+cargo run --bin trust -- rule create              # Set risk parameters (e.g., 2% per trade, 6% per month)
+cargo run --bin trust -- transaction deposit      # Fund your account
 
 # 2. Configure Trading
-cargo run --bin cli -- trading-vehicle create   # Add symbols you want to trade (e.g., AAPL, SPY)
-cargo run --bin cli -- key create               # Add Alpaca API credentials
+cargo run --bin trust -- trading-vehicle create   # Add symbols you want to trade (e.g., AAPL, SPY)
+cargo run --bin trust -- key create               # Add Alpaca API credentials
 
 # 3. Trade Execution
-cargo run --bin cli -- trade create             # Design a trade with entry, stop, and target
-cargo run --bin cli -- trade fund               # Validate risk and reserve capital
-cargo run --bin cli -- trade submit             # Send orders to broker
+cargo run --bin trust -- trade create             # Design a trade with entry, stop, and target
+cargo run --bin trust -- trade fund               # Validate risk and reserve capital
+cargo run --bin trust -- trade submit             # Send orders to broker
 
 # 4. Trade Management
-cargo run --bin cli -- trade sync               # Update trade status from broker
-cargo run --bin cli -- trade modify-stop        # Adjust stop loss
-cargo run --bin cli -- trade modify-target      # Adjust profit target
-cargo run --bin cli -- trade close              # Exit the position
+cargo run --bin trust -- trade sync               # Update trade status from broker
+cargo run --bin trust -- trade modify-stop        # Adjust stop loss
+cargo run --bin trust -- trade modify-target      # Adjust profit target
+cargo run --bin trust -- trade close              # Exit the position
 ```
 
 ### Command Reference
 
 ```bash
 # Account Management
-cargo run --bin cli -- account create           # Create new account
-cargo run --bin cli -- account list             # List all accounts
-cargo run --bin cli -- account show             # View account details
+cargo run --bin trust -- account create           # Create new account
+cargo run --bin trust -- account list             # List all accounts
+cargo run --bin trust -- account show             # View account details
 
 # Risk Rules
-cargo run --bin cli -- rule create              # Define risk parameters
-cargo run --bin cli -- rule list                # View active rules
+cargo run --bin trust -- rule create              # Define risk parameters
+cargo run --bin trust -- rule list                # View active rules
 
 # Capital Management
-cargo run --bin cli -- transaction deposit      # Add funds
-cargo run --bin cli -- transaction withdraw     # Remove funds
-cargo run --bin cli -- transaction list         # Transaction history
+cargo run --bin trust -- transaction deposit      # Add funds
+cargo run --bin trust -- transaction withdraw     # Remove funds
+cargo run --bin trust -- transaction list         # Transaction history
 
 # Trade Operations
-cargo run --bin cli -- trade create             # Create new trade
-cargo run --bin cli -- trade fund               # Allocate capital (validates risk)
-cargo run --bin cli -- trade submit             # Send to broker
-cargo run --bin cli -- trade sync               # Update from broker
-cargo run --bin cli -- trade cancel             # Cancel pending orders
-cargo run --bin cli -- trade close              # Close position
-cargo run --bin cli -- trade list               # View all trades
+cargo run --bin trust -- trade create             # Create new trade
+cargo run --bin trust -- trade fund               # Allocate capital (validates risk)
+cargo run --bin trust -- trade submit             # Send to broker
+cargo run --bin trust -- trade sync               # Update from broker
+cargo run --bin trust -- trade cancel             # Cancel pending orders
+cargo run --bin trust -- trade close              # Close position
+cargo run --bin trust -- trade list               # View all trades
 
 # Help & Information
-cargo run --bin cli -- help                     # General help
-cargo run --bin cli -- [command] help           # Command-specific help
+cargo run --bin trust -- help                     # General help
+cargo run --bin trust -- [command] help           # Command-specific help
 ```
 
 ### Example: Creating a Risk-Managed Trade
 
 ```bash
 # Set up 2% max risk per trade, 6% max risk per month
-cargo run --bin cli -- rule create --risk-per-trade 2.0 --risk-per-month 6.0
+cargo run --bin trust -- rule create --risk-per-trade 2.0 --risk-per-month 6.0
 
 # Create a trade: Buy 100 shares of AAPL at $150, stop at $145, target at $160
-cargo run --bin cli -- trade create \
+cargo run --bin trust -- trade create \
   --symbol AAPL \
   --quantity 100 \
   --entry 150.00 \
@@ -253,10 +276,10 @@ cargo run --bin cli -- trade create \
   --target 160.00
 
 # Fund the trade (Trust will validate: risk = (150-145) × 100 = $500)
-cargo run --bin cli -- trade fund --trade-id 1
+cargo run --bin trust -- trade fund --trade-id 1
 
 # If validation passes, submit to broker
-cargo run --bin cli -- trade submit --trade-id 1
+cargo run --bin trust -- trade submit --trade-id 1
 ```
 
 ## Extending Trust

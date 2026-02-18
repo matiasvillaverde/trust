@@ -1,17 +1,26 @@
 [package]
-name = "cli"
-version = "0.3.0"
+name = "trust-cli"
+description = "Risk-managed algorithmic trading CLI"
+version = { workspace = true }
 edition = "2021"
-license = "GPL-3.0-only"
+license = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+readme = "../README.md"
+rust-version = { workspace = true }
+keywords = ["trading", "risk-management", "algorithmic-trading", "finance", "cli"]
+categories = ["command-line-utilities", "finance"]
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[[bin]]
+name = "trust"
+path = "src/main.rs"
 
 [dependencies]
-model = { package = "trust-model", path = "../model", version = "0.3.0" }
-core = { path = "../core", version = "0.3.0" }
-alpaca-broker = { path = "../alpaca-broker", version = "0.3.0" }
-db-sqlite = { path = "../db-sqlite", version = "0.3.0" }
-broker-sync = { path = "../broker-sync", version = "0.1.0" }
+model = { package = "trust-model", path = "../model", version = "0.3.2" }
+core = { path = "../core", version = "0.3.2" }
+alpaca-broker = { path = "../alpaca-broker", version = "0.3.2" }
+db-sqlite = { path = "../db-sqlite", version = "0.3.2" }
+broker-sync = { path = "../broker-sync", version = "0.3.2" }
 
 clap = {workspace = true}
 dialoguer = {workspace = true}

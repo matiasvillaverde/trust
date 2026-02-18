@@ -174,7 +174,7 @@ jobs:
       uses: dtolnay/rust-toolchain@1.93.0
 
     - name: Verify report JSON snapshots (no updates)
-      run: cargo test --locked -p cli --test integration_test_report_json_snapshots
+      run: cargo test --locked -p trust-cli --test integration_test_report_json_snapshots
 
   # Explicit regression coverage for the CLI integration use-cases suite.
   # This guarantees the large bug-hunt tests run in every PR CI cycle.
@@ -207,7 +207,7 @@ jobs:
           ${{ runner.os }}-cargo-
 
     - name: Run CLI integration use-case suite
-      run: cargo test --locked -p cli --test integration_test_use_cases
+      run: cargo test --locked -p trust-cli --test integration_test_use_cases
 
   # Release build verification
   release-build:
