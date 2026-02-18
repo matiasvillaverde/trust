@@ -304,6 +304,72 @@ fn test_trade_target_filled_multiple_times() {
     assert_target_filled(&trade, &mut trust);
 }
 
+#[test]
+fn test_sync_close_auto_grades_once_idempotently() {
+    let (trust, account, trade) = create_trade(BrokerResponse::orders_target_filled, None);
+    let mut trust = trust;
+
+    for _ in 0..5 {
+        trust
+            .sync_trade(&trade, &account)
+            .expect("sync should succeed");
+    }
+
+    let closed = trust
+        .search_trades(account.id, Status::ClosedTarget)
+        .expect("closed trade query should succeed");
+    assert_eq!(closed.len(), 1);
+
+    let latest = trust
+        .latest_trade_grade(trade.id)
+        .expect("grade query should succeed");
+    assert!(latest.is_some(), "auto-grade should exist on close");
+
+    let grades = trust
+        .trade_grades_for_account_days(account.id, 30)
+        .expect("account grades query should succeed");
+    assert_eq!(
+        grades.len(),
+        1,
+        "repeated close sync must not duplicate grade"
+    );
+}
+
+#[test]
+fn test_explicit_regrade_adds_new_grade_snapshot() {
+    let (trust, account, trade) = create_trade(BrokerResponse::orders_target_filled, None);
+    let mut trust = trust;
+    trust
+        .sync_trade(&trade, &account)
+        .expect("sync should succeed");
+
+    let before = trust
+        .trade_grades_for_account_days(account.id, 30)
+        .expect("account grades query should succeed");
+    assert_eq!(before.len(), 1, "auto-grade should have one snapshot");
+
+    let _ = trust
+        .grade_trade(
+            trade.id,
+            core::services::grading::GradingWeightsPermille {
+                process: 350,
+                risk: 300,
+                execution: 250,
+                documentation: 100,
+            },
+        )
+        .expect("explicit regrade should succeed");
+
+    let after = trust
+        .trade_grades_for_account_days(account.id, 30)
+        .expect("account grades query should succeed");
+    assert_eq!(
+        after.len(),
+        2,
+        "explicit regrade should persist a new snapshot"
+    );
+}
+
 fn assert_target_filled(trade: &Trade, trust: &mut TrustFacade) {
     assert_eq!(trade.status, Status::ClosedTarget);
 

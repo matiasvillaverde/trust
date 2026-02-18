@@ -90,6 +90,31 @@ impl MetricsCommandBuilder {
                         .value_name("ACCOUNT_ID")
                         .help("Filter by specific account ID")
                         .required(false),
+                )
+                .arg(
+                    Arg::new("format")
+                        .long("format")
+                        .value_name("FORMAT")
+                        .help("Output format")
+                        .value_parser(["text", "json"])
+                        .default_value("text")
+                        .required(false),
+                )
+                .arg(
+                    Arg::new("export")
+                        .long("export")
+                        .value_name("FORMAT")
+                        .help("Export comparison to file (json, csv)")
+                        .value_parser(["json", "csv"])
+                        .required(false),
+                )
+                .arg(
+                    Arg::new("output")
+                        .short('o')
+                        .long("output")
+                        .value_name("FILE")
+                        .help("Output file path for export (default: metrics-compare.{format})")
+                        .required(false),
                 ),
         );
         self

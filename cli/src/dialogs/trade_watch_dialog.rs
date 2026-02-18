@@ -11,6 +11,7 @@
 
 use crate::dialogs::AccountSearchDialog;
 use crate::views::{ExecutionView, OrderView};
+use broker_sync::{BrokerCommand, BrokerEvent, BrokerSync};
 use core::TrustFacade;
 use dialoguer::{theme::ColorfulTheme, FuzzySelect};
 use model::{Account, Execution, Status, Trade};
@@ -47,13 +48,7 @@ impl TradeWatchDialogBuilder {
 
     pub fn search(mut self, trust: &mut TrustFacade) -> Self {
         let account = self.account.clone().unwrap();
-        let mut trades = trust.search_trades(account.id, Status::Submitted).unwrap();
-        trades.append(&mut trust.search_trades(account.id, Status::Filled).unwrap());
-        trades.append(
-            &mut trust
-                .search_trades(account.id, Status::PartiallyFilled)
-                .unwrap(),
-        );
+        let trades = open_trades_for_account(trust, account.id);
 
         if trades.is_empty() {
             panic!("No trade found with status Submitted / PartiallyFilled / Filled");
@@ -69,6 +64,17 @@ impl TradeWatchDialogBuilder {
             .unwrap();
 
         self.trade = Some(trade.to_owned());
+        self
+    }
+
+    pub fn latest(mut self, trust: &mut TrustFacade) -> Self {
+        let account = self.account.clone().unwrap();
+        let mut trades = open_trades_for_account(trust, account.id);
+        trades.sort_by_key(|trade| trade.updated_at);
+        let trade = trades.pop().unwrap_or_else(|| {
+            panic!("No trade found with status Submitted / PartiallyFilled / Filled")
+        });
+        self.trade = Some(trade);
         self
     }
 
@@ -107,13 +113,24 @@ fn watch_loop(
     trade: &Trade,
     account: &Account,
 ) -> Result<(), Box<dyn Error>> {
+    let session_actor = BrokerSync::spawn();
+    session_actor.send(BrokerCommand::StartTradeSession {
+        account_id: account.id,
+        trade_id: trade.id,
+    })?;
+    let _ = session_actor.recv_timeout(Duration::from_millis(200));
+
     let mut seen_execution_ids: HashSet<String> = HashSet::new();
     let mut last_status: Option<Status> = None;
 
     println!("Watching trade {} (Ctrl-C to stop)", trade.id);
+    let mut current_trade = trade.clone();
 
     loop {
-        let (status, orders, _log) = trust.sync_trade(trade, account)?;
+        let (status, orders, _log) = trust.sync_trade(&current_trade, account)?;
+        let _ = session_actor.send(BrokerCommand::TouchTradeSession { trade_id: trade.id });
+        current_trade = refresh_trade_snapshot(trust, account.id, trade.id, status)
+            .unwrap_or_else(|| current_trade.clone());
 
         if last_status != Some(status) {
             println!();
@@ -127,7 +144,7 @@ fn watch_loop(
             OrderView::display_orders(orders);
         }
 
-        let executions: Vec<Execution> = trust.executions_for_trade(trade.id)?;
+        let executions: Vec<Execution> = trust.executions_for_trade(current_trade.id)?;
         let new_execs: Vec<Execution> = executions
             .into_iter()
             .filter(|e| seen_execution_ids.insert(e.broker_execution_id.clone()))
@@ -141,6 +158,13 @@ fn watch_loop(
         if terminal_status(status) {
             println!();
             println!("Trade reached terminal status: {status:?}");
+            let _ = session_actor.send(BrokerCommand::StopTradeSession { trade_id: trade.id });
+            if let Ok(BrokerEvent::TradeSessionStopped { .. }) =
+                session_actor.recv_timeout(Duration::from_millis(200))
+            {
+                println!("Managed session stopped.");
+            }
+            let _ = session_actor.send(BrokerCommand::Shutdown);
             break;
         }
 
@@ -148,4 +172,28 @@ fn watch_loop(
     }
 
     Ok(())
+}
+
+fn open_trades_for_account(trust: &mut TrustFacade, account_id: uuid::Uuid) -> Vec<Trade> {
+    let mut trades = trust.search_trades(account_id, Status::Submitted).unwrap();
+    trades.append(&mut trust.search_trades(account_id, Status::Filled).unwrap());
+    trades.append(
+        &mut trust
+            .search_trades(account_id, Status::PartiallyFilled)
+            .unwrap(),
+    );
+    trades
+}
+
+fn refresh_trade_snapshot(
+    trust: &mut TrustFacade,
+    account_id: uuid::Uuid,
+    trade_id: uuid::Uuid,
+    status: Status,
+) -> Option<Trade> {
+    trust
+        .search_trades(account_id, status)
+        .ok()?
+        .into_iter()
+        .find(|trade| trade.id == trade_id)
 }

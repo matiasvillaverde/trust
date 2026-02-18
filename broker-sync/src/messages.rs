@@ -18,6 +18,14 @@ pub enum BrokerCommand {
         account_id: Option<Uuid>,
         force: bool,
     },
+    /// Start a managed live-trade session.
+    StartTradeSession { account_id: Uuid, trade_id: Uuid },
+    /// Stop a managed live-trade session.
+    StopTradeSession { trade_id: Uuid },
+    /// Touch a session's activity timestamp.
+    TouchTradeSession { trade_id: Uuid },
+    /// Retrieve active managed sessions.
+    ListTradeSessions,
     /// Get current status
     GetStatus,
     /// Shutdown the actor
@@ -54,6 +62,12 @@ pub enum BrokerEvent {
     },
     /// Status response (for testing compatibility)
     GetStatus,
+    /// A managed trade session started.
+    TradeSessionStarted { account_id: Uuid, trade_id: Uuid },
+    /// A managed trade session stopped.
+    TradeSessionStopped { trade_id: Uuid, reason: String },
+    /// Snapshot of active sessions.
+    TradeSessionSnapshot { sessions: Vec<TradeSessionStatus> },
 }
 
 /// Order update details
@@ -76,6 +90,17 @@ pub struct ReconciliationStatus {
     pub errors: Vec<String>,
     #[serde(with = "serde_duration")]
     pub duration: Duration,
+}
+
+/// Managed live-trade session snapshot.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TradeSessionStatus {
+    pub account_id: Uuid,
+    pub trade_id: Uuid,
+    /// Milliseconds since UNIX epoch when the session started.
+    pub started_at_ms: i64,
+    /// Milliseconds since UNIX epoch of last activity.
+    pub last_activity_at_ms: i64,
 }
 
 impl BrokerEvent {

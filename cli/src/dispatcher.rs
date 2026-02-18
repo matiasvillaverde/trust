@@ -19,18 +19,20 @@ use crate::dialogs::{
 use crate::dialogs::{RuleDialogBuilder, RuleRemoveDialogBuilder};
 use crate::protected_keyword;
 use alpaca_broker::AlpacaBroker;
+use chrono::{DateTime, Days, NaiveDate, Utc};
 use clap::ArgMatches;
 use core::services::leveling::{
     LevelCriterionProgress, LevelEvaluationOutcome, LevelPathProgress, LevelPerformanceSnapshot,
     LevelProgressReport,
 };
+use core::services::{AdvisoryThresholds, TradeProposal};
 use core::TrustFacade;
 use db_sqlite::SqliteDatabase;
 use db_sqlite::{ImportMode, ImportOptions};
 use dialoguer::Password;
 use model::{
-    database::TradingVehicleUpsert, Currency, Level, LevelAdjustmentRules, LevelTrigger, Trade,
-    TradingVehicleCategory, TransactionCategory,
+    database::TradingVehicleUpsert, AccountType, Currency, Environment, Level,
+    LevelAdjustmentRules, LevelTrigger, Trade, TradingVehicleCategory, TransactionCategory,
 };
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
@@ -145,6 +147,8 @@ impl ArgDispatcher {
                 match sub_matches.subcommand() {
                     Some(("create", sub_sub_matches)) => self.create_account(sub_sub_matches)?,
                     Some(("search", _)) => self.search_account(),
+                    Some(("list", sub_sub_matches)) => self.list_accounts(sub_sub_matches)?,
+                    Some(("balance", sub_sub_matches)) => self.accounts_balance(sub_sub_matches)?,
                     Some(("transfer", transfer_matches)) => {
                         self.transfer_accounts(transfer_matches)?
                     }
@@ -182,7 +186,7 @@ impl ArgDispatcher {
                 Some(("manually-target", _)) => self.create_target(),
                 Some(("manually-close", close_matches)) => self.close(close_matches),
                 Some(("sync", _)) => self.create_sync(),
-                Some(("watch", _)) => self.create_watch(),
+                Some(("watch", sub_sub_matches)) => self.create_watch(sub_sub_matches),
                 Some(("search", _)) => self.search_trade(),
                 Some(("modify-stop", _)) => self.modify_stop(),
                 Some(("modify-target", _)) => self.modify_target(),
@@ -198,6 +202,13 @@ impl ArgDispatcher {
                 }
                 Some(("execute", execute_matches)) => self.execute_distribution(execute_matches)?,
                 Some(("history", history_matches)) => self.distribution_history(history_matches)?,
+                Some(("rules", rules_matches)) => {
+                    if let Some(("show", nested)) = rules_matches.subcommand() {
+                        self.distribution_rules(nested)?
+                    } else {
+                        self.distribution_rules(rules_matches)?
+                    }
+                }
                 _ => unreachable!("No subcommand provided"),
             },
             Some(("report", sub_matches)) => match sub_matches.subcommand() {
@@ -274,6 +285,13 @@ impl ArgDispatcher {
             Some(("metrics", sub_matches)) => match sub_matches.subcommand() {
                 Some(("advanced", sub_sub_matches)) => self.metrics_advanced(sub_sub_matches),
                 Some(("compare", sub_sub_matches)) => self.metrics_compare(sub_sub_matches),
+                _ => unreachable!("No subcommand provided"),
+            },
+            Some(("advisor", sub_matches)) => match sub_matches.subcommand() {
+                Some(("configure", sub_sub_matches)) => self.advisor_configure(sub_sub_matches)?,
+                Some(("check", sub_sub_matches)) => self.advisor_check(sub_sub_matches)?,
+                Some(("status", sub_sub_matches)) => self.advisor_status(sub_sub_matches)?,
+                Some(("history", sub_sub_matches)) => self.advisor_history(sub_sub_matches)?,
                 _ => unreachable!("No subcommand provided"),
             },
             Some((ext, sub_matches)) => {
@@ -677,16 +695,89 @@ impl ArgDispatcher {
 
 // Account
 impl ArgDispatcher {
+    #[allow(clippy::too_many_lines)]
     fn create_account(&mut self, sub_matches: &ArgMatches) -> Result<(), CliError> {
         self.ensure_protected_keyword(sub_matches, ReportOutputFormat::Text, "account creation")?;
-        AccountDialogBuilder::new()
-            .name()
-            .description()
-            .environment()
-            .tax_percentage()
-            .earnings_percentage()
-            .build(&mut self.trust)
-            .display();
+        let name = sub_matches.get_one::<String>("name").cloned();
+        let description = sub_matches.get_one::<String>("description").cloned();
+        let environment = sub_matches.get_one::<String>("environment").cloned();
+        let taxes = sub_matches.get_one::<String>("taxes").cloned();
+        let earnings = sub_matches.get_one::<String>("earnings").cloned();
+        let account_type = sub_matches.get_one::<String>("type").cloned();
+        let parent = sub_matches.get_one::<String>("parent").cloned();
+
+        if name.is_some()
+            || description.is_some()
+            || environment.is_some()
+            || taxes.is_some()
+            || earnings.is_some()
+            || account_type.is_some()
+            || parent.is_some()
+        {
+            let name = name.ok_or_else(|| CliError::new("missing_name", "Missing --name"))?;
+            let description = description
+                .ok_or_else(|| CliError::new("missing_description", "Missing --description"))?;
+            let environment = environment
+                .ok_or_else(|| CliError::new("missing_environment", "Missing --environment"))?;
+            let taxes = taxes.ok_or_else(|| CliError::new("missing_taxes", "Missing --taxes"))?;
+            let earnings =
+                earnings.ok_or_else(|| CliError::new("missing_earnings", "Missing --earnings"))?;
+
+            let environment = Self::parse_environment(&environment)?;
+            let taxes_percentage = Decimal::from_str_exact(&taxes)
+                .map_err(|_| CliError::new("invalid_decimal", "Invalid --taxes decimal"))?
+                .checked_div(Decimal::new(100, 0))
+                .ok_or_else(|| CliError::new("invalid_decimal", "Invalid --taxes percentage"))?;
+            let earnings_percentage = Decimal::from_str_exact(&earnings)
+                .map_err(|_| CliError::new("invalid_decimal", "Invalid --earnings decimal"))?
+                .checked_div(Decimal::new(100, 0))
+                .ok_or_else(|| CliError::new("invalid_decimal", "Invalid --earnings percentage"))?;
+
+            let account_type = match account_type {
+                Some(v) => Self::parse_account_type(&v)?,
+                None => AccountType::Primary,
+            };
+            let parent_account_id = match parent {
+                Some(v) => Some(
+                    Uuid::parse_str(&v)
+                        .map_err(|_| CliError::new("invalid_uuid", "Invalid --parent UUID"))?,
+                ),
+                None => None,
+            };
+
+            let account = self
+                .trust
+                .create_account_with_hierarchy(
+                    &name,
+                    &description,
+                    environment,
+                    taxes_percentage,
+                    earnings_percentage,
+                    account_type,
+                    parent_account_id,
+                )
+                .map_err(|e| CliError::new("create_account_failed", e.to_string()))?;
+            println!("Account created:");
+            println!("  id: {}", account.id);
+            println!("  name: {}", account.name);
+            println!("  type: {}", account.account_type);
+            println!(
+                "  parent: {}",
+                account
+                    .parent_account_id
+                    .map(|id| id.to_string())
+                    .unwrap_or_else(|| "none".to_string())
+            );
+        } else {
+            AccountDialogBuilder::new()
+                .name()
+                .description()
+                .environment()
+                .tax_percentage()
+                .earnings_percentage()
+                .build(&mut self.trust)
+                .display();
+        }
         Ok(())
     }
 
@@ -694,6 +785,114 @@ impl ArgDispatcher {
         AccountSearchDialog::new()
             .search(&mut self.trust)
             .display(&mut self.trust);
+    }
+
+    fn list_accounts(&mut self, matches: &ArgMatches) -> Result<(), CliError> {
+        let hierarchy = matches.get_flag("hierarchy");
+        let accounts = self
+            .trust
+            .search_all_accounts()
+            .map_err(|e| CliError::new("accounts_list_failed", e.to_string()))?;
+
+        if accounts.is_empty() {
+            println!("No accounts found.");
+            return Ok(());
+        }
+
+        if !hierarchy {
+            for account in accounts {
+                println!("{} {} {}", account.id, account.name, account.account_type);
+            }
+            return Ok(());
+        }
+
+        let mut roots: Vec<_> = accounts
+            .iter()
+            .filter(|a| a.parent_account_id.is_none())
+            .cloned()
+            .collect();
+        roots.sort_by(|a, b| a.name.cmp(&b.name));
+
+        for root in roots {
+            println!("{} ({}) [{}]", root.name, root.id, root.account_type);
+            let mut children: Vec<_> = accounts
+                .iter()
+                .filter(|a| a.parent_account_id == Some(root.id))
+                .cloned()
+                .collect();
+            children.sort_by(|a, b| a.name.cmp(&b.name));
+            for child in children {
+                println!("  - {} ({}) [{}]", child.name, child.id, child.account_type);
+            }
+        }
+        Ok(())
+    }
+
+    fn accounts_balance(&mut self, matches: &ArgMatches) -> Result<(), CliError> {
+        let detailed = matches.get_flag("detailed");
+        let accounts = self
+            .trust
+            .search_all_accounts()
+            .map_err(|e| CliError::new("accounts_balance_failed", e.to_string()))?;
+        if accounts.is_empty() {
+            println!("No accounts found.");
+            return Ok(());
+        }
+
+        for account in accounts {
+            let balances = self
+                .trust
+                .search_all_balances(account.id)
+                .map_err(|e| CliError::new("accounts_balance_failed", e.to_string()))?;
+
+            if detailed {
+                println!(
+                    "{} ({}) [{}]",
+                    account.name, account.id, account.account_type
+                );
+                for b in balances {
+                    println!(
+                        "  {} total={} available={} in_trade={} taxed={} earnings={}",
+                        b.currency,
+                        b.total_balance,
+                        b.total_available,
+                        b.total_in_trade,
+                        b.taxed,
+                        b.total_earnings
+                    );
+                }
+            } else {
+                let total = balances.into_iter().fold(Decimal::ZERO, |acc, b| {
+                    acc.checked_add(b.total_balance).unwrap_or(acc)
+                });
+                println!("{} ({}) total={}", account.name, account.id, total);
+            }
+        }
+        Ok(())
+    }
+
+    fn parse_environment(raw: &str) -> Result<Environment, CliError> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "paper" | "sandbox" => Ok(Environment::Paper),
+            "live" | "production" => Ok(Environment::Live),
+            _ => Err(CliError::new(
+                "invalid_environment",
+                "Invalid --environment value (expected paper|live)",
+            )),
+        }
+    }
+
+    fn parse_account_type(raw: &str) -> Result<AccountType, CliError> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "primary" => Ok(AccountType::Primary),
+            "earnings" => Ok(AccountType::Earnings),
+            "tax-reserve" | "tax_reserve" => Ok(AccountType::TaxReserve),
+            "reinvestment" => Ok(AccountType::Reinvestment),
+            _ => Err(CliError::new(
+                "invalid_account_type",
+                "Invalid --type value (expected primary|earnings|tax-reserve|reinvestment)",
+            )),
+        }
     }
 }
 
@@ -1580,12 +1779,14 @@ impl ArgDispatcher {
             .display();
     }
 
-    fn create_watch(&mut self) {
-        TradeWatchDialogBuilder::new()
-            .account(&mut self.trust)
-            .search(&mut self.trust)
-            .build(&mut self.trust)
-            .display();
+    fn create_watch(&mut self, sub_matches: &ArgMatches) {
+        let mut builder = TradeWatchDialogBuilder::new().account(&mut self.trust);
+        if sub_matches.get_flag("latest") {
+            builder = builder.latest(&mut self.trust);
+        } else {
+            builder = builder.search(&mut self.trust);
+        }
+        builder.build(&mut self.trust).display();
     }
 
     fn search_trade(&mut self) {
@@ -3583,22 +3784,394 @@ impl ArgDispatcher {
         Ok(())
     }
 
+    #[allow(clippy::too_many_lines, clippy::indexing_slicing)]
     fn metrics_compare(&mut self, sub_matches: &ArgMatches) {
-        // For now, provide a placeholder implementation
-        let _period1 = sub_matches.get_one::<String>("period1");
-        let _period2 = sub_matches.get_one::<String>("period2");
-        let _account_id = sub_matches.get_one::<String>("account");
+        use crate::exporters::MetricsExporter;
+        use core::calculators_advanced_metrics::AdvancedMetricsCalculator;
+        use serde_json::json;
+        use std::fs::File;
+        use std::io::Write;
+
+        let period1 = sub_matches.get_one::<String>("period1").unwrap();
+        let period2 = sub_matches.get_one::<String>("period2").unwrap();
+        let output_format = sub_matches
+            .get_one::<String>("format")
+            .map(String::as_str)
+            .unwrap_or("text");
+
+        let account_id = match sub_matches.get_one::<String>("account") {
+            Some(id) => match Uuid::parse_str(id) {
+                Ok(v) => Some(v),
+                Err(_) => {
+                    eprintln!("Error: Invalid account ID format");
+                    return;
+                }
+            },
+            None => None,
+        };
+
+        let now = Utc::now();
+        let window1 = match Self::parse_period_window(period1, now) {
+            Ok(v) => v,
+            Err(err) => {
+                eprintln!("Error: {err}");
+                return;
+            }
+        };
+        let window2 = match Self::parse_period_window(period2, now) {
+            Ok(v) => v,
+            Err(err) => {
+                eprintln!("Error: {err}");
+                return;
+            }
+        };
+
+        let all_trades = match self.trust.search_closed_trades(account_id) {
+            Ok(v) => v,
+            Err(err) => {
+                eprintln!("Error loading trades: {err}");
+                return;
+            }
+        };
+
+        let p1: Vec<Trade> = all_trades
+            .iter()
+            .filter(|t| Self::trade_in_window(t, window1.0, window1.1))
+            .cloned()
+            .collect();
+        let p2: Vec<Trade> = all_trades
+            .iter()
+            .filter(|t| Self::trade_in_window(t, window2.0, window2.1))
+            .cloned()
+            .collect();
+
+        let make_metrics = |trades: &[Trade]| {
+            let total_return = AdvancedMetricsCalculator::calculate_net_profit(trades);
+            let sharpe = AdvancedMetricsCalculator::calculate_sharpe_ratio(trades, dec!(0.05));
+            let profit_factor = AdvancedMetricsCalculator::calculate_profit_factor(trades);
+            let win_rate = AdvancedMetricsCalculator::calculate_win_rate(trades);
+            let expectancy = AdvancedMetricsCalculator::calculate_expectancy(trades);
+            let max_dd = Self::max_drawdown_amount(trades);
+            json!({
+                "trade_count": trades.len(),
+                "total_return": Self::decimal_string(total_return),
+                "sharpe_ratio": sharpe.map(Self::decimal_string),
+                "profit_factor": profit_factor.map(Self::decimal_string),
+                "win_rate": Self::decimal_string(win_rate),
+                "expectancy": Self::decimal_string(expectancy),
+                "max_drawdown": Self::decimal_string(max_dd),
+            })
+        };
+
+        let p1m = make_metrics(&p1);
+        let p2m = make_metrics(&p2);
+
+        let to_decimal = |value: &Value| -> Decimal {
+            value
+                .as_str()
+                .and_then(|s| Decimal::from_str_exact(s).ok())
+                .unwrap_or(Decimal::ZERO)
+        };
+        let delta = |k: &str| -> String {
+            let v1 = to_decimal(&p1m[k]);
+            let v2 = to_decimal(&p2m[k]);
+            Self::decimal_string(v1.checked_sub(v2).unwrap_or(Decimal::ZERO))
+        };
+
+        let payload = json!({
+            "report": "metrics_compare",
+            "period1": period1,
+            "period2": period2,
+            "window1": {
+                "from": window1.0.map(|d| d.to_string()),
+                "to": window1.1.map(|d| d.to_string()),
+            },
+            "window2": {
+                "from": window2.0.map(|d| d.to_string()),
+                "to": window2.1.map(|d| d.to_string()),
+            },
+            "period1_metrics": p1m,
+            "period2_metrics": p2m,
+            "delta": {
+                "total_return": delta("total_return"),
+                "win_rate": delta("win_rate"),
+                "expectancy": delta("expectancy"),
+                "max_drawdown": delta("max_drawdown"),
+            }
+        });
+
+        if let Some(export_format) = sub_matches.get_one::<String>("export") {
+            let output_file = sub_matches
+                .get_one::<String>("output")
+                .cloned()
+                .unwrap_or_else(|| format!("metrics-compare.{export_format}"));
+            let content = match export_format.as_str() {
+                "json" => {
+                    serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string())
+                }
+                "csv" => {
+                    let mut rows = vec![
+                        "metric,period1,period2,delta".to_string(),
+                        format!("trade_count,{},,", p1m["trade_count"].as_u64().unwrap_or(0)),
+                    ];
+                    for key in ["total_return", "win_rate", "expectancy", "max_drawdown"] {
+                        rows.push(format!(
+                            "{},{},{},{}",
+                            key,
+                            p1m[key].as_str().unwrap_or(""),
+                            p2m[key].as_str().unwrap_or(""),
+                            payload["delta"][key].as_str().unwrap_or("")
+                        ));
+                    }
+                    rows.join("\n")
+                }
+                _ => MetricsExporter::to_csv(&[], None),
+            };
+            if let Ok(mut file) = File::create(&output_file) {
+                if file.write_all(content.as_bytes()).is_ok() {
+                    println!("Metrics comparison exported to: {output_file}");
+                } else {
+                    eprintln!("Failed to write export file: {output_file}");
+                }
+            } else {
+                eprintln!("Failed to create export file: {output_file}");
+            }
+        }
+
+        if output_format == "json" {
+            println!("{payload}");
+            return;
+        }
 
         println!("Performance Comparison");
         println!("=====================");
-        println!("Feature coming soon: Period-over-period performance analysis");
-        println!("This will compare metrics across different time periods.");
-        println!();
-        println!("Currently working on implementing:");
-        println!("  • Time period parsing (last-30-days, previous-30-days, etc.)");
-        println!("  • Comparative metric calculations");
-        println!("  • Trend analysis and direction indicators");
-        println!("  • Export capabilities");
+        println!("Period 1 ({period1}) trades: {}", p1.len());
+        println!("Period 2 ({period2}) trades: {}", p2.len());
+        println!(
+            "Total Return: {} vs {} (delta {})",
+            p1m["total_return"].as_str().unwrap_or("0"),
+            p2m["total_return"].as_str().unwrap_or("0"),
+            payload["delta"]["total_return"].as_str().unwrap_or("0")
+        );
+        println!(
+            "Win Rate: {} vs {} (delta {})",
+            p1m["win_rate"].as_str().unwrap_or("0"),
+            p2m["win_rate"].as_str().unwrap_or("0"),
+            payload["delta"]["win_rate"].as_str().unwrap_or("0")
+        );
+        println!(
+            "Expectancy: {} vs {} (delta {})",
+            p1m["expectancy"].as_str().unwrap_or("0"),
+            p2m["expectancy"].as_str().unwrap_or("0"),
+            payload["delta"]["expectancy"].as_str().unwrap_or("0")
+        );
+        println!(
+            "Max Drawdown: {} vs {} (delta {})",
+            p1m["max_drawdown"].as_str().unwrap_or("0"),
+            p2m["max_drawdown"].as_str().unwrap_or("0"),
+            payload["delta"]["max_drawdown"].as_str().unwrap_or("0")
+        );
+    }
+
+    fn parse_period_window(
+        period: &str,
+        now: DateTime<Utc>,
+    ) -> Result<(Option<NaiveDate>, Option<NaiveDate>), String> {
+        let normalized = period.trim().to_ascii_lowercase();
+        if let Some(days) = normalized
+            .strip_prefix("last-")
+            .and_then(|s| s.strip_suffix("-days"))
+            .and_then(|s| s.parse::<u64>().ok())
+        {
+            let end = now.date_naive();
+            let start = end
+                .checked_sub_days(Days::new(days.saturating_sub(1)))
+                .ok_or("Invalid last-N-days window")?;
+            return Ok((Some(start), Some(end)));
+        }
+        if let Some(days) = normalized
+            .strip_prefix("previous-")
+            .and_then(|s| s.strip_suffix("-days"))
+            .and_then(|s| s.parse::<u64>().ok())
+        {
+            let end = now
+                .date_naive()
+                .checked_sub_days(Days::new(days))
+                .ok_or("Invalid previous-N-days window")?;
+            let start = end
+                .checked_sub_days(Days::new(days.saturating_sub(1)))
+                .ok_or("Invalid previous-N-days window")?;
+            return Ok((Some(start), Some(end)));
+        }
+        if let Some((from, to)) = normalized.split_once("..") {
+            let from = NaiveDate::parse_from_str(from, "%Y-%m-%d")
+                .map_err(|_| "Invalid period start date (expected YYYY-MM-DD)")?;
+            let to = NaiveDate::parse_from_str(to, "%Y-%m-%d")
+                .map_err(|_| "Invalid period end date (expected YYYY-MM-DD)")?;
+            if from > to {
+                return Err("Invalid period range: start date is after end date".to_string());
+            }
+            return Ok((Some(from), Some(to)));
+        }
+        if normalized == "all" {
+            return Ok((None, None));
+        }
+        Err("Invalid period format. Use last-N-days, previous-N-days, YYYY-MM-DD..YYYY-MM-DD, or all".to_string())
+    }
+
+    fn trade_in_window(trade: &Trade, from: Option<NaiveDate>, to: Option<NaiveDate>) -> bool {
+        let day = trade.updated_at.date();
+        if let Some(f) = from {
+            if day < f {
+                return false;
+            }
+        }
+        if let Some(t) = to {
+            if day > t {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn max_drawdown_amount(trades: &[Trade]) -> Decimal {
+        let mut running = Decimal::ZERO;
+        let mut peak = Decimal::ZERO;
+        let mut max_drawdown = Decimal::ZERO;
+
+        for trade in trades {
+            running = running
+                .checked_add(trade.balance.total_performance)
+                .unwrap_or(running);
+            if running > peak {
+                peak = running;
+            }
+            let drawdown = peak.checked_sub(running).unwrap_or(Decimal::ZERO);
+            if drawdown > max_drawdown {
+                max_drawdown = drawdown;
+            }
+        }
+        max_drawdown
+    }
+
+    fn advisor_configure(&mut self, sub_matches: &ArgMatches) -> Result<(), CliError> {
+        self.ensure_protected_keyword(sub_matches, ReportOutputFormat::Text, "advisor configure")?;
+        let account_id = Uuid::parse_str(sub_matches.get_one::<String>("account").unwrap())
+            .map_err(|_| CliError::new("invalid_uuid", "Invalid --account UUID"))?;
+        let sector_limit =
+            Decimal::from_str_exact(sub_matches.get_one::<String>("sector-limit").unwrap())
+                .map_err(|_| CliError::new("invalid_decimal", "Invalid --sector-limit"))?;
+        let asset_class_limit =
+            Decimal::from_str_exact(sub_matches.get_one::<String>("asset-class-limit").unwrap())
+                .map_err(|_| CliError::new("invalid_decimal", "Invalid --asset-class-limit"))?;
+        let single_position_limit = Decimal::from_str_exact(
+            sub_matches
+                .get_one::<String>("single-position-limit")
+                .unwrap(),
+        )
+        .map_err(|_| CliError::new("invalid_decimal", "Invalid --single-position-limit"))?;
+
+        self.trust
+            .configure_advisory_thresholds(
+                account_id,
+                AdvisoryThresholds {
+                    sector_limit_pct: sector_limit,
+                    asset_class_limit_pct: asset_class_limit,
+                    single_position_limit_pct: single_position_limit,
+                },
+            )
+            .map_err(|e| CliError::new("advisor_configure_failed", e.to_string()))?;
+        println!("Advisor thresholds configured for account {account_id}");
+        Ok(())
+    }
+
+    fn advisor_check(&mut self, sub_matches: &ArgMatches) -> Result<(), CliError> {
+        let account_id = Uuid::parse_str(sub_matches.get_one::<String>("account").unwrap())
+            .map_err(|_| CliError::new("invalid_uuid", "Invalid --account UUID"))?;
+        let symbol = sub_matches.get_one::<String>("symbol").unwrap().to_string();
+        let entry_price = Decimal::from_str_exact(sub_matches.get_one::<String>("entry").unwrap())
+            .map_err(|_| CliError::new("invalid_decimal", "Invalid --entry"))?;
+        let quantity = Decimal::from_str_exact(sub_matches.get_one::<String>("quantity").unwrap())
+            .map_err(|_| CliError::new("invalid_decimal", "Invalid --quantity"))?;
+        let sector = sub_matches.get_one::<String>("sector").cloned();
+        let asset_class = sub_matches.get_one::<String>("asset-class").cloned();
+
+        let result = self
+            .trust
+            .advisory_check_trade(TradeProposal {
+                account_id,
+                symbol,
+                sector,
+                asset_class,
+                entry_price,
+                quantity,
+            })
+            .map_err(|e| CliError::new("advisor_check_failed", e.to_string()))?;
+
+        println!("Advisory level: {:?}", result.level);
+        println!(
+            "Projected concentrations: sector={} asset_class={} single_position={}",
+            result.projected_sector_pct,
+            result.projected_asset_class_pct,
+            result.projected_single_position_pct
+        );
+        if !result.warnings.is_empty() {
+            println!("Warnings:");
+            for warning in result.warnings {
+                println!("  - {warning}");
+            }
+        }
+        if !result.recommendations.is_empty() {
+            println!("Recommendations:");
+            for recommendation in result.recommendations {
+                println!("  - {recommendation}");
+            }
+        }
+        Ok(())
+    }
+
+    fn advisor_status(&mut self, sub_matches: &ArgMatches) -> Result<(), CliError> {
+        let account_id = Uuid::parse_str(sub_matches.get_one::<String>("account").unwrap())
+            .map_err(|_| CliError::new("invalid_uuid", "Invalid --account UUID"))?;
+        let status = self
+            .trust
+            .advisory_status_for_account(account_id)
+            .map_err(|e| CliError::new("advisor_status_failed", e.to_string()))?;
+        println!("Portfolio advisory level: {:?}", status.level);
+        println!("Top sector concentration: {}", status.top_sector_pct);
+        println!(
+            "Top asset class concentration: {}",
+            status.top_asset_class_pct
+        );
+        println!(
+            "Top single position concentration: {}",
+            status.top_position_pct
+        );
+        for warning in status.warnings {
+            println!("  - {warning}");
+        }
+        Ok(())
+    }
+
+    fn advisor_history(&mut self, sub_matches: &ArgMatches) -> Result<(), CliError> {
+        let account_id = Uuid::parse_str(sub_matches.get_one::<String>("account").unwrap())
+            .map_err(|_| CliError::new("invalid_uuid", "Invalid --account UUID"))?;
+        let days = sub_matches
+            .get_one::<String>("days")
+            .and_then(|s| s.parse::<u32>().ok())
+            .unwrap_or(30);
+        let entries = self.trust.advisory_history_for_account(account_id, days);
+        if entries.is_empty() {
+            println!("No advisory history entries.");
+            return Ok(());
+        }
+        for entry in entries {
+            println!(
+                "{} {:?} {} {}",
+                entry.created_at, entry.level, entry.symbol, entry.summary
+            );
+        }
+        Ok(())
     }
 
     fn db_export(&mut self, sub_matches: &ArgMatches) -> Result<(), CliError> {
@@ -3820,6 +4393,25 @@ impl ArgDispatcher {
 
         Ok(())
     }
+
+    fn distribution_rules(&mut self, matches: &ArgMatches) -> Result<(), CliError> {
+        let account_id_str = matches.get_one::<String>("account-id").unwrap();
+        let account_id = Uuid::parse_str(account_id_str)
+            .map_err(|_| CliError::new("invalid_uuid", "Invalid --account-id UUID"))?;
+
+        let rules = self
+            .trust
+            .distribution_rules_for_account(account_id)
+            .map_err(|e| CliError::new("distribution_rules_failed", e.to_string()))?;
+
+        println!("Distribution rules:");
+        println!("  account_id: {}", rules.account_id);
+        println!("  earnings_percent: {}", rules.earnings_percent);
+        println!("  tax_percent: {}", rules.tax_percent);
+        println!("  reinvestment_percent: {}", rules.reinvestment_percent);
+        println!("  minimum_threshold: {}", rules.minimum_threshold);
+        Ok(())
+    }
 }
 
 // Utils
@@ -3839,11 +4431,108 @@ fn create_dir_if_necessary() {
 #[cfg(test)]
 mod tests {
     use super::ArgDispatcher;
+    use chrono::{TimeZone, Utc};
+    use model::{AccountType, Environment, Trade};
+    use rust_decimal_macros::dec;
 
     #[test]
     fn test_protected_keyword_validator() {
         assert!(ArgDispatcher::is_valid_protected_keyword("abc", "abc"));
         assert!(!ArgDispatcher::is_valid_protected_keyword("abc", "abcd"));
         assert!(!ArgDispatcher::is_valid_protected_keyword("abc", "ABC"));
+    }
+
+    #[test]
+    fn test_parse_account_type_accepts_aliases() {
+        assert_eq!(
+            ArgDispatcher::parse_account_type("primary").unwrap(),
+            AccountType::Primary
+        );
+        assert_eq!(
+            ArgDispatcher::parse_account_type("tax-reserve").unwrap(),
+            AccountType::TaxReserve
+        );
+        assert_eq!(
+            ArgDispatcher::parse_account_type("tax_reserve").unwrap(),
+            AccountType::TaxReserve
+        );
+    }
+
+    #[test]
+    fn test_parse_environment_accepts_aliases() {
+        assert_eq!(
+            ArgDispatcher::parse_environment("paper").unwrap(),
+            Environment::Paper
+        );
+        assert_eq!(
+            ArgDispatcher::parse_environment("sandbox").unwrap(),
+            Environment::Paper
+        );
+        assert_eq!(
+            ArgDispatcher::parse_environment("live").unwrap(),
+            Environment::Live
+        );
+        assert_eq!(
+            ArgDispatcher::parse_environment("production").unwrap(),
+            Environment::Live
+        );
+    }
+
+    #[test]
+    fn test_parse_period_window_last_days() {
+        let now = Utc.with_ymd_and_hms(2026, 2, 18, 0, 0, 0).unwrap();
+        let (from, to) = ArgDispatcher::parse_period_window("last-7-days", now).unwrap();
+        assert_eq!(to.unwrap().to_string(), "2026-02-18");
+        assert_eq!(from.unwrap().to_string(), "2026-02-12");
+    }
+
+    #[test]
+    fn test_parse_period_window_previous_days() {
+        let now = Utc.with_ymd_and_hms(2026, 2, 18, 0, 0, 0).unwrap();
+        let (from, to) = ArgDispatcher::parse_period_window("previous-7-days", now).unwrap();
+        assert_eq!(to.unwrap().to_string(), "2026-02-11");
+        assert_eq!(from.unwrap().to_string(), "2026-02-05");
+    }
+
+    #[test]
+    fn test_parse_period_window_range() {
+        let now = Utc.with_ymd_and_hms(2026, 2, 18, 0, 0, 0).unwrap();
+        let (from, to) = ArgDispatcher::parse_period_window("2026-01-01..2026-01-31", now).unwrap();
+        assert_eq!(from.unwrap().to_string(), "2026-01-01");
+        assert_eq!(to.unwrap().to_string(), "2026-01-31");
+    }
+
+    #[test]
+    fn test_trade_in_window() {
+        let trade = Trade {
+            updated_at: Utc
+                .with_ymd_and_hms(2026, 2, 10, 12, 0, 0)
+                .unwrap()
+                .naive_utc(),
+            ..Trade::default()
+        };
+        let from = Some(
+            Utc.with_ymd_and_hms(2026, 2, 1, 0, 0, 0)
+                .unwrap()
+                .date_naive(),
+        );
+        let to = Some(
+            Utc.with_ymd_and_hms(2026, 2, 20, 0, 0, 0)
+                .unwrap()
+                .date_naive(),
+        );
+        assert!(ArgDispatcher::trade_in_window(&trade, from, to));
+    }
+
+    #[test]
+    fn test_max_drawdown_amount() {
+        let mut t1 = Trade::default();
+        t1.balance.total_performance = dec!(100);
+        let mut t2 = Trade::default();
+        t2.balance.total_performance = dec!(-40);
+        let mut t3 = Trade::default();
+        t3.balance.total_performance = dec!(-30);
+        let dd = ArgDispatcher::max_drawdown_amount(&[t1, t2, t3]);
+        assert_eq!(dd, dec!(70));
     }
 }

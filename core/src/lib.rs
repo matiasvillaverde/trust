@@ -30,7 +30,10 @@
 // Standard Rust lints for code quality
 #![warn(missing_docs, rust_2018_idioms, missing_debug_implementations)]
 
-use crate::services::{FundTransferService, ProfitDistributionService};
+use crate::services::{
+    AdvisoryHistoryEntry, AdvisoryResult, AdvisoryThresholds, FundTransferService,
+    PortfolioAdvisoryStatus, ProfitDistributionService, TradeProposal,
+};
 use argon2::{
     password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2,
@@ -86,6 +89,8 @@ pub struct TrustFacade {
     protected_authorized: bool,
     distribution_rules_cache: HashMap<Uuid, Option<DistributionRules>>,
     level_snapshot_cache: HashMap<(Uuid, Currency), LevelSnapshotCache>,
+    advisory_thresholds: HashMap<Uuid, AdvisoryThresholds>,
+    advisory_history: Vec<AdvisoryHistoryEntry>,
 }
 
 #[derive(Debug, Clone)]
@@ -294,6 +299,8 @@ impl TrustFacade {
             protected_authorized: false,
             distribution_rules_cache: HashMap::new(),
             level_snapshot_cache: HashMap::new(),
+            advisory_thresholds: HashMap::new(),
+            advisory_history: Vec::new(),
         }
     }
 
@@ -878,27 +885,25 @@ impl TrustFacade {
             };
             let _ = self.handle_trade_closed_event_from_trade(&persisted_trade, close_reason);
 
-            // Auto-grading is expensive/optional (can require broker market data). Keep it opt-in.
-            if std::env::var_os("TRUST_AUTO_GRADE_ON_CLOSE").is_some() {
-                let has_grade = match self
-                    .factory
-                    .trade_grade_read()
-                    .read_latest_for_trade(trade.id)
-                {
-                    Ok(opt) => opt.is_some(),
-                    Err(_) => true, // Can't read grades; treat as "don't try" to keep sync reliable.
-                };
+            // Auto-grading on close is enabled by default; we keep it best-effort for sync reliability.
+            let has_grade = match self
+                .factory
+                .trade_grade_read()
+                .read_latest_for_trade(trade.id)
+            {
+                Ok(opt) => opt.is_some(),
+                Err(_) => true, // Can't read grades; treat as "don't try" to keep sync reliable.
+            };
 
-                if !has_grade {
-                    let mut grader = crate::services::grading::TradeGradeService::new(
-                        &mut *self.factory,
-                        &mut *self.broker,
-                    );
-                    let _ = grader.grade_trade(
-                        trade.id,
-                        crate::services::grading::GradingWeightsPermille::default(),
-                    );
-                }
+            if !has_grade {
+                let mut grader = crate::services::grading::TradeGradeService::new(
+                    &mut *self.factory,
+                    &mut *self.broker,
+                );
+                let _ = grader.grade_trade(
+                    trade.id,
+                    crate::services::grading::GradingWeightsPermille::default(),
+                );
             }
         }
 
@@ -1608,6 +1613,14 @@ impl TrustFacade {
             .history_for_account(source_account_id)
     }
 
+    /// Returns persisted distribution rules for an account.
+    pub fn distribution_rules_for_account(
+        &mut self,
+        account_id: Uuid,
+    ) -> Result<DistributionRules, Box<dyn std::error::Error>> {
+        self.factory.distribution_read().for_account(account_id)
+    }
+
     /// Transfer funds between accounts within the same hierarchy.
     pub fn transfer_between_accounts(
         &mut self,
@@ -1631,9 +1644,92 @@ impl TrustFacade {
             reason,
         )
     }
+
+    /// Configure advisory thresholds for an account.
+    pub fn configure_advisory_thresholds(
+        &mut self,
+        account_id: Uuid,
+        thresholds: AdvisoryThresholds,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.consume_protected_authorization("configure_advisory_thresholds")?;
+        self.advisory_thresholds.insert(account_id, thresholds);
+        Ok(())
+    }
+
+    /// Run advisory checks for a proposed trade and store a history event.
+    pub fn advisory_check_trade(
+        &mut self,
+        proposal: TradeProposal,
+    ) -> Result<AdvisoryResult, Box<dyn std::error::Error>> {
+        let thresholds = self
+            .advisory_thresholds
+            .get(&proposal.account_id)
+            .cloned()
+            .unwrap_or_default();
+        let open = self.open_trades_for_account(proposal.account_id);
+        let result = services::advisory::analyze_trade_proposal(&open, &proposal, &thresholds);
+        self.advisory_history.push(AdvisoryHistoryEntry {
+            account_id: proposal.account_id,
+            symbol: proposal.symbol.clone(),
+            level: result.level.clone(),
+            summary: if result.warnings.is_empty() {
+                "ok".to_string()
+            } else {
+                result.warnings.join("; ")
+            },
+            created_at: chrono::Utc::now().naive_utc(),
+        });
+        Ok(result)
+    }
+
+    /// Return current portfolio advisory status.
+    pub fn advisory_status_for_account(
+        &mut self,
+        account_id: Uuid,
+    ) -> Result<PortfolioAdvisoryStatus, Box<dyn std::error::Error>> {
+        let thresholds = self
+            .advisory_thresholds
+            .get(&account_id)
+            .cloned()
+            .unwrap_or_default();
+        let open = self.open_trades_for_account(account_id);
+        Ok(services::advisory::portfolio_status(&open, &thresholds))
+    }
+
+    /// Return in-memory advisory history entries for an account.
+    pub fn advisory_history_for_account(
+        &self,
+        account_id: Uuid,
+        days: u32,
+    ) -> Vec<AdvisoryHistoryEntry> {
+        let cutoff = chrono::Utc::now()
+            .naive_utc()
+            .checked_sub_signed(chrono::Duration::days(i64::from(days)))
+            .unwrap_or_else(|| chrono::Utc::now().naive_utc());
+        self.advisory_history
+            .iter()
+            .filter(|entry| entry.account_id == account_id && entry.created_at >= cutoff)
+            .cloned()
+            .collect()
+    }
 }
 
 impl TrustFacade {
+    fn open_trades_for_account(&mut self, account_id: Uuid) -> Vec<Trade> {
+        let mut seen = std::collections::HashSet::new();
+        let mut out = Vec::new();
+        for status in [Status::Submitted, Status::Filled, Status::PartiallyFilled] {
+            if let Ok(trades) = self.search_trades(account_id, status) {
+                for trade in trades {
+                    if seen.insert(trade.id) {
+                        out.push(trade);
+                    }
+                }
+            }
+        }
+        out
+    }
+
     fn resolve_distribution_accounts(
         &mut self,
         source_account_id: Uuid,

@@ -1,4 +1,4 @@
-use crate::{Account, BarTimeframe, Execution, MarketBar, Order, Status, Trade};
+use crate::{Account, BarTimeframe, Execution, FeeActivity, MarketBar, Order, Status, Trade};
 use chrono::NaiveDateTime;
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
@@ -121,6 +121,19 @@ pub trait Broker {
         _account: &Account,
         _after: Option<DateTime<Utc>>,
     ) -> Result<Vec<Execution>, Box<dyn Error>> {
+        Ok(vec![])
+    }
+
+    /// Fetch non-fill fee activities relevant to trading costs (`FEE`, `PTC`, etc).
+    ///
+    /// Default implementation returns an empty list. Implementations may provide a richer
+    /// reconciliation source for execution accounting.
+    fn fetch_fee_activities(
+        &self,
+        _trade: &Trade,
+        _account: &Account,
+        _after: Option<DateTime<Utc>>,
+    ) -> Result<Vec<FeeActivity>, Box<dyn Error>> {
         Ok(vec![])
     }
 }
