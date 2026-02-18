@@ -17,6 +17,16 @@ pub fn can_submit(trade: &Trade) -> TradeValidationResult {
     }
 }
 
+pub fn can_fund(trade: &Trade) -> TradeValidationResult {
+    match trade.status {
+        Status::New => Ok(()),
+        _ => Err(Box::new(TradeValidationError {
+            code: TradeValidationErrorCode::TradeNotNew,
+            message: format!("Trade with id {} is not new, cannot be funded", trade.id),
+        })),
+    }
+}
+
 pub fn can_close(trade: &Trade) -> TradeValidationResult {
     match trade.status {
         Status::Filled => Ok(()),
@@ -44,9 +54,9 @@ pub fn can_cancel_submitted(trade: &Trade) -> TradeValidationResult {
     match trade.status {
         Status::Submitted => Ok(()),
         _ => Err(Box::new(TradeValidationError {
-            code: TradeValidationErrorCode::TradeNotFunded,
+            code: TradeValidationErrorCode::TradeNotSubmitted,
             message: format!(
-                "Trade with id {} is not funded, cannot be cancelled",
+                "Trade with id {} is not submitted, cannot be cancelled",
                 trade.id
             ),
         })),
@@ -93,7 +103,9 @@ pub fn can_modify_target(trade: &Trade) -> TradeValidationResult {
 
 #[derive(Debug, PartialEq)]
 pub enum TradeValidationErrorCode {
+    TradeNotNew,
     TradeNotFunded,
+    TradeNotSubmitted,
     TradeNotFilled,
     StopPriceNotValid,
 }
@@ -159,6 +171,26 @@ mod tests {
             ..Default::default()
         };
         assert!(can_close(&trade).is_err());
+    }
+
+    #[test]
+    fn test_validate_fund() {
+        let trade = Trade {
+            status: Status::New,
+            ..Default::default()
+        };
+        let result = can_fund(&trade);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_fund_not_new() {
+        let trade = Trade {
+            status: Status::Funded,
+            ..Default::default()
+        };
+        let result = can_fund(&trade);
+        assert!(result.is_err());
     }
 
     #[test]

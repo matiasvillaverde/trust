@@ -61,6 +61,13 @@ fn update_trade_status_and_projection(
     Ok(updated)
 }
 
+fn latest_trade_snapshot(
+    trade: &Trade,
+    database: &mut dyn DatabaseFactory,
+) -> Result<Trade, Box<dyn Error>> {
+    database.trade_read().read_trade(trade.id)
+}
+
 pub fn create_trade(
     trade: DraftTrade,
     stop_price: Decimal,
@@ -68,6 +75,14 @@ pub fn create_trade(
     target_price: Decimal,
     database: &mut dyn DatabaseFactory,
 ) -> Result<Trade, Box<dyn std::error::Error>> {
+    if trade.quantity <= 0 {
+        return Err(format!(
+            "Trade quantity must be greater than zero, got {}",
+            trade.quantity
+        )
+        .into());
+    }
+
     // 1. Create Stop-loss Order
     let stop = commands::order::create_stop(
         trade.trading_vehicle.id,
@@ -305,15 +320,18 @@ pub fn cancel_funded(
     trade: &Trade,
     database: &mut dyn DatabaseFactory,
 ) -> Result<(TradeBalance, AccountBalance, Transaction), Box<dyn std::error::Error>> {
-    // 1. Verify trade can be canceled
-    crate::validators::trade::can_cancel_funded(trade)?;
+    // 1. Load latest persisted trade snapshot to prevent stale-state replay.
+    let current_trade = latest_trade_snapshot(trade, database)?;
 
-    // 2. Update Trade Status
-    let _ = update_trade_status_and_projection(trade, Status::Canceled, database)?;
+    // 2. Verify trade can be canceled
+    crate::validators::trade::can_cancel_funded(&current_trade)?;
 
-    // 3. Transfer funds back to account
+    // 3. Update Trade Status
+    let _ = update_trade_status_and_projection(&current_trade, Status::Canceled, database)?;
+
+    // 4. Transfer funds back to account
     let (tx, account_o, trade_o) =
-        commands::transaction::transfer_to_account_from(trade, database)?;
+        commands::transaction::transfer_to_account_from(&current_trade, database)?;
 
     Ok((trade_o, account_o, tx))
 }
@@ -323,19 +341,22 @@ pub fn cancel_submitted(
     database: &mut dyn DatabaseFactory,
     broker: &mut dyn Broker,
 ) -> Result<(TradeBalance, AccountBalance, Transaction), Box<dyn std::error::Error>> {
-    // 1. Verify trade can be canceled
-    crate::validators::trade::can_cancel_submitted(trade)?;
+    // 1. Load latest persisted trade snapshot to prevent stale-state replay.
+    let current_trade = latest_trade_snapshot(trade, database)?;
 
-    // 2. Cancel trade with broker
-    let account = database.account_read().id(trade.account_id)?;
-    broker.cancel_trade(trade, &account)?;
+    // 2. Verify trade can be canceled
+    crate::validators::trade::can_cancel_submitted(&current_trade)?;
 
-    // 3. Update Trade Status
-    let _ = update_trade_status_and_projection(trade, Status::Canceled, database)?;
+    // 3. Cancel trade with broker
+    let account = database.account_read().id(current_trade.account_id)?;
+    broker.cancel_trade(&current_trade, &account)?;
 
-    // 4. Transfer funds back to account
+    // 4. Update Trade Status
+    let _ = update_trade_status_and_projection(&current_trade, Status::Canceled, database)?;
+
+    // 5. Transfer funds back to account
     let (tx, account_o, trade_o) =
-        commands::transaction::transfer_to_account_from(trade, database)?;
+        commands::transaction::transfer_to_account_from(&current_trade, database)?;
 
     Ok((trade_o, account_o, tx))
 }
@@ -347,22 +368,23 @@ pub fn modify_stop(
     broker: &mut dyn Broker,
     database: &mut dyn DatabaseFactory,
 ) -> Result<Trade, Box<dyn std::error::Error>> {
-    // 1. Verify trade can be modified
-    crate::validators::trade::can_modify_stop(trade, new_stop_price)?;
+    // 1. Load latest persisted trade snapshot and verify it can be modified.
+    let current_trade = latest_trade_snapshot(trade, database)?;
+    crate::validators::trade::can_modify_stop(&current_trade, new_stop_price)?;
 
     // 2. Update Trade on the broker
-    let new_broker_id = broker.modify_stop(trade, account, new_stop_price)?;
+    let new_broker_id = broker.modify_stop(&current_trade, account, new_stop_price)?;
 
     // 3. Modify stop order
     commands::order::modify(
-        &trade.safety_stop,
+        &current_trade.safety_stop,
         new_stop_price,
         new_broker_id,
         &mut *database.order_write(),
     )?;
 
     // 4. Refresh Trade
-    let trade = database.trade_read().read_trade(trade.id)?;
+    let trade = database.trade_read().read_trade(current_trade.id)?;
 
     Ok(trade)
 }
@@ -374,22 +396,23 @@ pub fn modify_target(
     broker: &mut dyn Broker,
     database: &mut dyn DatabaseFactory,
 ) -> Result<Trade, Box<dyn std::error::Error>> {
-    // 1. Verify trade can be modified
-    crate::validators::trade::can_modify_target(trade)?;
+    // 1. Load latest persisted trade snapshot and verify it can be modified.
+    let current_trade = latest_trade_snapshot(trade, database)?;
+    crate::validators::trade::can_modify_target(&current_trade)?;
 
     // 2. Update Trade on the broker
-    let new_broker_id = broker.modify_target(trade, account, new_price)?;
+    let new_broker_id = broker.modify_target(&current_trade, account, new_price)?;
 
     // 3. Modify stop order
     commands::order::modify(
-        &trade.target,
+        &current_trade.target,
         new_price,
         new_broker_id,
         &mut *database.order_write(),
     )?;
 
     // 4. Refresh Trade
-    let trade = database.trade_read().read_trade(trade.id)?;
+    let trade = database.trade_read().read_trade(current_trade.id)?;
 
     Ok(trade)
 }
@@ -398,19 +421,24 @@ pub fn fund(
     trade: &Trade,
     database: &mut dyn DatabaseFactory,
 ) -> Result<(Trade, Transaction, AccountBalance, TradeBalance), Box<dyn std::error::Error>> {
-    // 1. Validate that trade can be funded
-    crate::validators::funding::can_fund(trade, database)?;
+    // 1. Load latest persisted trade snapshot to prevent stale-state funding.
+    let current_trade = latest_trade_snapshot(trade, database)?;
 
-    // 2. Update trade status to funded
-    let mut funded_trade = update_trade_status_and_projection(trade, Status::Funded, database)?;
+    // 2. Validate status and funding constraints against the persisted trade.
+    crate::validators::trade::can_fund(&current_trade)?;
+    crate::validators::funding::can_fund(&current_trade, database)?;
 
-    // 3. Create transaction to fund the trade
+    // 3. Update trade status to funded
+    let mut funded_trade =
+        update_trade_status_and_projection(&current_trade, Status::Funded, database)?;
+
+    // 4. Create transaction to fund the trade
     let (transaction, account_balance, trade_balance) =
-        commands::transaction::transfer_to_fund_trade(trade, database)?;
+        commands::transaction::transfer_to_fund_trade(&current_trade, database)?;
     // Keep the returned trade snapshot consistent with persisted projections.
     funded_trade.balance = trade_balance.clone();
 
-    // 4. Return data objects
+    // 5. Return data objects
     Ok((funded_trade, transaction, account_balance, trade_balance))
 }
 
@@ -419,20 +447,26 @@ pub fn submit(
     database: &mut dyn DatabaseFactory,
     broker: &mut dyn Broker,
 ) -> Result<(Trade, BrokerLog), Box<dyn std::error::Error>> {
-    // 1. Validate that Trade can be submitted
-    crate::validators::trade::can_submit(trade)?;
+    // 1. Load latest persisted trade snapshot to prevent stale-state submission.
+    let current_trade = latest_trade_snapshot(trade, database)?;
 
-    // 2. Submit trade to broker
-    let account = database.account_read().id(trade.account_id)?;
-    let (log, order_id) = broker.submit_trade(trade, &account)?;
+    // 2. Validate that Trade can be submitted
+    crate::validators::trade::can_submit(&current_trade)?;
 
-    // 3. Save log in the DB
-    database.log_write().create_log(log.log.as_str(), trade)?;
+    // 3. Submit trade to broker
+    let account = database.account_read().id(current_trade.account_id)?;
+    let (log, order_id) = broker.submit_trade(&current_trade, &account)?;
 
-    // 4. Update Trade status to submitted
-    let mut submitted = update_trade_status_and_projection(trade, Status::Submitted, database)?;
+    // 4. Save log in the DB
+    database
+        .log_write()
+        .create_log(log.log.as_str(), &current_trade)?;
 
-    // 5. Update internal orders to submitted and return the updated in-memory trade snapshot.
+    // 5. Update Trade status to submitted
+    let mut submitted =
+        update_trade_status_and_projection(&current_trade, Status::Submitted, database)?;
+
+    // 6. Update internal orders to submitted and return the updated in-memory trade snapshot.
     let mut order_write = database.order_write();
     submitted.safety_stop = order_write.submit_of(&submitted.safety_stop, order_id.stop)?;
     submitted.entry = order_write.submit_of(&submitted.entry, order_id.entry)?;
@@ -1151,32 +1185,38 @@ pub fn close(
     database: &mut dyn DatabaseFactory,
     broker: &mut dyn Broker,
 ) -> Result<(TradeBalance, BrokerLog), Box<dyn std::error::Error>> {
-    // 1. Verify trade can be closed
-    crate::validators::trade::can_close(trade)?;
+    // 1. Load latest persisted trade snapshot to prevent stale-state replay.
+    let current_trade = latest_trade_snapshot(trade, database)?;
 
-    // 2. Submit a market order to close the trade
-    let account = database.account_read().id(trade.account_id)?;
-    let (target_order, log) = broker.close_trade(trade, &account)?;
+    // 2. Verify trade can be closed
+    crate::validators::trade::can_close(&current_trade)?;
 
-    // 3. Save log in the database
-    database.log_write().create_log(log.log.as_str(), trade)?;
+    // 3. Submit a market order to close the trade
+    let account = database.account_read().id(current_trade.account_id)?;
+    let (target_order, log) = broker.close_trade(&current_trade, &account)?;
 
-    // 4. Update Order Target with the filled price and new ID
+    // 4. Save log in the database
+    database
+        .log_write()
+        .create_log(log.log.as_str(), &current_trade)?;
+
+    // 5. Update Order Target with the filled price and new ID
     {
         let mut order_write = database.order_write();
         order_write.update(&target_order)?;
     }
 
-    // 5. Update Trade Status
-    let _ = update_trade_status_and_projection(trade, Status::Canceled, database)?;
+    // 6. Update Trade Status
+    let updated_trade =
+        update_trade_status_and_projection(&current_trade, Status::Canceled, database)?;
 
-    // 6. Cancel Stop-loss Order
-    let mut stop_order = trade.safety_stop.clone();
+    // 7. Cancel Stop-loss Order
+    let mut stop_order = current_trade.safety_stop.clone();
     stop_order.status = OrderStatus::Canceled;
     {
         let mut order_write = database.order_write();
         order_write.update(&stop_order)?;
     }
 
-    Ok((trade.balance.clone(), log))
+    Ok((updated_trade.balance, log))
 }

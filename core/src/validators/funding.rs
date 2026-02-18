@@ -173,6 +173,16 @@ fn validate_risk_per_trade(
     risk: Decimal,
     risk_per_month: Decimal,
 ) -> FundingValidationResult {
+    if trade.entry.quantity == 0 {
+        return Err(Box::new(FundValidationError {
+            code: FundValidationErrorCode::InvalidQuantity,
+            message: format!(
+                "Trade quantity must be greater than zero, got {}",
+                trade.entry.quantity
+            ),
+        }));
+    }
+
     // Check if the risk per month limit has been exceeded.
     if risk_per_month < risk {
         return Err(Box::new(FundValidationError {
@@ -184,38 +194,18 @@ fn validate_risk_per_trade(
     }
 
     // Calculate the maximum amount that can be risked based on the available funds and risk percentage.
-    let risk_percent = risk.checked_div(dec!(100.0)).ok_or_else(|| {
-        Box::new(FundValidationError {
-            code: FundValidationErrorCode::NotEnoughFunds,
-            message: "Division overflow calculating risk percentage".to_string(),
-        })
-    })?;
-    let maximum_risk = account_balance
-        .total_available
-        .checked_mul(risk_percent)
-        .ok_or_else(|| {
-            Box::new(FundValidationError {
-                code: FundValidationErrorCode::NotEnoughFunds,
-                message: "Multiplication overflow calculating maximum risk".to_string(),
-            })
-        })?;
+    let maximum_risk = calculate_maximum_risk(account_balance, risk)?;
 
     // Calculate the total amount that will be risked in this trade.
-    let price_diff = trade
-        .entry
-        .unit_price
-        .checked_sub(trade.safety_stop.unit_price)
-        .ok_or_else(|| {
-            Box::new(FundValidationError {
-                code: FundValidationErrorCode::NotEnoughFunds,
-                message: "Subtraction overflow calculating price difference".to_string(),
-            })
-        })?;
+    let price_diff = calculate_price_diff(trade)?;
 
-    if price_diff.is_zero() {
+    if price_diff <= Decimal::ZERO {
         return Err(Box::new(FundValidationError {
             code: FundValidationErrorCode::InvalidPriceDifference,
-            message: "Entry price and stop price are equal; cannot calculate risk".to_string(),
+            message: format!(
+                "Invalid risk setup for {} trade: entry={}, stop={}",
+                trade.category, trade.entry.unit_price, trade.safety_stop.unit_price
+            ),
         }));
     }
 
@@ -242,6 +232,52 @@ fn validate_risk_per_trade(
     Ok(())
 }
 
+fn calculate_maximum_risk(
+    account_balance: &AccountBalance,
+    risk: Decimal,
+) -> Result<Decimal, Box<FundValidationError>> {
+    let risk_percent = risk.checked_div(dec!(100.0)).ok_or_else(|| {
+        Box::new(FundValidationError {
+            code: FundValidationErrorCode::NotEnoughFunds,
+            message: "Division overflow calculating risk percentage".to_string(),
+        })
+    })?;
+    account_balance
+        .total_available
+        .checked_mul(risk_percent)
+        .ok_or_else(|| {
+            Box::new(FundValidationError {
+                code: FundValidationErrorCode::NotEnoughFunds,
+                message: "Multiplication overflow calculating maximum risk".to_string(),
+            })
+        })
+}
+
+fn calculate_price_diff(trade: &Trade) -> Result<Decimal, Box<FundValidationError>> {
+    match trade.category {
+        TradeCategory::Long => trade
+            .entry
+            .unit_price
+            .checked_sub(trade.safety_stop.unit_price)
+            .ok_or_else(|| {
+                Box::new(FundValidationError {
+                    code: FundValidationErrorCode::NotEnoughFunds,
+                    message: "Subtraction overflow calculating price difference".to_string(),
+                })
+            }),
+        TradeCategory::Short => trade
+            .safety_stop
+            .unit_price
+            .checked_sub(trade.entry.unit_price)
+            .ok_or_else(|| {
+                Box::new(FundValidationError {
+                    code: FundValidationErrorCode::NotEnoughFunds,
+                    message: "Subtraction overflow calculating price difference".to_string(),
+                })
+            }),
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub struct FundValidationError {
     pub code: FundValidationErrorCode,
@@ -265,6 +301,7 @@ pub enum FundValidationErrorCode {
     RiskPerMonthExceeded,
     LevelAdjustedQuantityExceeded,
     InvalidPriceDifference,
+    InvalidQuantity,
     NotEnoughFunds,
 }
 
