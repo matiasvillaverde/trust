@@ -38,6 +38,8 @@ pub mod broker;
 pub mod currency;
 /// Database abstraction layer
 pub mod database;
+/// Distribution rules and profit allocation
+pub mod distribution;
 /// Execution (fill) primitives for execution-level accounting and auditability
 pub mod execution;
 /// Trading level management and risk multipliers
@@ -60,15 +62,19 @@ pub mod trading_vehicle;
 pub mod transaction;
 
 // Re-export the types from the model crate.
-pub use account::{Account, AccountBalance, Environment};
+pub use account::{Account, AccountBalance, AccountHierarchyError, AccountType, Environment};
 pub use broker::{Broker, BrokerLog, OrderIds};
 pub use currency::Currency;
 pub use database::{
     AccountBalanceRead, AccountBalanceWrite, AccountRead, AccountWrite, DatabaseFactory,
-    DraftTrade, OrderRead, OrderWrite, ReadBrokerLogsDB, ReadExecutionDB, ReadLevelDB, ReadRuleDB,
-    ReadTradeDB, ReadTradeGradeDB, ReadTradingVehicleDB, ReadTransactionDB, WriteBrokerLogsDB,
-    WriteExecutionDB, WriteLevelDB, WriteRuleDB, WriteTradeDB, WriteTradeGradeDB,
-    WriteTradingVehicleDB, WriteTransactionDB,
+    DistributionRead, DistributionWrite, DraftTrade, OrderRead, OrderWrite, ReadBrokerLogsDB,
+    ReadExecutionDB, ReadLevelDB, ReadRuleDB, ReadTradeDB, ReadTradeGradeDB, ReadTradingVehicleDB,
+    ReadTransactionDB, WriteBrokerLogsDB, WriteExecutionDB, WriteLevelDB, WriteRuleDB,
+    WriteTradeDB, WriteTradeGradeDB, WriteTradingVehicleDB, WriteTransactionDB,
+};
+pub use distribution::{
+    DistributionError, DistributionExecutionLeg, DistributionExecutionPlan, DistributionHistory,
+    DistributionResult, DistributionRules, DistributionRulesNotFound,
 };
 pub use execution::{
     Execution, ExecutionSide, ExecutionSideParseError, ExecutionSource, ExecutionSourceParseError,
@@ -81,6 +87,7 @@ pub use market_data::{BarTimeframe, MarketBar};
 pub use order::{Order, OrderAction, OrderCategory, OrderStatus, TimeInForce};
 pub use rule::{Rule, RuleLevel, RuleName};
 pub use strategy::Strategy;
+pub use trade::ClosedTradePerformance;
 pub use trade::{Status, Trade, TradeBalance, TradeCategory};
 pub use trade_grade::{Grade, TradeGrade};
 pub use trading_vehicle::{TradingVehicle, TradingVehicleCategory};

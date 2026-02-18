@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS idx_distribution_rules_account_id_unique;

@@ -1,3 +1,14 @@
+//! CLI dispatcher module - handles command-line interface operations
+//!
+//! SAFETY ALLOWANCES: This module contains UI code that uses .unwrap()
+//! for command-line argument handling where panics are acceptable since
+//! they indicate programming errors in command setup, not runtime errors.
+#![allow(
+    clippy::unwrap_used,
+    clippy::uninlined_format_args,
+    clippy::expect_used
+)]
+
 use crate::dialogs::{
     AccountDialogBuilder, AccountSearchDialog, CancelDialogBuilder, CloseDialogBuilder,
     ExitDialogBuilder, FillTradeDialogBuilder, FundingDialogBuilder, KeysDeleteDialogBuilder,
@@ -16,6 +27,7 @@ use core::services::leveling::{
 use core::TrustFacade;
 use db_sqlite::SqliteDatabase;
 use db_sqlite::{ImportMode, ImportOptions};
+use dialoguer::Password;
 use model::{
     database::TradingVehicleUpsert, Currency, Level, LevelAdjustmentRules, LevelTrigger, Trade,
     TradingVehicleCategory, TransactionCategory,
@@ -108,7 +120,7 @@ impl ArgDispatcher {
         }
     }
 
-    #[allow(clippy::too_many_lines)]
+    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)]
     pub fn dispatch(mut self, matches: ArgMatches) -> Result<(), CliError> {
         match matches.subcommand() {
             Some(("db", sub_matches)) => match sub_matches.subcommand() {
@@ -129,11 +141,16 @@ impl ArgDispatcher {
                 }
                 _ => unreachable!("No subcommand provided"),
             },
-            Some(("account", sub_matches)) => match sub_matches.subcommand() {
-                Some(("create", sub_sub_matches)) => self.create_account(sub_sub_matches)?,
-                Some(("search", _)) => self.search_account(),
-                _ => unreachable!("No subcommand provided"),
-            },
+            Some(("account", sub_matches)) | Some(("accounts", sub_matches)) => {
+                match sub_matches.subcommand() {
+                    Some(("create", sub_sub_matches)) => self.create_account(sub_sub_matches)?,
+                    Some(("search", _)) => self.search_account(),
+                    Some(("transfer", transfer_matches)) => {
+                        self.transfer_accounts(transfer_matches)?
+                    }
+                    _ => unreachable!("No subcommand provided"),
+                }
+            }
             Some(("transaction", sub_matches)) => match sub_matches.subcommand() {
                 Some(("deposit", sub_sub_matches)) => self.deposit(sub_sub_matches)?,
                 Some(("withdraw", sub_sub_matches)) => self.withdraw(sub_sub_matches)?,
@@ -163,7 +180,7 @@ impl ArgDispatcher {
                 Some(("manually-fill", _)) => self.create_fill(),
                 Some(("manually-stop", _)) => self.create_stop(),
                 Some(("manually-target", _)) => self.create_target(),
-                Some(("manually-close", _)) => self.close(),
+                Some(("manually-close", close_matches)) => self.close(close_matches),
                 Some(("sync", _)) => self.create_sync(),
                 Some(("watch", _)) => self.create_watch(),
                 Some(("search", _)) => self.search_trade(),
@@ -173,6 +190,14 @@ impl ArgDispatcher {
                     sub_sub_matches,
                     Self::parse_report_format(sub_sub_matches),
                 )?,
+                _ => unreachable!("No subcommand provided"),
+            },
+            Some(("distribution", sub_matches)) => match sub_matches.subcommand() {
+                Some(("configure", configure_matches)) => {
+                    self.configure_distribution(configure_matches)?
+                }
+                Some(("execute", execute_matches)) => self.execute_distribution(execute_matches)?,
+                Some(("history", history_matches)) => self.distribution_history(history_matches)?,
                 _ => unreachable!("No subcommand provided"),
             },
             Some(("report", sub_matches)) => match sub_matches.subcommand() {
@@ -1572,10 +1597,19 @@ impl ArgDispatcher {
             .display();
     }
 
-    fn close(&mut self) {
+    fn close(&mut self, matches: &ArgMatches) {
+        // Check if auto-distribute flag is set
+        let auto_distribute = matches.get_flag("auto-distribute");
+
+        if auto_distribute {
+            println!("🚀 Enhanced trade closure with automatic profit distribution enabled!");
+            println!("   If the trade is profitable, profits will be automatically distributed.");
+        }
+
         CloseDialogBuilder::new()
             .account(&mut self.trust)
             .search(&mut self.trust)
+            .auto_distribute(auto_distribute)
             .build(&mut self.trust)
             .display();
     }
@@ -3615,6 +3649,175 @@ impl ArgDispatcher {
             "cleared_rows={} inserted_rows={}",
             report.cleared_rows, report.inserted_rows
         );
+        Ok(())
+    }
+}
+
+impl ArgDispatcher {
+    fn transfer_accounts(&mut self, matches: &ArgMatches) -> Result<(), CliError> {
+        let from_id_str = matches.get_one::<String>("from").unwrap();
+        let to_id_str = matches.get_one::<String>("to").unwrap();
+        let amount_str = matches.get_one::<String>("amount").unwrap();
+        let reason = matches.get_one::<String>("reason").unwrap();
+
+        let from_id = Uuid::parse_str(from_id_str)
+            .map_err(|_| CliError::new("invalid_uuid", "Invalid --from UUID"))?;
+        let to_id = Uuid::parse_str(to_id_str)
+            .map_err(|_| CliError::new("invalid_uuid", "Invalid --to UUID"))?;
+        let amount = Decimal::from_str_exact(amount_str)
+            .map_err(|_| CliError::new("invalid_decimal", "Invalid --amount decimal"))?;
+
+        let currency = Currency::USD;
+        let (withdrawal_id, deposit_id) = self
+            .trust
+            .transfer_between_accounts(from_id, to_id, amount, currency, reason)
+            .map_err(|e| CliError::new("transfer_failed", e.to_string()))?;
+
+        println!("Transfer completed:");
+        println!("  amount: {amount}");
+        println!("  from:   {from_id}");
+        println!("  to:     {to_id}");
+        println!("  reason: {reason}");
+        println!("  withdrawal_tx_id: {withdrawal_id}");
+        println!("  deposit_tx_id:    {deposit_id}");
+        Ok(())
+    }
+}
+
+// Distribution Operations
+impl ArgDispatcher {
+    fn configure_distribution(&mut self, matches: &ArgMatches) -> Result<(), CliError> {
+        let account_id_str = matches.get_one::<String>("account-id").unwrap();
+        let earnings_str = matches.get_one::<String>("earnings").unwrap();
+        let tax_str = matches.get_one::<String>("tax").unwrap();
+        let reinvestment_str = matches.get_one::<String>("reinvestment").unwrap();
+        let threshold_str = matches.get_one::<String>("threshold").unwrap();
+        let password = if let Some(p) = matches.get_one::<String>("password") {
+            p.to_string()
+        } else {
+            Password::new()
+                .with_prompt("Distribution configuration password")
+                .with_confirmation("Confirm password", "Passwords do not match")
+                .interact()
+                .map_err(|e| CliError::new("password_prompt_failed", e.to_string()))?
+        };
+
+        let account_id = Uuid::parse_str(account_id_str)
+            .map_err(|_| CliError::new("invalid_uuid", "Invalid --account-id UUID"))?;
+
+        let earnings_pct = Decimal::from_str_exact(earnings_str)
+            .map_err(|_| CliError::new("invalid_decimal", "Invalid --earnings decimal"))?
+            .checked_div(Decimal::new(100, 0))
+            .ok_or_else(|| CliError::new("invalid_decimal", "Invalid --earnings percentage"))?;
+        let tax_pct = Decimal::from_str_exact(tax_str)
+            .map_err(|_| CliError::new("invalid_decimal", "Invalid --tax decimal"))?
+            .checked_div(Decimal::new(100, 0))
+            .ok_or_else(|| CliError::new("invalid_decimal", "Invalid --tax percentage"))?;
+        let reinvestment_pct = Decimal::from_str_exact(reinvestment_str)
+            .map_err(|_| CliError::new("invalid_decimal", "Invalid --reinvestment decimal"))?
+            .checked_div(Decimal::new(100, 0))
+            .ok_or_else(|| CliError::new("invalid_decimal", "Invalid --reinvestment percentage"))?;
+        let threshold = Decimal::from_str_exact(threshold_str)
+            .map_err(|_| CliError::new("invalid_decimal", "Invalid --threshold decimal"))?;
+
+        self.trust
+            .configure_distribution(
+                account_id,
+                earnings_pct,
+                tax_pct,
+                reinvestment_pct,
+                threshold,
+                &password,
+            )
+            .map_err(|e| CliError::new("configure_distribution_failed", e.to_string()))?;
+
+        println!("Distribution rules configured:");
+        println!("  account_id: {account_id}");
+        println!("  earnings: {earnings_pct}");
+        println!("  tax: {tax_pct}");
+        println!("  reinvestment: {reinvestment_pct}");
+        println!("  minimum_threshold: {threshold}");
+        Ok(())
+    }
+
+    fn execute_distribution(&mut self, matches: &ArgMatches) -> Result<(), CliError> {
+        let account_id_str = matches.get_one::<String>("account-id").unwrap();
+        let amount_str = matches.get_one::<String>("amount").unwrap();
+
+        let account_id = Uuid::parse_str(account_id_str)
+            .map_err(|_| CliError::new("invalid_uuid", "Invalid --account-id UUID"))?;
+        let amount = Decimal::from_str_exact(amount_str)
+            .map_err(|_| CliError::new("invalid_decimal", "Invalid --amount decimal"))?;
+
+        let currency = Currency::USD;
+        let result = self
+            .trust
+            .execute_distribution(account_id, amount, currency)
+            .map_err(|e| CliError::new("execute_distribution_failed", e.to_string()))?;
+
+        println!("Distribution executed:");
+        println!("  source_account_id: {}", result.source_account_id);
+        println!("  original_amount: {}", result.original_amount);
+        println!(
+            "  earnings_amount: {}",
+            result.earnings_amount.unwrap_or_default()
+        );
+        println!("  tax_amount: {}", result.tax_amount.unwrap_or_default());
+        println!(
+            "  reinvestment_amount: {}",
+            result.reinvestment_amount.unwrap_or_default()
+        );
+        println!(
+            "  transactions_created: {}",
+            result.transactions_created.len()
+        );
+        Ok(())
+    }
+
+    fn distribution_history(&mut self, matches: &ArgMatches) -> Result<(), CliError> {
+        let account_id_str = matches.get_one::<String>("account-id").unwrap();
+        let limit = matches
+            .get_one::<String>("limit")
+            .and_then(|s| s.parse::<usize>().ok())
+            .unwrap_or(20);
+
+        let account_id = Uuid::parse_str(account_id_str)
+            .map_err(|_| CliError::new("invalid_uuid", "Invalid --account-id UUID"))?;
+
+        let mut entries = self
+            .trust
+            .distribution_history(account_id)
+            .map_err(|e| CliError::new("distribution_history_failed", e.to_string()))?;
+
+        if entries.len() > limit {
+            entries.truncate(limit);
+        }
+
+        println!("Distribution History (most recent first):");
+        for entry in entries {
+            println!(
+                "- at={} trade_id={} amount={} earnings={} tax={} reinvestment={}",
+                entry.distribution_date,
+                entry
+                    .trade_id
+                    .map(|id| id.to_string())
+                    .unwrap_or_else(|| "N/A".to_string()),
+                entry.original_amount,
+                entry
+                    .earnings_amount
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "0".to_string()),
+                entry
+                    .tax_amount
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "0".to_string()),
+                entry
+                    .reinvestment_amount
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "0".to_string()),
+            );
+        }
+
         Ok(())
     }
 }

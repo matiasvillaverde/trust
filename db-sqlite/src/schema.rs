@@ -11,6 +11,8 @@ diesel::table! {
         environment -> Text,
         taxes_percentage -> Text,
         earnings_percentage -> Text,
+        account_type -> Text,
+        parent_account_id -> Nullable<Text>,
     }
 }
 
@@ -76,6 +78,35 @@ diesel::table! {
 }
 
 diesel::table! {
+    distribution_history (id) {
+        id -> Text,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        source_account_id -> Text,
+        trade_id -> Nullable<Text>,
+        original_amount -> Text,
+        distribution_date -> Timestamp,
+        earnings_amount -> Nullable<Text>,
+        tax_amount -> Nullable<Text>,
+        reinvestment_amount -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
+    distribution_rules (id) {
+        id -> Text,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        account_id -> Text,
+        earnings_percent -> Text,
+        tax_percent -> Text,
+        reinvestment_percent -> Text,
+        minimum_threshold -> Text,
+        configuration_password_hash -> Text,
+    }
+}
+
+diesel::table! {
     level_changes (id) {
         id -> Text,
         created_at -> Timestamp,
@@ -113,6 +144,22 @@ diesel::table! {
         deleted_at -> Nullable<Timestamp>,
         log -> Text,
         trade_id -> Text,
+    }
+}
+
+diesel::table! {
+    broker_events (id) {
+        id -> Text,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        deleted_at -> Nullable<Timestamp>,
+        account_id -> Text,
+        trade_id -> Text,
+        source -> Text,
+        stream -> Text,
+        event_type -> Text,
+        broker_order_id -> Nullable<Text>,
+        payload_json -> Text,
     }
 }
 
@@ -263,6 +310,11 @@ diesel::joinable!(level_adjustment_rules -> accounts (account_id));
 diesel::joinable!(level_changes -> accounts (account_id));
 diesel::joinable!(levels -> accounts (account_id));
 diesel::joinable!(logs -> trades (trade_id));
+diesel::joinable!(broker_events -> accounts (account_id));
+diesel::joinable!(broker_events -> trades (trade_id));
+diesel::joinable!(distribution_history -> accounts (source_account_id));
+diesel::joinable!(distribution_history -> trades (trade_id));
+diesel::joinable!(distribution_rules -> accounts (account_id));
 diesel::joinable!(orders -> trading_vehicles (trading_vehicle_id));
 diesel::joinable!(rules -> accounts (account_id));
 diesel::joinable!(trade_grades -> trades (trade_id));
@@ -276,7 +328,10 @@ diesel::allow_tables_to_appear_in_same_query!(
     accounts,
     accounts_balances,
     executions,
+    broker_events,
     level_adjustment_rules,
+    distribution_history,
+    distribution_rules,
     level_changes,
     levels,
     logs,

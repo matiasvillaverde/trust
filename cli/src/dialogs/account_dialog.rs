@@ -18,6 +18,7 @@ use dialoguer::{theme::ColorfulTheme, FuzzySelect, Input};
 use model::{Account, Environment};
 use rust_decimal::Decimal;
 
+#[allow(dead_code)]
 pub struct AccountDialogBuilder {
     name: String,
     description: String,
@@ -27,6 +28,7 @@ pub struct AccountDialogBuilder {
     result: Option<Result<Account, Box<dyn Error>>>,
 }
 
+#[allow(dead_code)]
 impl AccountDialogBuilder {
     pub fn new() -> Self {
         AccountDialogBuilder {

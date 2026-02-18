@@ -285,3 +285,13 @@ impl Default for TradeBalance {
         }
     }
 }
+
+/// Lightweight view used by analytics (for example leveling snapshots) to avoid
+/// materializing full Trade graphs (orders/vehicles) when only performance is needed.
+#[derive(PartialEq, Debug, Clone)]
+pub struct ClosedTradePerformance {
+    /// Closed trade identifier.
+    pub trade_id: Uuid,
+    /// Persisted total performance for this trade.
+    pub total_performance: Decimal,
+}

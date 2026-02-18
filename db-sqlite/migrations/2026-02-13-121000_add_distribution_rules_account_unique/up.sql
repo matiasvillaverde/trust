@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX idx_distribution_rules_account_id_unique ON distribution_rules(account_id);

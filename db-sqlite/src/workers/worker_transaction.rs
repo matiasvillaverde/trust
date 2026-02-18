@@ -23,10 +23,28 @@ impl WorkerTransaction {
         currency: &Currency,
         category: TransactionCategory,
     ) -> Result<Transaction, Box<dyn Error>> {
+        Self::create_transaction_with_id(
+            connection,
+            Uuid::new_v4(),
+            account_id,
+            amount,
+            currency,
+            category,
+        )
+    }
+
+    pub fn create_transaction_with_id(
+        connection: &mut SqliteConnection,
+        transaction_id: Uuid,
+        account_id: Uuid,
+        amount: Decimal,
+        currency: &Currency,
+        category: TransactionCategory,
+    ) -> Result<Transaction, Box<dyn Error>> {
         let now = Utc::now().naive_utc();
 
         let new_transaction = NewTransaction {
-            id: Uuid::new_v4().to_string(),
+            id: transaction_id.to_string(),
             created_at: now,
             updated_at: now,
             deleted_at: None,
@@ -80,55 +98,38 @@ impl WorkerTransaction {
         account_id: Uuid,
         currency: &Currency,
     ) -> Result<Vec<Transaction>, Box<dyn Error>> {
-        // REFACTOR: Query all transactions for an account and filer taxes out in memory.
-        let tx_deposit = WorkerTransaction::read_all_account_transactions_for_category(
-            connection,
-            account_id,
-            currency,
-            TransactionCategory::Deposit,
-        )?;
-        let tx_withdrawal = WorkerTransaction::read_all_account_transactions_for_category(
-            connection,
-            account_id,
-            currency,
-            TransactionCategory::Withdrawal,
-        )?;
+        // Hot path: avoid N queries per category; fetch via a single `IN (...)` query.
+        // This intentionally excludes tax reserve flows; use `read_all_account_transactions_taxes`
+        // for tax-specific reporting.
+        // Use string literals to avoid borrowing from temporary enum values.
+        let included_categories: [&str; 8] = [
+            "deposit",
+            "withdrawal",
+            "withdrawal_earnings",
+            "fee_open",
+            "fee_close",
+            "fund_trade",
+            "payment_from_trade",
+            "payment_earnings",
+        ];
 
-        let tx_fee_open = WorkerTransaction::read_all_account_transactions_for_category(
-            connection,
-            account_id,
-            currency,
-            TransactionCategory::FeeOpen(Uuid::new_v4()),
-        )?;
+        let transactions = transactions::table
+            .filter(transactions::deleted_at.is_null())
+            .filter(transactions::account_id.eq(account_id.to_string()))
+            .filter(transactions::currency.eq(currency.to_string()))
+            .filter(transactions::category.eq_any(included_categories))
+            .order((transactions::created_at.asc(), transactions::id.asc()))
+            .load::<TransactionSQLite>(connection)
+            .map_err(|error| {
+                error!(
+                    "Error reading all transactions excluding taxes: {:?}",
+                    error
+                );
+                error
+            })?
+            .into_domain_models()?;
 
-        let tx_fee_close = WorkerTransaction::read_all_account_transactions_for_category(
-            connection,
-            account_id,
-            currency,
-            TransactionCategory::FeeClose(Uuid::new_v4()),
-        )?;
-
-        let tx_output = WorkerTransaction::read_all_account_transactions_for_category(
-            connection,
-            account_id,
-            currency,
-            TransactionCategory::FundTrade(Uuid::new_v4()),
-        )?;
-
-        let tx_input = WorkerTransaction::read_all_account_transactions_for_category(
-            connection,
-            account_id,
-            currency,
-            TransactionCategory::PaymentFromTrade(Uuid::new_v4()),
-        )?;
-        Ok(tx_deposit
-            .into_iter()
-            .chain(tx_withdrawal)
-            .chain(tx_fee_open)
-            .chain(tx_fee_close)
-            .chain(tx_output)
-            .chain(tx_input)
-            .collect())
+        Ok(transactions)
     }
 
     pub fn all_account_transactions_in_trade(
@@ -277,45 +278,6 @@ impl WorkerTransaction {
         account_id: Uuid,
         currency: &Currency,
     ) -> Result<Vec<Transaction>, Box<dyn Error>> {
-        let tx_deposits = WorkerTransaction::read_all_transaction_beginning_of_the_month(
-            connection,
-            account_id,
-            currency,
-            TransactionCategory::Deposit,
-        )?;
-        let tx_withdrawals = WorkerTransaction::read_all_transaction_beginning_of_the_month(
-            connection,
-            account_id,
-            currency,
-            TransactionCategory::Withdrawal,
-        )?;
-        let tx_outputs = WorkerTransaction::read_all_transaction_beginning_of_the_month(
-            connection,
-            account_id,
-            currency,
-            TransactionCategory::FundTrade(Uuid::new_v4()),
-        )?;
-        let tx_inputs = WorkerTransaction::read_all_transaction_beginning_of_the_month(
-            connection,
-            account_id,
-            currency,
-            TransactionCategory::PaymentFromTrade(Uuid::new_v4()),
-        )?;
-
-        Ok(tx_deposits
-            .into_iter()
-            .chain(tx_withdrawals)
-            .chain(tx_outputs)
-            .chain(tx_inputs)
-            .collect())
-    }
-
-    fn read_all_transaction_beginning_of_the_month(
-        connection: &mut SqliteConnection,
-        account_id: Uuid,
-        currency: &Currency,
-        category: TransactionCategory,
-    ) -> Result<Vec<Transaction>, Box<dyn Error>> {
         let now = Utc::now().naive_utc();
         let first_day_of_month =
             NaiveDate::from_ymd_opt(now.year(), now.month(), 1).ok_or("Failed to create date")?;
@@ -324,21 +286,40 @@ impl WorkerTransaction {
             NaiveTime::from_hms_opt(0, 0, 0).ok_or("Failed to create time")?,
         );
 
+        // Keep this aligned with the calculator(s) that consume it.
+        let included_categories: [&str; 8] = [
+            "deposit",
+            "withdrawal",
+            "withdrawal_earnings",
+            "fee_open",
+            "fee_close",
+            "fund_trade",
+            "payment_from_trade",
+            "payment_earnings",
+        ];
+
         let tx = transactions::table
             .filter(transactions::deleted_at.is_null())
             .filter(transactions::account_id.eq(account_id.to_string()))
             .filter(transactions::created_at.le(first_day_of_month))
             .filter(transactions::currency.eq(currency.to_string()))
-            .filter(transactions::category.eq(category.key()))
+            .filter(transactions::category.eq_any(included_categories))
             .order((transactions::created_at.asc(), transactions::id.asc()))
             .load::<TransactionSQLite>(connection)
             .map_err(|error| {
-                error!("Error creating price: {:?}", error);
+                error!(
+                    "Error reading beginning-of-month transactions excluding taxes: {:?}",
+                    error
+                );
                 error
             })?
             .into_domain_models()?;
+
         Ok(tx)
     }
+
+    // NOTE: historically we fetched these by category (N queries). The optimized codepaths
+    // above use single `IN (...)` queries instead to keep perf stable.
 }
 
 #[derive(Debug, Queryable, Identifiable, AsChangeset, Insertable)]
