@@ -40,6 +40,7 @@ use uuid::Uuid;
 mod asset_lookup;
 mod cancel_trade;
 mod close_trade;
+mod executions;
 mod keys;
 mod market_data;
 mod modify_stop;
@@ -124,6 +125,15 @@ impl Broker for AlpacaBroker {
         on_event: &mut dyn FnMut(WatchEvent) -> Result<WatchControl, Box<dyn Error>>,
     ) -> Result<(), Box<dyn Error>> {
         watch_trade::watch(trade, account, options, on_event)
+    }
+
+    fn fetch_executions(
+        &self,
+        trade: &Trade,
+        account: &Account,
+        after: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> Result<Vec<model::Execution>, Box<dyn Error>> {
+        executions::fetch_executions(trade, account, after)
     }
 }
 

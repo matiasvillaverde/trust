@@ -1994,13 +1994,18 @@ fn order_target_canceled(trade: &Trade) -> Order {
 }
 
 fn fund_trade_direct(trust: &mut TrustFacade, account: &Account, trade: &Trade) -> Trade {
-    trust.fund_trade(trade).expect("fund trade direct");
-    trade_by_status_and_id(trust, account, Status::Funded, trade.id)
+    let (funded, _tx, _balance, _trade_balance) =
+        trust.fund_trade(trade).expect("fund trade direct");
+    assert_eq!(funded.status, Status::Funded);
+    assert_eq!(funded.account_id, account.id);
+    funded
 }
 
 fn submit_trade_direct(trust: &mut TrustFacade, account: &Account, trade: &Trade) -> Trade {
-    trust.submit_trade(trade).expect("submit trade direct");
-    trade_by_status_and_id(trust, account, Status::Submitted, trade.id)
+    let (submitted, _log) = trust.submit_trade(trade).expect("submit trade direct");
+    assert_eq!(submitted.status, Status::Submitted);
+    assert_eq!(submitted.account_id, account.id);
+    submitted
 }
 
 fn account_transactions_for_trade(

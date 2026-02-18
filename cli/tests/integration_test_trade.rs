@@ -494,6 +494,97 @@ fn test_trade_close() {
 }
 
 #[test]
+fn test_trade_target_filled_triggers_auto_distribution_from_persisted_close_state() {
+    let (trust, account, trade) = create_trade(BrokerResponse::orders_target_filled, None);
+    let mut trust = trust;
+
+    trust
+        .create_account_with_hierarchy(
+            "earnings",
+            "earnings",
+            model::Environment::Paper,
+            dec!(0),
+            dec!(0),
+            model::AccountType::Earnings,
+            Some(account.id),
+        )
+        .unwrap();
+    trust
+        .create_account_with_hierarchy(
+            "tax",
+            "tax",
+            model::Environment::Paper,
+            dec!(0),
+            dec!(0),
+            model::AccountType::TaxReserve,
+            Some(account.id),
+        )
+        .unwrap();
+    trust
+        .create_account_with_hierarchy(
+            "reinvestment",
+            "reinvestment",
+            model::Environment::Paper,
+            dec!(0),
+            dec!(0),
+            model::AccountType::Reinvestment,
+            Some(account.id),
+        )
+        .unwrap();
+
+    trust
+        .configure_distribution(
+            account.id,
+            dec!(0.30),
+            dec!(0.25),
+            dec!(0.45),
+            dec!(0),
+            "test-password",
+        )
+        .unwrap();
+
+    trust.sync_trade(&trade, &account).unwrap();
+
+    let closed_trade = trust
+        .search_trades(account.id, Status::ClosedTarget)
+        .unwrap()
+        .first()
+        .unwrap()
+        .clone();
+
+    assert_eq!(closed_trade.balance.total_performance, dec!(6500.0));
+
+    let history = trust.distribution_history(account.id).unwrap();
+    assert_eq!(history.len(), 1);
+    assert_eq!(history[0].trade_id, Some(closed_trade.id));
+    assert_eq!(history[0].original_amount, dec!(6500.0));
+    assert_eq!(history[0].earnings_amount, Some(dec!(1950.0)));
+    assert_eq!(history[0].tax_amount, Some(dec!(1625.0)));
+    assert_eq!(history[0].reinvestment_amount, Some(dec!(2925.0)));
+
+    let earnings_account = trust.search_account("earnings").unwrap();
+    let earnings_tx = trust.get_account_transactions(earnings_account.id).unwrap();
+    assert!(
+        earnings_tx.iter().any(|t| {
+            t.category == TransactionCategory::PaymentEarnings(closed_trade.id)
+                && t.amount == dec!(1950.0)
+        }),
+        "earnings account should receive PaymentEarnings for this trade"
+    );
+
+    let reinvestment_account = trust.search_account("reinvestment").unwrap();
+    let reinvestment_tx = trust
+        .get_account_transactions(reinvestment_account.id)
+        .unwrap();
+    assert!(
+        reinvestment_tx
+            .iter()
+            .any(|t| t.category == TransactionCategory::Deposit && t.amount == dec!(2925.0)),
+        "reinvestment account should receive a Deposit"
+    );
+}
+
+#[test]
 fn test_trade_modify_stop_long() {
     let (trust, account, trade) = create_trade(
         BrokerResponse::orders_entry_filled,

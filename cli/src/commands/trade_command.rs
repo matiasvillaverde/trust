@@ -132,8 +132,17 @@ impl TradeCommandBuilder {
     }
 
     pub fn manually_close(mut self) -> Self {
-        self.subcommands
-            .push(Command::new("manually-close").about("Manually close a trade"));
+        self.subcommands.push(
+            Command::new("manually-close")
+                .about("Manually close a trade with optional automatic profit distribution")
+                .arg(
+                    clap::Arg::new("auto-distribute")
+                        .long("auto-distribute")
+                        .short('d')
+                        .help("Automatically distribute profits after closing the trade")
+                        .action(clap::ArgAction::SetTrue),
+                ),
+        );
         self
     }
 

@@ -11,9 +11,10 @@ repository = "https://github.com/integer256/trust"
 readme = "README.md"
 
 [workspace.dependencies]
-chrono = "0.4.43"
+chrono = { version = "0.4.43", features = ["serde"] }
 diesel = { version = "2.3.6", features = ["sqlite", "returning_clauses_for_sqlite_3_35", "chrono"] }
 diesel_migrations = "2.3.1"
+serde = { version = "1.0.219", features = ["derive"] }
 uuid = { version = "1.20.0", features = [
     "v4",                # Lets you generate random UUIDs
     "fast-rng",          # Use a faster (but still sufficiently random) RNG
@@ -35,3 +36,7 @@ keyring = { version = "3.6.3", features = ["apple-native", "windows-native", "sy
 serde_json = "1.0.149"
 thiserror = "1.0.69"
 futures-util = "0.3.31"
+sha2 = "0.10.9"
+argon2 = "0.5.3"
+password-hash = "0.5.0"
+rand_core = { version = "0.6.4", features = ["getrandom"] }

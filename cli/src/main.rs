@@ -31,9 +31,10 @@
 #![warn(missing_docs, rust_2018_idioms, missing_debug_implementations)]
 
 use crate::commands::{
-    AccountCommandBuilder, GradeCommandBuilder, KeysCommandBuilder, LevelCommandBuilder,
-    MetricsCommandBuilder, OnboardingCommandBuilder, PolicyCommandBuilder, ReportCommandBuilder,
-    TradeCommandBuilder, TradingVehicleCommandBuilder, TransactionCommandBuilder,
+    AccountCommandBuilder, DbCommandBuilder, DistributionCommandBuilder, GradeCommandBuilder,
+    KeysCommandBuilder, LevelCommandBuilder, MetricsCommandBuilder, OnboardingCommandBuilder,
+    PolicyCommandBuilder, ReportCommandBuilder, TradeCommandBuilder, TradingVehicleCommandBuilder,
+    TransactionCommandBuilder,
 };
 use crate::dispatcher::ArgDispatcher;
 use clap::Command;
@@ -64,17 +65,20 @@ fn build_policy_subcommand() -> Command {
     PolicyCommandBuilder::new().build()
 }
 
+#[allow(clippy::too_many_lines)]
 fn build_cli() -> Command {
     Command::new("trust")
         .about("A tool for managing tradings")
         .version(env!("CARGO_PKG_VERSION"))
         .subcommand_required(true)
         .arg_required_else_help(true)
+        .subcommand(DbCommandBuilder::new().export().import().build())
         .subcommand(build_keys_subcommand())
         .subcommand(
             AccountCommandBuilder::new()
                 .create_account()
                 .read_account()
+                .transfer_account()
                 .build(),
         )
         .subcommand(
@@ -111,6 +115,13 @@ fn build_cli() -> Command {
                 .modify_stop()
                 .modify_target()
                 .size_preview()
+                .build(),
+        )
+        .subcommand(
+            DistributionCommandBuilder::new()
+                .configure_distribution()
+                .execute_distribution()
+                .history()
                 .build(),
         )
         .subcommand(

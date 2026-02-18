@@ -2,6 +2,7 @@ use crate::error::{ConversionError, IntoDomainModel};
 use crate::schema::{trades, trades_balances};
 use chrono::{NaiveDateTime, Utc};
 use diesel::prelude::*;
+use model::ClosedTradePerformance;
 use model::{Currency, DraftTrade, Status};
 use model::{Order, Trade, TradeBalance, TradeCategory};
 use rust_decimal::Decimal;
@@ -86,6 +87,23 @@ impl WorkerTrade {
         Ok(trade)
     }
 
+    pub fn read_trade_status(
+        connection: &mut SqliteConnection,
+        id: Uuid,
+    ) -> Result<Status, Box<dyn Error>> {
+        let status_string = trades::table
+            .filter(trades::id.eq(id.to_string()))
+            .select(trades::status)
+            .first::<String>(connection)
+            .map_err(|error| {
+                error!("Error reading trade status: {:?}", error);
+                error
+            })?;
+
+        Status::from_str(&status_string)
+            .map_err(|_| ConversionError::new("status", "Failed to parse status").into())
+    }
+
     pub fn read_all_funded_trades_for_currency(
         connection: &mut SqliteConnection,
         account_id: Uuid,
@@ -153,6 +171,100 @@ impl WorkerTrade {
             trades.push(trade_sqlite.try_into_domain_model(connection)?);
         }
         Ok(trades)
+    }
+
+    pub fn read_recent_closed_trade_performances(
+        connection: &mut SqliteConnection,
+        account_id: Uuid,
+        currency: &Currency,
+        cutoff: NaiveDateTime,
+    ) -> Result<Vec<ClosedTradePerformance>, Box<dyn Error>> {
+        // Avoid loading full trade graphs when only `(updated_at, total_performance)` is required.
+        #[derive(Queryable)]
+        struct Row {
+            trade_id: String,
+            total_performance: String,
+        }
+
+        let closed_target = Status::ClosedTarget.to_string();
+        let closed_stop = Status::ClosedStopLoss.to_string();
+
+        let account_id_string = account_id.to_string();
+        let currency_string = currency.to_string();
+
+        let rows = trades::table
+            .inner_join(trades_balances::table.on(trades_balances::id.eq(trades::balance_id)))
+            .filter(trades::deleted_at.is_null())
+            .filter(trades_balances::deleted_at.is_null())
+            .filter(trades::account_id.eq(&account_id_string))
+            .filter(trades::currency.eq(&currency_string))
+            .filter(trades::updated_at.ge(cutoff))
+            .filter(trades::status.eq_any([closed_target, closed_stop]))
+            .select((trades::id, trades_balances::total_performance))
+            .order_by(trades::updated_at.desc())
+            .load::<Row>(connection)
+            .map_err(|error| {
+                error!("Error reading closed trade performances: {:?}", error);
+                error
+            })?;
+
+        let mut out: Vec<ClosedTradePerformance> = Vec::with_capacity(rows.len());
+        for row in rows {
+            out.push(ClosedTradePerformance {
+                trade_id: Uuid::parse_str(&row.trade_id)
+                    .map_err(|_| ConversionError::new("trade_id", "Failed to parse trade id"))?,
+                total_performance: Decimal::from_str(&row.total_performance).map_err(|_| {
+                    ConversionError::new("total_performance", "Failed to parse performance")
+                })?,
+            });
+        }
+        Ok(out)
+    }
+
+    pub fn read_recent_closed_trade_performance_points(
+        connection: &mut SqliteConnection,
+        account_id: Uuid,
+        currency: &Currency,
+        cutoff: NaiveDateTime,
+    ) -> Result<Vec<(NaiveDateTime, Decimal)>, Box<dyn Error>> {
+        #[derive(Queryable)]
+        struct Row {
+            updated_at: NaiveDateTime,
+            total_performance: String,
+        }
+
+        let closed_target = Status::ClosedTarget.to_string();
+        let closed_stop = Status::ClosedStopLoss.to_string();
+
+        let account_id_string = account_id.to_string();
+        let currency_string = currency.to_string();
+
+        let rows = trades::table
+            .inner_join(trades_balances::table.on(trades_balances::id.eq(trades::balance_id)))
+            .filter(trades::deleted_at.is_null())
+            .filter(trades_balances::deleted_at.is_null())
+            .filter(trades::account_id.eq(&account_id_string))
+            .filter(trades::currency.eq(&currency_string))
+            .filter(trades::updated_at.ge(cutoff))
+            .filter(trades::status.eq_any([closed_target, closed_stop]))
+            .select((trades::updated_at, trades_balances::total_performance))
+            .order_by(trades::updated_at.asc())
+            .load::<Row>(connection)
+            .map_err(|error| {
+                error!("Error reading closed trade performance points: {:?}", error);
+                error
+            })?;
+
+        let mut out: Vec<(NaiveDateTime, Decimal)> = Vec::with_capacity(rows.len());
+        for row in rows {
+            out.push((
+                row.updated_at,
+                Decimal::from_str(&row.total_performance).map_err(|_| {
+                    ConversionError::new("total_performance", "Failed to parse performance")
+                })?,
+            ));
+        }
+        Ok(out)
     }
 
     fn create_balance(

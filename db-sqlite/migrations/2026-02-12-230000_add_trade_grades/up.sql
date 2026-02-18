@@ -1,10 +1,17 @@
-CREATE TABLE trade_grades (
+-- NOTE: trade_grades table exists from an earlier migration but had a restrictive
+-- CHECK constraint on `overall_grade` (A/B/C/D/F only). The model supports plus/minus
+-- grades, so we rebuild the table to relax the constraint and to add weight columns
+-- for reproducible scoring.
+
+PRAGMA foreign_keys=OFF;
+
+CREATE TABLE trade_grades_new (
     id TEXT NOT NULL PRIMARY KEY,
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,
     deleted_at DATETIME,
 
-    trade_id TEXT NOT NULL REFERENCES trades(id),
+    trade_id TEXT NOT NULL REFERENCES trades(id) ON DELETE CASCADE,
 
     overall_score INTEGER NOT NULL CHECK (overall_score >= 0 AND overall_score <= 100),
     overall_grade TEXT NOT NULL,
@@ -27,6 +34,49 @@ CREATE TABLE trade_grades (
     CHECK (process_weight_permille + risk_weight_permille + execution_weight_permille + documentation_weight_permille = 1000)
 );
 
-CREATE INDEX idx_trade_grades_trade_id ON trade_grades(trade_id);
-CREATE INDEX idx_trade_grades_graded_at ON trade_grades(graded_at);
+INSERT INTO trade_grades_new (
+    id,
+    created_at,
+    updated_at,
+    deleted_at,
+    trade_id,
+    overall_score,
+    overall_grade,
+    process_score,
+    risk_score,
+    execution_score,
+    documentation_score,
+    recommendations,
+    graded_at,
+    process_weight_permille,
+    risk_weight_permille,
+    execution_weight_permille,
+    documentation_weight_permille
+)
+SELECT
+    id,
+    created_at,
+    updated_at,
+    deleted_at,
+    trade_id,
+    overall_score,
+    overall_grade,
+    process_score,
+    risk_score,
+    execution_score,
+    documentation_score,
+    recommendations,
+    graded_at,
+    400,
+    300,
+    200,
+    100
+FROM trade_grades;
 
+DROP TABLE trade_grades;
+ALTER TABLE trade_grades_new RENAME TO trade_grades;
+
+CREATE INDEX IF NOT EXISTS idx_trade_grades_trade_id ON trade_grades(trade_id);
+CREATE INDEX IF NOT EXISTS idx_trade_grades_graded_at ON trade_grades(graded_at);
+
+PRAGMA foreign_keys=ON;

@@ -21,10 +21,12 @@ impl AccountCapitalAvailable {
                 match transaction.category {
                     TransactionCategory::FundTrade(_) |
                     TransactionCategory::Withdrawal |
+                    TransactionCategory::WithdrawalEarnings |
                     TransactionCategory::FeeOpen(_) |
                     TransactionCategory::FeeClose(_) => acc.checked_sub(transaction.amount)
                         .ok_or_else(|| format!("Arithmetic overflow in subtraction: {} - {}", acc, transaction.amount).into()),
                     TransactionCategory::PaymentFromTrade(_) |
+                    TransactionCategory::PaymentEarnings(_) |
                     TransactionCategory::Deposit => acc.checked_add(transaction.amount)
                         .ok_or_else(|| format!("Arithmetic overflow in addition: {} + {}", acc, transaction.amount).into()),
                     _ => Err(format!(

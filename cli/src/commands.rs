@@ -1,4 +1,6 @@
 mod account_command;
+mod db_command;
+mod distribution_command;
 mod grade_command;
 mod key_command;
 mod level_command;
@@ -13,6 +15,8 @@ mod transaction_command;
 
 // Re-export the types from the cli crate.
 pub use account_command::AccountCommandBuilder;
+pub use db_command::DbCommandBuilder;
+pub use distribution_command::DistributionCommandBuilder;
 pub use grade_command::GradeCommandBuilder;
 pub use key_command::KeysCommandBuilder;
 pub use level_command::LevelCommandBuilder;

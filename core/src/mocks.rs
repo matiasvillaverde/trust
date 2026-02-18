@@ -2,6 +2,7 @@
 pub mod read_transaction_db_mocks {
 
     use chrono::Utc;
+    use model::trade::ClosedTradePerformance;
     use model::{
         Currency, Order, OrderAction, OrderCategory, ReadTradeDB, ReadTransactionDB, Status, Trade,
         TradeBalance, TradeCategory, TradingVehicle, Transaction, TransactionCategory,
@@ -179,11 +180,33 @@ pub mod read_transaction_db_mocks {
             Ok(self.trades.first().unwrap().clone())
         }
 
+        fn read_trade_status(&mut self, _id: Uuid) -> Result<Status, Box<dyn Error>> {
+            Ok(self.trades.first().unwrap().status)
+        }
+
         fn read_trade_balance(
             &mut self,
             _balance_id: Uuid,
         ) -> Result<TradeBalance, Box<dyn Error>> {
             Ok(self.trades.first().unwrap().balance.clone())
+        }
+
+        fn read_recent_closed_trade_performances(
+            &mut self,
+            _account_id: Uuid,
+            _currency: &Currency,
+            _cutoff: chrono::NaiveDateTime,
+        ) -> Result<Vec<ClosedTradePerformance>, Box<dyn Error>> {
+            Ok(Vec::new())
+        }
+
+        fn read_recent_closed_trade_performance_points(
+            &mut self,
+            _account_id: Uuid,
+            _currency: &Currency,
+            _cutoff: chrono::NaiveDateTime,
+        ) -> Result<Vec<(chrono::NaiveDateTime, Decimal)>, Box<dyn Error>> {
+            Ok(Vec::new())
         }
     }
 }

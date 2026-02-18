@@ -1,6 +1,7 @@
 use crate::{
-    Account, AccountBalance, BrokerEvent, BrokerLog, Currency, Environment, Level,
-    LevelAdjustmentRules, LevelChange, Order, OrderAction, OrderCategory, Rule, RuleLevel,
+    Account, AccountBalance, AccountType, BrokerEvent, BrokerLog, Currency,
+    DistributionExecutionPlan, DistributionHistory, DistributionRules, Environment, Execution,
+    Level, LevelAdjustmentRules, LevelChange, Order, OrderAction, OrderCategory, Rule, RuleLevel,
     RuleName, Status, Trade, TradeBalance, TradeCategory, TradeGrade, TradingVehicle,
     TradingVehicleCategory, Transaction, TransactionCategory,
 };
@@ -60,6 +61,10 @@ pub trait DatabaseFactory {
     fn broker_event_read(&self) -> Box<dyn ReadBrokerEventsDB>;
     /// Returns a writer for broker event data operations
     fn broker_event_write(&self) -> Box<dyn WriteBrokerEventsDB>;
+    /// Returns a reader for execution data operations
+    fn execution_read(&self) -> Box<dyn ReadExecutionDB>;
+    /// Returns a writer for execution data operations
+    fn execution_write(&self) -> Box<dyn WriteExecutionDB>;
     /// Returns a reader for trade grade data operations
     fn trade_grade_read(&self) -> Box<dyn ReadTradeGradeDB>;
     /// Returns a writer for trade grade data operations
@@ -79,6 +84,11 @@ pub trait DatabaseFactory {
 
     /// Rolls back all changes after a named savepoint.
     fn rollback_to_savepoint(&mut self, name: &str) -> Result<(), Box<dyn Error>>;
+
+    /// Returns a reader for distribution rules data operations
+    fn distribution_read(&self) -> Box<dyn DistributionRead>;
+    /// Returns a writer for distribution rules data operations
+    fn distribution_write(&self) -> Box<dyn DistributionWrite>;
 }
 
 /// Trait for reading account data from the database
@@ -102,6 +112,30 @@ pub trait AccountWrite {
         taxes_percentage: Decimal,
         earnings_percentage: Decimal,
     ) -> Result<Account, Box<dyn Error>>;
+
+    /// Creates a new account with hierarchy metadata.
+    ///
+    /// Default implementation falls back to `create` for DBs that haven't
+    /// implemented hierarchy persistence yet.
+    #[allow(clippy::too_many_arguments)]
+    fn create_with_hierarchy(
+        &mut self,
+        name: &str,
+        description: &str,
+        environment: Environment,
+        taxes_percentage: Decimal,
+        earnings_percentage: Decimal,
+        _account_type: AccountType,
+        _parent_account_id: Option<Uuid>,
+    ) -> Result<Account, Box<dyn Error>> {
+        self.create(
+            name,
+            description,
+            environment,
+            taxes_percentage,
+            earnings_percentage,
+        )
+    }
 }
 
 /// Trait for reading account balance data from the database
@@ -249,6 +283,53 @@ pub trait WriteTransactionDB {
     ) -> Result<Transaction, Box<dyn Error>> {
         self.create_transaction_by_account_id(account.id, amount, currency, category)
     }
+
+    /// Creates a paired transfer (withdrawal + deposit).
+    /// Implementations should provide atomicity when possible.
+    fn create_transfer_pair(
+        &mut self,
+        from_account: &Account,
+        to_account: &Account,
+        amount: Decimal,
+        currency: &Currency,
+        withdrawal_category: TransactionCategory,
+        deposit_category: TransactionCategory,
+    ) -> Result<(Transaction, Transaction), Box<dyn Error>> {
+        let withdrawal_amount = Decimal::ZERO
+            .checked_sub(amount)
+            .ok_or("Invalid withdrawal amount")?;
+        let withdrawal_tx = self.create_transaction(
+            from_account,
+            withdrawal_amount,
+            currency,
+            withdrawal_category,
+        )?;
+        let deposit_tx = self.create_transaction(to_account, amount, currency, deposit_category)?;
+        Ok((withdrawal_tx, deposit_tx))
+    }
+}
+
+/// Trait for reading execution data from the database.
+pub trait ReadExecutionDB {
+    /// Retrieve all executions for a trade.
+    fn all_trade_executions(&mut self, trade_id: Uuid) -> Result<Vec<Execution>, Box<dyn Error>>;
+
+    /// Retrieve all executions for an order.
+    fn all_order_executions(&mut self, order_id: Uuid) -> Result<Vec<Execution>, Box<dyn Error>>;
+
+    /// Retrieve the latest execution timestamp for a trade (if any).
+    fn latest_trade_execution_at(
+        &mut self,
+        trade_id: Uuid,
+    ) -> Result<Option<chrono::NaiveDateTime>, Box<dyn Error>>;
+}
+
+/// Trait for writing execution data to the database.
+pub trait WriteExecutionDB {
+    /// Insert an execution if not already present (idempotent).
+    ///
+    /// Dedupe is expected to be enforced by `(broker, account_id, broker_execution_id)`.
+    fn upsert_execution(&mut self, execution: &Execution) -> Result<Execution, Box<dyn Error>>;
 }
 
 // Trade DB
@@ -272,8 +353,33 @@ pub trait ReadTradeDB {
     /// Retrieves a specific trade by its ID
     fn read_trade(&mut self, id: Uuid) -> Result<Trade, Box<dyn Error>>;
 
+    /// Retrieves the status for a trade by ID.
+    ///
+    /// This is a lightweight alternative to `read_trade` for hot paths that only need
+    /// to validate state transitions.
+    fn read_trade_status(&mut self, id: Uuid) -> Result<Status, Box<dyn Error>>;
+
     /// Retrieves a specific trade balance by its ID
     fn read_trade_balance(&mut self, balance_id: Uuid) -> Result<TradeBalance, Box<dyn Error>>;
+
+    /// Retrieves recent closed trade performance rows for analytics.
+    ///
+    /// This is a lightweight alternative to loading full `Trade` graphs when only
+    /// `(updated_at, total_performance)` is required.
+    fn read_recent_closed_trade_performances(
+        &mut self,
+        account_id: Uuid,
+        currency: &Currency,
+        cutoff: chrono::NaiveDateTime,
+    ) -> Result<Vec<crate::ClosedTradePerformance>, Box<dyn Error>>;
+
+    /// Retrieves recent closed trade `(updated_at, total_performance)` points for analytics caching.
+    fn read_recent_closed_trade_performance_points(
+        &mut self,
+        account_id: Uuid,
+        currency: &Currency,
+        cutoff: chrono::NaiveDateTime,
+    ) -> Result<Vec<(chrono::NaiveDateTime, rust_decimal::Decimal)>, Box<dyn Error>>;
 }
 
 /// Structure representing a draft trade before it's created in the database
@@ -513,4 +619,51 @@ pub trait WriteLevelDB {
         account_id: Uuid,
         rules: &LevelAdjustmentRules,
     ) -> Result<LevelAdjustmentRules, Box<dyn Error>>;
+}
+
+/// Trait for reading distribution rules from the database.
+pub trait DistributionRead {
+    /// Retrieves distribution rules for a specific account.
+    fn for_account(&mut self, account_id: Uuid) -> Result<DistributionRules, Box<dyn Error>>;
+
+    /// Retrieves distribution execution history for a specific account.
+    fn history_for_account(
+        &mut self,
+        account_id: Uuid,
+    ) -> Result<Vec<DistributionHistory>, Box<dyn Error>>;
+}
+
+/// Trait for writing distribution rules to the database.
+pub trait DistributionWrite {
+    /// Creates or updates distribution rules for an account.
+    fn create_or_update(
+        &mut self,
+        account_id: Uuid,
+        earnings_percent: Decimal,
+        tax_percent: Decimal,
+        reinvestment_percent: Decimal,
+        minimum_threshold: Decimal,
+        configuration_password_hash: &str,
+    ) -> Result<DistributionRules, Box<dyn Error>>;
+
+    /// Persists an execution event for distribution audit/history.
+    #[allow(clippy::too_many_arguments)]
+    fn create_history(
+        &mut self,
+        source_account_id: Uuid,
+        trade_id: Option<Uuid>,
+        original_amount: Decimal,
+        distribution_date: chrono::NaiveDateTime,
+        earnings_amount: Option<Decimal>,
+        tax_amount: Option<Decimal>,
+        reinvestment_amount: Option<Decimal>,
+    ) -> Result<DistributionHistory, Box<dyn Error>>;
+
+    /// Executes all distribution transfers and writes a history row atomically.
+    ///
+    /// Returns destination-side transaction IDs (deposits) created for this distribution.
+    fn execute_distribution_plan_atomic(
+        &mut self,
+        plan: &DistributionExecutionPlan,
+    ) -> Result<Vec<Uuid>, Box<dyn Error>>;
 }
