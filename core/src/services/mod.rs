@@ -13,6 +13,8 @@ pub mod grading;
 pub mod leveling;
 /// Profit distribution service for handling account hierarchy and fund transfers
 pub mod profit_distribution_service;
+#[cfg(test)]
+pub(crate) mod test_helpers;
 
 pub use event_distribution_service::EventDistributionService;
 pub use fund_transfer_service::FundTransferService;

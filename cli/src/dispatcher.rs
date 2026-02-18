@@ -91,6 +91,96 @@ pub struct ArgDispatcher {
     trust: TrustFacade,
 }
 
+struct WatchRenderState {
+    json_mode: bool,
+    account_name: String,
+    last_market: Option<(String, String)>,
+}
+
+impl WatchRenderState {
+    fn new(json_mode: bool, account_name: String) -> Self {
+        Self {
+            json_mode,
+            account_name,
+            last_market: None,
+        }
+    }
+
+    fn render(&mut self, trade_now: &Trade, evt: &model::WatchEvent) {
+        if let (Some(price), Some(ts)) = (evt.market_price, evt.market_timestamp) {
+            self.last_market = Some((price.to_string(), ts.to_rfc3339()));
+        }
+
+        if self.json_mode {
+            self.render_json(trade_now, evt);
+        } else {
+            self.render_text(trade_now, evt);
+        }
+    }
+
+    fn render_json(&self, trade_now: &Trade, evt: &model::WatchEvent) {
+        let out = json!({
+            "type": "trade_watch_tick",
+            "trade_id": trade_now.id.to_string(),
+            "trade_status": trade_now.status.to_string(),
+            "broker_source": evt.broker_source.clone(),
+            "broker_stream": evt.broker_stream.clone(),
+            "broker_event_type": evt.broker_event_type,
+            "broker_order_id": evt.broker_order_id.map(|x| x.to_string()),
+            "market": self.last_market.as_ref().map(|(price, ts)| json!({
+                "symbol": evt.market_symbol.clone().unwrap_or_else(|| trade_now.trading_vehicle.symbol.clone()),
+                "price": price,
+                "timestamp": ts,
+            })),
+            "updated_orders": evt.updated_orders.iter().map(|o| json!({
+                "id": o.id.to_string(),
+                "broker_order_id": o.broker_order_id.map(|x| x.to_string()),
+                "status": o.status.to_string(),
+                "filled_quantity": o.filled_quantity,
+                "average_filled_price": o.average_filled_price.map(|x| x.to_string()),
+            })).collect::<Vec<_>>(),
+        });
+        println!("{out}");
+    }
+
+    fn render_text(&self, trade_now: &Trade, evt: &model::WatchEvent) {
+        // GH-like: refresh screen (best-effort).
+        print!("\u{001b}[2J\u{001b}[H");
+        println!("trust trade watch");
+        println!("Trade:   {}", trade_now.id);
+        println!("Account: {}", self.account_name);
+        println!("Symbol:  {}", trade_now.trading_vehicle.symbol);
+        println!("Status:  {}", trade_now.status);
+        if let Some((price, ts)) = &self.last_market {
+            println!("Last:    {} @ {}", price, ts);
+        }
+        println!();
+        println!(
+            "Entry:  {} avg_fill={:?} filled_qty={:?}",
+            trade_now.entry.status,
+            trade_now.entry.average_filled_price,
+            trade_now.entry.filled_quantity
+        );
+        println!(
+            "Stop:   {} avg_fill={:?} filled_qty={:?}",
+            trade_now.safety_stop.status,
+            trade_now.safety_stop.average_filled_price,
+            trade_now.safety_stop.filled_quantity
+        );
+        println!(
+            "Target: {} avg_fill={:?} filled_qty={:?}",
+            trade_now.target.status,
+            trade_now.target.average_filled_price,
+            trade_now.target.filled_quantity
+        );
+        println!();
+        println!(
+            "Last broker event: {} {:?}",
+            evt.broker_event_type, evt.broker_order_id
+        );
+    }
+}
+
 impl ArgDispatcher {
     fn is_valid_protected_keyword(expected: &str, provided: &str) -> bool {
         provided == expected
@@ -1602,146 +1692,97 @@ impl ArgDispatcher {
             .display();
     }
 
-    #[allow(clippy::too_many_lines)]
     fn watch_trade(&mut self, matches: &ArgMatches) -> Result<(), CliError> {
-        use model::{Status as TradeStatus, WatchControl, WatchOptions};
-        use std::time::Duration;
+        use model::WatchControl;
 
-        let account = if let Some(name) = matches.get_one::<String>("account") {
+        let account = self.watch_resolve_account(matches)?;
+        let trade = self.watch_resolve_trade(matches, account.id)?;
+        let options = Self::watch_options(matches);
+        let mut render = WatchRenderState::new(matches.get_flag("json"), account.name.clone());
+
+        self.trust
+            .watch_trade(&trade, &account, options, |trade_now, evt| {
+                render.render(trade_now, evt);
+                Ok(WatchControl::Continue)
+            })
+            .map_err(|e| CliError::new("watch_failed", format!("{e}")))?;
+
+        Ok(())
+    }
+
+    fn watch_resolve_account(&mut self, matches: &ArgMatches) -> Result<model::Account, CliError> {
+        if let Some(name) = matches.get_one::<String>("account") {
             self.trust
                 .search_account(name)
-                .map_err(|e| CliError::new("watch_account_not_found", format!("{e}")))?
+                .map_err(|e| CliError::new("watch_account_not_found", format!("{e}")))
         } else {
             AccountSearchDialog::new()
                 .search(&mut self.trust)
                 .build()
-                .map_err(|e| CliError::new("watch_account_select_failed", format!("{e}")))?
-        };
+                .map_err(|e| CliError::new("watch_account_select_failed", format!("{e}")))
+        }
+    }
 
-        let trade = if let Some(id) = matches.get_one::<String>("trade-id") {
+    fn watch_resolve_trade(
+        &mut self,
+        matches: &ArgMatches,
+        account_id: Uuid,
+    ) -> Result<Trade, CliError> {
+        use model::Status as TradeStatus;
+
+        if let Some(id) = matches.get_one::<String>("trade-id") {
             let trade_id = Uuid::from_str(id)
                 .map_err(|e| CliError::new("watch_invalid_trade_id", format!("{e}")))?;
-            self.trust
-                .read_trade(trade_id)
-                .map_err(|e| CliError::new("watch_trade_read_failed", format!("{e}")))?
-        } else {
-            // Fallback: watch first open-ish trade for that account.
-            let mut trades = self
+            return self
                 .trust
-                .search_trades(account.id, TradeStatus::Submitted)
-                .unwrap_or_default();
-            trades.append(
-                &mut self
-                    .trust
-                    .search_trades(account.id, TradeStatus::PartiallyFilled)
-                    .unwrap_or_default(),
-            );
-            trades.append(
-                &mut self
-                    .trust
-                    .search_trades(account.id, TradeStatus::Filled)
-                    .unwrap_or_default(),
-            );
+                .read_trade(trade_id)
+                .map_err(|e| CliError::new("watch_trade_read_failed", format!("{e}")));
+        }
 
-            trades
-                .into_iter()
-                .next()
-                .ok_or_else(|| CliError::new("watch_no_trade", "No trade found to watch"))?
-        };
+        let mut trades = self
+            .trust
+            .search_trades(account_id, TradeStatus::Submitted)
+            .unwrap_or_default();
+        trades.append(
+            &mut self
+                .trust
+                .search_trades(account_id, TradeStatus::PartiallyFilled)
+                .unwrap_or_default(),
+        );
+        trades.append(
+            &mut self
+                .trust
+                .search_trades(account_id, TradeStatus::Filled)
+                .unwrap_or_default(),
+        );
 
-        let reconcile_secs = matches
-            .get_one::<String>("reconcile-secs")
-            .and_then(|s| s.parse::<u64>().ok())
-            .unwrap_or(20);
+        trades
+            .into_iter()
+            .next()
+            .ok_or_else(|| CliError::new("watch_no_trade", "No trade found to watch"))
+    }
 
-        let timeout_secs = matches
-            .get_one::<String>("timeout-secs")
-            .and_then(|s| s.parse::<u64>().ok())
-            .unwrap_or(0);
+    fn watch_options(matches: &ArgMatches) -> model::WatchOptions {
+        use std::time::Duration;
 
-        let options = WatchOptions {
+        let reconcile_secs = Self::watch_seconds(matches, "reconcile-secs", 20);
+        let timeout_secs = Self::watch_seconds(matches, "timeout-secs", 0);
+
+        model::WatchOptions {
             reconcile_every: Duration::from_secs(reconcile_secs),
             timeout: if timeout_secs == 0 {
                 None
             } else {
                 Some(Duration::from_secs(timeout_secs))
             },
-        };
+        }
+    }
 
-        let json_mode = matches.get_flag("json");
-        let mut last_market: Option<(String, String)> = None;
-
-        self.trust
-            .watch_trade(&trade, &account, options, |trade_now, evt| {
-                if let (Some(price), Some(ts)) = (evt.market_price, evt.market_timestamp) {
-                    last_market = Some((price.to_string(), ts.to_rfc3339()));
-                }
-
-                if json_mode {
-                    let out = json!({
-                        "type": "trade_watch_tick",
-                        "trade_id": trade_now.id.to_string(),
-                        "trade_status": trade_now.status.to_string(),
-                        "broker_source": evt.broker_source.clone(),
-                        "broker_stream": evt.broker_stream.clone(),
-                        "broker_event_type": evt.broker_event_type,
-                        "broker_order_id": evt.broker_order_id.map(|x| x.to_string()),
-                        "market": last_market.as_ref().map(|(price, ts)| json!({
-                            "symbol": evt.market_symbol.clone().unwrap_or_else(|| trade_now.trading_vehicle.symbol.clone()),
-                            "price": price,
-                            "timestamp": ts,
-                        })),
-                        "updated_orders": evt.updated_orders.iter().map(|o| json!({
-                            "id": o.id.to_string(),
-                            "broker_order_id": o.broker_order_id.map(|x| x.to_string()),
-                            "status": o.status.to_string(),
-                            "filled_quantity": o.filled_quantity,
-                            "average_filled_price": o.average_filled_price.map(|x| x.to_string()),
-                        })).collect::<Vec<_>>(),
-                    });
-                    println!("{out}");
-                } else {
-                    // GH-like: refresh screen (best-effort).
-                    print!("\u{001b}[2J\u{001b}[H");
-                    println!("trust trade watch");
-                    println!("Trade:   {}", trade_now.id);
-                    println!("Account: {}", account.name);
-                    println!("Symbol:  {}", trade_now.trading_vehicle.symbol);
-                    println!("Status:  {}", trade_now.status);
-                    if let Some((price, ts)) = &last_market {
-                        println!("Last:    {} @ {}", price, ts);
-                    }
-                    println!();
-                    println!(
-                        "Entry:  {} avg_fill={:?} filled_qty={:?}",
-                        trade_now.entry.status,
-                        trade_now.entry.average_filled_price,
-                        trade_now.entry.filled_quantity
-                    );
-                    println!(
-                        "Stop:   {} avg_fill={:?} filled_qty={:?}",
-                        trade_now.safety_stop.status,
-                        trade_now.safety_stop.average_filled_price,
-                        trade_now.safety_stop.filled_quantity
-                    );
-                    println!(
-                        "Target: {} avg_fill={:?} filled_qty={:?}",
-                        trade_now.target.status,
-                        trade_now.target.average_filled_price,
-                        trade_now.target.filled_quantity
-                    );
-                    println!();
-                    println!(
-                        "Last broker event: {} {:?}",
-                        evt.broker_event_type, evt.broker_order_id
-                    );
-                }
-
-                Ok(WatchControl::Continue)
-            })
-            .map_err(|e| CliError::new("watch_failed", format!("{e}")))?;
-
-        Ok(())
+    fn watch_seconds(matches: &ArgMatches, key: &str, default: u64) -> u64 {
+        matches
+            .get_one::<String>(key)
+            .and_then(|value| value.parse::<u64>().ok())
+            .unwrap_or(default)
     }
 
     fn search_trade(&mut self) {

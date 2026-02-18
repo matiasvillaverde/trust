@@ -79,10 +79,10 @@ impl<'a> FundTransferService<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::services::test_helpers::impl_database_factory_not_used;
     use chrono::Utc;
     use db_sqlite::SqliteDatabase;
-    use model::database::WriteAccountBalanceDB;
-    use model::{AccountType, DatabaseFactory, Environment};
+    use model::{AccountType, Environment};
     use rust_decimal_macros::dec;
     use uuid::Uuid;
 
@@ -101,132 +101,7 @@ mod tests {
         }
     }
 
-    // Implement required traits for mock - simplified for testing
-    impl DatabaseFactory for MockDatabaseFactory {
-        fn account_read(&self) -> Box<dyn model::AccountRead> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn account_write(&self) -> Box<dyn model::AccountWrite> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn account_balance_read(&self) -> Box<dyn model::AccountBalanceRead> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn account_balance_write(&self) -> Box<dyn model::AccountBalanceWrite> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn order_read(&self) -> Box<dyn model::OrderRead> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn order_write(&self) -> Box<dyn model::OrderWrite> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn transaction_read(&self) -> Box<dyn model::ReadTransactionDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn transaction_write(&self) -> Box<dyn model::WriteTransactionDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn trade_read(&self) -> Box<dyn model::ReadTradeDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn trade_write(&self) -> Box<dyn model::WriteTradeDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn trade_balance_write(&self) -> Box<dyn WriteAccountBalanceDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn rule_read(&self) -> Box<dyn model::ReadRuleDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn rule_write(&self) -> Box<dyn model::WriteRuleDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn trading_vehicle_read(&self) -> Box<dyn model::ReadTradingVehicleDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn trading_vehicle_write(&self) -> Box<dyn model::WriteTradingVehicleDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn log_read(&self) -> Box<dyn model::ReadBrokerLogsDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn log_write(&self) -> Box<dyn model::WriteBrokerLogsDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn broker_event_read(&self) -> Box<dyn model::ReadBrokerEventsDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn broker_event_write(&self) -> Box<dyn model::WriteBrokerEventsDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn distribution_read(&self) -> Box<dyn model::DistributionRead> {
-            #[allow(unused_imports)]
-            use model::database::DistributionRead;
-            todo!("Mock not needed for this test")
-        }
-
-        fn distribution_write(&self) -> Box<dyn model::DistributionWrite> {
-            #[allow(unused_imports)]
-            use model::database::DistributionWrite;
-            todo!("Mock not needed for this test")
-        }
-
-        fn execution_read(&self) -> Box<dyn model::ReadExecutionDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn execution_write(&self) -> Box<dyn model::WriteExecutionDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn trade_grade_read(&self) -> Box<dyn model::ReadTradeGradeDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn trade_grade_write(&self) -> Box<dyn model::WriteTradeGradeDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn level_read(&self) -> Box<dyn model::ReadLevelDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn level_write(&self) -> Box<dyn model::WriteLevelDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn begin_savepoint(&mut self, _name: &str) -> Result<(), Box<dyn Error>> {
-            Ok(())
-        }
-
-        fn release_savepoint(&mut self, _name: &str) -> Result<(), Box<dyn Error>> {
-            Ok(())
-        }
-
-        fn rollback_to_savepoint(&mut self, _name: &str) -> Result<(), Box<dyn Error>> {
-            Ok(())
-        }
-    }
+    impl_database_factory_not_used!(MockDatabaseFactory, "Mock not needed for this test");
 
     fn create_test_account(account_type: AccountType, parent_id: Option<Uuid>) -> Account {
         Account {
