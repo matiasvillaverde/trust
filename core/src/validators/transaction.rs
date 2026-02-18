@@ -102,7 +102,7 @@ pub fn can_transfer_withdraw(
     account_id: Uuid,
     database: &mut dyn AccountBalanceRead,
 ) -> TransactionValidationResult {
-    if amount.is_sign_negative() | amount.is_zero() {
+    if amount.is_sign_negative() || amount.is_zero() {
         Err(Box::new(TransactionValidationError {
             code: TransactionValidationErrorCode::AmountOfWithdrawalMustBePositive,
             message: "Amount of withdrawal must be positive".to_string(),

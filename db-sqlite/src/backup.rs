@@ -350,7 +350,33 @@ fn read_applied_migrations(conn: &mut SqliteConnection) -> Result<Vec<String>, B
     Ok(versions.into_iter().map(|row| row.version).collect())
 }
 
+const ALLOWED_TABLES: &[&str] = &[
+    "accounts",
+    "accounts_balances",
+    "logs",
+    "level_changes",
+    "levels",
+    "orders",
+    "rules",
+    "trade_grades",
+    "trades",
+    "trades_balances",
+    "trading_vehicles",
+    "transactions",
+];
+
+fn validate_table_name(table: &str) -> Result<(), BackupError> {
+    if ALLOWED_TABLES.contains(&table) {
+        Ok(())
+    } else {
+        Err(BackupError::Invalid(format!(
+            "unknown or disallowed table name: '{table}'"
+        )))
+    }
+}
+
 fn read_table_count(conn: &mut SqliteConnection, table: &str) -> Result<i64, BackupError> {
+    validate_table_name(table)?;
     let sql = format!("SELECT COUNT(*) AS count FROM {table}");
     let rows: Vec<CountRow> = sql_query(sql).load(conn)?;
     rows.first()
@@ -376,6 +402,7 @@ fn clear_all_tables(conn: &mut SqliteConnection) -> Result<u64, BackupError> {
     ];
     let mut cleared: u64 = 0;
     for table in tables {
+        validate_table_name(table)?;
         let sql = format!("DELETE FROM {table}");
         let affected = sql_query(sql).execute(conn)?;
         cleared = cleared.saturating_add(affected as u64);
@@ -863,5 +890,23 @@ mod tests {
         let backup2 = read_backup_at(&mut conn2, fixed_exported_at).unwrap();
         assert_eq!(backup1.schema, backup2.schema);
         assert_eq!(backup1.tables, backup2.tables);
+    }
+
+    #[test]
+    fn test_validate_table_name_rejects_unknown() {
+        assert!(validate_table_name("accounts").is_ok());
+        assert!(validate_table_name("trades").is_ok());
+
+        let err = validate_table_name("users; DROP TABLE accounts").unwrap_err();
+        assert!(err.to_string().contains("unknown or disallowed table name"));
+
+        assert!(validate_table_name("not_a_real_table").is_err());
+    }
+
+    #[test]
+    fn test_read_table_count_rejects_malicious_name() {
+        let mut conn = establish();
+        let err = read_table_count(&mut conn, "accounts; DROP TABLE accounts").unwrap_err();
+        assert!(err.to_string().contains("unknown or disallowed table name"));
     }
 }

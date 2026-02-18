@@ -47,14 +47,18 @@ impl TradeCapitalRequired {
             TradeCategory::Short => {
                 // For short trades, we need to ensure we have enough capital
                 // to buy back at the stop price (worst case scenario)
+                debug_assert_eq!(
+                    trade.entry.quantity, trade.safety_stop.quantity,
+                    "Entry and stop quantities must match"
+                );
                 trade
                     .safety_stop
                     .unit_price
-                    .checked_mul(Decimal::from(trade.safety_stop.quantity))
+                    .checked_mul(Decimal::from(trade.entry.quantity))
                     .ok_or_else(|| {
                         format!(
                             "Arithmetic overflow in multiplication: {} * {}",
-                            trade.safety_stop.unit_price, trade.safety_stop.quantity
+                            trade.safety_stop.unit_price, trade.entry.quantity
                         )
                         .into()
                     })
