@@ -211,6 +211,14 @@ fn validate_risk_per_trade(
                 message: "Subtraction overflow calculating price difference".to_string(),
             })
         })?;
+
+    if price_diff.is_zero() {
+        return Err(Box::new(FundValidationError {
+            code: FundValidationErrorCode::InvalidPriceDifference,
+            message: "Entry price and stop price are equal; cannot calculate risk".to_string(),
+        }));
+    }
+
     let total_risk = price_diff
         .checked_mul(Decimal::from(trade.entry.quantity))
         .ok_or_else(|| {
@@ -256,6 +264,7 @@ pub enum FundValidationErrorCode {
     RiskPerTradeExceeded,
     RiskPerMonthExceeded,
     LevelAdjustedQuantityExceeded,
+    InvalidPriceDifference,
     NotEnoughFunds,
 }
 
@@ -423,6 +432,32 @@ mod tests {
                 message: "Risk per month exceeded for risk per trade rule, maximum that can be at risk is 4.9, trade is attempting to risk 5".to_string(),
             }))
         );
+    }
+
+    #[test]
+    fn test_risk_per_trade_entry_equals_stop_rejected() {
+        let trade = Trade {
+            entry: Order {
+                unit_price: dec!(10),
+                quantity: 5,
+                ..Default::default()
+            },
+            safety_stop: Order {
+                unit_price: dec!(10),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let account_balance = AccountBalance {
+            total_available: dec!(100),
+            ..Default::default()
+        };
+        let risk = dec!(5);
+        let risk_per_month = dec!(6.2);
+        let result = validate_risk_per_trade(&trade, &account_balance, risk, risk_per_month);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.code, FundValidationErrorCode::InvalidPriceDifference);
     }
 
     #[test]

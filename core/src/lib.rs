@@ -1582,6 +1582,7 @@ impl TrustFacade {
         profit_amount: Decimal,
         currency: Currency,
     ) -> Result<DistributionResult, Box<dyn std::error::Error>> {
+        self.consume_protected_authorization("execute_distribution")?;
         let source_account = self.factory.account_read().id(source_account_id)?;
         let rules = self
             .factory
