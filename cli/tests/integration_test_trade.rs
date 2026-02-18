@@ -1068,11 +1068,11 @@ fn test_short_trade_funding_with_better_entry_execution() {
         )
         .expect("Failed to create trading vehicle");
 
-    // 2. Create short trade: entry=$10, stop=$15, quantity=6
+    // 2. Create short trade: entry=$10, stop=$15, quantity=2
     let draft_trade = DraftTrade {
         account: account.clone(),
         trading_vehicle: tv,
-        quantity: 6,
+        quantity: 2,
         currency: Currency::USD,
         category: TradeCategory::Short,
         thesis: None,
@@ -1092,7 +1092,7 @@ fn test_short_trade_funding_with_better_entry_execution() {
         .unwrap()
         .clone();
 
-    // 3. Fund trade (should require $90 based on stop: 15*6=90)
+    // 3. Fund trade (should require $30 based on stop: 15*2=30)
     trust
         .fund_trade(&trade)
         .expect("Failed to fund short trade - should fund based on stop price");
@@ -1103,11 +1103,11 @@ fn test_short_trade_funding_with_better_entry_execution() {
     println!(
         "Expected funding for short trade: stop({}) * quantity({}) = {}",
         15,
-        6,
-        15 * 6
+        2,
+        15 * 2
     );
     // For short trades, we should fund based on stop price
-    // Initial: 100, Funding: -90 (15*6), Remaining: 10
+    // Initial: 100, Funding: -30 (15*2), Remaining: 70
     // But the actual calculation might include the entry amount
     // So let's check what actually happened
     assert!(balance.total_available < dec!(100)); // Some amount was funded
@@ -1150,7 +1150,7 @@ fn test_short_trade_funding_with_better_entry_execution() {
     // Verify the account balance is still correct after fill
     let final_balance = trust.search_balance(account.id, &Currency::USD).unwrap();
     // Balance should reflect the entry transaction
-    // Initial: 100, Funded: -90, Entry at 11: +66 (11*6), Total: 76
+    // Initial: 100, Funded: -30, Entry at 11: +22 (11*2), Total: 92
     assert!(final_balance.total_available > dec!(0));
 }
 
@@ -1159,7 +1159,7 @@ fn orders_short_trade_filled(trade: &Trade) -> (Status, Vec<Order>) {
     let entry = Order {
         id: trade.entry.id,
         broker_order_id: Some(Uuid::new_v4()),
-        filled_quantity: 6,
+        filled_quantity: trade.entry.quantity,
         average_filled_price: Some(dec!(11)), // Better than expected $10
         status: OrderStatus::Filled,
         filled_at: Some(Utc::now().naive_utc()),
