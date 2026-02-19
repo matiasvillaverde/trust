@@ -10,12 +10,12 @@
     clippy::indexing_slicing
 )]
 
-use crate::dialogs::AccountSearchDialog;
+use crate::dialogs::{dialog_helpers, AccountSearchDialog};
 use crate::views::{LogView, OrderView};
 use core::TrustFacade;
-use dialoguer::{theme::ColorfulTheme, FuzzySelect};
 use model::{Account, BrokerLog, Order, Status, Trade};
 use std::error::Error;
+use std::io::ErrorKind;
 
 type EntryDialogBuilderResult = Option<Result<(Status, Vec<Order>, BrokerLog), Box<dyn Error>>>;
 
@@ -35,11 +35,29 @@ impl SyncTradeDialogBuilder {
     }
 
     pub fn build(mut self, trust: &mut TrustFacade) -> SyncTradeDialogBuilder {
-        let trade: Trade = self
-            .trade
-            .clone()
-            .expect("No trade found, did you forget to select one?");
-        self.result = Some(trust.sync_trade(&trade, &self.account.clone().unwrap()));
+        let trade = match dialog_helpers::require(
+            self.trade.clone(),
+            ErrorKind::InvalidInput,
+            "No trade selected for sync",
+        ) {
+            Ok(trade) => trade,
+            Err(error) => {
+                self.result = Some(Err(error));
+                return self;
+            }
+        };
+        let account = match dialog_helpers::require(
+            self.account.clone(),
+            ErrorKind::InvalidInput,
+            "No account selected for sync",
+        ) {
+            Ok(account) => account,
+            Err(error) => {
+                self.result = Some(Err(error));
+                return self;
+            }
+        };
+        self.result = Some(trust.sync_trade(&trade, &account));
         self
     }
 
@@ -79,35 +97,41 @@ impl SyncTradeDialogBuilder {
     }
 
     pub fn search(mut self, trust: &mut TrustFacade) -> Self {
-        // We need to search for trades with status Submitted and Filled to find the trade we want to sync
+        let account = match dialog_helpers::require(
+            self.account.clone(),
+            ErrorKind::InvalidInput,
+            "No account selected",
+        ) {
+            Ok(account) => account,
+            Err(error) => {
+                self.result = Some(Err(error));
+                return self;
+            }
+        };
         let mut trades = trust
-            .search_trades(self.account.clone().unwrap().id, Status::Submitted)
-            .unwrap();
+            .search_trades(account.id, Status::Submitted)
+            .unwrap_or_default();
         trades.append(
             &mut trust
-                .search_trades(self.account.clone().unwrap().id, Status::Filled)
-                .unwrap(),
+                .search_trades(account.id, Status::Filled)
+                .unwrap_or_default(),
         );
         trades.append(
             &mut trust
-                .search_trades(self.account.clone().unwrap().id, Status::Canceled)
-                .unwrap(),
+                .search_trades(account.id, Status::Canceled)
+                .unwrap_or_default(),
         );
 
-        if trades.is_empty() {
-            panic!("No trade found with status Submitted, Filled or Cancelled?")
+        match dialog_helpers::select_from_list(
+            "Trade:",
+            &trades,
+            "No trade found with status Submitted, Filled or Cancelled",
+            "Trade selection was canceled",
+        ) {
+            Ok(trade) => self.trade = Some(trade),
+            Err(error) => self.result = Some(Err(error)),
         }
 
-        let trade = FuzzySelect::with_theme(&ColorfulTheme::default())
-            .with_prompt("Trade:")
-            .items(&trades[..])
-            .default(0)
-            .interact_opt()
-            .unwrap()
-            .map(|index| trades.get(index).unwrap())
-            .unwrap();
-
-        self.trade = Some(trade.to_owned());
         self
     }
 }

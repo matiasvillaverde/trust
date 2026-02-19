@@ -10,6 +10,8 @@ use model::Trade;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use std::collections::HashMap;
+use std::error::Error;
+use std::fmt;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -28,6 +30,78 @@ impl Default for AdvisoryThresholds {
         }
     }
 }
+
+impl AdvisoryThresholds {
+    /// Validates advisory limit bounds.
+    ///
+    /// Allowed values are percentages in the inclusive range [0, 100].
+    pub fn validate(&self) -> Result<(), AdvisoryThresholdError> {
+        let zero = Decimal::ZERO;
+        let one_hundred = Decimal::from(100);
+
+        if self.sector_limit_pct < zero {
+            return Err(AdvisoryThresholdError::out_of_range(
+                "sector_limit_pct",
+                self.sector_limit_pct,
+            ));
+        }
+        if self.asset_class_limit_pct < zero {
+            return Err(AdvisoryThresholdError::out_of_range(
+                "asset_class_limit_pct",
+                self.asset_class_limit_pct,
+            ));
+        }
+        if self.single_position_limit_pct < zero {
+            return Err(AdvisoryThresholdError::out_of_range(
+                "single_position_limit_pct",
+                self.single_position_limit_pct,
+            ));
+        }
+        if self.sector_limit_pct > one_hundred {
+            return Err(AdvisoryThresholdError::out_of_range(
+                "sector_limit_pct",
+                self.sector_limit_pct,
+            ));
+        }
+        if self.asset_class_limit_pct > one_hundred {
+            return Err(AdvisoryThresholdError::out_of_range(
+                "asset_class_limit_pct",
+                self.asset_class_limit_pct,
+            ));
+        }
+        if self.single_position_limit_pct > one_hundred {
+            return Err(AdvisoryThresholdError::out_of_range(
+                "single_position_limit_pct",
+                self.single_position_limit_pct,
+            ));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AdvisoryThresholdError {
+    /// A threshold is outside the allowed [0, 100] percentage range.
+    OutOfRange { field: &'static str, value: Decimal },
+}
+
+impl AdvisoryThresholdError {
+    fn out_of_range(field: &'static str, value: Decimal) -> Self {
+        Self::OutOfRange { field, value }
+    }
+}
+
+impl fmt::Display for AdvisoryThresholdError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::OutOfRange { field, value } => {
+                write!(f, "{field} must be between 0 and 100, got {value}")
+            }
+        }
+    }
+}
+
+impl Error for AdvisoryThresholdError {}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AdvisoryAlertLevel {
@@ -413,5 +487,45 @@ mod tests {
         let out = analyze_trade_proposal(&[open], &proposal, &AdvisoryThresholds::default());
         assert!(matches!(out.level, AdvisoryAlertLevel::Block));
         assert!(!out.warnings.is_empty());
+    }
+
+    #[test]
+    fn advisory_thresholds_validation_allows_valid_bounds() {
+        let thresholds = AdvisoryThresholds {
+            sector_limit_pct: dec!(0),
+            asset_class_limit_pct: dec!(50),
+            single_position_limit_pct: dec!(100),
+        };
+        assert!(thresholds.validate().is_ok());
+    }
+
+    #[test]
+    fn advisory_thresholds_validation_rejects_negative() {
+        let thresholds = AdvisoryThresholds {
+            sector_limit_pct: dec!(-1),
+            asset_class_limit_pct: dec!(50),
+            single_position_limit_pct: dec!(20),
+        };
+        let error = thresholds.validate();
+        assert!(error.is_err());
+        assert_eq!(
+            error.unwrap_err().to_string(),
+            "sector_limit_pct must be between 0 and 100, got -1"
+        );
+    }
+
+    #[test]
+    fn advisory_thresholds_validation_rejects_over_100() {
+        let thresholds = AdvisoryThresholds {
+            sector_limit_pct: dec!(20),
+            asset_class_limit_pct: dec!(101),
+            single_position_limit_pct: dec!(20),
+        };
+        let error = thresholds.validate();
+        assert!(error.is_err());
+        assert_eq!(
+            error.unwrap_err().to_string(),
+            "asset_class_limit_pct must be between 0 and 100, got 101"
+        );
     }
 }

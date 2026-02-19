@@ -200,6 +200,14 @@ mod tests {
             todo!("Mock not needed for this test")
         }
 
+        fn advisory_read(&self) -> Box<dyn model::AdvisoryRead> {
+            todo!("Mock not needed for this test")
+        }
+
+        fn advisory_write(&self) -> Box<dyn model::AdvisoryWrite> {
+            todo!("Mock not needed for this test")
+        }
+
         fn execution_read(&self) -> Box<dyn model::ReadExecutionDB> {
             todo!("Mock not needed for this test")
         }
@@ -465,6 +473,14 @@ mod tests {
             }
         }
         fn distribution_write(&self) -> Box<dyn model::DistributionWrite> {
+            todo!("not used")
+        }
+
+        fn advisory_read(&self) -> Box<dyn model::AdvisoryRead> {
+            todo!("not used")
+        }
+
+        fn advisory_write(&self) -> Box<dyn model::AdvisoryWrite> {
             todo!("not used")
         }
 

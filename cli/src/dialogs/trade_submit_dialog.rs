@@ -10,12 +10,12 @@
     clippy::indexing_slicing
 )]
 
-use crate::dialogs::AccountSearchDialog;
-use crate::views::{LogView, OrderView, TradeBalanceView, TradeView};
+use crate::dialogs::{dialog_helpers, AccountSearchDialog};
+use crate::views::{LogView, TradeBalanceView, TradeView};
 use core::TrustFacade;
-use dialoguer::{theme::ColorfulTheme, FuzzySelect};
 use model::{Account, BrokerLog, Status, Trade};
 use std::error::Error;
+use std::io::ErrorKind;
 
 type TradeDialogApproverBuilderResult = Option<Result<(Trade, BrokerLog), Box<dyn Error>>>;
 
@@ -35,7 +35,18 @@ impl SubmitDialogBuilder {
     }
 
     pub fn build(mut self, trust: &mut TrustFacade) -> SubmitDialogBuilder {
-        let trade: Trade = self.trade.clone().unwrap();
+        let trade = match dialog_helpers::require(
+            self.trade.clone(),
+            ErrorKind::InvalidInput,
+            "No trade selected for submission",
+        ) {
+            Ok(trade) => trade,
+            Err(error) => {
+                self.result = Some(Err(error));
+                return self;
+            }
+        };
+
         self.result = Some(trust.submit_trade(&trade));
         self
     }
@@ -47,18 +58,22 @@ impl SubmitDialogBuilder {
         {
             Ok((trade, log)) => {
                 println!("Trade submitted:");
-                TradeView::display(&trade, &self.account.unwrap().name);
+                let account_name = self
+                    .account
+                    .as_ref()
+                    .map_or("<unknown account>", |account| account.name.as_str());
+                TradeView::display(&trade, account_name);
 
                 TradeBalanceView::display(&trade.balance);
 
                 println!("Stop:");
-                OrderView::display(trade.safety_stop);
+                crate::views::OrderView::display(trade.safety_stop);
 
                 println!("Entry:");
-                OrderView::display(trade.entry);
+                crate::views::OrderView::display(trade.entry);
 
                 println!("Target:");
-                OrderView::display(trade.target);
+                crate::views::OrderView::display(trade.target);
 
                 LogView::display(&log);
             }
@@ -76,23 +91,29 @@ impl SubmitDialogBuilder {
     }
 
     pub fn search(mut self, trust: &mut TrustFacade) -> Self {
-        let trades = trust.search_trades(self.account.clone().unwrap().id, Status::Funded);
-        match trades {
-            Ok(trades) => {
-                if trades.is_empty() {
-                    panic!("No trade found, did you forget to create one?")
-                }
-                let trade = FuzzySelect::with_theme(&ColorfulTheme::default())
-                    .with_prompt("Trade:")
-                    .items(&trades[..])
-                    .default(0)
-                    .interact_opt()
-                    .unwrap()
-                    .map(|index| trades.get(index).unwrap())
-                    .unwrap();
-
-                self.trade = Some(trade.to_owned());
+        let account = match dialog_helpers::require(
+            self.account.clone(),
+            ErrorKind::InvalidInput,
+            "No account selected",
+        ) {
+            Ok(account) => account,
+            Err(error) => {
+                self.result = Some(Err(error));
+                return self;
             }
+        };
+
+        let trades = trust.search_trades(account.id, Status::Funded);
+        match trades {
+            Ok(trades) => match dialog_helpers::select_from_list(
+                "Trade:",
+                &trades,
+                "No funded trade found for this account",
+                "Trade selection was canceled",
+            ) {
+                Ok(trade) => self.trade = Some(trade),
+                Err(error) => self.result = Some(Err(error)),
+            },
             Err(error) => self.result = Some(Err(error)),
         }
 

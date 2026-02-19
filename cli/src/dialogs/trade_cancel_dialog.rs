@@ -10,12 +10,12 @@
     clippy::indexing_slicing
 )]
 
-use crate::dialogs::AccountSearchDialog;
+use crate::dialogs::{dialog_helpers, AccountSearchDialog};
 use crate::views::{AccountBalanceView, TradeBalanceView, TradeView, TransactionView};
 use core::TrustFacade;
-use dialoguer::{theme::ColorfulTheme, FuzzySelect};
 use model::{Account, AccountBalance, Status, Trade, TradeBalance, Transaction};
 use std::error::Error;
+use std::io::ErrorKind;
 
 type CancelDialogBuilderResult =
     Option<Result<(TradeBalance, AccountBalance, Transaction), Box<dyn Error>>>;
@@ -36,10 +36,17 @@ impl CancelDialogBuilder {
     }
 
     pub fn build(mut self, trust: &mut TrustFacade) -> CancelDialogBuilder {
-        let trade: Trade = self
-            .trade
-            .clone()
-            .expect("No trade found, did you forget to select one?");
+        let trade: Trade = match dialog_helpers::require(
+            self.trade.clone(),
+            ErrorKind::InvalidInput,
+            "No trade selected for cancellation",
+        ) {
+            Ok(trade) => trade,
+            Err(error) => {
+                self.result = Some(Err(error));
+                return self;
+            }
+        };
 
         match trade.status {
             Status::Funded => {
@@ -48,7 +55,12 @@ impl CancelDialogBuilder {
             Status::Submitted => {
                 self.result = Some(trust.cancel_submitted_trade(&trade));
             }
-            _ => panic!("Trade is not in a cancellable state"),
+            _ => {
+                self.result = Some(Err(Box::new(std::io::Error::new(
+                    ErrorKind::InvalidInput,
+                    "Trade is not in a cancellable state",
+                ))));
+            }
         }
 
         self
@@ -82,11 +94,23 @@ impl CancelDialogBuilder {
     }
 
     pub fn search(mut self, trust: &mut TrustFacade) -> Self {
+        let account = match dialog_helpers::require(
+            self.account.clone(),
+            ErrorKind::InvalidInput,
+            "No account selected",
+        ) {
+            Ok(account) => account,
+            Err(error) => {
+                self.result = Some(Err(error));
+                return self;
+            }
+        };
+
         let funded_trades = trust
-            .search_trades(self.account.clone().unwrap().id, Status::Funded)
+            .search_trades(account.id, Status::Funded)
             .unwrap_or_default();
         let submitted_trades = trust
-            .search_trades(self.account.clone().unwrap().id, Status::Submitted)
+            .search_trades(account.id, Status::Submitted)
             .unwrap_or_default();
 
         let trades = funded_trades
@@ -94,20 +118,15 @@ impl CancelDialogBuilder {
             .chain(submitted_trades)
             .collect::<Vec<Trade>>();
 
-        if trades.is_empty() {
-            panic!("No trade found, did you forget to fund one?")
+        match dialog_helpers::select_from_list(
+            "Trade:",
+            &trades,
+            "No funded or submitted trades found for this account",
+            "Trade selection was canceled",
+        ) {
+            Ok(trade) => self.trade = Some(trade),
+            Err(error) => self.result = Some(Err(error)),
         }
-
-        let trade = FuzzySelect::with_theme(&ColorfulTheme::default())
-            .with_prompt("Trade:")
-            .items(&trades[..])
-            .default(0)
-            .interact_opt()
-            .unwrap()
-            .map(|index| trades.get(index).unwrap())
-            .unwrap();
-
-        self.trade = Some(trade.to_owned());
 
         self
     }

@@ -85,6 +85,11 @@ pub trait DatabaseFactory {
     fn distribution_read(&self) -> Box<dyn DistributionRead>;
     /// Returns a writer for distribution rules data operations
     fn distribution_write(&self) -> Box<dyn DistributionWrite>;
+
+    /// Returns a reader for advisory threshold operations
+    fn advisory_read(&self) -> Box<dyn AdvisoryRead>;
+    /// Returns a writer for advisory threshold operations
+    fn advisory_write(&self) -> Box<dyn AdvisoryWrite>;
 }
 
 /// Trait for reading account data from the database
@@ -650,4 +655,36 @@ pub trait DistributionWrite {
         &mut self,
         plan: &DistributionExecutionPlan,
     ) -> Result<Vec<Uuid>, Box<dyn Error>>;
+}
+
+/// Alias for advisory concentration thresholds:
+/// sector, asset class, and single position percentages.
+pub type AdvisoryThresholds = (Decimal, Decimal, Decimal);
+
+/// Trait for reading advisory threshold configuration.
+pub trait AdvisoryRead {
+    /// Loads persisted advisory concentration thresholds for a single account.
+    ///
+    /// Returns:
+    /// - `Ok(Some(...))` when advisory thresholds are stored for the account.
+    /// - `Ok(None)` when no thresholds are configured.
+    fn advisory_thresholds_for_account(
+        &mut self,
+        account_id: Uuid,
+    ) -> Result<Option<AdvisoryThresholds>, Box<dyn Error>>;
+}
+
+/// Trait for writing advisory threshold configuration
+pub trait AdvisoryWrite {
+    /// Persists advisory concentration thresholds for a single account.
+    ///
+    /// Implementations should replace existing rows when the account already
+    /// has configured thresholds.
+    fn upsert_advisory_thresholds(
+        &mut self,
+        account_id: Uuid,
+        sector_limit_pct: Decimal,
+        asset_class_limit_pct: Decimal,
+        single_position_limit_pct: Decimal,
+    ) -> Result<(), Box<dyn Error>>;
 }
