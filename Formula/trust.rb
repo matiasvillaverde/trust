@@ -9,7 +9,7 @@
 class Trust < Formula
   desc "Risk-managed algorithmic trading CLI"
   homepage "https://github.com/matiasvillaverde/trust"
-  version "0.3.4"
+  version "0.3.5"
   license "GPL-3.0-only"
 
   on_macos do
