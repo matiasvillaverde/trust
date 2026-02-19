@@ -6,6 +6,7 @@ use diesel::sql_types::Text;
 use model::{AdvisoryRead, AdvisoryThresholds, AdvisoryWrite};
 use rust_decimal::Decimal;
 use std::error::Error;
+use std::io;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -37,10 +38,9 @@ impl AdvisoryRead for AdvisoryDB {
             FROM advisory_thresholds WHERE account_id = ?1",
         )
         .bind::<Text, _>(account_id.to_string())
-        .load(&mut *self.connection.lock().unwrap_or_else(|e| {
-            eprintln!("Failed to acquire connection lock: {e}");
-            std::process::exit(1);
-        }))
+        .load(&mut *self.connection.lock().map_err(|error| {
+            io::Error::other(format!("Failed to acquire connection lock: {error}"))
+        })?)
         .map_err(|error| {
             error!("Error reading advisory thresholds: {:?}", error);
             error
@@ -89,12 +89,9 @@ impl AdvisoryWrite for AdvisoryDB {
         .bind::<Text, _>(sector_limit_pct)
         .bind::<Text, _>(asset_class_limit_pct)
         .bind::<Text, _>(single_position_limit_pct)
-        .execute(
-            &mut *self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {e}");
-                std::process::exit(1);
-            }),
-        )
+        .execute(&mut *self.connection.lock().map_err(|error| {
+            io::Error::other(format!("Failed to acquire connection lock: {error}"))
+        })?)
         .map_err(|error| {
             error!("Error upserting advisory thresholds: {:?}", error);
             error
@@ -201,9 +198,7 @@ mod tests {
         .execute(
             &mut *shared_connection
                 .lock()
-                .unwrap_or_else(|e| {
-                    panic!("Failed to acquire connection lock: {e}");
-                }),
+                .expect("Failed to acquire connection lock"),
         )
         .expect("insert invalid advisory row");
 
