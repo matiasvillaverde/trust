@@ -21,7 +21,7 @@ dependencies = [
 
 [[package]]
 name = "alpaca-broker"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "apca",
  "chrono",
@@ -266,7 +266,7 @@ dependencies = [
 
 [[package]]
 name = "broker-sync"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "proptest",
  "rand 0.10.0",
@@ -450,7 +450,7 @@ dependencies = [
 
 [[package]]
 name = "core"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "argon2",
  "chrono",
@@ -572,7 +572,7 @@ checksum = "d7a1e2f27636f116493b8b860f5546edb47c8d8f8ea73e1d2a20be88e28d1fea"
 
 [[package]]
 name = "db-sqlite"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "chrono",
  "diesel",
@@ -2527,7 +2527,7 @@ dependencies = [
 
 [[package]]
 name = "trust-cli"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "alpaca-broker",
  "broker-sync",
@@ -2548,7 +2548,7 @@ dependencies = [
 
 [[package]]
 name = "trust-model"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "chrono",
  "rust_decimal",
