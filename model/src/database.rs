@@ -658,6 +658,8 @@ pub trait DistributionWrite {
 }
 
 /// Trait for reading advisory threshold configuration
+pub type AdvisoryThresholds = (Decimal, Decimal, Decimal);
+
 pub trait AdvisoryRead {
     /// Loads persisted advisory concentration thresholds for a single account.
     ///
@@ -667,7 +669,7 @@ pub trait AdvisoryRead {
     fn advisory_thresholds_for_account(
         &mut self,
         account_id: Uuid,
-    ) -> Result<Option<(Decimal, Decimal, Decimal)>, Box<dyn Error>>;
+    ) -> Result<Option<AdvisoryThresholds>, Box<dyn Error>>;
 }
 
 /// Trait for writing advisory threshold configuration

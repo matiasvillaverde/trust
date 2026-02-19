@@ -3,7 +3,7 @@ use chrono::Utc;
 use diesel::prelude::*;
 use diesel::sql_query;
 use diesel::sql_types::Text;
-use model::{AdvisoryRead, AdvisoryWrite};
+use model::{AdvisoryRead, AdvisoryThresholds, AdvisoryWrite};
 use rust_decimal::Decimal;
 use std::error::Error;
 use std::str::FromStr;
@@ -31,7 +31,7 @@ impl AdvisoryRead for AdvisoryDB {
     fn advisory_thresholds_for_account(
         &mut self,
         account_id: Uuid,
-    ) -> Result<Option<(Decimal, Decimal, Decimal)>, Box<dyn Error>> {
+    ) -> Result<Option<AdvisoryThresholds>, Box<dyn Error>> {
         let rows: Vec<AdvisoryThresholdRow> = sql_query(
             "SELECT sector_limit_pct, asset_class_limit_pct, single_position_limit_pct \
             FROM advisory_thresholds WHERE account_id = ?1",
