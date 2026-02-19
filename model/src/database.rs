@@ -657,9 +657,11 @@ pub trait DistributionWrite {
     ) -> Result<Vec<Uuid>, Box<dyn Error>>;
 }
 
-/// Trait for reading advisory threshold configuration
+/// Alias for advisory concentration thresholds:
+/// sector, asset class, and single position percentages.
 pub type AdvisoryThresholds = (Decimal, Decimal, Decimal);
 
+/// Trait for reading advisory threshold configuration.
 pub trait AdvisoryRead {
     /// Loads persisted advisory concentration thresholds for a single account.
     ///
