@@ -82,10 +82,7 @@ impl AdvisoryThresholds {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AdvisoryThresholdError {
     /// A threshold is outside the allowed [0, 100] percentage range.
-    OutOfRange {
-        field: &'static str,
-        value: Decimal,
-    },
+    OutOfRange { field: &'static str, value: Decimal },
 }
 
 impl AdvisoryThresholdError {

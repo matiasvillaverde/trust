@@ -46,7 +46,11 @@ impl TradeWatchDialogBuilder {
     }
 
     pub fn search(mut self, trust: &mut TrustFacade) -> Self {
-        let account = match dialog_helpers::require(self.account.clone(), ErrorKind::InvalidInput, "No account selected") {
+        let account = match dialog_helpers::require(
+            self.account.clone(),
+            ErrorKind::InvalidInput,
+            "No account selected",
+        ) {
             Ok(account) => account,
             Err(error) => {
                 self.result = Some(Err(error));
@@ -76,7 +80,11 @@ impl TradeWatchDialogBuilder {
     }
 
     pub fn latest(mut self, trust: &mut TrustFacade) -> Self {
-        let account = match dialog_helpers::require(self.account.clone(), ErrorKind::InvalidInput, "No account selected") {
+        let account = match dialog_helpers::require(
+            self.account.clone(),
+            ErrorKind::InvalidInput,
+            "No account selected",
+        ) {
             Ok(account) => account,
             Err(error) => {
                 self.result = Some(Err(error));
@@ -107,14 +115,22 @@ impl TradeWatchDialogBuilder {
     }
 
     pub fn build(mut self, trust: &mut TrustFacade) -> Self {
-        let trade = match dialog_helpers::require(self.trade.clone(), ErrorKind::InvalidInput, "No trade selected") {
+        let trade = match dialog_helpers::require(
+            self.trade.clone(),
+            ErrorKind::InvalidInput,
+            "No trade selected",
+        ) {
             Ok(trade) => trade,
             Err(error) => {
                 self.result = Some(Err(error));
                 return self;
             }
         };
-        let account = match dialog_helpers::require(self.account.clone(), ErrorKind::InvalidInput, "No account selected") {
+        let account = match dialog_helpers::require(
+            self.account.clone(),
+            ErrorKind::InvalidInput,
+            "No account selected",
+        ) {
             Ok(account) => account,
             Err(error) => {
                 self.result = Some(Err(error));
@@ -141,10 +157,7 @@ fn open_trades_for_account(
 ) -> Result<Vec<Trade>, Box<dyn Error>> {
     let mut trades = trust.search_trades(account_id, Status::Submitted)?;
     trades.append(&mut trust.search_trades(account_id, Status::Filled)?);
-    trades.append(
-        &mut trust
-            .search_trades(account_id, Status::PartiallyFilled)?,
-    );
+    trades.append(&mut trust.search_trades(account_id, Status::PartiallyFilled)?);
     Ok(trades)
 }
 

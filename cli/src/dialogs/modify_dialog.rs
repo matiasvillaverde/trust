@@ -129,9 +129,10 @@ impl ModifyDialogBuilder {
         {
             Ok(trade) => {
                 println!("Trade updated:");
-                let account_name = self.account.as_ref().map_or("<unknown account>", |account| {
-                    account.name.as_str()
-                });
+                let account_name = self
+                    .account
+                    .as_ref()
+                    .map_or("<unknown account>", |account| account.name.as_str());
                 TradeView::display(&trade, account_name);
 
                 TradeBalanceView::display(&trade.balance);
@@ -156,8 +157,11 @@ impl ModifyDialogBuilder {
     }
 
     pub fn search(mut self, trust: &mut TrustFacade) -> Self {
-        let account = match dialog_helpers::require(self.account.clone(), ErrorKind::InvalidInput, "No account selected")
-        {
+        let account = match dialog_helpers::require(
+            self.account.clone(),
+            ErrorKind::InvalidInput,
+            "No account selected",
+        ) {
             Ok(account) => account,
             Err(error) => {
                 self.result = Some(Err(error));

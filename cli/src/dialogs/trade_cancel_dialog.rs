@@ -56,12 +56,10 @@ impl CancelDialogBuilder {
                 self.result = Some(trust.cancel_submitted_trade(&trade));
             }
             _ => {
-                self.result = Some(Err(Box::new(
-                    std::io::Error::new(
-                        ErrorKind::InvalidInput,
-                        "Trade is not in a cancellable state",
-                    ),
-                )));
+                self.result = Some(Err(Box::new(std::io::Error::new(
+                    ErrorKind::InvalidInput,
+                    "Trade is not in a cancellable state",
+                ))));
             }
         }
 
@@ -96,7 +94,11 @@ impl CancelDialogBuilder {
     }
 
     pub fn search(mut self, trust: &mut TrustFacade) -> Self {
-        let account = match dialog_helpers::require(self.account.clone(), ErrorKind::InvalidInput, "No account selected") {
+        let account = match dialog_helpers::require(
+            self.account.clone(),
+            ErrorKind::InvalidInput,
+            "No account selected",
+        ) {
             Ok(account) => account,
             Err(error) => {
                 self.result = Some(Err(error));

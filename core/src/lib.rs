@@ -1720,15 +1720,13 @@ impl TrustFacade {
             .advisory_thresholds_for_account(account_id)?;
 
         Ok(match thresholds {
-            Some((
-                sector_limit_pct,
-                asset_class_limit_pct,
-                single_position_limit_pct,
-            )) => AdvisoryThresholds {
-                sector_limit_pct,
-                asset_class_limit_pct,
-                single_position_limit_pct,
-            },
+            Some((sector_limit_pct, asset_class_limit_pct, single_position_limit_pct)) => {
+                AdvisoryThresholds {
+                    sector_limit_pct,
+                    asset_class_limit_pct,
+                    single_position_limit_pct,
+                }
+            }
             None => AdvisoryThresholds::default(),
         })
     }

@@ -18,10 +18,7 @@ where
     T: Clone + Display,
 {
     if items.is_empty() {
-        return Err(Box::new(IoError::new(
-            ErrorKind::NotFound,
-            empty_message,
-        )));
+        return Err(Box::new(IoError::new(ErrorKind::NotFound, empty_message)));
     }
 
     let selected = FuzzySelect::with_theme(&ColorfulTheme::default())

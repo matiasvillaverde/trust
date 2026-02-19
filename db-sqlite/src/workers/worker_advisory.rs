@@ -37,12 +37,10 @@ impl AdvisoryRead for AdvisoryDB {
             FROM advisory_thresholds WHERE account_id = ?1",
         )
         .bind::<Text, _>(account_id.to_string())
-        .load(
-            &mut *self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {e}");
-                std::process::exit(1);
-            }),
-        )
+        .load(&mut *self.connection.lock().unwrap_or_else(|e| {
+            eprintln!("Failed to acquire connection lock: {e}");
+            std::process::exit(1);
+        }))
         .map_err(|error| {
             error!("Error reading advisory thresholds: {:?}", error);
             error
@@ -119,9 +117,9 @@ fn parse_decimal(value: &str, field: &str) -> Result<Decimal, Box<dyn Error>> {
 mod tests {
     use super::*;
     use diesel_migrations::*;
+    use model::DatabaseFactory;
     use rust_decimal_macros::dec;
     use std::sync::{Arc, Mutex};
-    use model::DatabaseFactory;
 
     pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
 
@@ -212,7 +210,9 @@ mod tests {
         let err = advisory
             .advisory_thresholds_for_account(account_id)
             .expect_err("expected parse failure");
-        assert!(err.to_string().contains("Invalid advisory threshold decimal value in database"));
+        assert!(err
+            .to_string()
+            .contains("Invalid advisory threshold decimal value in database"));
         drop(shared_connection);
     }
 }

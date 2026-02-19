@@ -97,7 +97,11 @@ impl SyncTradeDialogBuilder {
     }
 
     pub fn search(mut self, trust: &mut TrustFacade) -> Self {
-        let account = match dialog_helpers::require(self.account.clone(), ErrorKind::InvalidInput, "No account selected") {
+        let account = match dialog_helpers::require(
+            self.account.clone(),
+            ErrorKind::InvalidInput,
+            "No account selected",
+        ) {
             Ok(account) => account,
             Err(error) => {
                 self.result = Some(Err(error));
