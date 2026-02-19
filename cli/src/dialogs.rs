@@ -1,4 +1,5 @@
 mod account_dialog;
+mod dialog_helpers;
 mod keys_dialog;
 mod modify_dialog;
 mod rule_dialog;

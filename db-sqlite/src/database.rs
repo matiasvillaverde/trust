@@ -1,6 +1,6 @@
 use crate::workers::{
     AccountBalanceDB, AccountDB, BrokerLogDB, DistributionDB, WorkerExecution, WorkerLevel,
-    WorkerOrder, WorkerRule, WorkerTrade, WorkerTradeGrade, WorkerTradingVehicle,
+    AdvisoryDB, WorkerOrder, WorkerRule, WorkerTrade, WorkerTradeGrade, WorkerTradingVehicle,
     WorkerTransaction,
 };
 use crate::{backup, backup::ImportOptions};
@@ -155,6 +155,18 @@ impl DatabaseFactory for SqliteDatabase {
 
     fn distribution_write(&self) -> Box<dyn DistributionWrite> {
         Box::new(DistributionDB {
+            connection: self.connection.clone(),
+        })
+    }
+
+    fn advisory_read(&self) -> Box<dyn model::AdvisoryRead> {
+        Box::new(AdvisoryDB {
+            connection: self.connection.clone(),
+        })
+    }
+
+    fn advisory_write(&self) -> Box<dyn model::AdvisoryWrite> {
+        Box::new(AdvisoryDB {
             connection: self.connection.clone(),
         })
     }

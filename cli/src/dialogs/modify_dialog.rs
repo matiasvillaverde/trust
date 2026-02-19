@@ -10,13 +10,14 @@
     clippy::indexing_slicing
 )]
 
-use crate::dialogs::AccountSearchDialog;
+use crate::dialogs::{dialog_helpers, AccountSearchDialog};
 use crate::views::{OrderView, TradeBalanceView, TradeView};
 use core::TrustFacade;
-use dialoguer::{theme::ColorfulTheme, FuzzySelect, Input};
+use dialoguer::Input;
 use model::{Account, Status, Trade};
 use rust_decimal::Decimal;
 use std::error::Error;
+use std::io::ErrorKind;
 
 type ModifyDialogBuilderResult = Option<Result<Trade, Box<dyn Error>>>;
 
@@ -38,18 +39,39 @@ impl ModifyDialogBuilder {
     }
 
     pub fn build_stop(mut self, trust: &mut TrustFacade) -> ModifyDialogBuilder {
-        let trade = self
-            .trade
-            .clone()
-            .expect("No trade found, did you forget to call search?");
-
-        let account = self
-            .account
-            .clone()
-            .expect("No account found, did you forget to call account?");
-        let stop_price = self
-            .new_price
-            .expect("No stop price found, did you forget to call stop_price?");
+        let trade = match dialog_helpers::require(
+            self.trade.clone(),
+            ErrorKind::InvalidInput,
+            "No trade selected for stop update",
+        ) {
+            Ok(trade) => trade,
+            Err(error) => {
+                self.result = Some(Err(error));
+                return self;
+            }
+        };
+        let account = match dialog_helpers::require(
+            self.account.clone(),
+            ErrorKind::InvalidInput,
+            "No account selected for stop update",
+        ) {
+            Ok(account) => account,
+            Err(error) => {
+                self.result = Some(Err(error));
+                return self;
+            }
+        };
+        let stop_price = match dialog_helpers::require(
+            self.new_price,
+            ErrorKind::InvalidInput,
+            "No stop price found, did you forget to call stop_price?",
+        ) {
+            Ok(stop_price) => stop_price,
+            Err(error) => {
+                self.result = Some(Err(error));
+                return self;
+            }
+        };
 
         match trust.modify_stop(&trade, &account, stop_price) {
             Ok(trade) => self.result = Some(Ok(trade)),
@@ -59,18 +81,39 @@ impl ModifyDialogBuilder {
     }
 
     pub fn build_target(mut self, trust: &mut TrustFacade) -> ModifyDialogBuilder {
-        let trade = self
-            .trade
-            .clone()
-            .expect("No trade found, did you forget to call search?");
-
-        let account = self
-            .account
-            .clone()
-            .expect("No account found, did you forget to call account?");
-        let target_price = self
-            .new_price
-            .expect("No target price found, did you forget to call stop_price?");
+        let trade = match dialog_helpers::require(
+            self.trade.clone(),
+            ErrorKind::InvalidInput,
+            "No trade selected for target update",
+        ) {
+            Ok(trade) => trade,
+            Err(error) => {
+                self.result = Some(Err(error));
+                return self;
+            }
+        };
+        let account = match dialog_helpers::require(
+            self.account.clone(),
+            ErrorKind::InvalidInput,
+            "No account selected for target update",
+        ) {
+            Ok(account) => account,
+            Err(error) => {
+                self.result = Some(Err(error));
+                return self;
+            }
+        };
+        let target_price = match dialog_helpers::require(
+            self.new_price,
+            ErrorKind::InvalidInput,
+            "No target price found, did you forget to call stop_price?",
+        ) {
+            Ok(target_price) => target_price,
+            Err(error) => {
+                self.result = Some(Err(error));
+                return self;
+            }
+        };
 
         match trust.modify_target(&trade, &account, target_price) {
             Ok(trade) => self.result = Some(Ok(trade)),
@@ -86,7 +129,10 @@ impl ModifyDialogBuilder {
         {
             Ok(trade) => {
                 println!("Trade updated:");
-                TradeView::display(&trade, &self.account.unwrap().name);
+                let account_name = self.account.as_ref().map_or("<unknown account>", |account| {
+                    account.name.as_str()
+                });
+                TradeView::display(&trade, account_name);
 
                 TradeBalanceView::display(&trade.balance);
 
@@ -110,25 +156,29 @@ impl ModifyDialogBuilder {
     }
 
     pub fn search(mut self, trust: &mut TrustFacade) -> Self {
-        let trades = trust.search_trades(self.account.clone().unwrap().id, Status::Filled);
-        match trades {
-            Ok(trades) => {
-                if trades.is_empty() {
-                    panic!("No trade found with the status filled, did you forget to submit one?")
-                }
-                let trade = FuzzySelect::with_theme(&ColorfulTheme::default())
-                    .with_prompt("Trade:")
-                    .items(&trades[..])
-                    .default(0)
-                    .interact_opt()
-                    .unwrap()
-                    .map(|index| trades.get(index).unwrap())
-                    .unwrap();
-
-                println!("Trade selected:");
-                TradeView::display(trade, &self.account.clone().unwrap().name);
-                self.trade = Some(trade.to_owned());
+        let account = match dialog_helpers::require(self.account.clone(), ErrorKind::InvalidInput, "No account selected")
+        {
+            Ok(account) => account,
+            Err(error) => {
+                self.result = Some(Err(error));
+                return self;
             }
+        };
+
+        let trades = trust.search_trades(account.id, Status::Filled);
+        match trades {
+            Ok(trades) => match dialog_helpers::select_from_list(
+                "Trade:",
+                &trades,
+                "No filled trade found for this account",
+                "Trade selection was canceled",
+            ) {
+                Ok(trade) => {
+                    TradeView::display(&trade, account.name.as_str());
+                    self.trade = Some(trade);
+                }
+                Err(error) => self.result = Some(Err(error)),
+            },
             Err(error) => self.result = Some(Err(error)),
         }
 
@@ -136,7 +186,13 @@ impl ModifyDialogBuilder {
     }
 
     pub fn new_price(mut self) -> Self {
-        let stop_price = Input::new().with_prompt("New price").interact().unwrap();
+        let stop_price = match Input::new().with_prompt("New price").interact() {
+            Ok(stop_price) => stop_price,
+            Err(error) => {
+                println!("Error reading new price: {error:?}");
+                return self;
+            }
+        };
         self.new_price = Some(stop_price);
         self
     }

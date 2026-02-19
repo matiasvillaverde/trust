@@ -89,7 +89,6 @@ pub struct TrustFacade {
     protected_authorized: bool,
     distribution_rules_cache: HashMap<Uuid, Option<DistributionRules>>,
     level_snapshot_cache: HashMap<(Uuid, Currency), LevelSnapshotCache>,
-    advisory_thresholds: HashMap<Uuid, AdvisoryThresholds>,
     advisory_history: Vec<AdvisoryHistoryEntry>,
 }
 
@@ -299,7 +298,6 @@ impl TrustFacade {
             protected_authorized: false,
             distribution_rules_cache: HashMap::new(),
             level_snapshot_cache: HashMap::new(),
-            advisory_thresholds: HashMap::new(),
             advisory_history: Vec::new(),
         }
     }
@@ -1653,7 +1651,13 @@ impl TrustFacade {
         thresholds: AdvisoryThresholds,
     ) -> Result<(), Box<dyn std::error::Error>> {
         self.consume_protected_authorization("configure_advisory_thresholds")?;
-        self.advisory_thresholds.insert(account_id, thresholds);
+        thresholds.validate()?;
+        self.factory.advisory_write().upsert_advisory_thresholds(
+            account_id,
+            thresholds.sector_limit_pct,
+            thresholds.asset_class_limit_pct,
+            thresholds.single_position_limit_pct,
+        )?;
         Ok(())
     }
 
@@ -1662,11 +1666,7 @@ impl TrustFacade {
         &mut self,
         proposal: TradeProposal,
     ) -> Result<AdvisoryResult, Box<dyn std::error::Error>> {
-        let thresholds = self
-            .advisory_thresholds
-            .get(&proposal.account_id)
-            .cloned()
-            .unwrap_or_default();
+        let thresholds = self.advisory_thresholds_for_account(proposal.account_id)?;
         let open = self.open_trades_for_account(proposal.account_id);
         let result = services::advisory::analyze_trade_proposal(&open, &proposal, &thresholds);
         self.advisory_history.push(AdvisoryHistoryEntry {
@@ -1688,11 +1688,7 @@ impl TrustFacade {
         &mut self,
         account_id: Uuid,
     ) -> Result<PortfolioAdvisoryStatus, Box<dyn std::error::Error>> {
-        let thresholds = self
-            .advisory_thresholds
-            .get(&account_id)
-            .cloned()
-            .unwrap_or_default();
+        let thresholds = self.advisory_thresholds_for_account(account_id)?;
         let open = self.open_trades_for_account(account_id);
         Ok(services::advisory::portfolio_status(&open, &thresholds))
     }
@@ -1712,6 +1708,29 @@ impl TrustFacade {
             .filter(|entry| entry.account_id == account_id && entry.created_at >= cutoff)
             .cloned()
             .collect()
+    }
+
+    fn advisory_thresholds_for_account(
+        &mut self,
+        account_id: Uuid,
+    ) -> Result<AdvisoryThresholds, Box<dyn std::error::Error>> {
+        let thresholds = self
+            .factory
+            .advisory_read()
+            .advisory_thresholds_for_account(account_id)?;
+
+        Ok(match thresholds {
+            Some((
+                sector_limit_pct,
+                asset_class_limit_pct,
+                single_position_limit_pct,
+            )) => AdvisoryThresholds {
+                sector_limit_pct,
+                asset_class_limit_pct,
+                single_position_limit_pct,
+            },
+            None => AdvisoryThresholds::default(),
+        })
     }
 }
 

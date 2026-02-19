@@ -63,9 +63,23 @@ impl QuantityCalculator {
         }
 
         // If there are no rules, return the maximum quantity based on available funds
+        if entry_price <= dec!(0.0) {
+            return Err(format!(
+                "Invalid entry price {entry_price} for quantity calculation (must be greater than 0)"
+            )
+            .into());
+        }
+        if total_available <= dec!(0.0) {
+            return Ok(0);
+        }
         let max_quantity = total_available.checked_div(entry_price).ok_or_else(|| {
             format!("Division by zero or overflow: {total_available} / {entry_price}")
         })?;
+        let max_quantity = if max_quantity < Decimal::ZERO {
+            Decimal::ZERO
+        } else {
+            max_quantity
+        };
         max_quantity
             .to_i64()
             .ok_or_else(|| format!("Cannot convert {max_quantity} to i64").into())

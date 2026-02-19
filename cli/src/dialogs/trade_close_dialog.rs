@@ -10,12 +10,12 @@
     clippy::indexing_slicing
 )]
 
-use crate::dialogs::AccountSearchDialog;
+use crate::dialogs::{dialog_helpers, AccountSearchDialog};
 use crate::views::{LogView, TradeBalanceView, TradeView};
 use core::TrustFacade;
-use dialoguer::{theme::ColorfulTheme, FuzzySelect};
 use model::{Account, BrokerLog, DistributionResult, Status, Trade, TradeBalance};
 use std::error::Error;
+use std::io::ErrorKind;
 
 type CancelDialogBuilderResult =
     Option<Result<(TradeBalance, BrokerLog, Option<DistributionResult>), Box<dyn Error>>>;
@@ -38,10 +38,17 @@ impl CloseDialogBuilder {
     }
 
     pub fn build(mut self, trust: &mut TrustFacade) -> CloseDialogBuilder {
-        let trade: Trade = self
-            .trade
-            .clone()
-            .expect("No trade found, did you forget to select one?");
+        let trade = match dialog_helpers::require(
+            self.trade.clone(),
+            ErrorKind::InvalidInput,
+            "No trade selected for close",
+        ) {
+            Ok(trade) => trade,
+            Err(error) => {
+                self.result = Some(Err(error));
+                return self;
+            }
+        };
 
         self.result = if self.auto_distribute {
             Some(trust.close_trade_with_auto_distribution(&trade))
@@ -88,23 +95,25 @@ impl CloseDialogBuilder {
     }
 
     pub fn search(mut self, trust: &mut TrustFacade) -> Self {
-        let trades = trust.search_trades(self.account.clone().unwrap().id, Status::Filled);
-        match trades {
-            Ok(trades) => {
-                if trades.is_empty() {
-                    panic!("No trade found, did you forget to create one?")
-                }
-                let trade = FuzzySelect::with_theme(&ColorfulTheme::default())
-                    .with_prompt("Trade:")
-                    .items(&trades[..])
-                    .default(0)
-                    .interact_opt()
-                    .unwrap()
-                    .map(|index| trades.get(index).unwrap())
-                    .unwrap();
-
-                self.trade = Some(trade.to_owned());
+        let account = match dialog_helpers::require(self.account.clone(), ErrorKind::InvalidInput, "No account selected") {
+            Ok(account) => account,
+            Err(error) => {
+                self.result = Some(Err(error));
+                return self;
             }
+        };
+
+        let trades = trust.search_trades(account.id, Status::Filled);
+        match trades {
+            Ok(trades) => match dialog_helpers::select_from_list(
+                "Trade:",
+                &trades,
+                "No filled trades found for this account",
+                "Trade selection was canceled",
+            ) {
+                Ok(trade) => self.trade = Some(trade),
+                Err(error) => self.result = Some(Err(error)),
+            },
             Err(error) => self.result = Some(Err(error)),
         }
 
