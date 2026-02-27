@@ -612,8 +612,7 @@ mod tests {
             _account_id: uuid::Uuid,
         ) -> Result<model::DistributionRules, Box<dyn std::error::Error>> {
             self.rules_result
-                .as_ref()
-                .map(Clone::clone)
+                .clone()
                 .map_err(|message| message.clone().into())
         }
 

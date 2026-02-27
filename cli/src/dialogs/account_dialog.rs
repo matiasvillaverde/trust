@@ -337,7 +337,7 @@ mod tests {
         let mut failing_io = ScriptedIo::default();
         failing_io
             .selections
-            .push_back(Err(IoError::new(ErrorKind::Other, "broken tty")));
+            .push_back(Err(IoError::other("broken tty")));
         let failed = AccountSearchDialog::new().search_with_io(&mut trust, &mut failing_io);
         let failed_err = failed.build().expect_err("io error should surface");
         let message = failed_err.to_string();

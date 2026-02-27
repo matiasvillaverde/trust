@@ -237,6 +237,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn market_data_snapshot_and_bars_parse() {
         let snapshot = MarketDataCommandBuilder::new().snapshot().build();
         let snapshot_matches = snapshot

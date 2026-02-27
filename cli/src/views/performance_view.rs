@@ -112,8 +112,10 @@ mod tests {
     fn display_handles_empty_and_closed_trade_inputs() {
         PerformanceView::display(Vec::new());
 
-        let mut trade = Trade::default();
-        trade.status = Status::ClosedTarget;
+        let mut trade = Trade {
+            status: Status::ClosedTarget,
+            ..Trade::default()
+        };
         trade.balance.total_performance = dec!(100);
         trade.balance.funding = dec!(1000);
         trade.balance.capital_in_market = dec!(0);

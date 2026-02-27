@@ -19,6 +19,7 @@ impl TradeCommandBuilder {
         self.command.subcommands(self.subcommands)
     }
 
+    #[allow(clippy::too_many_lines)]
     pub fn create_trade(mut self) -> Self {
         self.subcommands.push(
             Command::new("create")

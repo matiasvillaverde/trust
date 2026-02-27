@@ -365,6 +365,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)]
     fn parse_nested_dispatchers_cover_all_variants() {
         let app = Command::new("trust")
             .subcommand(Command::new("db").subcommand(Command::new("export")))
@@ -646,6 +647,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)]
     fn parse_subcommands_cover_remaining_variants() {
         let keys = Command::new("trust").subcommand(
             Command::new("keys")

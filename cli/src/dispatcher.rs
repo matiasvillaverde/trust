@@ -2164,7 +2164,7 @@ impl ArgDispatcher {
                     );
                 }
                 if bars.len() > 10 {
-                    println!("... ({} more bars omitted)", bars.len() - 10);
+                    println!("... ({} more bars omitted)", bars.len().saturating_sub(10));
                 }
             }
             ReportOutputFormat::Json => {
@@ -2932,6 +2932,7 @@ impl ArgDispatcher {
         Ok(())
     }
 
+    #[allow(clippy::too_many_lines)]
     fn create_trade(&mut self, sub_matches: &ArgMatches) -> Result<(), CliError> {
         if !Self::has_non_interactive_trade_args(sub_matches) {
             TradeDialogBuilder::new()
@@ -3299,6 +3300,7 @@ impl ArgDispatcher {
         builder.build(&mut self.trust).display();
     }
 
+    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)]
     fn search_trade(&mut self, sub_matches: &ArgMatches) -> Result<(), CliError> {
         if sub_matches.get_one::<String>("account").is_none()
             && sub_matches.get_one::<String>("status").is_none()
@@ -3382,14 +3384,11 @@ impl ArgDispatcher {
                     }
                 }
             }
-        } else {
-            if let Ok(accounts) = self.trust.search_all_accounts() {
-                for account in accounts {
-                    for status in statuses.clone() {
-                        if let Ok(mut status_trades) = self.trust.search_trades(account.id, status)
-                        {
-                            trades.append(&mut status_trades);
-                        }
+        } else if let Ok(accounts) = self.trust.search_all_accounts() {
+            for account in accounts {
+                for status in statuses.clone() {
+                    if let Ok(mut status_trades) = self.trust.search_trades(account.id, status) {
+                        trades.append(&mut status_trades);
                     }
                 }
             }
@@ -3429,7 +3428,10 @@ impl ArgDispatcher {
                     );
                 }
                 if trades.len() > 50 {
-                    println!("... ({} more trades omitted)", trades.len() - 50);
+                    println!(
+                        "... ({} more trades omitted)",
+                        trades.len().saturating_sub(50)
+                    );
                 }
             }
             ReportOutputFormat::Json => {
@@ -3514,6 +3516,7 @@ impl ArgDispatcher {
         Ok(())
     }
 
+    #[allow(clippy::too_many_lines)]
     fn reconcile_trades(&mut self, sub_matches: &ArgMatches) -> Result<(), CliError> {
         let format = Self::parse_report_format(sub_matches);
         let mut trades: Vec<Trade> =
@@ -5140,6 +5143,7 @@ impl ArgDispatcher {
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     fn attribution_report(
         &mut self,
         sub_matches: &ArgMatches,
@@ -5280,6 +5284,7 @@ impl ArgDispatcher {
         Ok(())
     }
 
+    #[allow(clippy::too_many_lines)]
     fn benchmark_report(
         &mut self,
         sub_matches: &ArgMatches,
@@ -5416,6 +5421,7 @@ impl ArgDispatcher {
         Ok(())
     }
 
+    #[allow(clippy::too_many_lines)]
     fn timeline_report(
         &mut self,
         sub_matches: &ArgMatches,
@@ -6674,6 +6680,12 @@ fn create_dir_if_necessary() {
 
 #[cfg(test)]
 mod tests {
+    #![allow(
+        clippy::too_many_lines,
+        clippy::cognitive_complexity,
+        clippy::indexing_slicing
+    )]
+
     use super::ArgDispatcher;
     use super::CliError;
     use super::ReportOutputFormat;

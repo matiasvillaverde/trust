@@ -393,6 +393,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn report_attribution_benchmark_timeline_parse() {
         let attribution = ReportCommandBuilder::new().attribution().build();
         let attribution_matches = attribution

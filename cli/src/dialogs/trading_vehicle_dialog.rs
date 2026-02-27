@@ -7,7 +7,8 @@
     clippy::unwrap_used,
     clippy::expect_used,
     clippy::panic,
-    clippy::indexing_slicing
+    clippy::indexing_slicing,
+    clippy::items_after_test_module
 )]
 
 use std::error::Error;
