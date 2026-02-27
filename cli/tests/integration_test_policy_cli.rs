@@ -4,14 +4,40 @@ use std::process::Command;
 use uuid::Uuid;
 
 fn cli_bin_path() -> String {
-    std::env::var("CARGO_BIN_EXE_trust").unwrap_or_else(|_| {
-        let candidate = Path::new(env!("CARGO_MANIFEST_DIR"))
+    if let Ok(bin) = std::env::var("CARGO_BIN_EXE_trust") {
+        return bin;
+    }
+
+    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let candidates = [
+        manifest_dir
             .join("..")
             .join("target")
             .join("debug")
-            .join("trust");
-        candidate.to_string_lossy().to_string()
-    })
+            .join("trust"),
+        manifest_dir
+            .join("..")
+            .join("target")
+            .join("llvm-cov-target")
+            .join("debug")
+            .join("trust"),
+    ];
+    for candidate in &candidates {
+        if candidate.exists() {
+            return candidate.to_string_lossy().to_string();
+        }
+    }
+
+    if let Ok(current_exe) = std::env::current_exe() {
+        if let Some(debug_dir) = current_exe.parent().and_then(Path::parent) {
+            let sibling_bin = debug_dir.join("trust");
+            if sibling_bin.exists() {
+                return sibling_bin.to_string_lossy().to_string();
+            }
+        }
+    }
+
+    candidates[0].to_string_lossy().to_string()
 }
 
 fn run_cli(database_url: &str, args: &[&str]) -> std::process::Output {
