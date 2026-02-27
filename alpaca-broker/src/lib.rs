@@ -31,8 +31,8 @@
 #![warn(missing_docs, rust_2018_idioms, missing_debug_implementations)]
 
 use model::{
-    Account, BarTimeframe, Broker, BrokerLog, Environment, MarketBar, Order, OrderIds, Status,
-    Trade,
+    Account, BarTimeframe, Broker, BrokerLog, Environment, MarketBar, MarketDataChannel,
+    MarketDataStreamEvent, MarketQuote, MarketTradeTick, Order, OrderIds, Status, Trade,
 };
 use std::error::Error;
 use uuid::Uuid;
@@ -117,6 +117,33 @@ impl Broker for AlpacaBroker {
         market_data::get_bars(symbol, start, end, timeframe, account)
     }
 
+    fn get_latest_quote(
+        &self,
+        symbol: &str,
+        account: &Account,
+    ) -> Result<MarketQuote, Box<dyn Error>> {
+        market_data::get_latest_quote(symbol, account)
+    }
+
+    fn get_latest_trade(
+        &self,
+        symbol: &str,
+        account: &Account,
+    ) -> Result<MarketTradeTick, Box<dyn Error>> {
+        market_data::get_latest_trade(symbol, account)
+    }
+
+    fn stream_market_data(
+        &self,
+        symbols: &[String],
+        channels: &[MarketDataChannel],
+        max_events: usize,
+        timeout_seconds: u64,
+        account: &Account,
+    ) -> Result<Vec<MarketDataStreamEvent>, Box<dyn Error>> {
+        market_data::stream_market_data(symbols, channels, max_events, timeout_seconds, account)
+    }
+
     fn fetch_executions(
         &self,
         trade: &Trade,
@@ -169,5 +196,57 @@ impl AlpacaBroker {
         symbol: &str,
     ) -> Result<AssetMetadata, Box<dyn Error>> {
         asset_lookup::fetch_asset_metadata(account, symbol)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AlpacaBroker;
+    use model::{Account, Broker, Trade};
+    use rust_decimal_macros::dec;
+
+    #[test]
+    fn broker_cancel_trade_fails_fast_when_entry_order_id_is_missing() {
+        let broker = AlpacaBroker;
+        let account = Account::default();
+        let trade = Trade {
+            account_id: account.id,
+            ..Trade::default()
+        };
+
+        let err = broker
+            .cancel_trade(&trade, &account)
+            .expect_err("missing entry order id should fail before I/O");
+        assert!(err.to_string().contains("Entry order ID is missing"));
+    }
+
+    #[test]
+    fn broker_modify_stop_fails_fast_when_stop_order_id_is_missing() {
+        let broker = AlpacaBroker;
+        let account = Account::default();
+        let trade = Trade {
+            account_id: account.id,
+            ..Trade::default()
+        };
+
+        let err = broker
+            .modify_stop(&trade, &account, dec!(90))
+            .expect_err("missing stop order id should fail before I/O");
+        assert!(err.to_string().contains("Safety stop order ID is missing"));
+    }
+
+    #[test]
+    fn broker_modify_target_fails_fast_when_target_order_id_is_missing() {
+        let broker = AlpacaBroker;
+        let account = Account::default();
+        let trade = Trade {
+            account_id: account.id,
+            ..Trade::default()
+        };
+
+        let err = broker
+            .modify_target(&trade, &account, dec!(120))
+            .expect_err("missing target order id should fail before I/O");
+        assert!(err.to_string().contains("Target order ID is missing"));
     }
 }

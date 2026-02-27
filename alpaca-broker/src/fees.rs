@@ -88,3 +88,16 @@ pub fn fetch_fee_activities(
         Ok(out)
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::num_to_decimal;
+    use std::str::FromStr;
+
+    #[test]
+    fn num_to_decimal_parses_valid_num() {
+        let n = num_decimal::Num::from_str("123.45").expect("num parse");
+        let d = num_to_decimal(&n).expect("decimal parse");
+        assert_eq!(d.to_string(), "123.45");
+    }
+}

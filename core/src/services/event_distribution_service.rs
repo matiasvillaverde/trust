@@ -279,6 +279,16 @@ mod tests {
         trade
     }
 
+    fn child_account(parent: uuid::Uuid, account_type: AccountType, name: &str) -> Account {
+        Account {
+            id: Uuid::new_v4(),
+            name: name.to_string(),
+            account_type,
+            parent_account_id: Some(parent),
+            ..Account::default()
+        }
+    }
+
     #[test]
     fn test_calculate_trade_profit_profitable() {
         // Given: Event distribution service
@@ -558,5 +568,263 @@ mod tests {
         let result = service.handle_trade_closed_event(&trade, &Currency::USD);
         assert!(result.is_ok());
         assert!(result.unwrap().is_none());
+    }
+
+    #[derive(Debug)]
+    struct StaticAccountRead {
+        accounts: Vec<Account>,
+        id_error: Option<String>,
+    }
+
+    impl model::AccountRead for StaticAccountRead {
+        fn for_name(&mut self, name: &str) -> Result<Account, Box<dyn std::error::Error>> {
+            self.accounts
+                .iter()
+                .find(|account| account.name == name)
+                .cloned()
+                .ok_or_else(|| "account not found".into())
+        }
+
+        fn id(&mut self, id: uuid::Uuid) -> Result<Account, Box<dyn std::error::Error>> {
+            if let Some(message) = &self.id_error {
+                return Err(message.clone().into());
+            }
+            self.accounts
+                .iter()
+                .find(|account| account.id == id)
+                .cloned()
+                .ok_or_else(|| "account not found".into())
+        }
+
+        fn all(&mut self) -> Result<Vec<Account>, Box<dyn std::error::Error>> {
+            Ok(self.accounts.clone())
+        }
+    }
+
+    #[derive(Debug)]
+    struct StaticDistributionRead {
+        rules_result: Result<model::DistributionRules, String>,
+    }
+
+    impl model::DistributionRead for StaticDistributionRead {
+        fn for_account(
+            &mut self,
+            _account_id: uuid::Uuid,
+        ) -> Result<model::DistributionRules, Box<dyn std::error::Error>> {
+            self.rules_result
+                .as_ref()
+                .map(Clone::clone)
+                .map_err(|message| message.clone().into())
+        }
+
+        fn history_for_account(
+            &mut self,
+            _account_id: uuid::Uuid,
+        ) -> Result<Vec<model::DistributionHistory>, Box<dyn std::error::Error>> {
+            Ok(vec![])
+        }
+    }
+
+    #[derive(Debug)]
+    struct StaticEventDb {
+        accounts: Vec<Account>,
+        id_error: Option<String>,
+        rules_result: Result<model::DistributionRules, String>,
+    }
+
+    impl DatabaseFactory for StaticEventDb {
+        fn account_read(&self) -> Box<dyn model::AccountRead> {
+            Box::new(StaticAccountRead {
+                accounts: self.accounts.clone(),
+                id_error: self.id_error.clone(),
+            })
+        }
+        fn account_write(&self) -> Box<dyn model::AccountWrite> {
+            todo!("not used")
+        }
+        fn account_balance_read(&self) -> Box<dyn model::AccountBalanceRead> {
+            todo!("not used")
+        }
+        fn account_balance_write(&self) -> Box<dyn model::AccountBalanceWrite> {
+            todo!("not used")
+        }
+        fn order_read(&self) -> Box<dyn model::OrderRead> {
+            todo!("not used")
+        }
+        fn order_write(&self) -> Box<dyn model::OrderWrite> {
+            todo!("not used")
+        }
+        fn transaction_read(&self) -> Box<dyn model::ReadTransactionDB> {
+            todo!("not used")
+        }
+        fn transaction_write(&self) -> Box<dyn model::WriteTransactionDB> {
+            todo!("not used")
+        }
+        fn trade_read(&self) -> Box<dyn model::ReadTradeDB> {
+            todo!("not used")
+        }
+        fn trade_write(&self) -> Box<dyn model::WriteTradeDB> {
+            todo!("not used")
+        }
+        fn trade_balance_write(&self) -> Box<dyn model::database::WriteAccountBalanceDB> {
+            todo!("not used")
+        }
+        fn rule_read(&self) -> Box<dyn model::ReadRuleDB> {
+            todo!("not used")
+        }
+        fn rule_write(&self) -> Box<dyn model::WriteRuleDB> {
+            todo!("not used")
+        }
+        fn trading_vehicle_read(&self) -> Box<dyn model::ReadTradingVehicleDB> {
+            todo!("not used")
+        }
+        fn trading_vehicle_write(&self) -> Box<dyn model::WriteTradingVehicleDB> {
+            todo!("not used")
+        }
+        fn log_read(&self) -> Box<dyn model::ReadBrokerLogsDB> {
+            todo!("not used")
+        }
+        fn log_write(&self) -> Box<dyn model::WriteBrokerLogsDB> {
+            todo!("not used")
+        }
+        fn distribution_read(&self) -> Box<dyn model::DistributionRead> {
+            Box::new(StaticDistributionRead {
+                rules_result: self.rules_result.clone(),
+            })
+        }
+        fn distribution_write(&self) -> Box<dyn model::DistributionWrite> {
+            todo!("not used")
+        }
+        fn advisory_read(&self) -> Box<dyn model::AdvisoryRead> {
+            todo!("not used")
+        }
+        fn advisory_write(&self) -> Box<dyn model::AdvisoryWrite> {
+            todo!("not used")
+        }
+        fn execution_read(&self) -> Box<dyn model::ReadExecutionDB> {
+            todo!("not used")
+        }
+        fn execution_write(&self) -> Box<dyn model::WriteExecutionDB> {
+            todo!("not used")
+        }
+        fn trade_grade_read(&self) -> Box<dyn model::ReadTradeGradeDB> {
+            todo!("not used")
+        }
+        fn trade_grade_write(&self) -> Box<dyn model::WriteTradeGradeDB> {
+            todo!("not used")
+        }
+        fn level_read(&self) -> Box<dyn model::ReadLevelDB> {
+            todo!("not used")
+        }
+        fn level_write(&self) -> Box<dyn model::WriteLevelDB> {
+            todo!("not used")
+        }
+        fn begin_savepoint(&mut self, _name: &str) -> Result<(), Box<dyn Error>> {
+            Ok(())
+        }
+        fn release_savepoint(&mut self, _name: &str) -> Result<(), Box<dyn Error>> {
+            Ok(())
+        }
+        fn rollback_to_savepoint(&mut self, _name: &str) -> Result<(), Box<dyn Error>> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn test_find_distribution_accounts_returns_expected_children() {
+        let source = Account {
+            id: Uuid::new_v4(),
+            ..Account::default()
+        };
+        let earnings = child_account(source.id, AccountType::Earnings, "earnings");
+        let tax = child_account(source.id, AccountType::TaxReserve, "tax");
+        let reinvestment = child_account(source.id, AccountType::Reinvestment, "reinvestment");
+
+        let mut db = StaticEventDb {
+            accounts: vec![
+                source.clone(),
+                earnings.clone(),
+                tax.clone(),
+                reinvestment.clone(),
+            ],
+            id_error: None,
+            rules_result: Ok(model::DistributionRules::default_for_account(source.id)),
+        };
+        let mut service = EventDistributionService::new(&mut db);
+
+        let (e, t, r) = service
+            .find_distribution_accounts(source.id)
+            .expect("all distribution child accounts should exist");
+        assert_eq!(e.id, earnings.id);
+        assert_eq!(t.id, tax.id);
+        assert_eq!(r.id, reinvestment.id);
+    }
+
+    #[test]
+    fn test_find_distribution_accounts_errors_when_missing_required_child() {
+        let source = Account {
+            id: Uuid::new_v4(),
+            ..Account::default()
+        };
+        let earnings = child_account(source.id, AccountType::Earnings, "earnings");
+        let tax = child_account(source.id, AccountType::TaxReserve, "tax");
+
+        let mut db = StaticEventDb {
+            accounts: vec![source.clone(), earnings, tax],
+            id_error: None,
+            rules_result: Ok(model::DistributionRules::default_for_account(source.id)),
+        };
+        let mut service = EventDistributionService::new(&mut db);
+
+        let err = service
+            .find_distribution_accounts(source.id)
+            .expect_err("missing reinvestment account should fail");
+        assert!(err.to_string().contains("Reinvestment account not found"));
+    }
+
+    #[test]
+    fn test_handle_trade_closed_event_returns_none_when_below_threshold() {
+        let trade = create_test_trade_profitable();
+        let source = Account {
+            id: trade.account_id,
+            ..Account::default()
+        };
+        let rules = model::DistributionRules {
+            minimum_threshold: dec!(1_000_000),
+            ..model::DistributionRules::default_for_account(source.id)
+        };
+        let mut db = StaticEventDb {
+            accounts: vec![source],
+            id_error: None,
+            rules_result: Ok(rules),
+        };
+        let mut service = EventDistributionService::new(&mut db);
+
+        let result = service
+            .handle_trade_closed_event(&trade, &Currency::USD)
+            .expect("below threshold should short-circuit");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_handle_trade_closed_event_propagates_account_lookup_errors() {
+        let trade = create_test_trade_profitable();
+        let source = Account {
+            id: trade.account_id,
+            ..Account::default()
+        };
+        let mut db = StaticEventDb {
+            accounts: vec![source],
+            id_error: Some("account lookup failed".to_string()),
+            rules_result: Ok(model::DistributionRules::default_for_account(
+                trade.account_id,
+            )),
+        };
+        let mut service = EventDistributionService::new(&mut db);
+
+        let err = service
+            .handle_trade_closed_event(&trade, &Currency::USD)
+            .expect_err("account lookup errors should propagate");
+        assert!(err.to_string().contains("account lookup failed"));
     }
 }

@@ -87,7 +87,10 @@ pub use level::{
     Level, LevelAdjustmentRules, LevelChange, LevelDirection, LevelError, LevelRulesError,
     LevelStatus, LevelStatusParseError, LevelTrigger, LevelTriggerParseError,
 };
-pub use market_data::{BarTimeframe, MarketBar};
+pub use market_data::{
+    BarTimeframe, MarketBar, MarketDataChannel, MarketDataStreamEvent, MarketQuote, MarketSnapshot,
+    MarketSnapshotSource, MarketSnapshotV2, MarketTradeTick,
+};
 pub use order::{Order, OrderAction, OrderCategory, OrderStatus, TimeInForce};
 pub use rule::{Rule, RuleLevel, RuleName};
 pub use strategy::Strategy;

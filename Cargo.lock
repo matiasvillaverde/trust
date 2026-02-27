@@ -25,6 +25,7 @@ version = "0.3.5"
 dependencies = [
  "apca",
  "chrono",
+ "futures-util",
  "keyring",
  "num-decimal",
  "rust_decimal",

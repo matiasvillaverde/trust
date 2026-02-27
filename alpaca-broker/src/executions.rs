@@ -103,3 +103,33 @@ pub fn fetch_executions(
         Ok(out)
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{map_side, num_to_decimal};
+    use model::ExecutionSide;
+    use std::str::FromStr;
+
+    #[test]
+    fn map_side_converts_known_variants() {
+        assert_eq!(
+            map_side(apca::api::v2::account_activities::Side::Buy),
+            ExecutionSide::Buy
+        );
+        assert_eq!(
+            map_side(apca::api::v2::account_activities::Side::Sell),
+            ExecutionSide::Sell
+        );
+        assert_eq!(
+            map_side(apca::api::v2::account_activities::Side::ShortSell),
+            ExecutionSide::SellShort
+        );
+    }
+
+    #[test]
+    fn num_to_decimal_parses_valid_num() {
+        let n = num_decimal::Num::from_str("0.125").expect("num parse");
+        let d = num_to_decimal(&n).expect("decimal parse");
+        assert_eq!(d.to_string(), "0.125");
+    }
+}
