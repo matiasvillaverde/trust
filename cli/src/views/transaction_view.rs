@@ -38,3 +38,39 @@ impl TransactionView {
         println!("{table}");
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::TransactionView;
+    use model::{Currency, Transaction, TransactionCategory};
+    use rust_decimal_macros::dec;
+    use uuid::Uuid;
+
+    #[test]
+    fn new_maps_transaction_fields() {
+        let trade_id = Uuid::new_v4();
+        let tx = Transaction::new(
+            Uuid::new_v4(),
+            TransactionCategory::FundTrade(trade_id),
+            &Currency::USD,
+            dec!(123.45),
+        );
+
+        let view = TransactionView::new(&tx, "main");
+        assert_eq!(view.account_name, "Main");
+        assert_eq!(view.category, "fund_trade");
+        assert_eq!(view.amount, "123.45");
+        assert_eq!(view.currency, "USD");
+    }
+
+    #[test]
+    fn display_transactions_runs_for_smoke_coverage() {
+        let tx = Transaction::new(
+            Uuid::new_v4(),
+            TransactionCategory::Deposit,
+            &Currency::USD,
+            dec!(1),
+        );
+        TransactionView::display_transactions(vec![&tx], "paper");
+    }
+}

@@ -100,3 +100,57 @@ impl KeysCommandBuilder {
         self
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::KeysCommandBuilder;
+
+    #[test]
+    fn keys_builder_registers_all_subcommands() {
+        let cmd = KeysCommandBuilder::new()
+            .create_keys()
+            .read_environment()
+            .delete_environment()
+            .protected_set()
+            .protected_show()
+            .protected_delete()
+            .build();
+        for name in [
+            "create",
+            "show",
+            "delete",
+            "protected-set",
+            "protected-show",
+            "protected-delete",
+        ] {
+            assert!(cmd.get_subcommands().any(|c| c.get_name() == name));
+        }
+    }
+
+    #[test]
+    fn keys_protected_set_parses_required_value() {
+        let cmd = KeysCommandBuilder::new().protected_set().build();
+        let matches = cmd
+            .try_get_matches_from([
+                "keys",
+                "protected-set",
+                "--value",
+                "new-keyword",
+                "--confirm-protected",
+                "old-keyword",
+            ])
+            .expect("protected-set should parse");
+        let sub = matches
+            .subcommand_matches("protected-set")
+            .expect("protected-set subcommand");
+        assert_eq!(
+            sub.get_one::<String>("value").map(String::as_str),
+            Some("new-keyword")
+        );
+        assert_eq!(
+            sub.get_one::<String>("confirm-protected")
+                .map(String::as_str),
+            Some("old-keyword")
+        );
+    }
+}

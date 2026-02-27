@@ -1,5 +1,6 @@
 mod account_dialog;
 mod dialog_helpers;
+mod io;
 mod keys_dialog;
 mod modify_dialog;
 mod rule_dialog;
@@ -18,6 +19,7 @@ mod transaction_dialog;
 
 pub use account_dialog::AccountDialogBuilder;
 pub use account_dialog::AccountSearchDialog;
+pub use io::{ConsoleDialogIo, DialogIo};
 pub use keys_dialog::KeysDeleteDialogBuilder;
 pub use keys_dialog::KeysReadDialogBuilder;
 pub use keys_dialog::KeysWriteDialogBuilder;

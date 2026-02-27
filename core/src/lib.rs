@@ -42,11 +42,12 @@ use calculators_trade::{LevelAdjustedQuantity, QuantityCalculator};
 use events::trade::{CloseReason, TradeClosed};
 use model::database::TradingVehicleUpsert;
 use model::{
-    Account, AccountBalance, AccountType, Broker, BrokerLog, Currency, DatabaseFactory,
-    DistributionHistory, DistributionResult, DistributionRules, DraftTrade, Environment, Execution,
-    Level, LevelAdjustmentRules, LevelChange, LevelTrigger, Order, Rule, RuleLevel, RuleName,
-    Status, Trade, TradeBalance, TradingVehicle, TradingVehicleCategory, Transaction,
-    TransactionCategory,
+    Account, AccountBalance, AccountType, BarTimeframe, Broker, BrokerLog, Currency,
+    DatabaseFactory, DistributionHistory, DistributionResult, DistributionRules, DraftTrade,
+    Environment, Execution, Level, LevelAdjustmentRules, LevelChange, LevelTrigger, MarketBar,
+    MarketDataChannel, MarketDataStreamEvent, MarketSnapshot, MarketSnapshotSource,
+    MarketSnapshotV2, Order, Rule, RuleLevel, RuleName, Status, Trade, TradeBalance,
+    TradingVehicle, TradingVehicleCategory, Transaction, TransactionCategory,
 };
 use rand_core::OsRng;
 use rust_decimal::Decimal;
@@ -731,6 +732,125 @@ impl TrustFacade {
         self.factory
             .trade_read()
             .read_trades_with_status(account_id, status)
+    }
+
+    /// Fetch historical market bars from the configured broker market-data API.
+    pub fn market_bars(
+        &mut self,
+        account: &Account,
+        symbol: &str,
+        start: chrono::DateTime<chrono::Utc>,
+        end: chrono::DateTime<chrono::Utc>,
+        timeframe: BarTimeframe,
+    ) -> Result<Vec<MarketBar>, Box<dyn std::error::Error>> {
+        self.broker.get_bars(symbol, start, end, timeframe, account)
+    }
+
+    /// Fetch a best-effort market snapshot derived from the latest minute bar.
+    ///
+    /// This method uses the latest available one-minute bar as a compact,
+    /// broker-agnostic snapshot representation.
+    pub fn market_snapshot(
+        &mut self,
+        account: &Account,
+        symbol: &str,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> Result<MarketSnapshot, Box<dyn std::error::Error>> {
+        let start = now
+            .checked_sub_signed(chrono::Duration::minutes(30))
+            .unwrap_or(now);
+        let bars = self
+            .broker
+            .get_bars(symbol, start, now, BarTimeframe::OneMinute, account)?;
+
+        let latest = bars
+            .into_iter()
+            .max_by_key(|bar| bar.time)
+            .ok_or_else(|| "No market bars returned for snapshot request".to_string())?;
+
+        Ok(MarketSnapshot {
+            symbol: symbol.to_string(),
+            as_of: latest.time,
+            last_price: latest.close,
+            volume: latest.volume,
+            open: latest.open,
+            high: latest.high,
+            low: latest.low,
+        })
+    }
+
+    /// Fetch a richer market snapshot with quote/trade enrichment when supported.
+    ///
+    /// If quote/trade retrieval is unavailable, this gracefully falls back to
+    /// bar-derived snapshot semantics.
+    pub fn market_snapshot_v2(
+        &mut self,
+        account: &Account,
+        symbol: &str,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> Result<MarketSnapshotV2, Box<dyn std::error::Error>> {
+        let quote = self.broker.get_latest_quote(symbol, account).ok();
+        let trade = self.broker.get_latest_trade(symbol, account).ok();
+
+        if let (Some(quote), Some(trade)) = (quote, trade) {
+            let as_of = if quote.as_of >= trade.as_of {
+                quote.as_of
+            } else {
+                trade.as_of
+            };
+            let last_price = trade.price;
+            let volume = trade.size;
+            let open = last_price;
+            let high = if quote.ask_price >= last_price {
+                quote.ask_price
+            } else {
+                last_price
+            };
+            let low = if quote.bid_price <= last_price {
+                quote.bid_price
+            } else {
+                last_price
+            };
+            return Ok(MarketSnapshotV2 {
+                symbol: symbol.to_string(),
+                as_of,
+                last_price,
+                volume,
+                open,
+                high,
+                low,
+                quote: Some(quote),
+                trade: Some(trade),
+                source: MarketSnapshotSource::QuoteTrade,
+            });
+        }
+
+        let fallback = self.market_snapshot(account, symbol, now)?;
+        Ok(MarketSnapshotV2 {
+            symbol: fallback.symbol,
+            as_of: fallback.as_of,
+            last_price: fallback.last_price,
+            volume: fallback.volume,
+            open: fallback.open,
+            high: fallback.high,
+            low: fallback.low,
+            quote: None,
+            trade: None,
+            source: MarketSnapshotSource::BarsFallback,
+        })
+    }
+
+    /// Retrieve a finite batch of realtime market-data events.
+    pub fn stream_market_data(
+        &mut self,
+        account: &Account,
+        symbols: &[String],
+        channels: &[MarketDataChannel],
+        max_events: usize,
+        timeout_seconds: u64,
+    ) -> Result<Vec<MarketDataStreamEvent>, Box<dyn std::error::Error>> {
+        self.broker
+            .stream_market_data(symbols, channels, max_events, timeout_seconds, account)
     }
 
     /// Retrieve all executions (fills) attributed to a trade.

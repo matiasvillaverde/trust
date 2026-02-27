@@ -30,3 +30,39 @@ impl Default for PolicyCommandBuilder {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::PolicyCommandBuilder;
+
+    #[test]
+    fn policy_defaults_to_text_format() {
+        let cmd = PolicyCommandBuilder::new().build();
+        let matches = cmd
+            .try_get_matches_from(["policy"])
+            .expect("policy should parse");
+        assert_eq!(
+            matches.get_one::<String>("format").map(String::as_str),
+            Some("text")
+        );
+    }
+
+    #[test]
+    fn policy_accepts_json_format() {
+        let cmd = PolicyCommandBuilder::new().build();
+        let matches = cmd
+            .try_get_matches_from(["policy", "--format", "json"])
+            .expect("policy json should parse");
+        assert_eq!(
+            matches.get_one::<String>("format").map(String::as_str),
+            Some("json")
+        );
+    }
+
+    #[test]
+    fn policy_default_matches_new() {
+        let from_default = PolicyCommandBuilder::default().build();
+        let from_new = PolicyCommandBuilder::new().build();
+        assert_eq!(from_default.get_name(), from_new.get_name());
+    }
+}

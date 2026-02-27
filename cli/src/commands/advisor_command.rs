@@ -136,4 +136,54 @@ mod tests {
         ]);
         assert!(result.is_ok());
     }
+
+    #[test]
+    fn status_and_history_parse() {
+        let status_cmd = AdvisorCommandBuilder::new().status().build();
+        let status = status_cmd
+            .try_get_matches_from([
+                "advisor",
+                "status",
+                "--account",
+                "550e8400-e29b-41d4-a716-446655440000",
+            ])
+            .expect("status should parse");
+        let status_sub = status
+            .subcommand_matches("status")
+            .expect("status subcommand");
+        assert_eq!(
+            status_sub.get_one::<String>("account").map(String::as_str),
+            Some("550e8400-e29b-41d4-a716-446655440000")
+        );
+
+        let history_cmd = AdvisorCommandBuilder::new().history().build();
+        let history = history_cmd
+            .try_get_matches_from([
+                "advisor",
+                "history",
+                "--account",
+                "550e8400-e29b-41d4-a716-446655440000",
+                "--days",
+                "7",
+            ])
+            .expect("history should parse");
+        let history_sub = history
+            .subcommand_matches("history")
+            .expect("history subcommand");
+        assert_eq!(
+            history_sub.get_one::<String>("account").map(String::as_str),
+            Some("550e8400-e29b-41d4-a716-446655440000")
+        );
+        assert_eq!(
+            history_sub.get_one::<String>("days").map(String::as_str),
+            Some("7")
+        );
+    }
+
+    #[test]
+    fn default_matches_new() {
+        let from_default = AdvisorCommandBuilder::default().configure().build();
+        let from_new = AdvisorCommandBuilder::new().configure().build();
+        assert_eq!(from_default.get_name(), from_new.get_name());
+    }
 }

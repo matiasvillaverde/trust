@@ -11,14 +11,14 @@ use uuid::Uuid;
 pub fn modify(trade: &Trade, account: &Account, price: Decimal) -> Result<Uuid, Box<dyn Error>> {
     assert!(trade.account_id == account.id); // Verify that the trade is for the account
 
-    let api_info = keys::read_api_key(&account.environment, account)?;
-    let client = Client::new(api_info);
-
-    // Modify the stop order.
+    // Validate required input before touching keychain/network.
     let target_order_id = trade
         .target
         .broker_order_id
         .ok_or("Target order ID is missing")?;
+
+    let api_info = keys::read_api_key(&account.environment, account)?;
+    let client = Client::new(api_info);
 
     let alpaca_order = Runtime::new()
         .map_err(|e| Box::new(e) as Box<dyn Error>)?
@@ -43,5 +43,38 @@ async fn submit(client: &Client, order_id: Uuid, price: Decimal) -> Result<Order
             eprintln!("Error modify stop: {e:?}");
             Err(Box::new(e))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::modify;
+    use model::{Account, Trade};
+    use rust_decimal_macros::dec;
+    use uuid::Uuid;
+
+    #[test]
+    fn modify_returns_error_when_target_broker_order_id_is_missing() {
+        let account = Account::default();
+        let trade = Trade {
+            account_id: account.id,
+            ..Trade::default()
+        };
+
+        let err =
+            modify(&trade, &account, dec!(100)).expect_err("missing target order id should fail");
+        assert!(err.to_string().contains("Target order ID is missing"));
+    }
+
+    #[test]
+    #[should_panic]
+    fn modify_panics_when_trade_account_mismatch() {
+        let account = Account::default();
+        let trade = Trade {
+            account_id: Uuid::new_v4(),
+            ..Trade::default()
+        };
+
+        let _ = modify(&trade, &account, dec!(100));
     }
 }

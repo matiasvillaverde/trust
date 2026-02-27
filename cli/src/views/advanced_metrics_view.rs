@@ -297,4 +297,131 @@ mod tests {
         );
         assert_eq!(AdvancedMetricsView::rate_profit_factor(dec!(0.8)), "Poor");
     }
+
+    #[test]
+    fn test_rate_win_rate_thresholds() {
+        assert_eq!(AdvancedMetricsView::rate_win_rate(dec!(70.0)), "Excellent");
+        assert_eq!(AdvancedMetricsView::rate_win_rate(dec!(60.0)), "Very Good");
+        assert_eq!(AdvancedMetricsView::rate_win_rate(dec!(50.0)), "Good");
+        assert_eq!(AdvancedMetricsView::rate_win_rate(dec!(40.0)), "Fair");
+        assert_eq!(AdvancedMetricsView::rate_win_rate(dec!(39.9)), "Poor");
+    }
+
+    #[test]
+    fn test_rate_sharpe_ratio_thresholds() {
+        assert_eq!(
+            AdvancedMetricsView::rate_sharpe_ratio(dec!(3.0)),
+            "Excellent"
+        );
+        assert_eq!(
+            AdvancedMetricsView::rate_sharpe_ratio(dec!(2.0)),
+            "Very Good"
+        );
+        assert_eq!(AdvancedMetricsView::rate_sharpe_ratio(dec!(1.0)), "Good");
+        assert_eq!(
+            AdvancedMetricsView::rate_sharpe_ratio(dec!(0.5)),
+            "Acceptable"
+        );
+        assert_eq!(AdvancedMetricsView::rate_sharpe_ratio(dec!(0.0)), "Poor");
+        assert_eq!(
+            AdvancedMetricsView::rate_sharpe_ratio(dec!(-0.1)),
+            "Very Poor"
+        );
+    }
+
+    #[test]
+    fn test_rate_sortino_ratio_thresholds() {
+        assert_eq!(
+            AdvancedMetricsView::rate_sortino_ratio(dec!(3.0)),
+            "Excellent"
+        );
+        assert_eq!(
+            AdvancedMetricsView::rate_sortino_ratio(dec!(2.0)),
+            "Very Good"
+        );
+        assert_eq!(AdvancedMetricsView::rate_sortino_ratio(dec!(1.0)), "Good");
+        assert_eq!(
+            AdvancedMetricsView::rate_sortino_ratio(dec!(0.5)),
+            "Acceptable"
+        );
+        assert_eq!(AdvancedMetricsView::rate_sortino_ratio(dec!(0.0)), "Poor");
+        assert_eq!(
+            AdvancedMetricsView::rate_sortino_ratio(dec!(-0.1)),
+            "Very Poor"
+        );
+    }
+
+    #[test]
+    fn test_rate_calmar_ratio_thresholds() {
+        assert_eq!(
+            AdvancedMetricsView::rate_calmar_ratio(dec!(3.0)),
+            "Excellent"
+        );
+        assert_eq!(
+            AdvancedMetricsView::rate_calmar_ratio(dec!(2.0)),
+            "Very Good"
+        );
+        assert_eq!(AdvancedMetricsView::rate_calmar_ratio(dec!(1.0)), "Good");
+        assert_eq!(
+            AdvancedMetricsView::rate_calmar_ratio(dec!(0.5)),
+            "Acceptable"
+        );
+        assert_eq!(AdvancedMetricsView::rate_calmar_ratio(dec!(0.0)), "Poor");
+        assert_eq!(
+            AdvancedMetricsView::rate_calmar_ratio(dec!(-0.1)),
+            "Very Poor"
+        );
+    }
+
+    #[test]
+    fn test_rate_kelly_criterion_thresholds() {
+        assert_eq!(
+            AdvancedMetricsView::rate_kelly_criterion(dec!(0.25)),
+            "Aggressive (>25%)"
+        );
+        assert_eq!(
+            AdvancedMetricsView::rate_kelly_criterion(dec!(0.15)),
+            "Moderate (15-25%)"
+        );
+        assert_eq!(
+            AdvancedMetricsView::rate_kelly_criterion(dec!(0.10)),
+            "Conservative (10-15%)"
+        );
+        assert_eq!(
+            AdvancedMetricsView::rate_kelly_criterion(dec!(0.05)),
+            "Very Conservative (5-10%)"
+        );
+        assert_eq!(
+            AdvancedMetricsView::rate_kelly_criterion(dec!(0.01)),
+            "Minimal (<5%)"
+        );
+        assert_eq!(
+            AdvancedMetricsView::rate_kelly_criterion(dec!(0.0)),
+            "Negative (avoid)"
+        );
+    }
+
+    #[test]
+    fn display_functions_cover_empty_and_populated_paths() {
+        let empty_trades: Vec<Trade> = vec![];
+        AdvancedMetricsView::display(empty_trades.clone());
+        AdvancedMetricsView::display_trade_quality_metrics(&empty_trades);
+        AdvancedMetricsView::display_risk_adjusted_metrics(&empty_trades);
+        AdvancedMetricsView::display_statistical_analysis(&empty_trades);
+
+        let mixed = vec![
+            create_test_trade(dec!(200), Status::ClosedTarget),
+            create_test_trade(dec!(-50), Status::ClosedStopLoss),
+            create_test_trade(dec!(120), Status::ClosedTarget),
+            create_test_trade(dec!(-30), Status::ClosedStopLoss),
+            create_test_trade(dec!(90), Status::ClosedTarget),
+        ];
+        let closed = AdvancedMetricsView::filter_closed_trades(&mixed);
+        assert_eq!(closed.len(), 5);
+
+        AdvancedMetricsView::display(mixed);
+        AdvancedMetricsView::display_trade_quality_metrics(&closed);
+        AdvancedMetricsView::display_risk_adjusted_metrics(&closed);
+        AdvancedMetricsView::display_statistical_analysis(&closed);
+    }
 }

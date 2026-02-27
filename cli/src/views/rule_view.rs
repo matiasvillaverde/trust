@@ -44,3 +44,46 @@ impl RuleView {
         println!("{table}");
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::RuleView;
+    use chrono::Utc;
+    use model::{Rule, RuleLevel, RuleName};
+    use uuid::Uuid;
+
+    fn sample_rule() -> Rule {
+        let now = Utc::now().naive_utc();
+        Rule {
+            id: Uuid::new_v4(),
+            created_at: now,
+            updated_at: now,
+            deleted_at: None,
+            name: RuleName::RiskPerTrade(2.5),
+            description: "max risk".to_string(),
+            priority: 10,
+            level: RuleLevel::Warning,
+            account_id: Uuid::new_v4(),
+            active: true,
+        }
+    }
+
+    #[test]
+    fn new_formats_rule_fields() {
+        let rule = sample_rule();
+
+        let view = RuleView::new(rule, "paper");
+        assert_eq!(view.account, "Paper");
+        assert_eq!(view.name, "risk_per_trade");
+        assert_eq!(view.risk, "2.5 %");
+        assert_eq!(view.description, "Max risk");
+        assert_eq!(view.priority, "10");
+        assert_eq!(view.level, "warning");
+        assert_eq!(view.active, "true");
+    }
+
+    #[test]
+    fn display_rules_runs_for_smoke_coverage() {
+        RuleView::display_rules(vec![sample_rule()], "main");
+    }
+}

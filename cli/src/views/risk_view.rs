@@ -129,3 +129,53 @@ impl RiskView {
         );
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::RiskView;
+    use chrono::Utc;
+    use core::calculators_risk::OpenPosition;
+    use model::Status;
+    use rust_decimal_macros::dec;
+    use uuid::Uuid;
+
+    #[test]
+    fn format_currency_covers_positive_and_negative_values() {
+        assert_eq!(RiskView::format_currency(dec!(1500.5)), "$1500.50");
+        assert_eq!(RiskView::format_currency(dec!(-1500.5)), "-$1500.50");
+    }
+
+    #[test]
+    fn calculate_percentage_handles_zero_and_regular_totals() {
+        assert_eq!(RiskView::calculate_percentage(dec!(10), dec!(0)), "0.0");
+        assert_eq!(RiskView::calculate_percentage(dec!(25), dec!(200)), "12.5");
+    }
+
+    #[test]
+    fn format_status_maps_known_and_unknown_statuses() {
+        assert_eq!(RiskView::format_status(&Status::Funded), "Entry pending");
+        assert_eq!(
+            RiskView::format_status(&Status::Submitted),
+            "Order submitted"
+        );
+        assert_eq!(
+            RiskView::format_status(&Status::Filled),
+            "Target/Stop active"
+        );
+        assert_eq!(RiskView::format_status(&Status::Canceled), "Unknown status");
+    }
+
+    #[test]
+    fn display_renders_without_panicking_for_positions_and_empty_state() {
+        let positions = vec![OpenPosition {
+            trade_id: Uuid::new_v4(),
+            symbol: "AAPL".to_string(),
+            capital_amount: dec!(1000),
+            status: Status::Filled,
+            funded_date: Utc::now().naive_utc(),
+        }];
+
+        RiskView::display(positions, dec!(1000), dec!(10000));
+        RiskView::display(Vec::new(), dec!(0), dec!(0));
+    }
+}

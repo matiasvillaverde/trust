@@ -79,3 +79,73 @@ impl Default for DbCommandBuilder {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::DbCommandBuilder;
+
+    #[test]
+    fn db_builder_registers_export_and_import() {
+        let cmd = DbCommandBuilder::new().export().import().build();
+        assert!(cmd.get_subcommands().any(|c| c.get_name() == "export"));
+        assert!(cmd.get_subcommands().any(|c| c.get_name() == "import"));
+    }
+
+    #[test]
+    fn db_export_parses_optional_output() {
+        let cmd = DbCommandBuilder::new().export().build();
+        let matches = cmd
+            .try_get_matches_from(["db", "export", "--output", "backup.json"])
+            .expect("db export should parse");
+        let export = matches
+            .subcommand_matches("export")
+            .expect("export subcommand");
+        assert_eq!(
+            export.get_one::<String>("output").map(String::as_str),
+            Some("backup.json")
+        );
+    }
+
+    #[test]
+    fn db_import_parses_required_and_optional_args() {
+        let cmd = DbCommandBuilder::new().import().build();
+        let matches = cmd
+            .try_get_matches_from([
+                "db",
+                "import",
+                "--input",
+                "backup.json",
+                "--mode",
+                "replace",
+                "--dry-run",
+                "--confirm-protected",
+                "keyword",
+            ])
+            .expect("db import should parse");
+        let import = matches
+            .subcommand_matches("import")
+            .expect("import subcommand");
+        assert_eq!(
+            import.get_one::<String>("input").map(String::as_str),
+            Some("backup.json")
+        );
+        assert_eq!(
+            import.get_one::<String>("mode").map(String::as_str),
+            Some("replace")
+        );
+        assert!(import.get_flag("dry-run"));
+        assert_eq!(
+            import
+                .get_one::<String>("confirm-protected")
+                .map(String::as_str),
+            Some("keyword")
+        );
+    }
+
+    #[test]
+    fn default_matches_new() {
+        let from_default = DbCommandBuilder::default().export().build();
+        let from_new = DbCommandBuilder::new().export().build();
+        assert_eq!(from_default.get_name(), from_new.get_name());
+    }
+}

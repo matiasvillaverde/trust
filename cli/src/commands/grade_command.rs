@@ -92,3 +92,82 @@ impl Default for GradeCommandBuilder {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::GradeCommandBuilder;
+
+    #[test]
+    fn grade_builder_registers_subcommands() {
+        let cmd = GradeCommandBuilder::new().show().summary().build();
+        assert!(cmd.get_subcommands().any(|c| c.get_name() == "show"));
+        assert!(cmd.get_subcommands().any(|c| c.get_name() == "summary"));
+    }
+
+    #[test]
+    fn grade_show_parses_required_and_optional_args() {
+        let cmd = GradeCommandBuilder::new().show().build();
+        let matches = cmd
+            .try_get_matches_from([
+                "grade",
+                "--format",
+                "json",
+                "show",
+                "trade-id",
+                "--regrade",
+                "--weights",
+                "40,30,20,10",
+            ])
+            .expect("grade show should parse");
+        assert_eq!(
+            matches.get_one::<String>("format").map(String::as_str),
+            Some("json")
+        );
+        let show = matches.subcommand_matches("show").expect("show subcommand");
+        assert_eq!(
+            show.get_one::<String>("trade_id").map(String::as_str),
+            Some("trade-id")
+        );
+        assert!(show.get_flag("regrade"));
+        assert_eq!(
+            show.get_one::<String>("weights").map(String::as_str),
+            Some("40,30,20,10")
+        );
+    }
+
+    #[test]
+    fn grade_summary_parses_window_and_account() {
+        let cmd = GradeCommandBuilder::new().summary().build();
+        let matches = cmd
+            .try_get_matches_from([
+                "grade",
+                "summary",
+                "--account",
+                "acc-1",
+                "--days",
+                "30",
+                "--weights",
+                "400,300,200,100",
+            ])
+            .expect("grade summary should parse");
+        let summary = matches
+            .subcommand_matches("summary")
+            .expect("summary subcommand");
+        assert_eq!(
+            summary.get_one::<String>("account").map(String::as_str),
+            Some("acc-1")
+        );
+        assert_eq!(summary.get_one::<u32>("days"), Some(&30));
+        assert_eq!(
+            summary.get_one::<String>("weights").map(String::as_str),
+            Some("400,300,200,100")
+        );
+    }
+
+    #[test]
+    fn default_matches_new() {
+        let from_default = GradeCommandBuilder::default().show().build();
+        let from_new = GradeCommandBuilder::new().show().build();
+        assert_eq!(from_default.get_name(), from_new.get_name());
+    }
+}

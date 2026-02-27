@@ -344,4 +344,90 @@ mod tests {
         assert!(names.contains(&"progress"));
         assert!(names.contains(&"rules"));
     }
+
+    #[test]
+    fn test_level_subcommand_parsing_shapes() {
+        let status_cmd = LevelCommandBuilder::new().status().build();
+        let status = status_cmd
+            .try_get_matches_from([
+                "level",
+                "status",
+                "--account",
+                "550e8400-e29b-41d4-a716-446655440000",
+            ])
+            .expect("status should parse");
+        let status_sub = status
+            .subcommand_matches("status")
+            .expect("status subcommand");
+        assert_eq!(
+            status_sub.get_one::<String>("account").map(String::as_str),
+            Some("550e8400-e29b-41d4-a716-446655440000")
+        );
+
+        let history_cmd = LevelCommandBuilder::new().history().build();
+        let history = history_cmd
+            .try_get_matches_from(["level", "history", "--account", "acc-1", "--days", "30"])
+            .expect("history should parse");
+        let history_sub = history
+            .subcommand_matches("history")
+            .expect("history subcommand");
+        assert_eq!(
+            history_sub.get_one::<String>("account").map(String::as_str),
+            Some("acc-1")
+        );
+        assert_eq!(history_sub.get_one::<u32>("days"), Some(&30));
+
+        let rules_cmd = LevelCommandBuilder::new().rules().build();
+        let show = rules_cmd
+            .clone()
+            .try_get_matches_from(["level", "rules", "show", "--account", "acc-1"])
+            .expect("rules show should parse");
+        let rules_show = show
+            .subcommand_matches("rules")
+            .expect("rules subcommand")
+            .subcommand_matches("show")
+            .expect("rules show subcommand");
+        assert_eq!(
+            rules_show.get_one::<String>("account").map(String::as_str),
+            Some("acc-1")
+        );
+
+        let set = rules_cmd
+            .try_get_matches_from([
+                "level",
+                "rules",
+                "set",
+                "--account",
+                "acc-1",
+                "--rule",
+                "upgrade_profitable_trades",
+                "--value",
+                "7",
+            ])
+            .expect("rules set should parse");
+        let rules_set = set
+            .subcommand_matches("rules")
+            .expect("rules subcommand")
+            .subcommand_matches("set")
+            .expect("rules set subcommand");
+        assert_eq!(
+            rules_set.get_one::<String>("account").map(String::as_str),
+            Some("acc-1")
+        );
+        assert_eq!(
+            rules_set.get_one::<String>("rule").map(String::as_str),
+            Some("upgrade_profitable_trades")
+        );
+        assert_eq!(
+            rules_set.get_one::<String>("value").map(String::as_str),
+            Some("7")
+        );
+    }
+
+    #[test]
+    fn test_level_default_matches_new() {
+        let from_default = LevelCommandBuilder::default().status().build();
+        let from_new = LevelCommandBuilder::new().status().build();
+        assert_eq!(from_default.get_name(), from_new.get_name());
+    }
 }

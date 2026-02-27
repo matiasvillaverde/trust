@@ -1,4 +1,7 @@
-use crate::{Account, BarTimeframe, Execution, FeeActivity, MarketBar, Order, Status, Trade};
+use crate::{
+    Account, BarTimeframe, Execution, FeeActivity, MarketBar, MarketDataChannel,
+    MarketDataStreamEvent, MarketQuote, MarketTradeTick, Order, Status, Trade,
+};
 use chrono::NaiveDateTime;
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
@@ -109,6 +112,36 @@ pub trait Broker {
         _account: &Account,
     ) -> Result<Vec<MarketBar>, Box<dyn Error>> {
         Err("Market data not supported by this broker".into())
+    }
+
+    /// Retrieve latest quote for a symbol from the broker's market data API.
+    fn get_latest_quote(
+        &self,
+        _symbol: &str,
+        _account: &Account,
+    ) -> Result<MarketQuote, Box<dyn Error>> {
+        Err("Latest quote not supported by this broker".into())
+    }
+
+    /// Retrieve latest trade tick for a symbol from the broker's market data API.
+    fn get_latest_trade(
+        &self,
+        _symbol: &str,
+        _account: &Account,
+    ) -> Result<MarketTradeTick, Box<dyn Error>> {
+        Err("Latest trade not supported by this broker".into())
+    }
+
+    /// Retrieve a finite batch of realtime market-data events.
+    fn stream_market_data(
+        &self,
+        _symbols: &[String],
+        _channels: &[MarketDataChannel],
+        _max_events: usize,
+        _timeout_seconds: u64,
+        _account: &Account,
+    ) -> Result<Vec<MarketDataStreamEvent>, Box<dyn Error>> {
+        Err("Realtime market data streaming not supported by this broker".into())
     }
 
     /// Fetch broker executions (fills) for a trade since an optional timestamp.
