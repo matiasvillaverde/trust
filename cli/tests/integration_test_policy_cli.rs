@@ -17,6 +17,7 @@ fn cli_bin_path() -> String {
 fn run_cli(database_url: &str, args: &[&str]) -> std::process::Output {
     Command::new(cli_bin_path())
         .env("TRUST_DB_URL", database_url)
+        .env("TRUST_DISABLE_KEYCHAIN", "1")
         .env("TRUST_PROTECTED_KEYWORD_EXPECTED", "test_keyword")
         .args(args)
         .output()

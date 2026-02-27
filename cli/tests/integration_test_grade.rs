@@ -45,6 +45,7 @@ impl Drop for TestDatabaseCleanup {
 fn run_cli(database_url: &str, args: &[&str]) -> std::process::Output {
     Command::new(cli_bin_path())
         .env("TRUST_DB_URL", database_url)
+        .env("TRUST_DISABLE_KEYCHAIN", "1")
         .args(args)
         .output()
         .expect("run cli")
