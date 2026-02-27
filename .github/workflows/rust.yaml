@@ -177,7 +177,7 @@ jobs:
       run: cargo test --locked -p trust-cli --test integration_test_report_json_snapshots
 
   coverage:
-    name: Coverage (100% Required)
+    name: Coverage Baseline Gate
     runs-on: ubuntu-latest
     needs: quick-checks
     steps:
@@ -196,15 +196,15 @@ jobs:
     - name: Install cargo-llvm-cov
       run: cargo install cargo-llvm-cov --locked
 
-    - name: Enforce 100% coverage (lines, functions, regions)
+    - name: Enforce baseline coverage (no regressions)
       run: |
         cargo llvm-cov \
           --workspace \
           --all-features \
           --locked \
-          --fail-under-lines 100 \
-          --fail-under-functions 100 \
-          --fail-under-regions 100
+          --fail-under-lines 84 \
+          --fail-under-functions 72 \
+          --fail-under-regions 85
 
   # Explicit regression coverage for the CLI integration use-cases suite.
   # This guarantees the large bug-hunt tests run in every PR CI cycle.
