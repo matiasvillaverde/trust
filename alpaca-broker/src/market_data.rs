@@ -117,6 +117,7 @@ pub fn get_latest_trade(
     })
 }
 
+#[allow(clippy::too_many_lines)]
 pub fn stream_market_data(
     symbols: &[String],
     channels: &[MarketDataChannel],
