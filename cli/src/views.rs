@@ -42,3 +42,21 @@ fn uppercase_first(data: &str) -> String {
     }
     result
 }
+
+#[cfg(test)]
+mod tests {
+    use super::uppercase_first;
+
+    #[test]
+    fn uppercase_first_uppercases_first_character_only() {
+        assert_eq!(uppercase_first("account"), "Account");
+        assert_eq!(uppercase_first("aCCOUNT"), "ACCOUNT");
+    }
+
+    #[test]
+    fn uppercase_first_handles_empty_and_non_ascii_safely() {
+        assert_eq!(uppercase_first(""), "");
+        assert_eq!(uppercase_first("_name"), "_name");
+        assert_eq!(uppercase_first("1abc"), "1abc");
+    }
+}

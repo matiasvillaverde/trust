@@ -36,3 +36,41 @@ impl TradingVehicleView {
         println!("{table}");
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::TradingVehicleView;
+    use model::{TradingVehicle, TradingVehicleCategory};
+
+    #[test]
+    fn new_uppercases_symbol_broker_and_isin() {
+        let tv = TradingVehicle {
+            symbol: "aapl".to_string(),
+            broker: "nasdaq".to_string(),
+            isin: Some("us0378331005".to_string()),
+            category: TradingVehicleCategory::Stock,
+            ..Default::default()
+        };
+
+        let view = TradingVehicleView::new(tv);
+        assert_eq!(view.category, "stock");
+        assert_eq!(view.symbol, "AAPL");
+        assert_eq!(view.broker, "NASDAQ");
+        assert_eq!(view.isin, "US0378331005");
+    }
+
+    #[test]
+    fn new_uses_dash_for_missing_isin() {
+        let tv = TradingVehicle {
+            isin: None,
+            ..Default::default()
+        };
+        let view = TradingVehicleView::new(tv);
+        assert_eq!(view.isin, "-");
+    }
+
+    #[test]
+    fn display_table_runs_for_smoke_coverage() {
+        TradingVehicleView::display_table(vec![TradingVehicle::default()]);
+    }
+}

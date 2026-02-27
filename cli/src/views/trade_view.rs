@@ -83,3 +83,59 @@ impl TradeBalanceView {
         println!("{table}");
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{TradeBalanceView, TradeView};
+    use model::{Status, Trade, TradeBalance, TradeCategory};
+    use rust_decimal_macros::dec;
+
+    #[test]
+    fn trade_view_new_maps_trade_snapshot_fields() {
+        let mut trade = Trade::default();
+        trade.trading_vehicle.symbol = "tsla".to_string();
+        trade.category = TradeCategory::Short;
+        trade.entry.quantity = 20;
+        trade.safety_stop.unit_price = dec!(250);
+        trade.entry.unit_price = dec!(200);
+        trade.target.unit_price = dec!(150);
+        trade.status = Status::Submitted;
+
+        let view = TradeView::new(trade, "paper");
+        assert_eq!(view.trading_vehicle, "tsla");
+        assert_eq!(view.category, "short");
+        assert_eq!(view.account, "Paper");
+        assert_eq!(view.quantity, "20");
+        assert_eq!(view.stop_price, "250");
+        assert_eq!(view.entry_price, "200");
+        assert_eq!(view.target_price, "150");
+        assert_eq!(view.status, "submitted");
+    }
+
+    #[test]
+    fn trade_balance_view_new_maps_balance_values() {
+        let balance = TradeBalance {
+            funding: dec!(1000),
+            capital_in_market: dec!(500),
+            capital_out_market: dec!(500),
+            taxed: dec!(50),
+            total_performance: dec!(120),
+            ..Default::default()
+        };
+
+        let view = TradeBalanceView::new(&balance);
+        assert_eq!(view.funding, "1000");
+        assert_eq!(view.capital_in_market, "500");
+        assert_eq!(view.capital_out_market, "500");
+        assert_eq!(view.taxed, "50");
+        assert_eq!(view.total_performance, "120");
+    }
+
+    #[test]
+    fn display_helpers_run_for_smoke_coverage() {
+        let trade = Trade::default();
+        TradeView::display_trades(vec![trade.clone()], "main");
+        TradeView::display(&trade, "main");
+        TradeBalanceView::display(&TradeBalance::default());
+    }
+}

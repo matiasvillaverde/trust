@@ -97,15 +97,109 @@ impl ConcentrationView {
 
     fn display_warnings(warnings: &[core::calculators_concentration::ConcentrationWarning]) {
         for warning in warnings {
-            let icon = match warning.level {
-                WarningLevel::High => "🔴",
-                WarningLevel::Moderate => "⚠️",
-            };
+            let icon = Self::warning_icon(&warning.level);
 
             println!(
                 "{} Risk Concentration Alert: {:.1}% of open risk in {} sector",
                 icon, warning.risk_percentage, warning.group_name
             );
         }
+    }
+
+    fn warning_icon(level: &WarningLevel) -> &'static str {
+        match level {
+            WarningLevel::High => "🔴",
+            WarningLevel::Moderate => "⚠️",
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ConcentrationView;
+    use core::calculators_concentration::{
+        ConcentrationAnalysis, ConcentrationGroup, ConcentrationWarning, WarningLevel,
+    };
+    use rust_decimal_macros::dec;
+
+    fn group(
+        name: &str,
+        risk: rust_decimal::Decimal,
+        pnl: rust_decimal::Decimal,
+    ) -> ConcentrationGroup {
+        ConcentrationGroup {
+            name: name.to_string(),
+            trade_count: 2,
+            total_capital_deployed: dec!(1000),
+            realized_pnl: pnl,
+            current_open_risk: risk,
+        }
+    }
+
+    #[test]
+    fn warning_icon_maps_all_levels() {
+        assert_eq!(ConcentrationView::warning_icon(&WarningLevel::High), "🔴");
+        assert_eq!(
+            ConcentrationView::warning_icon(&WarningLevel::Moderate),
+            "⚠️"
+        );
+    }
+
+    #[test]
+    fn display_groups_and_warnings_handle_positive_negative_and_zero_deployed() {
+        let groups = vec![
+            group("Tech", dec!(500), dec!(100)),
+            group("Energy", dec!(0), dec!(-30)),
+            ConcentrationGroup {
+                total_capital_deployed: dec!(0),
+                ..group("Cash", dec!(10), dec!(10))
+            },
+        ];
+        let warnings = vec![
+            ConcentrationWarning {
+                group_name: "Tech".to_string(),
+                risk_percentage: dec!(70),
+                level: WarningLevel::High,
+            },
+            ConcentrationWarning {
+                group_name: "Energy".to_string(),
+                risk_percentage: dec!(55),
+                level: WarningLevel::Moderate,
+            },
+        ];
+
+        ConcentrationView::display_groups(&groups);
+        ConcentrationView::display_warnings(&warnings);
+    }
+
+    #[test]
+    fn display_handles_open_only_and_all_modes() {
+        let sector_analysis = ConcentrationAnalysis {
+            groups: vec![group("Tech", dec!(250), dec!(50))],
+            total_risk: dec!(250),
+            concentration_warnings: vec![],
+        };
+        let asset_analysis = ConcentrationAnalysis {
+            groups: vec![],
+            total_risk: dec!(0),
+            concentration_warnings: vec![],
+        };
+
+        ConcentrationView::display(sector_analysis, asset_analysis, true);
+
+        let empty = ConcentrationAnalysis {
+            groups: vec![],
+            total_risk: dec!(0),
+            concentration_warnings: vec![],
+        };
+        ConcentrationView::display(
+            empty,
+            ConcentrationAnalysis {
+                groups: vec![],
+                total_risk: dec!(0),
+                concentration_warnings: vec![],
+            },
+            false,
+        );
     }
 }

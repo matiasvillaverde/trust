@@ -49,3 +49,40 @@ impl OrderView {
         println!("{table}");
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::OrderView;
+    use model::{Order, OrderAction, OrderCategory, TimeInForce};
+    use rust_decimal_macros::dec;
+
+    #[test]
+    fn new_maps_optional_and_scalar_fields() {
+        let order = Order {
+            unit_price: dec!(101.25),
+            average_filled_price: Some(dec!(100.75)),
+            quantity: 10,
+            category: OrderCategory::Limit,
+            action: OrderAction::Buy,
+            time_in_force: TimeInForce::UntilCanceled,
+            extended_hours: true,
+            submitted_at: None,
+            ..Default::default()
+        };
+
+        let view = OrderView::new(order);
+        assert_eq!(view.unit_price, "101.25");
+        assert_eq!(view.average_filled_price, "100.75");
+        assert_eq!(view.quantity, "10");
+        assert_eq!(view.category, "limit");
+        assert_eq!(view.action, "buy");
+        assert_eq!(view.time_in_force, "until_canceled");
+        assert_eq!(view.extended_hours, "true");
+        assert_eq!(view.submitted_at, "");
+    }
+
+    #[test]
+    fn display_orders_runs_for_smoke_coverage() {
+        OrderView::display_orders(vec![Order::default()]);
+    }
+}

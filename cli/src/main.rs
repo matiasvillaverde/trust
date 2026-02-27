@@ -32,13 +32,14 @@
 
 use crate::commands::{
     AccountCommandBuilder, AdvisorCommandBuilder, DbCommandBuilder, DistributionCommandBuilder,
-    GradeCommandBuilder, KeysCommandBuilder, LevelCommandBuilder, MetricsCommandBuilder,
-    OnboardingCommandBuilder, PolicyCommandBuilder, ReportCommandBuilder, TradeCommandBuilder,
-    TradingVehicleCommandBuilder, TransactionCommandBuilder,
+    GradeCommandBuilder, KeysCommandBuilder, LevelCommandBuilder, MarketDataCommandBuilder,
+    MetricsCommandBuilder, OnboardingCommandBuilder, PolicyCommandBuilder, ReportCommandBuilder,
+    TradeCommandBuilder, TradingVehicleCommandBuilder, TransactionCommandBuilder,
 };
 use crate::dispatcher::ArgDispatcher;
 use clap::Command;
 use commands::RuleCommandBuilder;
+mod command_routing;
 mod commands;
 mod dialogs;
 mod dispatcher;
@@ -116,6 +117,8 @@ fn build_cli() -> Command {
                 .manually_close()
                 .modify_stop()
                 .modify_target()
+                .list_open()
+                .reconcile()
                 .size_preview()
                 .build(),
         )
@@ -135,6 +138,19 @@ fn build_cli() -> Command {
                 .concentration()
                 .summary()
                 .metrics()
+                .attribution()
+                .benchmark()
+                .timeline()
+                .build(),
+        )
+        .subcommand(
+            MarketDataCommandBuilder::new()
+                .snapshot()
+                .bars()
+                .stream()
+                .quote()
+                .trade()
+                .session()
                 .build(),
         )
         .subcommand(GradeCommandBuilder::new().show().summary().build())
@@ -171,5 +187,64 @@ fn main() {
             eprintln!("{error}");
         }
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_cli;
+
+    #[test]
+    fn cli_requires_subcommand() {
+        let result = build_cli().try_get_matches_from(["trust"]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn cli_registers_expected_top_level_subcommands() {
+        let names: Vec<String> = build_cli()
+            .get_subcommands()
+            .map(|sc| sc.get_name().to_string())
+            .collect();
+
+        for expected in [
+            "db",
+            "keys",
+            "accounts",
+            "transaction",
+            "rule",
+            "trading-vehicle",
+            "trade",
+            "distribution",
+            "report",
+            "market-data",
+            "grade",
+            "level",
+            "metrics",
+            "advisor",
+            "onboarding",
+            "policy",
+        ] {
+            assert!(
+                names.iter().any(|name| name == expected),
+                "missing subcommand: {expected}"
+            );
+        }
+    }
+
+    #[test]
+    fn cli_parses_known_command_shape() {
+        let matches = build_cli()
+            .try_get_matches_from(["trust", "report", "summary", "--format", "json"])
+            .expect("valid report command should parse");
+
+        let (sub, report_matches) = matches
+            .subcommand()
+            .expect("top-level subcommand should exist");
+        assert_eq!(sub, "report");
+        let (nested, _) = report_matches
+            .subcommand()
+            .expect("nested report subcommand should exist");
+        assert_eq!(nested, "summary");
     }
 }

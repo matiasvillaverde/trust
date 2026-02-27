@@ -68,4 +68,43 @@ mod tests {
         assert!(names.contains(&"init"));
         assert!(names.contains(&"status"));
     }
+
+    #[test]
+    fn test_onboarding_init_and_status_parse() {
+        let init_cmd = OnboardingCommandBuilder::new().init().build();
+        let init = init_cmd
+            .try_get_matches_from([
+                "onboarding",
+                "--format",
+                "json",
+                "init",
+                "--protected-keyword",
+                "top-secret",
+            ])
+            .expect("onboarding init should parse");
+        assert_eq!(
+            init.get_one::<String>("format").map(String::as_str),
+            Some("json")
+        );
+        let init_sub = init.subcommand_matches("init").expect("init subcommand");
+        assert_eq!(
+            init_sub
+                .get_one::<String>("protected-keyword")
+                .map(String::as_str),
+            Some("top-secret")
+        );
+
+        let status_cmd = OnboardingCommandBuilder::new().status().build();
+        let status = status_cmd
+            .try_get_matches_from(["onboarding", "status"])
+            .expect("onboarding status should parse");
+        assert!(status.subcommand_matches("status").is_some());
+    }
+
+    #[test]
+    fn test_onboarding_default_matches_new() {
+        let from_default = OnboardingCommandBuilder::default().status().build();
+        let from_new = OnboardingCommandBuilder::new().status().build();
+        assert_eq!(from_default.get_name(), from_new.get_name());
+    }
 }
