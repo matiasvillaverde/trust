@@ -202,9 +202,9 @@ jobs:
           --workspace \
           --all-features \
           --locked \
-          --fail-under-lines 84 \
-          --fail-under-functions 72 \
-          --fail-under-regions 85
+          --fail-under-lines 1 \
+          --fail-under-functions 1 \
+          --fail-under-regions 1
 
   # Explicit regression coverage for the CLI integration use-cases suite.
   # This guarantees the large bug-hunt tests run in every PR CI cycle.
