@@ -20,6 +20,8 @@ impl MetricsExporter {
     pub fn to_json(trades: &[Trade], risk_free_rate: Option<Decimal>) -> Value {
         let risk_free = risk_free_rate.unwrap_or(dec!(0.05));
         let closed_trades = Self::filter_closed_trades(trades);
+        let profit_concentration =
+            AdvancedMetricsCalculator::calculate_profit_concentration_metrics(&closed_trades);
 
         json!({
             "metadata": {
@@ -33,6 +35,10 @@ impl MetricsExporter {
                 "expectancy": Self::decimal_to_f64_unwrap(AdvancedMetricsCalculator::calculate_expectancy(&closed_trades)),
                 "win_rate": Self::decimal_to_f64_unwrap(AdvancedMetricsCalculator::calculate_win_rate(&closed_trades)),
                 "average_r_multiple": Self::decimal_to_f64_unwrap(AdvancedMetricsCalculator::calculate_average_r_multiple(&closed_trades))
+            },
+            "profit_concentration": {
+                "top_20pct_profit_share_percentage": Self::decimal_to_f64_unwrap(profit_concentration.top_20pct_profit_share_percentage),
+                "trade_share_to_reach_80pct_profit_percentage": Self::decimal_to_f64_unwrap(profit_concentration.trade_share_to_reach_80pct_profit_percentage)
             },
             "risk_adjusted_performance": {
                 "sharpe_ratio": Self::decimal_to_f64(AdvancedMetricsCalculator::calculate_sharpe_ratio(&closed_trades, risk_free)),
@@ -53,6 +59,8 @@ impl MetricsExporter {
     pub fn to_csv(trades: &[Trade], risk_free_rate: Option<Decimal>) -> String {
         let risk_free = risk_free_rate.unwrap_or(dec!(0.05));
         let closed_trades = Self::filter_closed_trades(trades);
+        let profit_concentration =
+            AdvancedMetricsCalculator::calculate_profit_concentration_metrics(&closed_trades);
 
         let mut csv = String::new();
         csv.push_str("metric_category,metric_name,value,unit\n");
@@ -75,6 +83,14 @@ impl MetricsExporter {
         let avg_r = AdvancedMetricsCalculator::calculate_average_r_multiple(&closed_trades);
         csv.push_str(&format!(
             "trade_quality,average_r_multiple,{avg_r:.4},ratio\n"
+        ));
+        csv.push_str(&format!(
+            "trade_quality,top_20pct_profit_share_percentage,{:.4},percentage\n",
+            profit_concentration.top_20pct_profit_share_percentage
+        ));
+        csv.push_str(&format!(
+            "trade_quality,trade_share_to_reach_80pct_profit_percentage,{:.4},percentage\n",
+            profit_concentration.trade_share_to_reach_80pct_profit_percentage
         ));
 
         // Risk-Adjusted Performance
@@ -203,6 +219,12 @@ mod tests {
             .get("expectancy")
             .unwrap()
             .is_number());
+        assert!(result
+            .get("profit_concentration")
+            .unwrap()
+            .get("top_20pct_profit_share_percentage")
+            .unwrap()
+            .is_number());
     }
 
     #[test]
@@ -212,6 +234,7 @@ mod tests {
 
         assert!(result.starts_with("metric_category,metric_name,value,unit\n"));
         assert!(result.contains("trade_quality,expectancy,"));
+        assert!(result.contains("trade_quality,top_20pct_profit_share_percentage,"));
         assert!(result.contains("statistical,max_consecutive"));
     }
 }

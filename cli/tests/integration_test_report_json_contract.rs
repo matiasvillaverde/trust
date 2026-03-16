@@ -294,6 +294,10 @@ fn test_summary_report_json_contains_advanced_metrics_and_balanced_counts() {
     assert!(payload["data"]["advanced_metrics"]
         .get("sharpe_ratio")
         .is_some());
+    assert!(payload["data"]["advanced_metrics"]["profit_concentration"].is_object());
+    assert!(payload["data"]["advanced_metrics"]["profit_concentration"]
+        ["top_20pct_profit_share_percentage"]
+        .is_string());
     assert!(payload["data"]["advanced_metrics"]
         .get("expected_shortfall_95")
         .is_some());
@@ -444,6 +448,13 @@ fn test_metrics_report_json_schema_contract() {
     assert!(payload["data"]["costs"].is_object());
     assert!(payload["data"]["costs"]["fees_total"].is_string());
     assert!(payload["data"]["trade_quality"].is_object());
+    assert!(payload["data"]["profit_concentration"].is_object());
+    assert!(
+        payload["data"]["profit_concentration"]["top_20pct_profit_share_percentage"].is_string()
+    );
+    assert!(payload["data"]["profit_concentration"]
+        ["trade_share_to_reach_80pct_profit_percentage"]
+        .is_string());
     assert!(payload["data"]["risk_adjusted_performance"].is_object());
     assert!(payload["data"]["tail_and_position_sizing"].is_object());
     assert!(payload["data"]["streaks"].is_object());
