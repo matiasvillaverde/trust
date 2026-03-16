@@ -17,6 +17,10 @@
       "median_trade_pnl": null,
       "net_profit": "0",
       "payoff_ratio": null,
+      "profit_concentration": {
+        "top_20pct_profit_share_percentage": "0",
+        "trade_share_to_reach_80pct_profit_percentage": "0"
+      },
       "profit_factor": null,
       "risk_of_ruin_proxy_100t_8l": null,
       "sharpe_ratio": null,

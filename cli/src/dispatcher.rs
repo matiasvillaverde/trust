@@ -746,6 +746,79 @@ impl ArgDispatcher {
         })
     }
 
+    fn transactions_for_scope(
+        &mut self,
+        account_id: Option<Uuid>,
+        days_filter: Option<u32>,
+    ) -> Vec<model::transaction::Transaction> {
+        let mut transactions = if let Some(id) = account_id {
+            self.trust
+                .get_account_transactions(id)
+                .unwrap_or_else(|_| Vec::new())
+        } else {
+            self.trust
+                .get_all_transactions()
+                .unwrap_or_else(|_| Vec::new())
+        };
+
+        if let Some(days) = days_filter {
+            let now = Utc::now().naive_utc();
+            let cutoff = now
+                .checked_sub_signed(chrono::Duration::days(i64::from(days)))
+                .unwrap_or(now);
+            transactions.retain(|tx| tx.created_at >= cutoff);
+        }
+
+        transactions
+    }
+
+    fn drawdown_metrics_for_transactions(
+        transactions: &[model::transaction::Transaction],
+    ) -> core::calculators_drawdown::DrawdownMetrics {
+        use core::calculators_drawdown::{
+            DrawdownMetrics, RealizedDrawdownCalculator, RealizedEquityCurve,
+        };
+
+        let curve = RealizedDrawdownCalculator::calculate_equity_curve(transactions)
+            .unwrap_or(RealizedEquityCurve { points: Vec::new() });
+
+        RealizedDrawdownCalculator::calculate_drawdown_metrics(&curve).unwrap_or(DrawdownMetrics {
+            current_equity: dec!(0),
+            peak_equity: dec!(0),
+            current_drawdown: dec!(0),
+            current_drawdown_percentage: dec!(0),
+            max_drawdown: dec!(0),
+            max_drawdown_percentage: dec!(0),
+            max_drawdown_date: None,
+            recovery_from_max: dec!(0),
+            recovery_percentage: dec!(0),
+            days_since_peak: 0,
+            days_in_drawdown: 0,
+        })
+    }
+
+    fn starting_equity_for_transactions(
+        transactions: &[model::transaction::Transaction],
+    ) -> Option<Decimal> {
+        use core::calculators_drawdown::RealizedDrawdownCalculator;
+
+        let curve = RealizedDrawdownCalculator::calculate_equity_curve(transactions).ok()?;
+        curve.points.first().map(|point| point.balance)
+    }
+
+    fn report_calmar_ratio(
+        closed_trades: &[Trade],
+        transactions: &[model::transaction::Transaction],
+        drawdown_metrics: &core::calculators_drawdown::DrawdownMetrics,
+    ) -> Option<Decimal> {
+        let starting_equity = Self::starting_equity_for_transactions(transactions)?;
+        core::calculators_advanced_metrics::AdvancedMetricsCalculator::calculate_calmar_ratio_for_report(
+            closed_trades,
+            starting_equity,
+            drawdown_metrics.max_drawdown_percentage,
+        )
+    }
+
     fn resolve_account_arg(
         &mut self,
         raw: &str,
@@ -4525,7 +4598,6 @@ impl ArgDispatcher {
         format: ReportOutputFormat,
     ) -> Result<(), CliError> {
         use core::calculators_advanced_metrics::AdvancedMetricsCalculator;
-        use core::calculators_drawdown::RealizedDrawdownCalculator;
         use core::calculators_performance::PerformanceCalculator;
         use core::calculators_risk::CapitalAtRiskCalculator;
         use std::str::FromStr;
@@ -4608,6 +4680,13 @@ impl ArgDispatcher {
             return Ok(());
         }
 
+        let transactions = Self::transactions_for_scope(self, summary.account_id, None);
+        let drawdown_metrics = Self::drawdown_metrics_for_transactions(&transactions);
+        let report_calmar =
+            Self::report_calmar_ratio(&closed_trades, &transactions, &drawdown_metrics);
+        let profit_concentration =
+            AdvancedMetricsCalculator::calculate_profit_concentration_metrics(&closed_trades);
+
         let advanced = json!({
             "gross_profit": Self::decimal_string(AdvancedMetricsCalculator::calculate_gross_profit(&closed_trades)),
             "gross_loss": Self::decimal_string(AdvancedMetricsCalculator::calculate_gross_loss(&closed_trades)),
@@ -4619,14 +4698,18 @@ impl ArgDispatcher {
             "expectancy": Self::decimal_string(AdvancedMetricsCalculator::calculate_expectancy(&closed_trades)),
             "sharpe_ratio": AdvancedMetricsCalculator::calculate_sharpe_ratio(&closed_trades, dec!(0.05)).map(Self::decimal_string),
             "sortino_ratio": AdvancedMetricsCalculator::calculate_sortino_ratio(&closed_trades, dec!(0.05)).map(Self::decimal_string),
-            "calmar_ratio": AdvancedMetricsCalculator::calculate_calmar_ratio(&closed_trades).map(Self::decimal_string),
+            "calmar_ratio": report_calmar.map(Self::decimal_string),
             "value_at_risk_95": AdvancedMetricsCalculator::calculate_value_at_risk(&closed_trades, dec!(0.95)).map(Self::decimal_string),
             "expected_shortfall_95": AdvancedMetricsCalculator::calculate_expected_shortfall(&closed_trades, dec!(0.95)).map(Self::decimal_string),
             "kelly_criterion": AdvancedMetricsCalculator::calculate_kelly_criterion(&closed_trades).map(Self::decimal_string),
             "max_consecutive_wins": AdvancedMetricsCalculator::calculate_max_consecutive_wins(&closed_trades),
             "max_consecutive_losses": AdvancedMetricsCalculator::calculate_max_consecutive_losses(&closed_trades),
             "ulcer_index": AdvancedMetricsCalculator::calculate_ulcer_index(&closed_trades).map(Self::decimal_string),
-            "risk_of_ruin_proxy_100t_8l": AdvancedMetricsCalculator::calculate_risk_of_ruin_proxy(&closed_trades, 100, 8).map(Self::decimal_string)
+            "risk_of_ruin_proxy_100t_8l": AdvancedMetricsCalculator::calculate_risk_of_ruin_proxy(&closed_trades, 100, 8).map(Self::decimal_string),
+            "profit_concentration": {
+                "top_20pct_profit_share_percentage": Self::decimal_string(profit_concentration.top_20pct_profit_share_percentage),
+                "trade_share_to_reach_80pct_profit_percentage": Self::decimal_string(profit_concentration.trade_share_to_reach_80pct_profit_percentage)
+            }
         });
         let rolling = AdvancedMetricsCalculator::calculate_rolling_metrics(
             &closed_trades,
@@ -4659,16 +4742,6 @@ impl ArgDispatcher {
             dec!(0.05),
         );
 
-        let transactions = if let Some(id) = account_id {
-            self.trust
-                .get_account_transactions(id)
-                .unwrap_or_else(|_| Vec::new())
-        } else {
-            self.trust
-                .get_all_transactions()
-                .unwrap_or_else(|_| Vec::new())
-        };
-
         let (fee_open_total, fee_close_total, fees_total, fees_per_closed_trade) = {
             let mut fee_open = dec!(0);
             let mut fee_close = dec!(0);
@@ -4692,26 +4765,6 @@ impl ArgDispatcher {
                     .unwrap_or(dec!(0))
             };
             (fee_open, fee_close, total, per_trade)
-        };
-
-        let drawdown_metrics = {
-            let curve = RealizedDrawdownCalculator::calculate_equity_curve(&transactions)
-                .unwrap_or(core::calculators_drawdown::RealizedEquityCurve { points: Vec::new() });
-            RealizedDrawdownCalculator::calculate_drawdown_metrics(&curve).unwrap_or(
-                core::calculators_drawdown::DrawdownMetrics {
-                    current_equity: dec!(0),
-                    peak_equity: dec!(0),
-                    current_drawdown: dec!(0),
-                    current_drawdown_percentage: dec!(0),
-                    max_drawdown: dec!(0),
-                    max_drawdown_percentage: dec!(0),
-                    max_drawdown_date: None,
-                    recovery_from_max: dec!(0),
-                    recovery_percentage: dec!(0),
-                    days_since_peak: 0,
-                    days_in_drawdown: 0,
-                },
-            )
         };
 
         let concentration_open_risk_total =
@@ -4890,8 +4943,20 @@ impl ArgDispatcher {
             all_trades = PerformanceCalculator::filter_trades_by_days(&all_trades, days);
         }
 
+        let transactions = Self::transactions_for_scope(self, account_id, days_filter);
+        let drawdown_metrics = Self::drawdown_metrics_for_transactions(&transactions);
+        let report_calmar =
+            Self::report_calmar_ratio(&all_trades, &transactions, &drawdown_metrics);
+        let profit_concentration =
+            AdvancedMetricsCalculator::calculate_profit_concentration_metrics(&all_trades);
+
         if format == ReportOutputFormat::Text {
-            AdvancedMetricsView::display(all_trades);
+            AdvancedMetricsView::display(
+                all_trades,
+                Some(crate::views::AdvancedMetricsDisplayContext {
+                    calmar_ratio: report_calmar,
+                }),
+            );
             return Ok(());
         }
 
@@ -4908,7 +4973,7 @@ impl ArgDispatcher {
         let payoff_ratio = AdvancedMetricsCalculator::calculate_payoff_ratio(&all_trades);
         let sharpe = AdvancedMetricsCalculator::calculate_sharpe_ratio(&all_trades, dec!(0.05));
         let sortino = AdvancedMetricsCalculator::calculate_sortino_ratio(&all_trades, dec!(0.05));
-        let calmar = AdvancedMetricsCalculator::calculate_calmar_ratio(&all_trades);
+        let calmar = report_calmar;
         let var_95 = AdvancedMetricsCalculator::calculate_value_at_risk(&all_trades, dec!(0.95));
         let es_95 =
             AdvancedMetricsCalculator::calculate_expected_shortfall(&all_trades, dec!(0.95));
@@ -4952,28 +5017,9 @@ impl ArgDispatcher {
             Self::metrics_agent_signals(expectancy, win_rate, risk_of_ruin, max_losses);
 
         let (fee_open_total, fee_close_total, fees_total, fees_per_closed_trade) = {
-            let mut txs = if let Some(id) = account_id {
-                self.trust
-                    .get_account_transactions(id)
-                    .unwrap_or_else(|_| Vec::new())
-            } else {
-                self.trust
-                    .get_all_transactions()
-                    .unwrap_or_else(|_| Vec::new())
-            };
-
-            if let Some(days) = days_filter {
-                use chrono::{Duration, Utc};
-                let now = Utc::now().naive_utc();
-                let cutoff = now
-                    .checked_sub_signed(Duration::days(i64::from(days)))
-                    .unwrap_or(now);
-                txs.retain(|tx| tx.created_at >= cutoff);
-            }
-
             let mut fee_open = dec!(0);
             let mut fee_close = dec!(0);
-            for tx in &txs {
+            for tx in &transactions {
                 match tx.category {
                     model::TransactionCategory::FeeOpen(_) => {
                         fee_open = fee_open.checked_add(tx.amount).unwrap_or(fee_open);
@@ -5022,6 +5068,10 @@ impl ArgDispatcher {
                     "win_rate_percentage": Self::decimal_string(win_rate),
                     "average_r_multiple": Self::decimal_string(average_r),
                     "payoff_ratio": payoff_ratio.map(Self::decimal_string)
+                },
+                "profit_concentration": {
+                    "top_20pct_profit_share_percentage": Self::decimal_string(profit_concentration.top_20pct_profit_share_percentage),
+                    "trade_share_to_reach_80pct_profit_percentage": Self::decimal_string(profit_concentration.trade_share_to_reach_80pct_profit_percentage)
                 },
                 "risk_adjusted_performance": {
                     "sharpe_ratio": sharpe.map(Self::decimal_string),
@@ -6005,7 +6055,7 @@ impl ArgDispatcher {
             }
         }
 
-        AdvancedMetricsView::display(all_trades);
+        AdvancedMetricsView::display(all_trades, None);
     }
 
     fn export_metrics(
@@ -6711,7 +6761,7 @@ mod tests {
         AccountType, Broker, BrokerLog, Currency, Environment, Level, LevelAdjustmentRules,
         LevelDirection, LevelStatus, LevelTrigger, MarketBar, MarketDataChannel,
         MarketDataStreamEvent, MarketQuote, MarketSnapshotSource, MarketSnapshotV2,
-        MarketTradeTick, OrderIds, Status, Trade, TradingVehicleCategory,
+        MarketTradeTick, OrderIds, Status, Trade, TradingVehicleCategory, TransactionCategory,
     };
     use rust_decimal::Decimal;
     use rust_decimal_macros::dec;
@@ -7395,6 +7445,79 @@ mod tests {
         t3.balance.total_performance = dec!(5);
         let dd = ArgDispatcher::max_drawdown_amount(&[t1, t2, t3]);
         assert_eq!(dd, dec!(0));
+    }
+
+    #[test]
+    fn test_report_calmar_ratio_uses_realized_transaction_baseline() {
+        let account_id = Uuid::new_v4();
+        let trade_id = Uuid::new_v4();
+        let base = Utc
+            .with_ymd_and_hms(2026, 1, 1, 0, 0, 0)
+            .single()
+            .expect("valid timestamp")
+            .naive_utc();
+
+        let mut deposit = model::transaction::Transaction::new(
+            account_id,
+            TransactionCategory::Deposit,
+            &Currency::USD,
+            dec!(1000),
+        );
+        deposit.created_at = base;
+        deposit.updated_at = base;
+
+        let mut payout = model::transaction::Transaction::new(
+            account_id,
+            TransactionCategory::PaymentFromTrade(trade_id),
+            &Currency::USD,
+            dec!(120),
+        );
+        payout.created_at = base + chrono::Duration::days(30);
+        payout.updated_at = payout.created_at;
+
+        let transactions = vec![deposit, payout];
+        let drawdown_metrics = ArgDispatcher::drawdown_metrics_for_transactions(&transactions);
+
+        let mut trade = Trade {
+            created_at: base,
+            updated_at: base + chrono::Duration::days(30),
+            status: Status::ClosedTarget,
+            ..Trade::default()
+        };
+        trade.balance.total_performance = dec!(120);
+
+        let calmar = ArgDispatcher::report_calmar_ratio(&[trade], &transactions, &drawdown_metrics);
+        assert_eq!(calmar, None);
+
+        let calmar = ArgDispatcher::report_calmar_ratio(
+            &[Trade {
+                balance: model::trade::TradeBalance {
+                    total_performance: dec!(120),
+                    ..Trade::default().balance
+                },
+                created_at: base,
+                updated_at: base + chrono::Duration::days(30),
+                status: Status::ClosedTarget,
+                ..Trade::default()
+            }],
+            &transactions,
+            &core::calculators_drawdown::DrawdownMetrics {
+                current_equity: dec!(1120),
+                peak_equity: dec!(1120),
+                current_drawdown: dec!(0),
+                current_drawdown_percentage: dec!(0),
+                max_drawdown: dec!(80),
+                max_drawdown_percentage: dec!(8),
+                max_drawdown_date: None,
+                recovery_from_max: dec!(0),
+                recovery_percentage: dec!(0),
+                days_since_peak: 0,
+                days_in_drawdown: 0,
+            },
+        )
+        .expect("calmar ratio");
+
+        assert!((calmar - dec!(18.25)).abs() < dec!(0.0001));
     }
 
     #[test]

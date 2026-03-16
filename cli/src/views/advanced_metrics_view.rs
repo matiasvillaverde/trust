@@ -3,10 +3,15 @@ use model::Trade;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 
+#[derive(Debug, Clone, Copy, Default)]
+pub struct AdvancedMetricsDisplayContext {
+    pub calmar_ratio: Option<Decimal>,
+}
+
 pub struct AdvancedMetricsView;
 
 impl AdvancedMetricsView {
-    pub fn display(trades: Vec<Trade>) {
+    pub fn display(trades: Vec<Trade>, context: Option<AdvancedMetricsDisplayContext>) {
         let closed_trades = Self::filter_closed_trades(&trades);
 
         if closed_trades.is_empty() {
@@ -19,7 +24,10 @@ impl AdvancedMetricsView {
 
         Self::display_trade_quality_metrics(&closed_trades);
         println!();
-        Self::display_risk_adjusted_metrics(&closed_trades);
+        Self::display_risk_adjusted_metrics(
+            &closed_trades,
+            context.and_then(|value| value.calmar_ratio),
+        );
         println!();
         Self::display_statistical_analysis(&closed_trades);
 
@@ -41,6 +49,8 @@ impl AdvancedMetricsView {
 
     fn display_trade_quality_metrics(trades: &[Trade]) {
         println!("Trade Quality Metrics:");
+        let concentration =
+            AdvancedMetricsCalculator::calculate_profit_concentration_metrics(trades);
 
         // Profit Factor
         if let Some(profit_factor) = AdvancedMetricsCalculator::calculate_profit_factor(trades) {
@@ -66,10 +76,18 @@ impl AdvancedMetricsView {
             "├─ Average R-Multiple: {:.2}",
             AdvancedMetricsCalculator::calculate_average_r_multiple(trades)
         );
-        println!("└─ Expectancy: ${expectancy:.2} per trade ({expectancy_rating})");
+        println!("├─ Expectancy (EV): ${expectancy:.2} per trade ({expectancy_rating})");
+        println!(
+            "├─ Pareto Profit Share (Top 20% Winners): {:.1}%",
+            concentration.top_20pct_profit_share_percentage
+        );
+        println!(
+            "└─ Trades Needed For 80% Profit: {:.1}%",
+            concentration.trade_share_to_reach_80pct_profit_percentage
+        );
     }
 
-    fn display_risk_adjusted_metrics(trades: &[Trade]) {
+    fn display_risk_adjusted_metrics(trades: &[Trade], calmar_override: Option<Decimal>) {
         println!("Risk-Adjusted Performance:");
 
         // Use a default risk-free rate of 5% for display purposes
@@ -96,7 +114,9 @@ impl AdvancedMetricsView {
         }
 
         // Calmar Ratio
-        if let Some(calmar) = AdvancedMetricsCalculator::calculate_calmar_ratio(trades) {
+        if let Some(calmar) =
+            calmar_override.or_else(|| AdvancedMetricsCalculator::calculate_calmar_ratio(trades))
+        {
             let rating = Self::rate_calmar_ratio(calmar);
             println!("└─ Calmar Ratio: {calmar:.2} ({rating})");
         } else {
@@ -404,9 +424,9 @@ mod tests {
     #[test]
     fn display_functions_cover_empty_and_populated_paths() {
         let empty_trades: Vec<Trade> = vec![];
-        AdvancedMetricsView::display(empty_trades.clone());
+        AdvancedMetricsView::display(empty_trades.clone(), None);
         AdvancedMetricsView::display_trade_quality_metrics(&empty_trades);
-        AdvancedMetricsView::display_risk_adjusted_metrics(&empty_trades);
+        AdvancedMetricsView::display_risk_adjusted_metrics(&empty_trades, None);
         AdvancedMetricsView::display_statistical_analysis(&empty_trades);
 
         let mixed = vec![
@@ -419,9 +439,14 @@ mod tests {
         let closed = AdvancedMetricsView::filter_closed_trades(&mixed);
         assert_eq!(closed.len(), 5);
 
-        AdvancedMetricsView::display(mixed);
+        AdvancedMetricsView::display(
+            mixed,
+            Some(AdvancedMetricsDisplayContext {
+                calmar_ratio: Some(dec!(1.25)),
+            }),
+        );
         AdvancedMetricsView::display_trade_quality_metrics(&closed);
-        AdvancedMetricsView::display_risk_adjusted_metrics(&closed);
+        AdvancedMetricsView::display_risk_adjusted_metrics(&closed, Some(dec!(1.25)));
         AdvancedMetricsView::display_statistical_analysis(&closed);
     }
 }

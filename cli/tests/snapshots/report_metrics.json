@@ -58,6 +58,10 @@
       "median_trade_pnl": null,
       "net_profit": "0"
     },
+    "profit_concentration": {
+      "top_20pct_profit_share_percentage": "0",
+      "trade_share_to_reach_80pct_profit_percentage": "0"
+    },
     "risk_adjusted_performance": {
       "calmar_ratio": null,
       "sharpe_ratio": null,
