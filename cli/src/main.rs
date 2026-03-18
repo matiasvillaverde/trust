@@ -120,6 +120,7 @@ fn build_cli() -> Command {
                 .list_open()
                 .reconcile()
                 .size_preview()
+                .hypothesis()
                 .build(),
         )
         .subcommand(

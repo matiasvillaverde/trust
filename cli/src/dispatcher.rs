@@ -66,6 +66,35 @@ enum ReportOutputFormat {
     Json,
 }
 
+#[derive(Debug, Clone)]
+struct TradePreviewArgs {
+    account_id: Uuid,
+    entry_price: Decimal,
+    stop_price: Decimal,
+    currency: Currency,
+}
+
+#[derive(Debug, Clone)]
+struct TradeHypothesisArgs {
+    preview: TradePreviewArgs,
+    target_price: Decimal,
+    quantity: i64,
+}
+
+#[derive(Debug, Clone)]
+struct TradeHypothesisReport {
+    available_capital: Decimal,
+    capital_required: Decimal,
+    capital_required_pct_of_available: Option<Decimal>,
+    risk_per_share: Decimal,
+    reward_per_share: Decimal,
+    max_loss: Decimal,
+    max_loss_pct_of_available: Option<Decimal>,
+    max_gain: Decimal,
+    max_gain_pct_of_available: Option<Decimal>,
+    risk_reward_ratio: Option<Decimal>,
+}
+
 #[derive(Debug)]
 pub struct CliError {
     code: &'static str,
@@ -495,6 +524,9 @@ impl ArgDispatcher {
             TradeSubcommand::ModifyTarget => self.modify_target(),
             TradeSubcommand::SizePreview(sub_sub_matches) => self
                 .trade_size_preview(sub_sub_matches, Self::parse_report_format(sub_sub_matches))?,
+            TradeSubcommand::Hypothesis(sub_sub_matches) => {
+                self.trade_hypothesis(sub_sub_matches, Self::parse_report_format(sub_sub_matches))?
+            }
         }
         Ok(())
     }
@@ -2877,24 +2909,16 @@ impl ArgDispatcher {
         sub_matches: &ArgMatches,
         format: ReportOutputFormat,
     ) -> Result<(), CliError> {
-        let account_id = self.resolve_level_account_id(sub_matches, format)?;
-        let entry_price = Self::parse_decimal_arg(sub_matches, "entry", format)?;
-        let stop_price = Self::parse_decimal_arg(sub_matches, "stop", format)?;
-        let currency_raw = sub_matches
-            .get_one::<String>("currency")
-            .map(String::as_str)
-            .unwrap_or("usd");
-        let currency = Currency::from_str(&currency_raw.to_ascii_uppercase()).map_err(|_| {
-            Self::report_error(
-                format,
-                "invalid_currency",
-                format!("Unsupported currency '{currency_raw}'. Use USD, EUR, or BTC."),
-            )
-        })?;
+        let preview = self.parse_trade_preview_args(sub_matches, format)?;
 
         let sizing = self
             .trust
-            .calculate_level_adjusted_quantity(account_id, entry_price, stop_price, &currency)
+            .calculate_level_adjusted_quantity(
+                preview.account_id,
+                preview.entry_price,
+                preview.stop_price,
+                &preview.currency,
+            )
             .map_err(|error| {
                 Self::report_error(
                     format,
@@ -2903,23 +2927,188 @@ impl ArgDispatcher {
                 )
             })?;
 
-        let current_level = self.trust.level_for_account(account_id).map_err(|error| {
+        let current_level = self
+            .trust
+            .level_for_account(preview.account_id)
+            .map_err(|error| {
+                Self::report_error(
+                    format,
+                    "size_preview_level_load_failed",
+                    format!("Unable to read account level: {error}"),
+                )
+            })?;
+
+        let risk_per_share = Self::trade_preview_risk_per_share(&preview);
+        let levels = Self::size_preview_levels(
+            sizing.base_quantity,
+            current_level.current_level,
+            risk_per_share,
+        );
+
+        match format {
+            ReportOutputFormat::Text => {
+                for line in Self::trade_size_preview_text_lines(
+                    &preview,
+                    sizing.base_quantity,
+                    sizing.final_quantity,
+                    sizing.level_multiplier,
+                    &levels,
+                ) {
+                    println!("{line}");
+                }
+            }
+            ReportOutputFormat::Json => {
+                let payload = Self::trade_size_preview_payload(
+                    &preview,
+                    risk_per_share,
+                    sizing.base_quantity,
+                    current_level.current_level,
+                    sizing.level_multiplier,
+                    sizing.final_quantity,
+                    levels,
+                );
+                Self::print_json(&payload)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn trade_hypothesis(
+        &mut self,
+        sub_matches: &ArgMatches,
+        format: ReportOutputFormat,
+    ) -> Result<(), CliError> {
+        let hypothesis_args = self.parse_trade_hypothesis_args(sub_matches, format)?;
+
+        let hypothesis = self
+            .trust
+            .calculate_trade_hypothesis(
+                hypothesis_args.preview.account_id,
+                hypothesis_args.preview.entry_price,
+                hypothesis_args.preview.stop_price,
+                hypothesis_args.target_price,
+                hypothesis_args.quantity,
+                &hypothesis_args.preview.currency,
+            )
+            .map_err(|error| {
+                Self::report_error(
+                    format,
+                    "trade_hypothesis_failed",
+                    format!("Unable to calculate trade hypothesis: {error}"),
+                )
+            })?;
+        let report = TradeHypothesisReport {
+            available_capital: hypothesis.available_capital,
+            capital_required: hypothesis.capital_required,
+            capital_required_pct_of_available: hypothesis.capital_required_pct_of_available,
+            risk_per_share: hypothesis.risk_per_share,
+            reward_per_share: hypothesis.reward_per_share,
+            max_loss: hypothesis.max_loss,
+            max_loss_pct_of_available: hypothesis.max_loss_pct_of_available,
+            max_gain: hypothesis.max_gain,
+            max_gain_pct_of_available: hypothesis.max_gain_pct_of_available,
+            risk_reward_ratio: hypothesis.risk_reward_ratio,
+        };
+
+        match format {
+            ReportOutputFormat::Text => {
+                for line in Self::trade_hypothesis_text_lines(&hypothesis_args, &report) {
+                    println!("{line}");
+                }
+            }
+            ReportOutputFormat::Json => {
+                let payload = Self::trade_hypothesis_payload(&hypothesis_args, &report);
+                Self::print_json(&payload)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn parse_trade_preview_args(
+        &mut self,
+        sub_matches: &ArgMatches,
+        format: ReportOutputFormat,
+    ) -> Result<TradePreviewArgs, CliError> {
+        Ok(TradePreviewArgs {
+            account_id: self.resolve_level_account_id(sub_matches, format)?,
+            entry_price: Self::parse_decimal_arg(sub_matches, "entry", format)?,
+            stop_price: Self::parse_decimal_arg(sub_matches, "stop", format)?,
+            currency: Self::parse_currency_arg(sub_matches, format)?,
+        })
+    }
+
+    fn parse_trade_hypothesis_args(
+        &mut self,
+        sub_matches: &ArgMatches,
+        format: ReportOutputFormat,
+    ) -> Result<TradeHypothesisArgs, CliError> {
+        Ok(TradeHypothesisArgs {
+            preview: self.parse_trade_preview_args(sub_matches, format)?,
+            target_price: Self::parse_decimal_arg(sub_matches, "target", format)?,
+            quantity: Self::parse_positive_quantity_arg(sub_matches, format)?,
+        })
+    }
+
+    fn parse_currency_arg(
+        sub_matches: &ArgMatches,
+        format: ReportOutputFormat,
+    ) -> Result<Currency, CliError> {
+        let currency_raw = sub_matches
+            .get_one::<String>("currency")
+            .map(String::as_str)
+            .unwrap_or("usd");
+        Currency::from_str(&currency_raw.to_ascii_uppercase()).map_err(|_| {
             Self::report_error(
                 format,
-                "size_preview_level_load_failed",
-                format!("Unable to read account level: {error}"),
+                "invalid_currency",
+                format!("Unsupported currency '{currency_raw}'. Use USD, EUR, or BTC."),
+            )
+        })
+    }
+
+    fn parse_positive_quantity_arg(
+        sub_matches: &ArgMatches,
+        format: ReportOutputFormat,
+    ) -> Result<i64, CliError> {
+        let quantity_raw = sub_matches.get_one::<String>("quantity").ok_or_else(|| {
+            Self::report_error(format, "missing_argument", "Missing argument --quantity")
+        })?;
+        let quantity = quantity_raw.parse::<i64>().map_err(|_| {
+            Self::report_error(
+                format,
+                "invalid_quantity",
+                format!("Invalid integer quantity: {quantity_raw}"),
             )
         })?;
+        if quantity <= 0 {
+            return Err(Self::report_error(
+                format,
+                "invalid_quantity",
+                "Quantity must be greater than 0",
+            ));
+        }
+        Ok(quantity)
+    }
 
-        let risk_per_share = entry_price
-            .checked_sub(stop_price)
+    fn trade_preview_risk_per_share(preview: &TradePreviewArgs) -> Decimal {
+        preview
+            .entry_price
+            .checked_sub(preview.stop_price)
             .map(|value| value.abs())
-            .unwrap_or(Decimal::ZERO);
+            .unwrap_or(Decimal::ZERO)
+    }
 
-        let levels: Vec<Value> = (0_u8..=4_u8)
+    fn size_preview_levels(
+        base_quantity: i64,
+        current_level: u8,
+        risk_per_share: Decimal,
+    ) -> Vec<Value> {
+        (0_u8..=4_u8)
             .map(|level| {
                 let multiplier = Level::multiplier_for_level(level).unwrap_or(Decimal::ZERO);
-                let quantity = Decimal::from(sizing.base_quantity)
+                let quantity = Decimal::from(base_quantity)
                     .checked_mul(multiplier)
                     .and_then(|value| value.to_i64())
                     .unwrap_or(0)
@@ -2934,75 +3123,185 @@ impl ArgDispatcher {
                     "multiplier": Self::decimal_string(multiplier),
                     "quantity": quantity,
                     "risk_amount": Self::decimal_string(risk_amount),
-                    "current": level == current_level.current_level,
+                    "current": level == current_level,
                 })
             })
-            .collect();
+            .collect()
+    }
 
-        match format {
-            ReportOutputFormat::Text => {
-                println!("Position Size Preview");
-                println!("====================");
-                println!("Account: {account_id}");
-                println!(
-                    "Entry: {} {} | Stop: {} {} | Risk/Share: {} {}",
-                    Self::decimal_string(entry_price),
-                    currency,
-                    Self::decimal_string(stop_price),
-                    currency,
-                    Self::decimal_string(risk_per_share),
-                    currency
-                );
-                println!(
-                    "Base quantity (rules only): {} | Current level-adjusted: {} ({}x)",
-                    sizing.base_quantity,
-                    sizing.final_quantity,
-                    Self::decimal_string(sizing.level_multiplier)
-                );
-                println!();
-                println!("Level ladder:");
-                for item in &levels {
-                    let current_marker = if item["current"].as_bool().unwrap_or(false) {
-                        "  <- current"
-                    } else {
-                        ""
-                    };
-                    println!(
-                        "L{} ({}x): qty {} | risk {} {}{}",
-                        item["level"].as_u64().unwrap_or(0),
-                        item["multiplier"].as_str().unwrap_or("0"),
-                        item["quantity"].as_i64().unwrap_or(0),
-                        item["risk_amount"].as_str().unwrap_or("0"),
-                        currency,
-                        current_marker
-                    );
-                }
-            }
-            ReportOutputFormat::Json => {
-                let payload = json!({
-                    "report": "trade_size_preview",
-                    "format_version": 1,
-                    "generated_at": chrono::Utc::now().to_rfc3339(),
-                    "scope": {
-                        "account_id": account_id.to_string(),
-                    },
-                    "data": {
-                        "currency": currency.to_string(),
-                        "entry_price": Self::decimal_string(entry_price),
-                        "stop_price": Self::decimal_string(stop_price),
-                        "risk_per_share": Self::decimal_string(risk_per_share),
-                        "base_quantity": sizing.base_quantity,
-                        "current_level": current_level.current_level,
-                        "current_multiplier": Self::decimal_string(sizing.level_multiplier),
-                        "current_quantity": sizing.final_quantity,
-                        "levels": levels,
-                    }
-                });
-                Self::print_json(&payload)?;
-            }
+    fn trade_size_preview_text_lines(
+        preview: &TradePreviewArgs,
+        base_quantity: i64,
+        final_quantity: i64,
+        level_multiplier: Decimal,
+        levels: &[Value],
+    ) -> Vec<String> {
+        let mut lines = vec![
+            "Position Size Preview".to_string(),
+            "====================".to_string(),
+            format!("Account: {}", preview.account_id),
+            format!(
+                "Entry: {} {} | Stop: {} {} | Risk/Share: {} {}",
+                Self::decimal_string(preview.entry_price),
+                preview.currency,
+                Self::decimal_string(preview.stop_price),
+                preview.currency,
+                Self::decimal_string(Self::trade_preview_risk_per_share(preview)),
+                preview.currency
+            ),
+            format!(
+                "Base quantity (rules only): {} | Current level-adjusted: {} ({}x)",
+                base_quantity,
+                final_quantity,
+                Self::decimal_string(level_multiplier)
+            ),
+            String::new(),
+            "Level ladder:".to_string(),
+        ];
+
+        for item in levels {
+            let current_marker = if item["current"].as_bool().unwrap_or(false) {
+                "  <- current"
+            } else {
+                ""
+            };
+            lines.push(format!(
+                "L{} ({}x): qty {} | risk {} {}{}",
+                item["level"].as_u64().unwrap_or(0),
+                item["multiplier"].as_str().unwrap_or("0"),
+                item["quantity"].as_i64().unwrap_or(0),
+                item["risk_amount"].as_str().unwrap_or("0"),
+                preview.currency,
+                current_marker
+            ));
         }
 
-        Ok(())
+        lines
+    }
+
+    fn trade_size_preview_payload(
+        preview: &TradePreviewArgs,
+        risk_per_share: Decimal,
+        base_quantity: i64,
+        current_level: u8,
+        current_multiplier: Decimal,
+        current_quantity: i64,
+        levels: Vec<Value>,
+    ) -> Value {
+        json!({
+            "report": "trade_size_preview",
+            "format_version": 1,
+            "generated_at": chrono::Utc::now().to_rfc3339(),
+            "scope": {
+                "account_id": preview.account_id.to_string(),
+            },
+            "data": {
+                "currency": preview.currency.to_string(),
+                "entry_price": Self::decimal_string(preview.entry_price),
+                "stop_price": Self::decimal_string(preview.stop_price),
+                "risk_per_share": Self::decimal_string(risk_per_share),
+                "base_quantity": base_quantity,
+                "current_level": current_level,
+                "current_multiplier": Self::decimal_string(current_multiplier),
+                "current_quantity": current_quantity,
+                "levels": levels,
+            }
+        })
+    }
+
+    fn format_optional_decimal(value: Option<Decimal>) -> String {
+        value
+            .map(Self::decimal_string)
+            .unwrap_or_else(|| "n/a".to_string())
+    }
+
+    fn format_optional_percentage(value: Option<Decimal>) -> String {
+        value
+            .map(|decimal| format!("{}%", Self::decimal_string(decimal)))
+            .unwrap_or_else(|| "n/a".to_string())
+    }
+
+    fn trade_hypothesis_text_lines(
+        args: &TradeHypothesisArgs,
+        report: &TradeHypothesisReport,
+    ) -> Vec<String> {
+        vec![
+            "Trade Hypothesis".to_string(),
+            "================".to_string(),
+            format!("Account: {}", args.preview.account_id),
+            format!(
+                "Entry: {} {} | Stop: {} {} | Target: {} {} | Quantity: {}",
+                Self::decimal_string(args.preview.entry_price),
+                args.preview.currency,
+                Self::decimal_string(args.preview.stop_price),
+                args.preview.currency,
+                Self::decimal_string(args.target_price),
+                args.preview.currency,
+                args.quantity
+            ),
+            format!(
+                "Available capital: {} {}",
+                Self::decimal_string(report.available_capital),
+                args.preview.currency
+            ),
+            format!(
+                "Capital required: {} {} ({})",
+                Self::decimal_string(report.capital_required),
+                args.preview.currency,
+                Self::format_optional_percentage(report.capital_required_pct_of_available)
+            ),
+            format!(
+                "Risk/share: {} {} | Reward/share: {} {} | R:R {}",
+                Self::decimal_string(report.risk_per_share),
+                args.preview.currency,
+                Self::decimal_string(report.reward_per_share),
+                args.preview.currency,
+                Self::format_optional_decimal(report.risk_reward_ratio)
+            ),
+            format!(
+                "Max loss: {} {} ({})",
+                Self::decimal_string(report.max_loss),
+                args.preview.currency,
+                Self::format_optional_percentage(report.max_loss_pct_of_available)
+            ),
+            format!(
+                "Max gain: {} {} ({})",
+                Self::decimal_string(report.max_gain),
+                args.preview.currency,
+                Self::format_optional_percentage(report.max_gain_pct_of_available)
+            ),
+        ]
+    }
+
+    fn trade_hypothesis_payload(
+        args: &TradeHypothesisArgs,
+        report: &TradeHypothesisReport,
+    ) -> Value {
+        json!({
+            "report": "trade_hypothesis",
+            "format_version": 1,
+            "generated_at": chrono::Utc::now().to_rfc3339(),
+            "scope": {
+                "account_id": args.preview.account_id.to_string(),
+            },
+            "data": {
+                "currency": args.preview.currency.to_string(),
+                "quantity": args.quantity,
+                "available_capital": Self::decimal_string(report.available_capital),
+                "entry_price": Self::decimal_string(args.preview.entry_price),
+                "stop_price": Self::decimal_string(args.preview.stop_price),
+                "target_price": Self::decimal_string(args.target_price),
+                "capital_required": Self::decimal_string(report.capital_required),
+                "capital_required_pct_of_available": report.capital_required_pct_of_available.map(Self::decimal_string),
+                "risk_per_share": Self::decimal_string(report.risk_per_share),
+                "reward_per_share": Self::decimal_string(report.reward_per_share),
+                "max_loss": Self::decimal_string(report.max_loss),
+                "max_loss_pct_of_available": report.max_loss_pct_of_available.map(Self::decimal_string),
+                "max_gain": Self::decimal_string(report.max_gain),
+                "max_gain_pct_of_available": report.max_gain_pct_of_available.map(Self::decimal_string),
+                "risk_reward_ratio": report.risk_reward_ratio.map(Self::decimal_string),
+            }
+        })
     }
 
     #[allow(clippy::too_many_lines)]
@@ -6739,6 +7038,9 @@ mod tests {
     use super::ArgDispatcher;
     use super::CliError;
     use super::ReportOutputFormat;
+    use super::TradeHypothesisArgs;
+    use super::TradeHypothesisReport;
+    use super::TradePreviewArgs;
     use crate::commands::{
         AccountCommandBuilder, AdvisorCommandBuilder, DbCommandBuilder, DistributionCommandBuilder,
         GradeCommandBuilder, KeysCommandBuilder, LevelCommandBuilder, MarketDataCommandBuilder,
@@ -6988,6 +7290,19 @@ mod tests {
             .arg(Arg::new("account").long("account"))
             .arg(Arg::new("entry").long("entry"))
             .arg(Arg::new("stop").long("stop"))
+            .arg(Arg::new("currency").long("currency"))
+            .get_matches_from(argv)
+    }
+
+    fn hypothesis_matches(args: &[&str]) -> clap::ArgMatches {
+        let mut argv: Vec<&str> = vec!["test"];
+        argv.extend_from_slice(args);
+        Command::new("test")
+            .arg(Arg::new("account").long("account"))
+            .arg(Arg::new("entry").long("entry"))
+            .arg(Arg::new("stop").long("stop"))
+            .arg(Arg::new("target").long("target"))
+            .arg(Arg::new("quantity").long("quantity"))
             .arg(Arg::new("currency").long("currency"))
             .get_matches_from(argv)
     }
@@ -8457,6 +8772,199 @@ mod tests {
             .trade_size_preview(&invalid_currency, ReportOutputFormat::Json)
             .expect_err("unsupported currency should fail");
         assert!(error.to_string().contains("invalid_currency"));
+    }
+
+    #[test]
+    fn test_trade_hypothesis_supports_text_output_and_rejects_invalid_inputs() {
+        let mut dispatcher = test_dispatcher();
+        let (account, _) = seed_account_and_vehicle(&mut dispatcher);
+
+        let ok_matches = hypothesis_matches(&[
+            "--account",
+            &account.id.to_string(),
+            "--entry",
+            "150",
+            "--stop",
+            "147.5",
+            "--target",
+            "160",
+            "--quantity",
+            "20",
+            "--currency",
+            "usd",
+        ]);
+        dispatcher
+            .trade_hypothesis(&ok_matches, ReportOutputFormat::Text)
+            .expect("text hypothesis should succeed");
+
+        let invalid_quantity = hypothesis_matches(&[
+            "--account",
+            &account.id.to_string(),
+            "--entry",
+            "150",
+            "--stop",
+            "147.5",
+            "--target",
+            "160",
+            "--quantity",
+            "oops",
+            "--currency",
+            "usd",
+        ]);
+        let quantity_error = dispatcher
+            .trade_hypothesis(&invalid_quantity, ReportOutputFormat::Json)
+            .expect_err("invalid quantity should fail");
+        assert!(quantity_error.to_string().contains("invalid_quantity"));
+
+        let zero_quantity = hypothesis_matches(&[
+            "--account",
+            &account.id.to_string(),
+            "--entry",
+            "150",
+            "--stop",
+            "147.5",
+            "--target",
+            "160",
+            "--quantity",
+            "0",
+            "--currency",
+            "usd",
+        ]);
+        let zero_quantity_error = dispatcher
+            .trade_hypothesis(&zero_quantity, ReportOutputFormat::Json)
+            .expect_err("zero quantity should fail");
+        assert!(zero_quantity_error.to_string().contains("invalid_quantity"));
+
+        let invalid_currency = hypothesis_matches(&[
+            "--account",
+            &account.id.to_string(),
+            "--entry",
+            "150",
+            "--stop",
+            "147.5",
+            "--target",
+            "160",
+            "--quantity",
+            "20",
+            "--currency",
+            "jpy",
+        ]);
+        let currency_error = dispatcher
+            .trade_hypothesis(&invalid_currency, ReportOutputFormat::Json)
+            .expect_err("unsupported currency should fail");
+        assert!(currency_error.to_string().contains("invalid_currency"));
+    }
+
+    #[test]
+    fn test_size_preview_levels_marks_current_level_and_scales_risk() {
+        let levels = ArgDispatcher::size_preview_levels(100, 3, dec!(2.5));
+        assert_eq!(levels.len(), 5);
+        assert_eq!(levels[0]["quantity"], 10);
+        assert_eq!(levels[2]["quantity"], 50);
+        assert_eq!(levels[3]["current"], true);
+        assert_eq!(levels[4]["quantity"], 150);
+        assert_eq!(levels[4]["risk_amount"], "375");
+    }
+
+    #[test]
+    fn test_trade_size_preview_text_lines_include_current_marker() {
+        let preview = TradePreviewArgs {
+            account_id: Uuid::nil(),
+            entry_price: dec!(200),
+            stop_price: dec!(190),
+            currency: Currency::USD,
+        };
+        let levels = ArgDispatcher::size_preview_levels(100, 4, dec!(10));
+        let lines =
+            ArgDispatcher::trade_size_preview_text_lines(&preview, 100, 150, dec!(1.5), &levels);
+
+        assert_eq!(lines[0], "Position Size Preview");
+        assert!(lines[3].contains("Risk/Share: 10 USD"));
+        assert!(lines
+            .iter()
+            .any(|line| line.contains("L4 (1.5x): qty 150 | risk 1500 USD  <- current")));
+    }
+
+    #[test]
+    fn test_trade_hypothesis_formatters_render_na_for_missing_values() {
+        assert_eq!(ArgDispatcher::format_optional_decimal(None), "n/a");
+        assert_eq!(ArgDispatcher::format_optional_percentage(None), "n/a");
+        assert_eq!(
+            ArgDispatcher::format_optional_decimal(Some(dec!(4.250000000))),
+            "4.25"
+        );
+        assert_eq!(
+            ArgDispatcher::format_optional_percentage(Some(dec!(1.600000000))),
+            "1.6%"
+        );
+    }
+
+    #[test]
+    fn test_trade_hypothesis_text_lines_render_optional_values() {
+        let args = TradeHypothesisArgs {
+            preview: TradePreviewArgs {
+                account_id: Uuid::nil(),
+                entry_price: dec!(40),
+                stop_price: dec!(38),
+                currency: Currency::USD,
+            },
+            target_price: dec!(48),
+            quantity: 100,
+        };
+        let report = TradeHypothesisReport {
+            available_capital: Decimal::ZERO,
+            capital_required: dec!(4000),
+            capital_required_pct_of_available: None,
+            risk_per_share: dec!(2),
+            reward_per_share: dec!(8),
+            max_loss: dec!(200),
+            max_loss_pct_of_available: None,
+            max_gain: dec!(800),
+            max_gain_pct_of_available: None,
+            risk_reward_ratio: Some(dec!(4)),
+        };
+
+        let lines = ArgDispatcher::trade_hypothesis_text_lines(&args, &report);
+        assert_eq!(lines[0], "Trade Hypothesis");
+        assert!(lines[4].contains("Available capital: 0 USD"));
+        assert!(lines[5].contains("Capital required: 4000 USD (n/a)"));
+        assert!(lines[6].contains("Risk/share: 2 USD | Reward/share: 8 USD | R:R 4"));
+        assert!(lines[7].contains("Max loss: 200 USD (n/a)"));
+        assert!(lines[8].contains("Max gain: 800 USD (n/a)"));
+    }
+
+    #[test]
+    fn test_trade_hypothesis_payload_preserves_optional_fields() {
+        let args = TradeHypothesisArgs {
+            preview: TradePreviewArgs {
+                account_id: Uuid::nil(),
+                entry_price: dec!(40),
+                stop_price: dec!(38),
+                currency: Currency::USD,
+            },
+            target_price: dec!(48),
+            quantity: 100,
+        };
+        let report = TradeHypothesisReport {
+            available_capital: dec!(50_000),
+            capital_required: dec!(4000),
+            capital_required_pct_of_available: Some(dec!(8)),
+            risk_per_share: dec!(2),
+            reward_per_share: dec!(8),
+            max_loss: dec!(200),
+            max_loss_pct_of_available: Some(dec!(0.4)),
+            max_gain: dec!(800),
+            max_gain_pct_of_available: None,
+            risk_reward_ratio: Some(dec!(4)),
+        };
+
+        let payload = ArgDispatcher::trade_hypothesis_payload(&args, &report);
+        assert_eq!(payload["report"], "trade_hypothesis");
+        assert_eq!(payload["scope"]["account_id"], Uuid::nil().to_string());
+        assert_eq!(payload["data"]["capital_required_pct_of_available"], "8");
+        assert_eq!(payload["data"]["max_loss_pct_of_available"], "0.4");
+        assert!(payload["data"]["max_gain_pct_of_available"].is_null());
+        assert_eq!(payload["data"]["risk_reward_ratio"], "4");
     }
 
     #[test]

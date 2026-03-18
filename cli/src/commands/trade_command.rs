@@ -379,6 +379,67 @@ impl TradeCommandBuilder {
         );
         self
     }
+
+    pub fn hypothesis(mut self) -> Self {
+        self.subcommands.push(
+            Command::new("hypothesis")
+                .about("Evaluate a hypothetical trade's loss, gain, and account impact")
+                .arg(
+                    Arg::new("account")
+                        .long("account")
+                        .short('a')
+                        .value_name("ACCOUNT_ID")
+                        .help("Target account ID")
+                        .required(true),
+                )
+                .arg(
+                    Arg::new("entry")
+                        .long("entry")
+                        .value_name("PRICE")
+                        .help("Planned entry price")
+                        .required(true),
+                )
+                .arg(
+                    Arg::new("stop")
+                        .long("stop")
+                        .value_name("PRICE")
+                        .help("Planned stop price")
+                        .required(true),
+                )
+                .arg(
+                    Arg::new("target")
+                        .long("target")
+                        .value_name("PRICE")
+                        .help("Planned target price")
+                        .required(true),
+                )
+                .arg(
+                    Arg::new("quantity")
+                        .long("quantity")
+                        .value_name("QTY")
+                        .help("Proposed position quantity")
+                        .required(true),
+                )
+                .arg(
+                    Arg::new("currency")
+                        .long("currency")
+                        .value_name("CURRENCY")
+                        .help("Currency code (USD by default)")
+                        .required(false)
+                        .default_value("usd"),
+                )
+                .arg(
+                    Arg::new("format")
+                        .long("format")
+                        .value_name("FORMAT")
+                        .help("Output format")
+                        .value_parser(["text", "json"])
+                        .default_value("text")
+                        .required(false),
+                ),
+        );
+        self
+    }
 }
 
 #[cfg(test)]
@@ -403,6 +464,7 @@ mod tests {
             .reconcile()
             .manually_close()
             .size_preview()
+            .hypothesis()
             .build()
     }
 
@@ -426,6 +488,7 @@ mod tests {
             "reconcile",
             "manually-close",
             "size-preview",
+            "hypothesis",
         ] {
             assert!(cmd.get_subcommands().any(|c| c.get_name() == name));
         }
@@ -508,6 +571,42 @@ mod tests {
         assert_eq!(
             sub.get_one::<String>("format").map(String::as_str),
             Some("json")
+        );
+    }
+
+    #[test]
+    fn trade_hypothesis_requires_trade_inputs() {
+        let cmd = TradeCommandBuilder::new().hypothesis().build();
+        let matches = cmd
+            .try_get_matches_from([
+                "trade",
+                "hypothesis",
+                "--account",
+                "acc-id",
+                "--entry",
+                "100",
+                "--stop",
+                "95",
+                "--target",
+                "120",
+                "--quantity",
+                "10",
+                "--currency",
+                "usd",
+                "--format",
+                "json",
+            ])
+            .expect("hypothesis should parse");
+        let sub = matches
+            .subcommand_matches("hypothesis")
+            .expect("hypothesis subcommand");
+        assert_eq!(
+            sub.get_one::<String>("target").map(String::as_str),
+            Some("120")
+        );
+        assert_eq!(
+            sub.get_one::<String>("quantity").map(String::as_str),
+            Some("10")
         );
     }
 
