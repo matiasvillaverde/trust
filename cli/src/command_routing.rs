@@ -74,6 +74,7 @@ pub enum TradeSubcommand<'a> {
     ModifyStop,
     ModifyTarget,
     SizePreview(&'a ArgMatches),
+    Hypothesis(&'a ArgMatches),
 }
 
 pub enum DistributionSubcommand<'a> {
@@ -242,6 +243,7 @@ pub fn parse_trade_subcommand(sub_matches: &ArgMatches) -> TradeSubcommand<'_> {
         Some(("modify-stop", _)) => TradeSubcommand::ModifyStop,
         Some(("modify-target", _)) => TradeSubcommand::ModifyTarget,
         Some(("size-preview", sub_sub_matches)) => TradeSubcommand::SizePreview(sub_sub_matches),
+        Some(("hypothesis", sub_sub_matches)) => TradeSubcommand::Hypothesis(sub_sub_matches),
         _ => unreachable!("No subcommand provided"),
     }
 }
@@ -374,7 +376,11 @@ mod tests {
             .subcommand(Command::new("transaction").subcommand(Command::new("deposit")))
             .subcommand(Command::new("rule").subcommand(Command::new("remove")))
             .subcommand(Command::new("trading-vehicle").subcommand(Command::new("search")))
-            .subcommand(Command::new("trade").subcommand(Command::new("size-preview")))
+            .subcommand(
+                Command::new("trade")
+                    .subcommand(Command::new("size-preview"))
+                    .subcommand(Command::new("hypothesis")),
+            )
             .subcommand(Command::new("distribution").subcommand(Command::new("history")))
             .subcommand(Command::new("report").subcommand(Command::new("summary")))
             .subcommand(Command::new("market-data").subcommand(Command::new("bars")))
@@ -405,6 +411,9 @@ mod tests {
         let trade = app
             .clone()
             .get_matches_from(["trust", "trade", "size-preview"]);
+        let trade_hypothesis = app
+            .clone()
+            .get_matches_from(["trust", "trade", "hypothesis"]);
         let dist = app
             .clone()
             .get_matches_from(["trust", "distribution", "history"]);
@@ -457,6 +466,13 @@ mod tests {
         assert!(matches!(
             parse_trade_subcommand(trade_m),
             TradeSubcommand::SizePreview(_)
+        ));
+        let (_, trade_hypothesis_m) = trade_hypothesis
+            .subcommand()
+            .expect("expected trade subcommand");
+        assert!(matches!(
+            parse_trade_subcommand(trade_hypothesis_m),
+            TradeSubcommand::Hypothesis(_)
         ));
         let (_, dist_m) = dist.subcommand().expect("expected distribution subcommand");
         assert!(matches!(
@@ -532,7 +548,8 @@ mod tests {
                 .subcommand(Command::new("reconcile"))
                 .subcommand(Command::new("modify-stop"))
                 .subcommand(Command::new("modify-target"))
-                .subcommand(Command::new("size-preview")),
+                .subcommand(Command::new("size-preview"))
+                .subcommand(Command::new("hypothesis")),
         );
         let trade_variants = [
             ("create", "Create"),
@@ -551,6 +568,7 @@ mod tests {
             ("modify-stop", "ModifyStop"),
             ("modify-target", "ModifyTarget"),
             ("size-preview", "SizePreview"),
+            ("hypothesis", "Hypothesis"),
         ];
         for (sub, expected) in trade_variants {
             let m = trade_app.clone().get_matches_from(["trust", "trade", sub]);
@@ -573,6 +591,7 @@ mod tests {
                 TradeSubcommand::ModifyStop => "ModifyStop",
                 TradeSubcommand::ModifyTarget => "ModifyTarget",
                 TradeSubcommand::SizePreview(_) => "SizePreview",
+                TradeSubcommand::Hypothesis(_) => "Hypothesis",
             };
             assert_eq!(got, expected);
         }

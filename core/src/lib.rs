@@ -38,7 +38,9 @@ use argon2::{
     password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2,
 };
-use calculators_trade::{LevelAdjustedQuantity, QuantityCalculator};
+use calculators_trade::{
+    LevelAdjustedQuantity, QuantityCalculator, TradeHypothesis, TradeHypothesisCalculator,
+};
 use events::trade::{CloseReason, TradeClosed};
 use model::database::TradingVehicleUpsert;
 use model::{
@@ -681,6 +683,27 @@ impl TrustFacade {
             account_id,
             entry_price,
             stop_price,
+            currency,
+            &mut *self.factory,
+        )
+    }
+
+    /// Calculate trade hypothesis metrics for a proposed position size.
+    pub fn calculate_trade_hypothesis(
+        &mut self,
+        account_id: Uuid,
+        entry_price: Decimal,
+        stop_price: Decimal,
+        target_price: Decimal,
+        quantity: i64,
+        currency: &Currency,
+    ) -> Result<TradeHypothesis, Box<dyn std::error::Error>> {
+        TradeHypothesisCalculator::calculate(
+            account_id,
+            entry_price,
+            stop_price,
+            target_price,
+            quantity,
             currency,
             &mut *self.factory,
         )

@@ -285,7 +285,7 @@ fn test_dispatch_matrix_reports_levels_advisor_and_keys() {
 }
 
 #[test]
-fn test_dispatch_matrix_market_data_and_trade_size_preview_paths() {
+fn test_dispatch_matrix_market_data_and_trade_preview_paths() {
     let database_url = format!(
         "file:test_dispatch_matrix_md_{}.db",
         Uuid::new_v4().simple()
@@ -315,6 +315,33 @@ fn test_dispatch_matrix_market_data_and_trade_size_preview_paths() {
         preview.status.success(),
         "trade size-preview should succeed: {}",
         String::from_utf8_lossy(&preview.stderr)
+    );
+
+    let hypothesis = run_cli(
+        &database_url,
+        &[
+            "trade",
+            "hypothesis",
+            "--account",
+            account.as_str(),
+            "--entry",
+            "200",
+            "--stop",
+            "190",
+            "--target",
+            "230",
+            "--quantity",
+            "10",
+            "--currency",
+            "usd",
+            "--format",
+            "json",
+        ],
+    );
+    assert!(
+        hypothesis.status.success(),
+        "trade hypothesis should succeed: {}",
+        String::from_utf8_lossy(&hypothesis.stderr)
     );
 
     let snapshot = run_cli(
