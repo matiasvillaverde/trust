@@ -63,6 +63,8 @@
       "trade_share_to_reach_80pct_profit_percentage": "0"
     },
     "risk_adjusted_performance": {
+      "adjusted_sharpe_ratio": null,
+      "adjusted_sortino_ratio": null,
       "calmar_ratio": null,
       "sharpe_ratio": null,
       "sortino_ratio": null,

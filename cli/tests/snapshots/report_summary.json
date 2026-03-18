@@ -5,6 +5,8 @@
   },
   "data": {
     "advanced_metrics": {
+      "adjusted_sharpe_ratio": null,
+      "adjusted_sortino_ratio": null,
       "average_trade_pnl": "0",
       "calmar_ratio": null,
       "expectancy": "0",
