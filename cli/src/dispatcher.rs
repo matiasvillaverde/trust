@@ -4996,7 +4996,9 @@ impl ArgDispatcher {
             "profit_factor": AdvancedMetricsCalculator::calculate_profit_factor(&closed_trades).map(Self::decimal_string),
             "expectancy": Self::decimal_string(AdvancedMetricsCalculator::calculate_expectancy(&closed_trades)),
             "sharpe_ratio": AdvancedMetricsCalculator::calculate_sharpe_ratio(&closed_trades, dec!(0.05)).map(Self::decimal_string),
+            "adjusted_sharpe_ratio": AdvancedMetricsCalculator::calculate_adjusted_sharpe_ratio(&closed_trades, dec!(0.05)).map(Self::decimal_string),
             "sortino_ratio": AdvancedMetricsCalculator::calculate_sortino_ratio(&closed_trades, dec!(0.05)).map(Self::decimal_string),
+            "adjusted_sortino_ratio": AdvancedMetricsCalculator::calculate_adjusted_sortino_ratio(&closed_trades, dec!(0.05)).map(Self::decimal_string),
             "calmar_ratio": report_calmar.map(Self::decimal_string),
             "value_at_risk_95": AdvancedMetricsCalculator::calculate_value_at_risk(&closed_trades, dec!(0.95)).map(Self::decimal_string),
             "expected_shortfall_95": AdvancedMetricsCalculator::calculate_expected_shortfall(&closed_trades, dec!(0.95)).map(Self::decimal_string),
@@ -5254,6 +5256,7 @@ impl ArgDispatcher {
                 all_trades,
                 Some(crate::views::AdvancedMetricsDisplayContext {
                     calmar_ratio: report_calmar,
+                    risk_free_rate: Some(dec!(0.05)),
                 }),
             );
             return Ok(());
@@ -5271,7 +5274,11 @@ impl ArgDispatcher {
         let average_r = AdvancedMetricsCalculator::calculate_average_r_multiple(&all_trades);
         let payoff_ratio = AdvancedMetricsCalculator::calculate_payoff_ratio(&all_trades);
         let sharpe = AdvancedMetricsCalculator::calculate_sharpe_ratio(&all_trades, dec!(0.05));
+        let adjusted_sharpe =
+            AdvancedMetricsCalculator::calculate_adjusted_sharpe_ratio(&all_trades, dec!(0.05));
         let sortino = AdvancedMetricsCalculator::calculate_sortino_ratio(&all_trades, dec!(0.05));
+        let adjusted_sortino =
+            AdvancedMetricsCalculator::calculate_adjusted_sortino_ratio(&all_trades, dec!(0.05));
         let calmar = report_calmar;
         let var_95 = AdvancedMetricsCalculator::calculate_value_at_risk(&all_trades, dec!(0.95));
         let es_95 =
@@ -5374,7 +5381,9 @@ impl ArgDispatcher {
                 },
                 "risk_adjusted_performance": {
                     "sharpe_ratio": sharpe.map(Self::decimal_string),
+                    "adjusted_sharpe_ratio": adjusted_sharpe.map(Self::decimal_string),
                     "sortino_ratio": sortino.map(Self::decimal_string),
+                    "adjusted_sortino_ratio": adjusted_sortino.map(Self::decimal_string),
                     "calmar_ratio": calmar.map(Self::decimal_string),
                     "ulcer_index": ulcer.map(Self::decimal_string)
                 },
@@ -6278,7 +6287,7 @@ impl ArgDispatcher {
     }
 
     fn metrics_advanced(&mut self, sub_matches: &ArgMatches) {
-        use crate::views::AdvancedMetricsView;
+        use crate::views::{AdvancedMetricsDisplayContext, AdvancedMetricsView};
         use core::calculators_performance::PerformanceCalculator;
         use rust_decimal::Decimal;
         use rust_decimal_macros::dec;
@@ -6354,7 +6363,13 @@ impl ArgDispatcher {
             }
         }
 
-        AdvancedMetricsView::display(all_trades, None);
+        AdvancedMetricsView::display(
+            all_trades,
+            Some(AdvancedMetricsDisplayContext {
+                calmar_ratio: None,
+                risk_free_rate: Some(_risk_free_rate),
+            }),
+        );
     }
 
     fn export_metrics(

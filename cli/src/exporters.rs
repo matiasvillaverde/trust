@@ -42,7 +42,9 @@ impl MetricsExporter {
             },
             "risk_adjusted_performance": {
                 "sharpe_ratio": Self::decimal_to_f64(AdvancedMetricsCalculator::calculate_sharpe_ratio(&closed_trades, risk_free)),
+                "adjusted_sharpe_ratio": Self::decimal_to_f64(AdvancedMetricsCalculator::calculate_adjusted_sharpe_ratio(&closed_trades, risk_free)),
                 "sortino_ratio": Self::decimal_to_f64(AdvancedMetricsCalculator::calculate_sortino_ratio(&closed_trades, risk_free)),
+                "adjusted_sortino_ratio": Self::decimal_to_f64(AdvancedMetricsCalculator::calculate_adjusted_sortino_ratio(&closed_trades, risk_free)),
                 "calmar_ratio": Self::decimal_to_f64(AdvancedMetricsCalculator::calculate_calmar_ratio(&closed_trades))
             },
             "statistical_analysis": {
@@ -100,10 +102,26 @@ impl MetricsExporter {
             csv.push_str(&format!("risk_adjusted,sharpe_ratio,{sharpe:.4},ratio\n"));
         }
 
+        if let Some(adjusted_sharpe) =
+            AdvancedMetricsCalculator::calculate_adjusted_sharpe_ratio(&closed_trades, risk_free)
+        {
+            csv.push_str(&format!(
+                "risk_adjusted,adjusted_sharpe_ratio,{adjusted_sharpe:.4},ratio\n"
+            ));
+        }
+
         if let Some(sortino) =
             AdvancedMetricsCalculator::calculate_sortino_ratio(&closed_trades, risk_free)
         {
             csv.push_str(&format!("risk_adjusted,sortino_ratio,{sortino:.4},ratio\n"));
+        }
+
+        if let Some(adjusted_sortino) =
+            AdvancedMetricsCalculator::calculate_adjusted_sortino_ratio(&closed_trades, risk_free)
+        {
+            csv.push_str(&format!(
+                "risk_adjusted,adjusted_sortino_ratio,{adjusted_sortino:.4},ratio\n"
+            ));
         }
 
         if let Some(calmar) = AdvancedMetricsCalculator::calculate_calmar_ratio(&closed_trades) {
@@ -225,11 +243,23 @@ mod tests {
             .get("top_20pct_profit_share_percentage")
             .unwrap()
             .is_number());
+        assert!(result["risk_adjusted_performance"]
+            .get("adjusted_sharpe_ratio")
+            .is_some());
+        assert!(result["risk_adjusted_performance"]
+            .get("adjusted_sortino_ratio")
+            .is_some());
     }
 
     #[test]
     fn test_csv_export_format() {
-        let trades = vec![create_test_trade(dec!(100)), create_test_trade(dec!(-50))];
+        let trades = vec![
+            create_test_trade(dec!(100)),
+            create_test_trade(dec!(100)),
+            create_test_trade(dec!(100)),
+            create_test_trade(dec!(-50)),
+            create_test_trade(dec!(-25)),
+        ];
         let result = MetricsExporter::to_csv(&trades, None);
 
         assert!(result.starts_with("metric_category,metric_name,value,unit\n"));
