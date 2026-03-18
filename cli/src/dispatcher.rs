@@ -29,6 +29,7 @@ use crate::dialogs::{
 };
 use crate::dialogs::{RuleDialogBuilder, RuleRemoveDialogBuilder};
 use crate::protected_keyword;
+use crate::trading_vehicle_import;
 use alpaca_broker::AlpacaBroker;
 use chrono::{DateTime, Datelike, Days, NaiveDate, Utc};
 use clap::ArgMatches;
@@ -41,11 +42,11 @@ use core::TrustFacade;
 use db_sqlite::SqliteDatabase;
 use db_sqlite::{ImportMode, ImportOptions};
 use dialoguer::Password;
+use ibkr_broker::IbkrBroker;
 use model::{
-    database::TradingVehicleUpsert, Account, AccountType, BarTimeframe, Currency, DraftTrade,
-    Environment, Level, LevelAdjustmentRules, LevelTrigger, MarketDataChannel,
-    MarketSnapshotSource, Status, Trade, TradeCategory, TradingVehicleCategory,
-    TransactionCategory,
+    Account, AccountType, BarTimeframe, BrokerKind, Currency, DraftTrade, Environment, Level,
+    LevelAdjustmentRules, LevelTrigger, MarketDataChannel, MarketSnapshotSource, Status, Trade,
+    TradeCategory, TransactionCategory,
 };
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
@@ -353,6 +354,8 @@ impl ArgDispatcher {
             || sub_matches.get_one::<String>("taxes").is_some()
             || sub_matches.get_one::<String>("earnings").is_some()
             || sub_matches.get_one::<String>("type").is_some()
+            || sub_matches.get_one::<String>("broker").is_some()
+            || sub_matches.get_one::<String>("broker-account-id").is_some()
             || sub_matches.get_one::<String>("parent").is_some()
     }
 
@@ -373,7 +376,10 @@ impl ArgDispatcher {
     pub fn new_sqlite() -> Self {
         create_dir_if_necessary();
         let database = SqliteDatabase::new(ArgDispatcher::database_url().as_str());
-        let mut trust = TrustFacade::new(Box::new(database), Box::<AlpacaBroker>::default());
+        let mut trust = TrustFacade::new_with_brokers(
+            Box::new(database),
+            vec![Box::<AlpacaBroker>::default(), Box::<IbkrBroker>::default()],
+        );
         trust.enable_protected_mode();
         ArgDispatcher { trust }
     }
@@ -1278,6 +1284,8 @@ impl ArgDispatcher {
             let taxes = sub_matches.get_one::<String>("taxes").cloned();
             let earnings = sub_matches.get_one::<String>("earnings").cloned();
             let account_type = sub_matches.get_one::<String>("type").cloned();
+            let broker = sub_matches.get_one::<String>("broker").cloned();
+            let broker_account_id = sub_matches.get_one::<String>("broker-account-id").cloned();
             let parent = sub_matches.get_one::<String>("parent").cloned();
 
             let name = name.ok_or_else(|| CliError::new("missing_name", "Missing --name"))?;
@@ -1303,6 +1311,10 @@ impl ArgDispatcher {
                 Some(v) => Self::parse_account_type(&v)?,
                 None => AccountType::Primary,
             };
+            let broker_kind = match broker {
+                Some(v) => Self::parse_broker_kind(&v)?,
+                None => BrokerKind::Alpaca,
+            };
             let parent_account_id = match parent {
                 Some(v) => Some(
                     Uuid::parse_str(&v)
@@ -1310,10 +1322,21 @@ impl ArgDispatcher {
                 ),
                 None => None,
             };
+            let broker_account_id = broker_account_id.filter(|value| !value.trim().is_empty());
+
+            if broker_kind == BrokerKind::Ibkr
+                && account_type == AccountType::Primary
+                && broker_account_id.is_none()
+            {
+                return Err(CliError::new(
+                    "missing_broker_account_id",
+                    "Missing --broker-account-id for an IBKR primary account",
+                ));
+            }
 
             let account = self
                 .trust
-                .create_account_with_hierarchy(
+                .create_account_with_profile(
                     &name,
                     &description,
                     environment,
@@ -1321,12 +1344,19 @@ impl ArgDispatcher {
                     earnings_percentage,
                     account_type,
                     parent_account_id,
+                    broker_kind,
+                    broker_account_id.as_deref(),
                 )
                 .map_err(|e| CliError::new("create_account_failed", e.to_string()))?;
             println!("Account created:");
             println!("  id: {}", account.id);
             println!("  name: {}", account.name);
             println!("  type: {}", account.account_type);
+            println!("  broker: {}", account.broker_kind);
+            println!(
+                "  broker_account_id: {}",
+                account.broker_account_id.as_deref().unwrap_or("none")
+            );
             println!(
                 "  parent: {}",
                 account
@@ -1459,6 +1489,15 @@ impl ArgDispatcher {
                 "Invalid --type value (expected primary|earnings|tax-reserve|reinvestment)",
             )),
         }
+    }
+
+    fn parse_broker_kind(raw: &str) -> Result<BrokerKind, CliError> {
+        raw.parse::<BrokerKind>().map_err(|_| {
+            CliError::new(
+                "invalid_broker_kind",
+                "Invalid --broker value (expected alpaca|ibkr)",
+            )
+        })
     }
 }
 
@@ -2772,7 +2811,11 @@ impl ArgDispatcher {
             "trading-vehicle creation",
         )?;
         if matches.get_flag("from-alpaca") {
-            return self.create_trading_vehicle_from_alpaca(matches);
+            return self.create_trading_vehicle_from_broker(matches, BrokerKind::Alpaca);
+        }
+        if let Some(broker) = matches.get_one::<String>("from-broker") {
+            return self
+                .create_trading_vehicle_from_broker(matches, Self::parse_broker_kind(broker)?);
         }
 
         TradingVehicleDialogBuilder::new()
@@ -2786,13 +2829,17 @@ impl ArgDispatcher {
     }
 
     #[allow(clippy::too_many_lines)]
-    fn create_trading_vehicle_from_alpaca(&mut self, matches: &ArgMatches) -> Result<(), CliError> {
+    fn create_trading_vehicle_from_broker(
+        &mut self,
+        matches: &ArgMatches,
+        broker_kind: BrokerKind,
+    ) -> Result<(), CliError> {
         let account_name = match matches.get_one::<String>("account") {
             Some(value) if !value.trim().is_empty() => value.trim(),
             _ => {
                 return Err(CliError::new(
-                    "alpaca_import_invalid_args",
-                    "--account is required when using --from-alpaca",
+                    "broker_import_invalid_args",
+                    "--account is required when importing from broker metadata",
                 ));
             }
         };
@@ -2801,8 +2848,8 @@ impl ArgDispatcher {
             Some(value) if !value.trim().is_empty() => value.trim(),
             _ => {
                 return Err(CliError::new(
-                    "alpaca_import_invalid_args",
-                    "--symbol is required when using --from-alpaca",
+                    "broker_import_invalid_args",
+                    "--symbol is required when importing from broker metadata",
                 ));
             }
         };
@@ -2811,73 +2858,25 @@ impl ArgDispatcher {
             Ok(account) => account,
             Err(error) => {
                 return Err(CliError::new(
-                    "alpaca_import_account_not_found",
+                    "broker_import_account_not_found",
                     format!("{error}"),
                 ));
             }
         };
 
-        let metadata = match AlpacaBroker::fetch_asset_metadata(&account, symbol) {
-            Ok(metadata) => metadata,
-            Err(error) => {
-                return Err(CliError::new("alpaca_import_failed", format!("{error}")));
-            }
-        };
+        let imported = trading_vehicle_import::import_from_broker(&account, symbol, broker_kind)
+            .map_err(|error| CliError::new(error.code(), error.message().to_string()))?;
 
-        if !metadata.is_active {
-            return Err(CliError::new(
-                "alpaca_import_unavailable",
-                format!("symbol '{}' is inactive", metadata.symbol),
-            ));
-        }
-
-        if !metadata.tradable {
-            return Err(CliError::new(
-                "alpaca_import_unavailable",
-                format!("symbol '{}' is not tradable", metadata.symbol),
-            ));
-        }
-
-        let upsert = TradingVehicleUpsert {
-            symbol: metadata.symbol.clone(),
-            isin: None,
-            category: metadata.category,
-            broker: "alpaca".to_string(),
-            broker_asset_id: Some(metadata.broker_identifier.clone()),
-            exchange: Some(metadata.exchange.clone()),
-            broker_asset_class: None,
-            broker_asset_status: Some(if metadata.is_active {
-                "active".to_string()
-            } else {
-                "inactive".to_string()
-            }),
-            tradable: Some(metadata.tradable),
-            marginable: Some(metadata.marginable),
-            shortable: Some(metadata.shortable),
-            easy_to_borrow: Some(metadata.easy_to_borrow),
-            fractionable: Some(metadata.fractionable),
-        };
-
-        let result = self.trust.upsert_trading_vehicle(upsert);
+        let result = self.trust.upsert_trading_vehicle(imported.upsert);
 
         match result {
             Ok(tv) => {
-                println!(
-                    "Imported from Alpaca: symbol={}, category={}, exchange={}, tradable={}, marginable={}, shortable={}, fractionable={}, broker_id={}",
-                    tv.symbol,
-                    category_to_str(tv.category),
-                    metadata.exchange,
-                    metadata.tradable,
-                    metadata.marginable,
-                    metadata.shortable,
-                    metadata.fractionable,
-                    metadata.broker_identifier,
-                );
+                println!("{}", imported.summary);
                 crate::views::TradingVehicleView::display(tv);
             }
             Err(error) => {
                 return Err(CliError::new(
-                    "alpaca_import_store_failed",
+                    "broker_import_store_failed",
                     format!("{error}"),
                 ));
             }
@@ -2892,11 +2891,12 @@ impl ArgDispatcher {
     }
 }
 
-fn category_to_str(category: TradingVehicleCategory) -> &'static str {
+#[cfg(test)]
+fn category_to_str(category: model::TradingVehicleCategory) -> &'static str {
     match category {
-        TradingVehicleCategory::Crypto => "crypto",
-        TradingVehicleCategory::Fiat => "fiat",
-        TradingVehicleCategory::Stock => "stock",
+        model::TradingVehicleCategory::Crypto => "crypto",
+        model::TradingVehicleCategory::Fiat => "fiat",
+        model::TradingVehicleCategory::Stock => "stock",
         _ => "unknown",
     }
 }
@@ -7075,15 +7075,16 @@ mod tests {
     use core::TrustFacade;
     use db_sqlite::SqliteDatabase;
     use model::{
-        AccountType, Broker, BrokerLog, Currency, Environment, Level, LevelAdjustmentRules,
-        LevelDirection, LevelStatus, LevelTrigger, MarketBar, MarketDataChannel,
-        MarketDataStreamEvent, MarketQuote, MarketSnapshotSource, MarketSnapshotV2,
-        MarketTradeTick, OrderIds, Status, Trade, TradingVehicleCategory, TransactionCategory,
+        AccountType, Broker, BrokerKind, BrokerLog, Currency, Environment, Level,
+        LevelAdjustmentRules, LevelDirection, LevelStatus, LevelTrigger, MarketBar,
+        MarketDataChannel, MarketDataStreamEvent, MarketQuote, MarketSnapshotSource,
+        MarketSnapshotV2, MarketTradeTick, OrderIds, Status, Trade, TradingVehicleCategory,
+        TransactionCategory,
     };
     use rust_decimal::Decimal;
     use rust_decimal_macros::dec;
     use std::error::Error;
-    use std::sync::{Mutex, OnceLock};
+    use std::sync::{Mutex, MutexGuard, OnceLock};
     use uuid::Uuid;
 
     #[derive(Clone)]
@@ -7155,6 +7156,10 @@ mod tests {
     }
 
     impl Broker for StubBroker {
+        fn kind(&self) -> BrokerKind {
+            BrokerKind::Alpaca
+        }
+
         fn submit_trade(
             &self,
             _trade: &Trade,
@@ -7192,7 +7197,7 @@ mod tests {
             _trade: &Trade,
             _account: &model::Account,
             _new_stop_price: Decimal,
-        ) -> Result<Uuid, Box<dyn Error>> {
+        ) -> Result<String, Box<dyn Error>> {
             Err("not implemented in test stub".into())
         }
 
@@ -7201,7 +7206,7 @@ mod tests {
             _trade: &Trade,
             _account: &model::Account,
             _new_price: Decimal,
-        ) -> Result<Uuid, Box<dyn Error>> {
+        ) -> Result<String, Box<dyn Error>> {
             Err("not implemented in test stub".into())
         }
 
@@ -7249,6 +7254,13 @@ mod tests {
         LOCK.get_or_init(|| Mutex::new(()))
     }
 
+    fn env_guard() -> MutexGuard<'static, ()> {
+        match env_lock().lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        }
+    }
+
     fn test_dispatcher() -> ArgDispatcher {
         let trust = TrustFacade::new(
             Box::new(SqliteDatabase::new_in_memory()),
@@ -7273,6 +7285,8 @@ mod tests {
             .arg(Arg::new("taxes").long("taxes"))
             .arg(Arg::new("earnings").long("earnings"))
             .arg(Arg::new("type").long("type"))
+            .arg(Arg::new("broker").long("broker"))
+            .arg(Arg::new("broker-account-id").long("broker-account-id"))
             .arg(Arg::new("parent").long("parent"))
             .get_matches_from(argv)
     }
@@ -7649,6 +7663,27 @@ mod tests {
         assert_eq!(
             error.to_string(),
             "invalid_account_type: Invalid --type value (expected primary|earnings|tax-reserve|reinvestment)"
+        );
+    }
+
+    #[test]
+    fn test_parse_broker_kind_accepts_supported_values() {
+        assert_eq!(
+            ArgDispatcher::parse_broker_kind("alpaca").unwrap(),
+            BrokerKind::Alpaca
+        );
+        assert_eq!(
+            ArgDispatcher::parse_broker_kind("IBKR").unwrap(),
+            BrokerKind::Ibkr
+        );
+    }
+
+    #[test]
+    fn test_parse_broker_kind_rejects_invalid_value() {
+        let error = ArgDispatcher::parse_broker_kind("binance").unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "invalid_broker_kind: Invalid --broker value (expected alpaca|ibkr)"
         );
     }
 
@@ -8720,16 +8755,16 @@ mod tests {
     }
 
     #[test]
-    fn test_create_trading_vehicle_from_alpaca_validates_required_args_and_account_lookup() {
+    fn test_create_trading_vehicle_from_broker_validates_required_args_and_account_lookup() {
         let mut dispatcher = test_dispatcher();
         let missing_account = Command::new("test")
             .arg(Arg::new("account").long("account"))
             .arg(Arg::new("symbol").long("symbol"))
             .get_matches_from(["test", "--symbol", "AAPL"]);
         let error = dispatcher
-            .create_trading_vehicle_from_alpaca(&missing_account)
+            .create_trading_vehicle_from_broker(&missing_account, BrokerKind::Alpaca)
             .expect_err("missing account should fail");
-        assert!(error.to_string().contains("alpaca_import_invalid_args"));
+        assert!(error.to_string().contains("broker_import_invalid_args"));
         assert!(error.to_string().contains("--account is required"));
 
         let missing_symbol = Command::new("test")
@@ -8737,9 +8772,9 @@ mod tests {
             .arg(Arg::new("symbol").long("symbol"))
             .get_matches_from(["test", "--account", "paper-main"]);
         let error = dispatcher
-            .create_trading_vehicle_from_alpaca(&missing_symbol)
+            .create_trading_vehicle_from_broker(&missing_symbol, BrokerKind::Alpaca)
             .expect_err("missing symbol should fail");
-        assert!(error.to_string().contains("alpaca_import_invalid_args"));
+        assert!(error.to_string().contains("broker_import_invalid_args"));
         assert!(error.to_string().contains("--symbol is required"));
 
         let unknown_account = Command::new("test")
@@ -8747,11 +8782,11 @@ mod tests {
             .arg(Arg::new("symbol").long("symbol"))
             .get_matches_from(["test", "--account", "paper-main", "--symbol", "AAPL"]);
         let error = dispatcher
-            .create_trading_vehicle_from_alpaca(&unknown_account)
+            .create_trading_vehicle_from_broker(&unknown_account, BrokerKind::Alpaca)
             .expect_err("unknown account should fail");
         assert!(error
             .to_string()
-            .contains("alpaca_import_account_not_found"));
+            .contains("broker_import_account_not_found"));
     }
 
     #[test]
@@ -9055,7 +9090,7 @@ mod tests {
 
     #[test]
     fn test_advisor_commands_validate_inputs_and_history_defaults() {
-        let _guard = env_lock().lock().expect("lock");
+        let _guard = env_guard();
         std::env::set_var("TRUST_PROTECTED_KEYWORD_EXPECTED", "secret");
         let mut dispatcher = test_dispatcher();
         let (account, _) = seed_account_and_vehicle(&mut dispatcher);
@@ -9664,7 +9699,7 @@ mod tests {
 
     #[test]
     fn test_ensure_protected_keyword_requires_argument_and_validates_value() {
-        let _guard = env_lock().lock().expect("lock");
+        let _guard = env_guard();
         crate::protected_keyword::delete().expect("reset protected keyword state");
         crate::protected_keyword::store("secret").expect("seed protected keyword");
 
@@ -9763,7 +9798,7 @@ mod tests {
 
     #[test]
     fn test_protected_keyword_lifecycle_set_rotate_and_delete_requires_valid_confirmation() {
-        let _guard = env_lock().lock().expect("lock");
+        let _guard = env_guard();
         std::env::set_var("TRUST_DISABLE_KEYCHAIN", "1");
         crate::protected_keyword::delete().expect("reset protected keyword");
         let mut dispatcher = test_dispatcher();
@@ -10155,7 +10190,7 @@ mod tests {
 
     #[test]
     fn test_create_account_non_interactive_missing_required_fields() {
-        let _guard = env_lock().lock().expect("lock");
+        let _guard = env_guard();
         std::env::set_var("TRUST_PROTECTED_KEYWORD_EXPECTED", "secret");
         let mut dispatcher = test_dispatcher();
 
@@ -10170,7 +10205,7 @@ mod tests {
 
     #[test]
     fn test_create_account_non_interactive_rejects_invalid_parent_uuid() {
-        let _guard = env_lock().lock().expect("lock");
+        let _guard = env_guard();
         std::env::set_var("TRUST_PROTECTED_KEYWORD_EXPECTED", "secret");
         let mut dispatcher = test_dispatcher();
 
@@ -10199,8 +10234,38 @@ mod tests {
     }
 
     #[test]
+    fn test_create_account_non_interactive_requires_ibkr_primary_account_id() {
+        let _guard = env_guard();
+        std::env::set_var("TRUST_PROTECTED_KEYWORD_EXPECTED", "secret");
+        let mut dispatcher = test_dispatcher();
+
+        let matches = account_matches(&[
+            "--confirm-protected",
+            "secret",
+            "--name",
+            "ibkr-main",
+            "--description",
+            "ibkr trading",
+            "--environment",
+            "paper",
+            "--taxes",
+            "20",
+            "--earnings",
+            "10",
+            "--broker",
+            "ibkr",
+        ]);
+        let error = dispatcher
+            .create_account(&matches)
+            .expect_err("missing ibkr broker account id should fail");
+        assert!(error.to_string().contains("missing_broker_account_id"));
+
+        std::env::remove_var("TRUST_PROTECTED_KEYWORD_EXPECTED");
+    }
+
+    #[test]
     fn test_create_account_non_interactive_success_with_hierarchy() {
-        let _guard = env_lock().lock().expect("lock");
+        let _guard = env_guard();
         std::env::set_var("TRUST_PROTECTED_KEYWORD_EXPECTED", "secret");
         let mut dispatcher = test_dispatcher();
 
@@ -10379,7 +10444,7 @@ mod tests {
 
     #[test]
     fn test_dispatch_transactions_non_interactive_success_and_validation_errors() {
-        let _guard = env_lock().lock().expect("lock");
+        let _guard = env_guard();
         std::env::set_var("TRUST_PROTECTED_KEYWORD_EXPECTED", "secret");
         let mut dispatcher = test_dispatcher();
 
@@ -10690,7 +10755,7 @@ mod tests {
 
     #[test]
     fn test_dispatchers_cover_non_interactive_routes_with_safe_error_paths() {
-        let _guard = env_lock().lock().expect("lock");
+        let _guard = env_guard();
         std::env::set_var("TRUST_DISABLE_KEYCHAIN", "1");
         std::env::set_var("TRUST_PROTECTED_KEYWORD_EXPECTED", "secret");
 
@@ -10987,7 +11052,7 @@ mod tests {
 
     #[test]
     fn test_reporting_policy_and_onboarding_handlers_cover_text_and_json_paths() {
-        let _guard = env_lock().lock().expect("lock");
+        let _guard = env_guard();
         std::env::set_var("TRUST_PROTECTED_KEYWORD_EXPECTED", "secret");
         let mut dispatcher = test_dispatcher();
         let (account, vehicle) = seed_account_and_vehicle(&mut dispatcher);
@@ -11300,7 +11365,7 @@ mod tests {
 
     #[test]
     fn test_database_url_prefers_env_override() {
-        let _guard = env_lock().lock().expect("lock");
+        let _guard = env_guard();
         std::env::set_var("TRUST_DB_URL", "/tmp/trust-custom.db");
         let value = ArgDispatcher::database_url();
         assert_eq!(value, "/tmp/trust-custom.db");
@@ -11309,7 +11374,7 @@ mod tests {
 
     #[test]
     fn test_database_url_uses_default_when_env_missing() {
-        let _guard = env_lock().lock().expect("lock");
+        let _guard = env_guard();
         std::env::remove_var("TRUST_DB_URL");
         let value = ArgDispatcher::database_url();
         assert!(
@@ -11320,7 +11385,7 @@ mod tests {
 
     #[test]
     fn test_new_sqlite_dispatcher_initializes_with_custom_db_url() {
-        let _guard = env_lock().lock().expect("lock");
+        let _guard = env_guard();
         let db_path = format!("/tmp/trust-cli-{}.db", Uuid::new_v4());
         std::env::set_var("TRUST_DB_URL", &db_path);
 
@@ -11336,7 +11401,7 @@ mod tests {
 
     #[test]
     fn test_top_level_dispatch_routes_all_command_families_and_external() {
-        let _guard = env_lock().lock().expect("lock");
+        let _guard = env_guard();
         std::env::set_var("TRUST_DISABLE_KEYCHAIN", "1");
         std::env::set_var("TRUST_PROTECTED_KEYWORD_EXPECTED", "secret");
 
@@ -11485,7 +11550,7 @@ mod tests {
 
     #[test]
     fn test_dispatch_level_advisor_and_keys_remaining_subcommands_are_reachable() {
-        let _guard = env_lock().lock().expect("lock");
+        let _guard = env_guard();
         std::env::set_var("TRUST_DISABLE_KEYCHAIN", "1");
         std::env::set_var("TRUST_PROTECTED_KEYWORD_EXPECTED", "secret");
         crate::protected_keyword::delete().expect("reset protected keyword");
