@@ -151,6 +151,81 @@ pub enum AdvancedMetricsError {
 pub struct AdvancedMetricsCalculator;
 
 impl AdvancedMetricsCalculator {
+    fn average(values: &[Decimal]) -> Option<Decimal> {
+        if values.is_empty() {
+            return None;
+        }
+
+        values
+            .iter()
+            .copied()
+            .sum::<Decimal>()
+            .checked_div(Decimal::from(values.len()))
+    }
+
+    fn population_variance(values: &[Decimal], mean: Decimal) -> Option<Decimal> {
+        if values.is_empty() {
+            return None;
+        }
+
+        values
+            .iter()
+            .map(|&value| {
+                let diff = value.checked_sub(mean)?;
+                diff.checked_mul(diff)
+            })
+            .sum::<Option<Decimal>>()?
+            .checked_div(Decimal::from(values.len()))
+    }
+
+    fn standardized_moments(
+        values: &[Decimal],
+        mean: Decimal,
+        scale: Decimal,
+    ) -> Option<(Decimal, Decimal)> {
+        if values.len() < 2 || scale <= dec!(0) {
+            return None;
+        }
+
+        let skewness = values
+            .iter()
+            .map(|&value| {
+                let diff = value.checked_sub(mean)?;
+                let z = diff.checked_div(scale)?;
+                z.checked_mul(z)?.checked_mul(z)
+            })
+            .sum::<Option<Decimal>>()?
+            .checked_div(Decimal::from(values.len()))?;
+
+        let kurtosis = values
+            .iter()
+            .map(|&value| {
+                let diff = value.checked_sub(mean)?;
+                let z = diff.checked_div(scale)?;
+                let z2 = z.checked_mul(z)?;
+                z2.checked_mul(z2)
+            })
+            .sum::<Option<Decimal>>()?
+            .checked_div(Decimal::from(values.len()))?;
+
+        let excess_kurtosis = kurtosis.checked_sub(dec!(3))?;
+        Some((skewness, excess_kurtosis))
+    }
+
+    fn pezier_white_adjustment(
+        ratio: Decimal,
+        skewness: Decimal,
+        excess_kurtosis: Decimal,
+    ) -> Option<Decimal> {
+        let skew_term = skewness.checked_mul(ratio)?.checked_div(dec!(6))?;
+        let kurtosis_term = excess_kurtosis
+            .checked_mul(ratio)?
+            .checked_mul(ratio)?
+            .checked_div(dec!(24))?;
+        let adjustment = dec!(1).checked_add(skew_term)?.checked_sub(kurtosis_term)?;
+        ratio.checked_mul(adjustment)
+    }
+
     /// Gross profit across closed trades (sum of positive PnL).
     pub fn calculate_gross_profit(closed_trades: &[Trade]) -> Decimal {
         closed_trades
@@ -526,22 +601,10 @@ impl AdvancedMetricsCalculator {
         }
 
         // Calculate average return
-        let avg_return = returns
-            .iter()
-            .sum::<Decimal>()
-            .checked_div(Decimal::from(returns.len()))
-            .unwrap_or(dec!(0));
+        let avg_return = Self::average(&returns)?;
 
         // Calculate standard deviation
-        let variance = returns
-            .iter()
-            .map(|&r| {
-                let diff = r.checked_sub(avg_return).unwrap_or(dec!(0));
-                diff.checked_mul(diff).unwrap_or(dec!(0))
-            })
-            .sum::<Decimal>()
-            .checked_div(Decimal::from(returns.len()))
-            .unwrap_or(dec!(0));
+        let variance = Self::population_variance(&returns, avg_return)?;
 
         // Approximate square root using Newton's method for Decimal
         let std_dev = Self::decimal_sqrt(variance)?;
@@ -557,6 +620,29 @@ impl AdvancedMetricsCalculator {
         } else {
             None
         }
+    }
+
+    /// Calculate an adjusted Sharpe ratio using a higher-moment correction.
+    ///
+    /// The adjustment follows the common Pezier-White style correction:
+    /// `SR * (1 + (S * SR / 6) - ((K - 3) * SR^2 / 24))`
+    /// where `S` is skewness and `K - 3` is excess kurtosis.
+    pub fn calculate_adjusted_sharpe_ratio(
+        closed_trades: &[Trade],
+        risk_free_rate: Decimal,
+    ) -> Option<Decimal> {
+        let returns = Self::extract_r_multiple_returns(closed_trades);
+        if returns.len() < 2 {
+            return None;
+        }
+
+        let base_ratio = Self::calculate_sharpe_ratio(closed_trades, risk_free_rate)?;
+        let mean = Self::average(&returns)?;
+        let variance = Self::population_variance(&returns, mean)?;
+        let std_dev = Self::decimal_sqrt(variance)?;
+        let (skewness, excess_kurtosis) = Self::standardized_moments(&returns, mean, std_dev)?;
+
+        Self::pezier_white_adjustment(base_ratio, skewness, excess_kurtosis)
     }
 
     /// Calculate Sortino ratio: Downside risk-adjusted return measure
@@ -615,6 +701,40 @@ impl AdvancedMetricsCalculator {
         } else {
             None
         }
+    }
+
+    /// Calculate an adjusted Sortino ratio using the downside-return distribution.
+    ///
+    /// This mirrors the Sharpe adjustment by applying the same higher-moment
+    /// correction to the downside excess-return series that underpins Sortino.
+    pub fn calculate_adjusted_sortino_ratio(
+        closed_trades: &[Trade],
+        risk_free_rate: Decimal,
+    ) -> Option<Decimal> {
+        let returns = Self::extract_r_multiple_returns(closed_trades);
+        if returns.len() < 2 {
+            return None;
+        }
+
+        let base_ratio = Self::calculate_sortino_ratio(closed_trades, risk_free_rate)?;
+        let risk_free_per_trade = risk_free_rate.checked_div(dec!(252))?;
+        let downside_returns: Vec<Decimal> = returns
+            .iter()
+            .copied()
+            .filter(|&value| value < risk_free_per_trade)
+            .collect();
+
+        if downside_returns.len() < 2 {
+            return None;
+        }
+
+        let mean = Self::average(&downside_returns)?;
+        let downside_variance = Self::population_variance(&downside_returns, mean)?;
+        let downside_deviation = Self::decimal_sqrt(downside_variance)?;
+        let (skewness, excess_kurtosis) =
+            Self::standardized_moments(&downside_returns, mean, downside_deviation)?;
+
+        Self::pezier_white_adjustment(base_ratio, skewness, excess_kurtosis)
     }
 
     /// Calculate a report-grade Calmar ratio as
@@ -1895,10 +2015,64 @@ mod tests {
     }
 
     #[test]
+    fn test_calculate_adjusted_sharpe_ratio_insufficient_data() {
+        let trades = vec![create_test_trade(dec!(100))];
+        let result =
+            AdvancedMetricsCalculator::calculate_adjusted_sharpe_ratio(&trades, dec!(0.05));
+        assert_eq!(result, None);
+    }
+
+    #[test]
     fn test_calculate_sortino_ratio_insufficient_data() {
         let trades = vec![create_test_trade(dec!(100))];
         let result = AdvancedMetricsCalculator::calculate_sortino_ratio(&trades, dec!(0.05));
         assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_calculate_adjusted_sortino_ratio_insufficient_data() {
+        let trades = vec![create_test_trade(dec!(100))];
+        let result =
+            AdvancedMetricsCalculator::calculate_adjusted_sortino_ratio(&trades, dec!(0.05));
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_adjusted_sharpe_ratio_penalizes_negative_skew() {
+        let trades = vec![
+            create_test_trade(dec!(100)),
+            create_test_trade(dec!(100)),
+            create_test_trade(dec!(100)),
+            create_test_trade(dec!(-50)),
+            create_test_trade(dec!(-25)),
+        ];
+
+        let sharpe = AdvancedMetricsCalculator::calculate_sharpe_ratio(&trades, dec!(0.05))
+            .expect("base sharpe");
+        let adjusted =
+            AdvancedMetricsCalculator::calculate_adjusted_sharpe_ratio(&trades, dec!(0.05))
+                .expect("adjusted sharpe");
+
+        assert!(adjusted < sharpe);
+    }
+
+    #[test]
+    fn test_adjusted_sortino_ratio_differs_from_base_for_asymmetric_downside_shape() {
+        let trades = vec![
+            create_test_trade(dec!(100)),
+            create_test_trade(dec!(100)),
+            create_test_trade(dec!(100)),
+            create_test_trade(dec!(-50)),
+            create_test_trade(dec!(-25)),
+        ];
+
+        let sortino = AdvancedMetricsCalculator::calculate_sortino_ratio(&trades, dec!(0.05))
+            .expect("base sortino");
+        let adjusted =
+            AdvancedMetricsCalculator::calculate_adjusted_sortino_ratio(&trades, dec!(0.05))
+                .expect("adjusted sortino");
+
+        assert_ne!(adjusted.round_dp(6), sortino.round_dp(6));
     }
 
     #[test]
