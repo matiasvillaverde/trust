@@ -1,6 +1,9 @@
 use core::TrustFacade;
 use db_sqlite::SqliteDatabase;
-use model::{Currency, DraftTrade, Environment, TradeCategory, TradingVehicleCategory};
+use model::{
+    Currency, DatabaseFactory, DraftTrade, Environment, Status, TradeCategory,
+    TradingVehicleCategory,
+};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use serde_json::Value;
@@ -142,6 +145,10 @@ fn parse_stdout_json(output: &std::process::Output) -> Value {
     serde_json::from_slice(&output.stdout).expect("stdout must be valid JSON")
 }
 
+fn stdout_text(output: &std::process::Output) -> String {
+    String::from_utf8(output.stdout.clone()).expect("stdout must be valid UTF-8")
+}
+
 fn assert_report_envelope(payload: &Value, report_name: &str) {
     assert_eq!(payload["report"], report_name);
     assert_eq!(payload["format_version"], 1);
@@ -173,6 +180,103 @@ fn seed_empty_account(database_url: &str) -> Uuid {
         .expect("deposit funds");
 
     account.id
+}
+
+fn seed_account_with_closed_performance_series(
+    database_url: &str,
+    trade_specs: &[(Status, Decimal)],
+) -> Uuid {
+    let database = SqliteDatabase::new(database_url);
+    let mut trust = TrustFacade::new(Box::new(database), Box::new(alpaca_broker::AlpacaBroker));
+
+    let account = trust
+        .create_account(
+            "Adjusted Metrics Account",
+            "adjusted metrics contract test",
+            Environment::Paper,
+            dec!(25.0),
+            dec!(10.0),
+        )
+        .expect("create account");
+
+    let _ = trust
+        .create_transaction(
+            &account,
+            &model::TransactionCategory::Deposit,
+            dec!(50000),
+            &Currency::USD,
+        )
+        .expect("deposit funds");
+
+    let vehicle = trust
+        .create_trading_vehicle(
+            "MSFT",
+            Some("US5949181045"),
+            &TradingVehicleCategory::Stock,
+            "alpaca",
+        )
+        .expect("create trading vehicle");
+
+    for (index, &(status, total_performance)) in trade_specs.iter().enumerate() {
+        let trade = trust
+            .create_trade(
+                DraftTrade {
+                    account: account.clone(),
+                    trading_vehicle: vehicle.clone(),
+                    quantity: 10,
+                    category: TradeCategory::Long,
+                    currency: Currency::USD,
+                    sector: Some("Technology".to_string()),
+                    asset_class: Some("Stocks".to_string()),
+                    thesis: Some(format!("adjusted metrics trade {index}")),
+                    context: Some("varied close fees".to_string()),
+                },
+                dec!(100),
+                dec!(95),
+                dec!(110),
+            )
+            .expect("create trade");
+
+        let (funded, _, _, _) = trust.fund_trade(&trade).expect("fund trade");
+        let capital_out_market = funded
+            .balance
+            .funding
+            .checked_add(total_performance)
+            .expect("capital out market");
+
+        let db = SqliteDatabase::new(database_url);
+        let closed = db
+            .trade_write()
+            .update_trade_status(status, &funded)
+            .expect("update trade status");
+        let _ = db
+            .trade_balance_write()
+            .update_trade_balance(
+                &closed,
+                funded.balance.funding,
+                dec!(0),
+                capital_out_market,
+                dec!(0),
+                total_performance,
+            )
+            .expect("update trade balance");
+    }
+
+    account.id
+}
+
+fn seed_account_with_adjusted_metrics_history(database_url: &str) -> Uuid {
+    seed_account_with_closed_performance_series(
+        database_url,
+        &[
+            (Status::ClosedTarget, dec!(100)),
+            (Status::ClosedTarget, dec!(95)),
+            (Status::ClosedTarget, dec!(90)),
+            (Status::ClosedStopLoss, dec!(-50)),
+            (Status::ClosedStopLoss, dec!(-55)),
+            (Status::ClosedStopLoss, dec!(-10)),
+        ],
+    )
 }
 
 #[test]
@@ -293,6 +397,12 @@ fn test_summary_report_json_contains_advanced_metrics_and_balanced_counts() {
     assert!(payload["data"]["advanced_metrics"]["net_profit"].is_string());
     assert!(payload["data"]["advanced_metrics"]
         .get("sharpe_ratio")
+        .is_some());
+    assert!(payload["data"]["advanced_metrics"]
+        .get("adjusted_sharpe_ratio")
+        .is_some());
+    assert!(payload["data"]["advanced_metrics"]
+        .get("adjusted_sortino_ratio")
         .is_some());
     assert!(payload["data"]["advanced_metrics"]["profit_concentration"].is_object());
     assert!(payload["data"]["advanced_metrics"]["profit_concentration"]
@@ -456,6 +566,12 @@ fn test_metrics_report_json_schema_contract() {
         ["trade_share_to_reach_80pct_profit_percentage"]
         .is_string());
     assert!(payload["data"]["risk_adjusted_performance"].is_object());
+    assert!(payload["data"]["risk_adjusted_performance"]
+        .get("adjusted_sharpe_ratio")
+        .is_some());
+    assert!(payload["data"]["risk_adjusted_performance"]
+        .get("adjusted_sortino_ratio")
+        .is_some());
     assert!(payload["data"]["tail_and_position_sizing"].is_object());
     assert!(payload["data"]["streaks"].is_object());
     assert!(payload["data"]["rolling_metrics"].is_array());
@@ -468,6 +584,137 @@ fn test_metrics_report_json_schema_contract() {
         .is_some());
     assert!(payload["data"]["streaks"]["max_consecutive_wins"].is_number());
     assert!(payload["data"]["streaks"]["max_consecutive_losses"].is_number());
+}
+
+#[test]
+fn test_metrics_report_json_adjusted_ratios_are_non_null_for_varied_closed_history() {
+    let database_url = format!(
+        "file:test_metrics_report_adjusted_ratios_{}.db",
+        Uuid::new_v4().simple()
+    );
+    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let account_id = seed_account_with_adjusted_metrics_history(&database_url);
+
+    let output = run_report(
+        &database_url,
+        &[
+            "report",
+            "metrics",
+            "--format",
+            "json",
+            "--account",
+            &account_id.to_string(),
+        ],
+    );
+
+    assert!(output.status.success(), "metrics report should succeed");
+
+    let payload = parse_stdout_json(&output);
+    let risk_adjusted = payload["data"]["risk_adjusted_performance"]
+        .as_object()
+        .expect("risk_adjusted_performance must be an object");
+
+    let sharpe = decimal_from_json(
+        risk_adjusted
+            .get("sharpe_ratio")
+            .expect("base sharpe must be present"),
+    );
+    let adjusted_sharpe = decimal_from_json(
+        risk_adjusted
+            .get("adjusted_sharpe_ratio")
+            .expect("adjusted sharpe must be present"),
+    );
+    let sortino = decimal_from_json(
+        risk_adjusted
+            .get("sortino_ratio")
+            .expect("base sortino must be present"),
+    );
+    let adjusted_sortino = decimal_from_json(
+        risk_adjusted
+            .get("adjusted_sortino_ratio")
+            .expect("adjusted sortino must be present"),
+    );
+
+    assert_ne!(adjusted_sharpe.round_dp(6), sharpe.round_dp(6));
+    assert_ne!(adjusted_sortino.round_dp(6), sortino.round_dp(6));
+}
+
+#[test]
+fn test_metrics_report_json_adjusted_sortino_falls_back_to_base_for_repeated_losses() {
+    let database_url = format!(
+        "file:test_metrics_report_adjusted_sortino_sparse_{}.db",
+        Uuid::new_v4().simple()
+    );
+    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let account_id = seed_account_with_closed_performance_series(
+        &database_url,
+        &[
+            (Status::ClosedTarget, dec!(100)),
+            (Status::ClosedTarget, dec!(100)),
+            (Status::ClosedTarget, dec!(100)),
+            (Status::ClosedStopLoss, dec!(-50)),
+            (Status::ClosedStopLoss, dec!(-50)),
+        ],
+    );
+
+    let output = run_report(
+        &database_url,
+        &[
+            "report",
+            "metrics",
+            "--format",
+            "json",
+            "--account",
+            &account_id.to_string(),
+        ],
+    );
+
+    assert!(output.status.success(), "metrics report should succeed");
+
+    let payload = parse_stdout_json(&output);
+    let risk_adjusted = payload["data"]["risk_adjusted_performance"]
+        .as_object()
+        .expect("risk_adjusted_performance must be an object");
+
+    let sortino = decimal_from_json(
+        risk_adjusted
+            .get("sortino_ratio")
+            .expect("base sortino must be present"),
+    );
+    let adjusted_sortino = decimal_from_json(
+        risk_adjusted
+            .get("adjusted_sortino_ratio")
+            .expect("adjusted sortino must be present"),
+    );
+
+    assert_eq!(adjusted_sortino.round_dp(12), sortino.round_dp(12));
+}
+
+#[test]
+fn test_metrics_advanced_text_includes_concrete_adjusted_ratio_lines() {
+    let database_url = format!(
+        "file:test_metrics_advanced_text_adjusted_{}.db",
+        Uuid::new_v4().simple()
+    );
+    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let account_id = seed_account_with_adjusted_metrics_history(&database_url);
+
+    let output = run_report(
+        &database_url,
+        &["metrics", "advanced", "--account", &account_id.to_string()],
+    );
+
+    assert!(
+        output.status.success(),
+        "metrics advanced should succeed; stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let text = stdout_text(&output);
+    assert!(text.contains("Adjusted Sharpe Ratio:"));
+    assert!(text.contains("Adjusted Sortino Ratio:"));
+    assert!(!text.contains("Adjusted Sharpe Ratio: N/A"));
+    assert!(!text.contains("Adjusted Sortino Ratio: N/A"));
 }
 
 #[test]

@@ -6,6 +6,7 @@ use rust_decimal_macros::dec;
 #[derive(Debug, Clone, Copy, Default)]
 pub struct AdvancedMetricsDisplayContext {
     pub calmar_ratio: Option<Decimal>,
+    pub risk_free_rate: Option<Decimal>,
 }
 
 pub struct AdvancedMetricsView;
@@ -27,6 +28,7 @@ impl AdvancedMetricsView {
         Self::display_risk_adjusted_metrics(
             &closed_trades,
             context.and_then(|value| value.calmar_ratio),
+            context.and_then(|value| value.risk_free_rate),
         );
         println!();
         Self::display_statistical_analysis(&closed_trades);
@@ -87,11 +89,15 @@ impl AdvancedMetricsView {
         );
     }
 
-    fn display_risk_adjusted_metrics(trades: &[Trade], calmar_override: Option<Decimal>) {
+    fn display_risk_adjusted_metrics(
+        trades: &[Trade],
+        calmar_override: Option<Decimal>,
+        risk_free_rate_override: Option<Decimal>,
+    ) {
         println!("Risk-Adjusted Performance:");
 
         // Use a default risk-free rate of 5% for display purposes
-        let risk_free_rate = dec!(0.05);
+        let risk_free_rate = risk_free_rate_override.unwrap_or(dec!(0.05));
 
         // Sharpe Ratio
         if let Some(sharpe) =
@@ -103,6 +109,15 @@ impl AdvancedMetricsView {
             println!("├─ Sharpe Ratio: N/A (insufficient data)");
         }
 
+        if let Some(adjusted_sharpe) =
+            AdvancedMetricsCalculator::calculate_adjusted_sharpe_ratio(trades, risk_free_rate)
+        {
+            let rating = Self::rate_sharpe_ratio(adjusted_sharpe);
+            println!("├─ Adjusted Sharpe Ratio: {adjusted_sharpe:.2} ({rating})");
+        } else {
+            println!("├─ Adjusted Sharpe Ratio: N/A (insufficient data)");
+        }
+
         // Sortino Ratio
         if let Some(sortino) =
             AdvancedMetricsCalculator::calculate_sortino_ratio(trades, risk_free_rate)
@@ -111,6 +126,15 @@ impl AdvancedMetricsView {
             println!("├─ Sortino Ratio: {sortino:.2} ({rating})");
         } else {
             println!("├─ Sortino Ratio: N/A (insufficient data)");
+        }
+
+        if let Some(adjusted_sortino) =
+            AdvancedMetricsCalculator::calculate_adjusted_sortino_ratio(trades, risk_free_rate)
+        {
+            let rating = Self::rate_sortino_ratio(adjusted_sortino);
+            println!("├─ Adjusted Sortino Ratio: {adjusted_sortino:.2} ({rating})");
+        } else {
+            println!("├─ Adjusted Sortino Ratio: N/A (insufficient data)");
         }
 
         // Calmar Ratio
@@ -426,7 +450,7 @@ mod tests {
         let empty_trades: Vec<Trade> = vec![];
         AdvancedMetricsView::display(empty_trades.clone(), None);
         AdvancedMetricsView::display_trade_quality_metrics(&empty_trades);
-        AdvancedMetricsView::display_risk_adjusted_metrics(&empty_trades, None);
+        AdvancedMetricsView::display_risk_adjusted_metrics(&empty_trades, None, None);
         AdvancedMetricsView::display_statistical_analysis(&empty_trades);
 
         let mixed = vec![
@@ -443,10 +467,11 @@ mod tests {
             mixed,
             Some(AdvancedMetricsDisplayContext {
                 calmar_ratio: Some(dec!(1.25)),
+                risk_free_rate: Some(dec!(0.03)),
             }),
         );
         AdvancedMetricsView::display_trade_quality_metrics(&closed);
-        AdvancedMetricsView::display_risk_adjusted_metrics(&closed, Some(dec!(1.25)));
+        AdvancedMetricsView::display_risk_adjusted_metrics(&closed, Some(dec!(1.25)), None);
         AdvancedMetricsView::display_statistical_analysis(&closed);
     }
 }
