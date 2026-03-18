@@ -2076,6 +2076,45 @@ mod tests {
     }
 
     #[test]
+    fn test_adjusted_ratios_match_fixed_dataset_contract() {
+        let trades = vec![
+            create_test_trade(dec!(100)),
+            create_test_trade(dec!(100)),
+            create_test_trade(dec!(100)),
+            create_test_trade(dec!(-50)),
+            create_test_trade(dec!(-25)),
+        ];
+
+        let adjusted_sharpe =
+            AdvancedMetricsCalculator::calculate_adjusted_sharpe_ratio(&trades, dec!(0.05))
+                .expect("adjusted sharpe");
+        let adjusted_sortino =
+            AdvancedMetricsCalculator::calculate_adjusted_sortino_ratio(&trades, dec!(0.05))
+                .expect("adjusted sortino");
+
+        assert_eq!(adjusted_sharpe.round_dp(12), dec!(0.651581897426));
+        assert_eq!(adjusted_sortino.round_dp(12), dec!(1.260678386912));
+    }
+
+    #[test]
+    fn test_adjusted_sortino_ratio_returns_none_for_zero_downside_variance() {
+        let trades = vec![
+            create_test_trade(dec!(100)),
+            create_test_trade(dec!(100)),
+            create_test_trade(dec!(100)),
+            create_test_trade(dec!(-50)),
+            create_test_trade(dec!(-50)),
+        ];
+
+        let sortino = AdvancedMetricsCalculator::calculate_sortino_ratio(&trades, dec!(0.05));
+        let adjusted =
+            AdvancedMetricsCalculator::calculate_adjusted_sortino_ratio(&trades, dec!(0.05));
+
+        assert!(sortino.is_some(), "base sortino should still be calculable");
+        assert_eq!(adjusted, None);
+    }
+
+    #[test]
     fn test_calculate_calmar_ratio_empty_trades() {
         let trades = vec![];
         let result = AdvancedMetricsCalculator::calculate_calmar_ratio(&trades);

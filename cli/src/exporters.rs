@@ -260,6 +260,10 @@ mod tests {
         trade.balance.total_performance = performance;
         trade.status = Status::ClosedTarget;
         trade.category = TradeCategory::Long;
+        trade.entry.unit_price = dec!(100);
+        trade.safety_stop.unit_price = dec!(95);
+        trade.target.unit_price = dec!(110);
+        trade.entry.quantity = 10;
         trade
     }
 
@@ -343,5 +347,45 @@ mod tests {
         assert!(result.contains("trade_quality,expectancy,"));
         assert!(result.contains("trade_quality,top_20pct_profit_share_percentage,"));
         assert!(result.contains("statistical,max_consecutive"));
+    }
+
+    #[test]
+    fn test_csv_export_includes_exact_adjusted_ratio_rows_when_calculable() {
+        let trades = vec![
+            create_test_trade(dec!(100)),
+            create_test_trade(dec!(100)),
+            create_test_trade(dec!(100)),
+            create_test_trade(dec!(-50)),
+            create_test_trade(dec!(-25)),
+        ];
+        let result = MetricsExporter::to_csv(&trades, Some(dec!(0.05)));
+
+        let adjusted_sharpe =
+            AdvancedMetricsCalculator::calculate_adjusted_sharpe_ratio(&trades, dec!(0.05))
+                .expect("adjusted sharpe");
+        let adjusted_sortino =
+            AdvancedMetricsCalculator::calculate_adjusted_sortino_ratio(&trades, dec!(0.05))
+                .expect("adjusted sortino");
+
+        assert!(result.contains(&format!(
+            "risk_adjusted,adjusted_sharpe_ratio,{adjusted_sharpe:.4},ratio"
+        )));
+        assert!(result.contains(&format!(
+            "risk_adjusted,adjusted_sortino_ratio,{adjusted_sortino:.4},ratio"
+        )));
+    }
+
+    #[test]
+    fn test_csv_export_omits_adjusted_ratio_rows_when_not_calculable() {
+        let trades = vec![
+            create_test_trade(dec!(100)),
+            create_test_trade(dec!(100)),
+            create_test_trade(dec!(100)),
+            create_test_trade(dec!(-50)),
+            create_test_trade(dec!(-50)),
+        ];
+        let result = MetricsExporter::to_csv(&trades, Some(dec!(0.05)));
+
+        assert!(!result.contains("risk_adjusted,adjusted_sortino_ratio,"));
     }
 }
