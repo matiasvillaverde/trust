@@ -37,8 +37,10 @@ fn account() -> Account {
 }
 
 fn trade() -> Trade {
-    let mut trade = Trade::default();
-    trade.category = TradeCategory::Long;
+    let mut trade = Trade {
+        category: TradeCategory::Long,
+        ..Trade::default()
+    };
     trade.trading_vehicle.symbol = "AAPL".to_string();
     trade.trading_vehicle.category = TradingVehicleCategory::Stock;
     trade.trading_vehicle.exchange = Some("SMART".to_string());
@@ -105,9 +107,9 @@ fn submit_trade_posts_bracket_orders_and_returns_local_order_refs() {
     let submit = server.mock(|when, then| {
         when.method(POST)
             .path("/v1/api/iserver/account/U1234567/orders")
-            .body_contains(&trade.entry.id.to_string())
-            .body_contains(&trade.target.id.to_string())
-            .body_contains(&trade.safety_stop.id.to_string())
+            .body_contains(trade.entry.id.to_string())
+            .body_contains(trade.target.id.to_string())
+            .body_contains(trade.safety_stop.id.to_string())
             .body_contains("\"parentId\"");
         then.status(200).json_body(json!([
             {
@@ -197,8 +199,8 @@ fn modify_stop_uses_order_ref_for_lookup_and_returns_same_ref() {
     let modify = server.mock(|when, then| {
         when.method(POST)
             .path("/v1/api/iserver/account/U1234567/order/8001")
-            .body_contains(&trade.safety_stop.id.to_string())
-            .body_contains(&trade.entry.id.to_string())
+            .body_contains(trade.safety_stop.id.to_string())
+            .body_contains(trade.entry.id.to_string())
             .body_contains("\"price\":\"94.5\"");
         then.status(200).json_body(json!([
             {

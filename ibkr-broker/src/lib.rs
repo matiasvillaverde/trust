@@ -333,8 +333,10 @@ mod tests {
     use serde_json::json;
 
     fn sample_trade() -> Trade {
-        let mut trade = Trade::default();
-        trade.account_id = Account::default().id;
+        let mut trade = Trade {
+            account_id: Account::default().id,
+            ..Trade::default()
+        };
         trade.trading_vehicle.symbol = "AAPL".to_string();
         trade.trading_vehicle.category = TradingVehicleCategory::Stock;
         trade.entry.unit_price = dec!(100);
@@ -370,11 +372,31 @@ mod tests {
         let trade = sample_trade();
         let orders = build_bracket_orders(&trade, "U1234567", "265598").expect("orders");
         assert_eq!(orders.len(), 3);
-        assert_eq!(orders[0]["cOID"], json!(trade.entry.id.to_string()));
-        assert_eq!(orders[1]["parentId"], json!(trade.entry.id.to_string()));
-        assert_eq!(orders[2]["parentId"], json!(trade.entry.id.to_string()));
-        assert_eq!(orders[1]["cOID"], json!(trade.target.id.to_string()));
-        assert_eq!(orders[2]["cOID"], json!(trade.safety_stop.id.to_string()));
+
+        let entry_order = orders.first().expect("entry order");
+        let target_order = orders.get(1).expect("target order");
+        let stop_order = orders.get(2).expect("stop order");
+
+        assert_eq!(
+            entry_order.get("cOID"),
+            Some(&json!(trade.entry.id.to_string()))
+        );
+        assert_eq!(
+            target_order.get("parentId"),
+            Some(&json!(trade.entry.id.to_string()))
+        );
+        assert_eq!(
+            stop_order.get("parentId"),
+            Some(&json!(trade.entry.id.to_string()))
+        );
+        assert_eq!(
+            target_order.get("cOID"),
+            Some(&json!(trade.target.id.to_string()))
+        );
+        assert_eq!(
+            stop_order.get("cOID"),
+            Some(&json!(trade.safety_stop.id.to_string()))
+        );
     }
 
     #[test]

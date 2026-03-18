@@ -287,8 +287,10 @@ mod tests {
 
     #[test]
     fn normalize_order_ref_prefers_existing_broker_id() {
-        let mut order = Order::default();
-        order.broker_order_id = Some("ibkr-ref".to_string());
+        let order = Order {
+            broker_order_id: Some("ibkr-ref".to_string()),
+            ..Order::default()
+        };
 
         assert_eq!(normalize_order_ref(&order), "ibkr-ref");
     }
