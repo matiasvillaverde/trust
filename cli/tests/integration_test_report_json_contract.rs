@@ -274,6 +274,7 @@ fn seed_account_with_adjusted_metrics_history(database_url: &str) -> Uuid {
             (Status::ClosedTarget, dec!(90)),
             (Status::ClosedStopLoss, dec!(-50)),
             (Status::ClosedStopLoss, dec!(-55)),
+            (Status::ClosedStopLoss, dec!(-10)),
         ],
     )
 }

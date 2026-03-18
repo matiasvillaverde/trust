@@ -183,7 +183,7 @@ impl AdvancedMetricsCalculator {
         mean: Decimal,
         scale: Decimal,
     ) -> Option<(Decimal, Decimal)> {
-        if values.len() < 2 || scale <= dec!(0) {
+        if values.len() < 3 || scale <= dec!(0) {
             return None;
         }
 
@@ -637,12 +637,24 @@ impl AdvancedMetricsCalculator {
         }
 
         let base_ratio = Self::calculate_sharpe_ratio(closed_trades, risk_free_rate)?;
-        let mean = Self::average(&returns)?;
-        let variance = Self::population_variance(&returns, mean)?;
-        let std_dev = Self::decimal_sqrt(variance)?;
-        let (skewness, excess_kurtosis) = Self::standardized_moments(&returns, mean, std_dev)?;
+        let Some(mean) = Self::average(&returns) else {
+            return Some(base_ratio);
+        };
+        let Some(variance) = Self::population_variance(&returns, mean) else {
+            return Some(base_ratio);
+        };
+        let Some(std_dev) = Self::decimal_sqrt(variance) else {
+            return Some(base_ratio);
+        };
+        if std_dev <= dec!(0) {
+            return Some(base_ratio);
+        }
+        let Some((skewness, excess_kurtosis)) = Self::standardized_moments(&returns, mean, std_dev)
+        else {
+            return Some(base_ratio);
+        };
 
-        Self::pezier_white_adjustment(base_ratio, skewness, excess_kurtosis)
+        Self::pezier_white_adjustment(base_ratio, skewness, excess_kurtosis).or(Some(base_ratio))
     }
 
     /// Calculate Sortino ratio: Downside risk-adjusted return measure
@@ -2069,7 +2081,20 @@ mod tests {
     }
 
     #[test]
-    fn test_adjusted_sortino_ratio_differs_from_base_for_asymmetric_downside_shape() {
+    fn test_adjusted_sharpe_ratio_falls_back_to_base_for_two_observations() {
+        let trades = vec![create_test_trade(dec!(100)), create_test_trade(dec!(-50))];
+
+        let sharpe = AdvancedMetricsCalculator::calculate_sharpe_ratio(&trades, dec!(0.05))
+            .expect("base sharpe");
+        let adjusted =
+            AdvancedMetricsCalculator::calculate_adjusted_sharpe_ratio(&trades, dec!(0.05))
+                .expect("adjusted sharpe");
+
+        assert_eq!(adjusted.round_dp(12), sharpe.round_dp(12));
+    }
+
+    #[test]
+    fn test_adjusted_sortino_ratio_falls_back_to_base_for_two_downside_observations() {
         let trades = vec![
             create_test_trade(dec!(100)),
             create_test_trade(dec!(100)),
@@ -2084,11 +2109,11 @@ mod tests {
             AdvancedMetricsCalculator::calculate_adjusted_sortino_ratio(&trades, dec!(0.05))
                 .expect("adjusted sortino");
 
-        assert_ne!(adjusted.round_dp(6), sortino.round_dp(6));
+        assert_eq!(adjusted.round_dp(12), sortino.round_dp(12));
     }
 
     #[test]
-    fn test_adjusted_ratios_match_fixed_dataset_contract() {
+    fn test_adjusted_sharpe_ratio_matches_fixed_dataset_contract() {
         let trades = vec![
             create_test_trade(dec!(100)),
             create_test_trade(dec!(100)),
@@ -2100,12 +2125,26 @@ mod tests {
         let adjusted_sharpe =
             AdvancedMetricsCalculator::calculate_adjusted_sharpe_ratio(&trades, dec!(0.05))
                 .expect("adjusted sharpe");
+
+        assert_eq!(adjusted_sharpe.round_dp(12), dec!(0.651581897426));
+    }
+
+    #[test]
+    fn test_adjusted_sortino_ratio_matches_fixed_dataset_contract() {
+        let trades = vec![
+            create_test_trade(dec!(100)),
+            create_test_trade(dec!(100)),
+            create_test_trade(dec!(100)),
+            create_test_trade(dec!(-50)),
+            create_test_trade(dec!(-25)),
+            create_test_trade(dec!(-10)),
+        ];
+
         let adjusted_sortino =
             AdvancedMetricsCalculator::calculate_adjusted_sortino_ratio(&trades, dec!(0.05))
                 .expect("adjusted sortino");
 
-        assert_eq!(adjusted_sharpe.round_dp(12), dec!(0.651581897426));
-        assert_eq!(adjusted_sortino.round_dp(12), dec!(1.260678386912));
+        assert_eq!(adjusted_sortino.round_dp(12), dec!(1.115151249102));
     }
 
     #[test]
