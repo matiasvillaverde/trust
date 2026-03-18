@@ -539,6 +539,386 @@ fn test_trade_size_preview_json_contract() {
 }
 
 #[test]
+fn test_trade_hypothesis_json_contract() {
+    let database_url = format!("file:test_trade_hypothesis_{}.db", Uuid::new_v4().simple());
+    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let account_id = seed_account_with_capital_and_rules(&database_url, "hypothesis");
+
+    let output = run_cli(
+        &database_url,
+        &[
+            "trade",
+            "hypothesis",
+            "--format",
+            "json",
+            "--account",
+            &account_id.to_string(),
+            "--entry",
+            "40",
+            "--stop",
+            "38",
+            "--target",
+            "48",
+            "--quantity",
+            "100",
+            "--currency",
+            "usd",
+        ],
+    );
+    assert!(output.status.success(), "trade hypothesis should succeed");
+
+    let payload = parse_stdout_json(&output);
+    assert_eq!(payload["report"], "trade_hypothesis");
+    assert_eq!(payload["scope"]["account_id"], account_id.to_string());
+    assert_eq!(payload["data"]["quantity"], 100);
+    assert_eq!(payload["data"]["available_capital"], "50000");
+    assert_eq!(payload["data"]["capital_required"], "4000");
+    assert_eq!(payload["data"]["capital_required_pct_of_available"], "8");
+    assert_eq!(payload["data"]["risk_per_share"], "2");
+    assert_eq!(payload["data"]["reward_per_share"], "8");
+    assert_eq!(payload["data"]["max_loss"], "200");
+    assert_eq!(payload["data"]["max_loss_pct_of_available"], "0.4");
+    assert_eq!(payload["data"]["max_gain"], "800");
+    assert_eq!(payload["data"]["max_gain_pct_of_available"], "1.6");
+    assert_eq!(payload["data"]["risk_reward_ratio"], "4");
+}
+
+#[test]
+fn test_trade_hypothesis_short_setup_uses_stop_for_capital_required() {
+    let database_url = format!(
+        "file:test_trade_hypothesis_short_{}.db",
+        Uuid::new_v4().simple()
+    );
+    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let account_id = seed_account_with_capital_and_rules(&database_url, "hypothesis-short");
+
+    let output = run_cli(
+        &database_url,
+        &[
+            "trade",
+            "hypothesis",
+            "--format",
+            "json",
+            "--account",
+            &account_id.to_string(),
+            "--entry",
+            "50",
+            "--stop",
+            "55",
+            "--target",
+            "40",
+            "--quantity",
+            "10",
+            "--currency",
+            "usd",
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "short trade hypothesis should succeed"
+    );
+
+    let payload = parse_stdout_json(&output);
+    assert_eq!(payload["data"]["capital_required"], "550");
+    assert_eq!(payload["data"]["capital_required_pct_of_available"], "1.1");
+    assert_eq!(payload["data"]["max_loss"], "50");
+    assert_eq!(payload["data"]["max_loss_pct_of_available"], "0.1");
+    assert_eq!(payload["data"]["max_gain"], "100");
+    assert_eq!(payload["data"]["max_gain_pct_of_available"], "0.2");
+}
+
+#[test]
+fn test_trade_hypothesis_short_setup_text_uses_stop_for_capital_required() {
+    let database_url = format!(
+        "file:test_trade_hypothesis_short_text_{}.db",
+        Uuid::new_v4().simple()
+    );
+    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let account_id = seed_account_with_capital_and_rules(&database_url, "hypothesis-short-text");
+
+    let output = run_cli(
+        &database_url,
+        &[
+            "trade",
+            "hypothesis",
+            "--account",
+            &account_id.to_string(),
+            "--entry",
+            "50",
+            "--stop",
+            "55",
+            "--target",
+            "40",
+            "--quantity",
+            "10",
+            "--currency",
+            "usd",
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "short trade hypothesis text should succeed"
+    );
+
+    let text = stdout_text(&output);
+    assert!(text.contains("Entry: 50 USD | Stop: 55 USD | Target: 40 USD | Quantity: 10"));
+    assert!(text.contains("Capital required: 550 USD (1.1%)"));
+    assert!(text.contains("Max loss: 50 USD (0.1%)"));
+    assert!(text.contains("Max gain: 100 USD (0.2%)"));
+}
+
+#[test]
+fn test_trade_hypothesis_decimal_json_contract() {
+    let database_url = format!(
+        "file:test_trade_hypothesis_decimal_{}.db",
+        Uuid::new_v4().simple()
+    );
+    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let account_id = seed_account_with_capital_and_rules(&database_url, "hypothesis-decimal");
+
+    let output = run_cli(
+        &database_url,
+        &[
+            "trade",
+            "hypothesis",
+            "--format",
+            "json",
+            "--account",
+            &account_id.to_string(),
+            "--entry",
+            "40.17",
+            "--stop",
+            "39.62",
+            "--target",
+            "42.92",
+            "--quantity",
+            "17",
+            "--currency",
+            "usd",
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "decimal trade hypothesis should succeed"
+    );
+
+    let payload = parse_stdout_json(&output);
+    assert_eq!(payload["data"]["capital_required"], "682.89");
+    assert_eq!(
+        payload["data"]["capital_required_pct_of_available"],
+        "1.36578"
+    );
+    assert_eq!(payload["data"]["risk_per_share"], "0.55");
+    assert_eq!(payload["data"]["reward_per_share"], "2.75");
+    assert_eq!(payload["data"]["max_loss"], "9.35");
+    assert_eq!(payload["data"]["max_loss_pct_of_available"], "0.0187");
+    assert_eq!(payload["data"]["max_gain"], "46.75");
+    assert_eq!(payload["data"]["max_gain_pct_of_available"], "0.0935");
+    assert_eq!(payload["data"]["risk_reward_ratio"], "5");
+}
+
+#[test]
+fn test_trade_hypothesis_zero_available_capital_contracts() {
+    let database_url = format!(
+        "file:test_trade_hypothesis_zero_capital_{}.db",
+        Uuid::new_v4().simple()
+    );
+    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let account_id = seed_account(&database_url, "hypothesis-zero-capital");
+
+    let json_output = run_cli(
+        &database_url,
+        &[
+            "trade",
+            "hypothesis",
+            "--format",
+            "json",
+            "--account",
+            &account_id.to_string(),
+            "--entry",
+            "40",
+            "--stop",
+            "38",
+            "--target",
+            "48",
+            "--quantity",
+            "100",
+            "--currency",
+            "usd",
+        ],
+    );
+    assert!(
+        json_output.status.success(),
+        "trade hypothesis json should succeed with zero capital"
+    );
+
+    let payload = parse_stdout_json(&json_output);
+    assert_eq!(payload["data"]["available_capital"], "0");
+    assert!(payload["data"]["capital_required_pct_of_available"].is_null());
+    assert!(payload["data"]["max_loss_pct_of_available"].is_null());
+    assert!(payload["data"]["max_gain_pct_of_available"].is_null());
+
+    let text_output = run_cli(
+        &database_url,
+        &[
+            "trade",
+            "hypothesis",
+            "--account",
+            &account_id.to_string(),
+            "--entry",
+            "40",
+            "--stop",
+            "38",
+            "--target",
+            "48",
+            "--quantity",
+            "100",
+            "--currency",
+            "usd",
+        ],
+    );
+    assert!(
+        text_output.status.success(),
+        "trade hypothesis text should succeed with zero capital"
+    );
+    let text = stdout_text(&text_output);
+    assert!(text.contains("Available capital: 0 USD"));
+    assert!(text.contains("Capital required: 4000 USD (n/a)"));
+    assert!(text.contains("Max loss: 200 USD (n/a)"));
+    assert!(text.contains("Max gain: 800 USD (n/a)"));
+}
+
+#[test]
+fn test_trade_hypothesis_invalid_price_reports_json_error() {
+    let database_url = format!(
+        "file:test_trade_hypothesis_invalid_price_{}.db",
+        Uuid::new_v4().simple()
+    );
+    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let account_id = seed_account(&database_url, "hypothesis-invalid-price");
+
+    let output = run_cli(
+        &database_url,
+        &[
+            "trade",
+            "hypothesis",
+            "--format",
+            "json",
+            "--account",
+            &account_id.to_string(),
+            "--entry",
+            "0",
+            "--stop",
+            "38",
+            "--target",
+            "48",
+            "--quantity",
+            "100",
+            "--currency",
+            "usd",
+        ],
+    );
+    assert!(
+        !output.status.success(),
+        "trade hypothesis should fail on invalid price"
+    );
+
+    let payload = parse_stderr_json(&output);
+    assert_eq!(payload["error"]["code"], "trade_hypothesis_failed");
+    assert_eq!(
+        payload["error"]["message"],
+        "Unable to calculate trade hypothesis: entry_price must be greater than 0, got 0"
+    );
+}
+
+#[test]
+fn test_trade_hypothesis_rejects_conflicting_direction_inputs() {
+    let database_url = format!(
+        "file:test_trade_hypothesis_conflicting_direction_{}.db",
+        Uuid::new_v4().simple()
+    );
+    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let account_id = seed_account(&database_url, "hypothesis-conflicting-direction");
+
+    let output = run_cli(
+        &database_url,
+        &[
+            "trade",
+            "hypothesis",
+            "--format",
+            "json",
+            "--account",
+            &account_id.to_string(),
+            "--entry",
+            "50",
+            "--stop",
+            "55",
+            "--target",
+            "60",
+            "--quantity",
+            "100",
+            "--currency",
+            "usd",
+        ],
+    );
+    assert!(
+        !output.status.success(),
+        "trade hypothesis should fail on conflicting direction inputs"
+    );
+
+    let payload = parse_stderr_json(&output);
+    assert_eq!(payload["error"]["code"], "trade_hypothesis_failed");
+    assert_eq!(
+        payload["error"]["message"],
+        "Unable to calculate trade hypothesis: trade hypothesis requires stop and target to imply a single trade side relative to entry_price 50; got stop_price 55 and target_price 60"
+    );
+}
+
+#[test]
+fn test_trade_hypothesis_unknown_account_reports_json_error() {
+    let database_url = format!(
+        "file:test_trade_hypothesis_unknown_account_{}.db",
+        Uuid::new_v4().simple()
+    );
+    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let _existing_account = seed_account(&database_url, "hypothesis-known-account");
+    let unknown_account_id = Uuid::new_v4();
+
+    let output = run_cli(
+        &database_url,
+        &[
+            "trade",
+            "hypothesis",
+            "--format",
+            "json",
+            "--account",
+            &unknown_account_id.to_string(),
+            "--entry",
+            "40",
+            "--stop",
+            "38",
+            "--target",
+            "48",
+            "--quantity",
+            "100",
+            "--currency",
+            "usd",
+        ],
+    );
+    assert!(
+        !output.status.success(),
+        "trade hypothesis should fail on unknown account"
+    );
+
+    let payload = parse_stderr_json(&output);
+    assert_eq!(payload["error"]["code"], "trade_hypothesis_failed");
+    assert_eq!(
+        payload["error"]["message"],
+        format!("Unable to calculate trade hypothesis: Account not found: {unknown_account_id}")
+    );
+}
+
+#[test]
 fn test_level_status_text_contract() {
     let database_url = format!("file:test_level_status_text_{}.db", Uuid::new_v4().simple());
     let _cleanup = TestDatabaseCleanup::new(&database_url);
