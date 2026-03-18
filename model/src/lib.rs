@@ -34,6 +34,8 @@
 pub mod account;
 /// Broker integration traits and types
 pub mod broker;
+/// Supported broker identities
+pub mod broker_kind;
 /// Currency definitions and operations
 pub mod currency;
 /// Database abstraction layer
@@ -66,6 +68,7 @@ pub mod transaction;
 // Re-export the types from the model crate.
 pub use account::{Account, AccountBalance, AccountHierarchyError, AccountType, Environment};
 pub use broker::{Broker, BrokerLog, OrderIds};
+pub use broker_kind::{BrokerKind, BrokerKindParseError};
 pub use currency::Currency;
 pub use database::{
     AccountBalanceRead, AccountBalanceWrite, AccountRead, AccountWrite, AdvisoryRead,

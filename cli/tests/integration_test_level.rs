@@ -10,7 +10,6 @@ use model::{
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use std::error::Error;
-use uuid::Uuid;
 
 fn create_trust() -> TrustFacade {
     let db = SqliteDatabase::new_in_memory();
@@ -492,6 +491,10 @@ fn test_invalid_level_adjustment_rules_are_rejected() {
 struct MockBroker;
 
 impl Broker for MockBroker {
+    fn kind(&self) -> model::BrokerKind {
+        model::BrokerKind::Alpaca
+    }
+
     fn submit_trade(
         &self,
         _trade: &Trade,
@@ -525,7 +528,7 @@ impl Broker for MockBroker {
         _trade: &Trade,
         _account: &Account,
         _new_stop_price: Decimal,
-    ) -> Result<Uuid, Box<dyn Error>> {
+    ) -> Result<String, Box<dyn Error>> {
         unimplemented!()
     }
 
@@ -534,7 +537,7 @@ impl Broker for MockBroker {
         _trade: &Trade,
         _account: &Account,
         _new_price: Decimal,
-    ) -> Result<Uuid, Box<dyn Error>> {
+    ) -> Result<String, Box<dyn Error>> {
         unimplemented!()
     }
 }

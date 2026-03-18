@@ -7,7 +7,6 @@ use num_decimal::Num;
 
 use std::str::FromStr;
 use tokio::runtime::Runtime;
-use uuid::Uuid;
 
 use model::{Account, BrokerLog, Order, OrderIds, Trade, TradeCategory};
 use std::error::Error;
@@ -76,12 +75,9 @@ fn extract_ids(order: &AlpacaOrder, trade: &Trade) -> Result<OrderIds, Box<dyn E
     let target_id = target_id.ok_or("Target ID not found")?;
 
     Ok(OrderIds {
-        stop: Uuid::from_str(&stop_id.to_string())
-            .map_err(|e| format!("Failed to parse stop UUID: {e}"))?,
-        entry: Uuid::from_str(&order.id.to_string())
-            .map_err(|e| format!("Failed to parse entry UUID: {e}"))?,
-        target: Uuid::from_str(&target_id.to_string())
-            .map_err(|e| format!("Failed to parse target UUID: {e}"))?,
+        stop: stop_id.to_string(),
+        entry: order.id.to_string(),
+        target: target_id.to_string(),
     })
 }
 
@@ -297,18 +293,9 @@ mod tests {
         let result = extract_ids(&entry, &trade).unwrap();
 
         // Check that the stop ID is correct and the target ID is a new UUID
-        assert_eq!(
-            result.stop,
-            Uuid::parse_str("8654f70e-3b42-4014-a9ac-5a7101989aad").unwrap()
-        );
-        assert_eq!(
-            result.entry,
-            Uuid::parse_str("b6b12dc0-8e21-4d2e-8315-907d3116a6b8").unwrap()
-        );
-        assert_eq!(
-            result.target,
-            Uuid::parse_str("90e41b1e-9089-444d-9f68-c204a4d32914").unwrap()
-        );
+        assert_eq!(result.stop, "8654f70e-3b42-4014-a9ac-5a7101989aad");
+        assert_eq!(result.entry, "b6b12dc0-8e21-4d2e-8315-907d3116a6b8");
+        assert_eq!(result.target, "90e41b1e-9089-444d-9f68-c204a4d32914");
     }
 
     #[test]

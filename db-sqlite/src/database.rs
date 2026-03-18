@@ -382,7 +382,11 @@ impl OrderWrite for SqliteDatabase {
         )
     }
 
-    fn submit_of(&mut self, order: &Order, broker_order_id: Uuid) -> Result<Order, Box<dyn Error>> {
+    fn submit_of(
+        &mut self,
+        order: &Order,
+        broker_order_id: String,
+    ) -> Result<Order, Box<dyn Error>> {
         WorkerOrder::update_submitted_at(
             &mut self.connection.lock().unwrap_or_else(|e| {
                 eprintln!("Failed to acquire connection lock: {e}");
@@ -416,7 +420,7 @@ impl OrderWrite for SqliteDatabase {
         &mut self,
         order: &Order,
         price: Decimal,
-        new_broker_id: Uuid,
+        new_broker_id: String,
     ) -> Result<Order, Box<dyn Error>> {
         WorkerOrder::update_price(
             &mut self.connection.lock().unwrap_or_else(|e| {

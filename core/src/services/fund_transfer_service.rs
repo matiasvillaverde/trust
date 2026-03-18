@@ -241,6 +241,8 @@ mod tests {
             earnings_percentage: dec!(30),
             account_type,
             parent_account_id: parent_id,
+            broker_kind: model::BrokerKind::Alpaca,
+            broker_account_id: None,
         }
     }
 
@@ -341,6 +343,8 @@ mod tests {
             earnings_percentage: dec!(0),
             account_type: AccountType::Earnings,
             parent_account_id: Some(from_account.id),
+            broker_kind: model::BrokerKind::Alpaca,
+            broker_account_id: None,
         };
 
         let amount = dec!(500);

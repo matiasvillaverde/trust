@@ -68,7 +68,7 @@ impl WorkerOrder {
             .filter(orders::id.eq(&order.id.to_string()))
             .set((
                 orders::updated_at.eq(now),
-                orders::broker_order_id.eq(order.broker_order_id.map(|id| id.to_string())),
+                orders::broker_order_id.eq(order.broker_order_id.clone()),
                 orders::status.eq(order.status.to_string()),
                 #[allow(clippy::cast_possible_truncation)]
                 orders::filled_quantity.eq(Some(order.filled_quantity as i32)),
@@ -92,7 +92,7 @@ impl WorkerOrder {
         connection: &mut SqliteConnection,
         order: &Order,
         new_price: Decimal,
-        new_broker_id: Uuid,
+        new_broker_id: String,
     ) -> Result<Order, Box<dyn Error>> {
         let now: NaiveDateTime = Utc::now().naive_utc();
         diesel::update(orders::table)
@@ -114,7 +114,7 @@ impl WorkerOrder {
     pub fn update_submitted_at(
         connection: &mut SqliteConnection,
         order: &Order,
-        broker_order_id: Uuid,
+        broker_order_id: String,
     ) -> Result<Order, Box<dyn Error>> {
         let now = Utc::now().naive_utc();
         diesel::update(orders::table)
@@ -201,9 +201,7 @@ impl TryFrom<OrderSQLite> for Order {
         Ok(Order {
             id: Uuid::parse_str(&value.id)
                 .map_err(|_| ConversionError::new("id", "Failed to parse order ID"))?,
-            broker_order_id: value
-                .broker_order_id
-                .and_then(|id| Uuid::parse_str(&id).ok()),
+            broker_order_id: value.broker_order_id,
             created_at: value.created_at,
             updated_at: value.updated_at,
             deleted_at: value.deleted_at,

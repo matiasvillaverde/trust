@@ -1,4 +1,4 @@
-use crate::currency::Currency;
+use crate::{broker_kind::BrokerKind, currency::Currency};
 use chrono::NaiveDateTime;
 use chrono::Utc;
 use rust_decimal::Decimal;
@@ -63,6 +63,10 @@ pub struct Account {
     pub account_type: AccountType,
     /// Optional parent account for hierarchy
     pub parent_account_id: Option<Uuid>,
+    /// Broker integration associated with this account.
+    pub broker_kind: BrokerKind,
+    /// Broker-native account identifier when required by the integration.
+    pub broker_account_id: Option<String>,
 }
 
 /// AccountBalance entity (read-only)
@@ -135,6 +139,8 @@ impl Default for Account {
             earnings_percentage: Decimal::default(),
             account_type: AccountType::Primary,
             parent_account_id: None,
+            broker_kind: BrokerKind::Alpaca,
+            broker_account_id: None,
         }
     }
 }

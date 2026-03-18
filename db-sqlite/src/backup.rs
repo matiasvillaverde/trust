@@ -113,10 +113,18 @@ pub struct AccountRow {
     pub account_type: String,
     #[serde(default)]
     pub parent_account_id: Option<String>,
+    #[serde(default = "default_broker_kind")]
+    pub broker_kind: String,
+    #[serde(default)]
+    pub broker_account_id: Option<String>,
 }
 
 fn default_account_type() -> String {
     "primary".to_string()
+}
+
+fn default_broker_kind() -> String {
+    "alpaca".to_string()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Queryable, Insertable)]
@@ -648,6 +656,8 @@ mod tests {
                 earnings_percentage: "0".to_string(),
                 account_type: "primary".to_string(),
                 parent_account_id: None,
+                broker_kind: "alpaca".to_string(),
+                broker_account_id: None,
             })
             .execute(&mut conn1)
             .unwrap();

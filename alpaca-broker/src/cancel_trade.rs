@@ -13,7 +13,10 @@ pub fn cancel(trade: &Trade, account: &Account) -> Result<(), Box<dyn Error>> {
     let broker_order_id = trade
         .entry
         .broker_order_id
+        .as_deref()
         .ok_or("Entry order ID is missing")?;
+    let broker_order_id = Uuid::parse_str(broker_order_id)
+        .map_err(|e| format!("Entry order ID is not a valid UUID: {e}"))?;
 
     let api_info = keys::read_api_key(&account.environment, account)?;
     let client = Client::new(api_info);

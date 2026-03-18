@@ -78,11 +78,12 @@ pub fn find_target(orders: Vec<AlpacaOrder>, trade: &Trade) -> Result<AlpacaOrde
     let target_order_id = trade
         .target
         .broker_order_id
+        .as_deref()
         .ok_or("Target order ID is missing")?;
 
     orders
         .into_iter()
-        .find(|x| x.id.to_string() == target_order_id.to_string())
+        .find(|x| x.id.to_string() == target_order_id)
         .ok_or_else(|| "Target order not found, it can be that is not filled yet".into())
 }
 
@@ -428,21 +429,21 @@ mod tests {
         // 1. Create an Entry that is the parent order.
         let entry_order = Order {
             id: entry_id,
-            broker_order_id: Some(entry_broker_id),
+            broker_order_id: Some(entry_broker_id.to_string()),
             unit_price: dec!(246.2),
             ..Default::default()
         };
 
         // 2. Create a Target that is a child order of the Entry
         let target_order = Order {
-            broker_order_id: Some(target_id),
+            broker_order_id: Some(target_id.to_string()),
             unit_price: dec!(247),
             ..Default::default()
         };
 
         // 3. Create a Stop that is a child order of the Entry
         let stop_order = Order {
-            broker_order_id: Some(stop_id),
+            broker_order_id: Some(stop_id.to_string()),
             unit_price: dec!(240),
             ..Default::default()
         };
@@ -471,7 +472,7 @@ mod tests {
 
         // 1. Create a Target that is a child order of the Entry
         let target_order = Order {
-            broker_order_id: Some(target_id),
+            broker_order_id: Some(target_id.to_string()),
             unit_price: dec!(247),
             ..Default::default()
         };
@@ -495,7 +496,7 @@ mod tests {
                 .first()
                 .expect("Expected at least one order")
                 .broker_order_id,
-            Some(target_id)
+            Some(target_id.to_string())
         );
     }
 
@@ -528,7 +529,7 @@ mod tests {
 
         let trade = Trade {
             target: Order {
-                broker_order_id: Some(id),
+                broker_order_id: Some(id.to_string()),
                 ..Default::default()
             },
             ..Default::default()

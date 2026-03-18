@@ -16,7 +16,7 @@ pub struct Order {
     pub id: Uuid,
 
     /// The id of the order in the broker
-    pub broker_order_id: Option<Uuid>,
+    pub broker_order_id: Option<String>,
 
     /// When the order was created
     pub created_at: NaiveDateTime,

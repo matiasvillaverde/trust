@@ -3,7 +3,7 @@ use crate::schema::accounts;
 use chrono::{NaiveDateTime, Utc};
 use diesel::prelude::*;
 use model::AccountRead;
-use model::{Account, AccountType, AccountWrite, Environment};
+use model::{Account, AccountType, AccountWrite, BrokerKind, Environment};
 use rust_decimal::Decimal;
 use std::error::Error;
 use std::str::FromStr;
@@ -34,36 +34,17 @@ impl AccountWrite for AccountDB {
         taxes_percentage: Decimal,
         earnings_percentage: Decimal,
     ) -> Result<Account, Box<dyn Error>> {
-        let uuid = Uuid::new_v4().to_string();
-        let now = Utc::now().naive_utc();
-
-        let new_account = NewAccount {
-            id: uuid,
-            created_at: now,
-            updated_at: now,
-            deleted_at: None,
-            name: name.to_lowercase(),
-            description: description.to_lowercase(),
-            environment: environment.to_string(),
-            taxes_percentage: taxes_percentage.to_string(),
-            earnings_percentage: earnings_percentage.to_string(),
-            account_type: "primary".to_string(), // Default to primary account type
-            parent_account_id: None,             // No parent by default
-        };
-
-        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap_or_else(|e| {
-            eprintln!("Failed to acquire connection lock: {e}");
-            std::process::exit(1);
-        });
-
-        diesel::insert_into(accounts::table)
-            .values(&new_account)
-            .get_result::<AccountSQLite>(connection)
-            .map_err(|error| {
-                error!("Error creating account: {:?}", error);
-                error
-            })?
-            .into_domain_model()
+        self.create_with_profile(
+            name,
+            description,
+            environment,
+            taxes_percentage,
+            earnings_percentage,
+            AccountType::Primary,
+            None,
+            BrokerKind::Alpaca,
+            None,
+        )
     }
 
     fn create_with_hierarchy(
@@ -75,6 +56,31 @@ impl AccountWrite for AccountDB {
         earnings_percentage: Decimal,
         account_type: AccountType,
         parent_account_id: Option<Uuid>,
+    ) -> Result<Account, Box<dyn Error>> {
+        self.create_with_profile(
+            name,
+            description,
+            environment,
+            taxes_percentage,
+            earnings_percentage,
+            account_type,
+            parent_account_id,
+            BrokerKind::Alpaca,
+            None,
+        )
+    }
+
+    fn create_with_profile(
+        &mut self,
+        name: &str,
+        description: &str,
+        environment: Environment,
+        taxes_percentage: Decimal,
+        earnings_percentage: Decimal,
+        account_type: AccountType,
+        parent_account_id: Option<Uuid>,
+        broker_kind: BrokerKind,
+        broker_account_id: Option<&str>,
     ) -> Result<Account, Box<dyn Error>> {
         if account_type.requires_parent() && parent_account_id.is_none() {
             return Err("Child account types require a parent account ID".into());
@@ -118,6 +124,8 @@ impl AccountWrite for AccountDB {
             earnings_percentage: earnings_percentage.to_string(),
             account_type: account_type.to_string(),
             parent_account_id: parent_account_id.map(|id| id.to_string()),
+            broker_kind: broker_kind.to_string(),
+            broker_account_id: broker_account_id.map(ToOwned::to_owned),
         };
 
         diesel::insert_into(accounts::table)
@@ -196,6 +204,8 @@ pub struct AccountSQLite {
     pub earnings_percentage: String,
     pub account_type: String,
     pub parent_account_id: Option<String>,
+    pub broker_kind: String,
+    pub broker_account_id: Option<String>,
 }
 
 impl TryFrom<AccountSQLite> for Account {
@@ -242,6 +252,9 @@ impl TryFrom<AccountSQLite> for Account {
             })?,
             account_type,
             parent_account_id,
+            broker_kind: BrokerKind::from_str(&value.broker_kind)
+                .map_err(|_| ConversionError::new("broker_kind", "Failed to parse broker kind"))?,
+            broker_account_id: value.broker_account_id,
         })
     }
 }
@@ -267,6 +280,8 @@ struct NewAccount {
     earnings_percentage: String,
     account_type: String,
     parent_account_id: Option<String>,
+    broker_kind: String,
+    broker_account_id: Option<String>,
 }
 
 #[cfg(test)]

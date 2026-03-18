@@ -583,9 +583,9 @@ fn persist_executions_for_trade(
     executions: &[model::Execution],
 ) -> Result<(), Box<dyn Error>> {
     let trade_symbol = trade.trading_vehicle.symbol.as_str();
-    let entry_broker_id = trade.entry.broker_order_id;
-    let target_broker_id = trade.target.broker_order_id;
-    let stop_broker_id = trade.safety_stop.broker_order_id;
+    let entry_broker_id = trade.entry.broker_order_id.as_deref();
+    let target_broker_id = trade.target.broker_order_id.as_deref();
+    let stop_broker_id = trade.safety_stop.broker_order_id.as_deref();
 
     let mut write = database.execution_write();
     for exec in executions {
@@ -616,7 +616,7 @@ fn persist_executions_for_trade(
             continue;
         }
 
-        let Some(broker_order_id) = exec.broker_order_id else {
+        let Some(broker_order_id) = exec.broker_order_id.as_deref() else {
             continue;
         };
 
@@ -670,7 +670,7 @@ fn derive_trade_update_executions(
         {
             continue;
         }
-        let Some(broker_order_id) = updated_order.broker_order_id else {
+        let Some(broker_order_id) = updated_order.broker_order_id.clone() else {
             continue;
         };
         let Some(price) = updated_order.average_filled_price else {
@@ -795,13 +795,13 @@ fn allocated_fee_totals_for_trade(trade: &Trade, fees: &[FeeActivity]) -> (Decim
 
     for fee in fees {
         // Direct matching by broker order id has highest priority.
-        if let Some(fee_order_id) = fee.broker_order_id {
-            if trade.entry.broker_order_id == Some(fee_order_id) {
+        if let Some(fee_order_id) = fee.broker_order_id.as_deref() {
+            if trade.entry.broker_order_id.as_deref() == Some(fee_order_id) {
                 open = open.checked_add(fee.amount).unwrap_or(open);
                 continue;
             }
-            if trade.target.broker_order_id == Some(fee_order_id)
-                || trade.safety_stop.broker_order_id == Some(fee_order_id)
+            if trade.target.broker_order_id.as_deref() == Some(fee_order_id)
+                || trade.safety_stop.broker_order_id.as_deref() == Some(fee_order_id)
             {
                 close = close.checked_add(fee.amount).unwrap_or(close);
                 continue;
@@ -922,7 +922,7 @@ struct ResolvedSyncOrders {
 
 fn merge_sync_order_state(base: &Order, update: &Order) -> Order {
     let mut merged = base.clone();
-    merged.broker_order_id = update.broker_order_id;
+    merged.broker_order_id = update.broker_order_id.clone();
     merged.status = update.status;
     merged.filled_quantity = update.filled_quantity;
     merged.average_filled_price = update.average_filled_price;
@@ -1130,7 +1130,7 @@ mod tests {
             ..Trade::default()
         };
         previous.trading_vehicle.symbol = "AAPL".to_string();
-        previous.entry.broker_order_id = Some(Uuid::new_v4());
+        previous.entry.broker_order_id = Some(Uuid::new_v4().to_string());
         previous.entry.filled_quantity = 5;
         previous.entry.average_filled_price = Some(dec!(100.50));
 
@@ -1146,7 +1146,7 @@ mod tests {
                 .and_hms_opt(10, 0, 0)
                 .unwrap(),
         );
-        resolved.target.broker_order_id = Some(Uuid::new_v4());
+        resolved.target.broker_order_id = Some(Uuid::new_v4().to_string());
         resolved.target.filled_quantity = 10;
         resolved.target.average_filled_price = Some(dec!(102.75));
         resolved.target.filled_at = Some(

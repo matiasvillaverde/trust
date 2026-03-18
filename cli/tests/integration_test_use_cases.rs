@@ -27,8 +27,8 @@ struct BrokerState {
     modify_stop_error: Option<String>,
     modify_target_error: Option<String>,
     sync_queue: VecDeque<SyncOutcome>,
-    modify_stop_id: Uuid,
-    modify_target_id: Uuid,
+    modify_stop_id: String,
+    modify_target_id: String,
 }
 
 #[derive(Clone, Debug)]
@@ -46,8 +46,8 @@ impl TestBroker {
                 modify_stop_error: None,
                 modify_target_error: None,
                 sync_queue: VecDeque::new(),
-                modify_stop_id: Uuid::from_u128(0x11111111111111111111111111111111),
-                modify_target_id: Uuid::from_u128(0x22222222222222222222222222222222),
+                modify_stop_id: Uuid::from_u128(0x11111111111111111111111111111111).to_string(),
+                modify_target_id: Uuid::from_u128(0x22222222222222222222222222222222).to_string(),
             })),
         }
     }
@@ -72,19 +72,28 @@ impl TestBroker {
             .push_back(outcome);
     }
 
-    fn modify_stop_id(&self) -> Uuid {
-        self.state.lock().expect("broker state lock").modify_stop_id
+    fn modify_stop_id(&self) -> String {
+        self.state
+            .lock()
+            .expect("broker state lock")
+            .modify_stop_id
+            .clone()
     }
 
-    fn modify_target_id(&self) -> Uuid {
+    fn modify_target_id(&self) -> String {
         self.state
             .lock()
             .expect("broker state lock")
             .modify_target_id
+            .clone()
     }
 }
 
 impl Broker for TestBroker {
+    fn kind(&self) -> model::BrokerKind {
+        model::BrokerKind::Alpaca
+    }
+
     fn submit_trade(
         &self,
         trade: &Trade,
@@ -102,9 +111,9 @@ impl Broker for TestBroker {
         };
 
         let ids = OrderIds {
-            entry: Uuid::from_u128(0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa),
-            target: Uuid::from_u128(0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb),
-            stop: Uuid::from_u128(0xcccccccccccccccccccccccccccccccc),
+            entry: Uuid::from_u128(0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa).to_string(),
+            target: Uuid::from_u128(0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb).to_string(),
+            stop: Uuid::from_u128(0xcccccccccccccccccccccccccccccccc).to_string(),
         };
 
         Ok((log, ids))
@@ -170,12 +179,12 @@ impl Broker for TestBroker {
         _trade: &Trade,
         _account: &Account,
         _new_stop_price: Decimal,
-    ) -> Result<Uuid, Box<dyn Error>> {
+    ) -> Result<String, Box<dyn Error>> {
         let state = self.state.lock().expect("broker state lock");
         if let Some(message) = &state.modify_stop_error {
             return Err(message.clone().into());
         }
-        Ok(state.modify_stop_id)
+        Ok(state.modify_stop_id.clone())
     }
 
     fn modify_target(
@@ -183,12 +192,12 @@ impl Broker for TestBroker {
         _trade: &Trade,
         _account: &Account,
         _new_target_price: Decimal,
-    ) -> Result<Uuid, Box<dyn Error>> {
+    ) -> Result<String, Box<dyn Error>> {
         let state = self.state.lock().expect("broker state lock");
         if let Some(message) = &state.modify_target_error {
             return Err(message.clone().into());
         }
-        Ok(state.modify_target_id)
+        Ok(state.modify_target_id.clone())
     }
 }
 

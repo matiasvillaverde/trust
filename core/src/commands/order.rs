@@ -97,7 +97,7 @@ pub fn record_timestamp_target(
 pub fn modify(
     order: &Order,
     new_price: Decimal,
-    broker_id: Uuid,
+    broker_id: String,
     write_database: &mut dyn OrderWrite,
 ) -> Result<Order, Box<dyn std::error::Error>> {
     let stop = write_database.update_price(order, new_price, broker_id)?;

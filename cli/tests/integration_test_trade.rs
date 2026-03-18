@@ -687,7 +687,7 @@ fn test_trade_modify_stop_long() {
     assert_eq!(trade.safety_stop.unit_price, dec!(39));
     assert_eq!(
         trade.safety_stop.broker_order_id.unwrap(),
-        Uuid::parse_str("7654f70e-3b42-4014-a9ac-5a7101989aad").unwrap()
+        "7654f70e-3b42-4014-a9ac-5a7101989aad"
     );
 }
 
@@ -728,7 +728,7 @@ fn test_trade_modify_target() {
     assert_eq!(trade.target.unit_price, dec!(100.1));
     assert_eq!(
         trade.target.broker_order_id.unwrap(),
-        Uuid::parse_str("5654f70e-3b42-4014-a9ac-5a7101989aad").unwrap()
+        "5654f70e-3b42-4014-a9ac-5a7101989aad"
     );
 }
 
@@ -738,7 +738,7 @@ impl BrokerResponse {
     fn orders_accepted(trade: &Trade) -> (Status, Vec<Order>) {
         let entry = Order {
             id: trade.entry.id,
-            broker_order_id: Some(Uuid::parse_str("b6b12dc0-8e21-4d2e-8315-907d3116a6b8").unwrap()),
+            broker_order_id: Some("b6b12dc0-8e21-4d2e-8315-907d3116a6b8".to_string()),
             filled_quantity: 0,
             average_filled_price: None,
             status: OrderStatus::Accepted,
@@ -750,7 +750,7 @@ impl BrokerResponse {
 
         let target = Order {
             id: trade.target.id,
-            broker_order_id: Some(Uuid::parse_str("b6b12dc0-8e21-4d2e-8315-907d3116a6b8").unwrap()),
+            broker_order_id: Some("b6b12dc0-8e21-4d2e-8315-907d3116a6b8".to_string()),
             filled_quantity: 0,
             average_filled_price: None,
             status: OrderStatus::Held,
@@ -762,7 +762,7 @@ impl BrokerResponse {
 
         let stop = Order {
             id: trade.safety_stop.id,
-            broker_order_id: Some(Uuid::parse_str("b6b12dc0-8e21-4d2e-8315-907d3116a6b8").unwrap()),
+            broker_order_id: Some("b6b12dc0-8e21-4d2e-8315-907d3116a6b8".to_string()),
             filled_quantity: 0,
             average_filled_price: None,
             status: OrderStatus::Held,
@@ -778,7 +778,7 @@ impl BrokerResponse {
     fn orders_entry_filled(trade: &Trade) -> (Status, Vec<Order>) {
         let entry = Order {
             id: trade.entry.id,
-            broker_order_id: Some(Uuid::parse_str("b6b12dc0-8e21-4d2e-8315-907d3116a6b8").unwrap()),
+            broker_order_id: Some("b6b12dc0-8e21-4d2e-8315-907d3116a6b8".to_string()),
             filled_quantity: 500,
             average_filled_price: Some(dec!(39.9)),
             status: OrderStatus::Filled,
@@ -790,7 +790,7 @@ impl BrokerResponse {
 
         let target = Order {
             id: trade.target.id,
-            broker_order_id: Some(Uuid::parse_str("b6b12dc0-8e21-4d2e-8315-907d3116a6b8").unwrap()),
+            broker_order_id: Some("b6b12dc0-8e21-4d2e-8315-907d3116a6b8".to_string()),
             filled_quantity: 0,
             average_filled_price: None,
             status: OrderStatus::Accepted,
@@ -802,7 +802,7 @@ impl BrokerResponse {
 
         let stop = Order {
             id: trade.safety_stop.id,
-            broker_order_id: Some(Uuid::parse_str("b6b12dc0-8e21-4d2e-8315-907d3116a6b8").unwrap()),
+            broker_order_id: Some("b6b12dc0-8e21-4d2e-8315-907d3116a6b8".to_string()),
             filled_quantity: 0,
             average_filled_price: None,
             status: OrderStatus::Held,
@@ -818,7 +818,7 @@ impl BrokerResponse {
     fn orders_target_filled(trade: &Trade) -> (Status, Vec<Order>) {
         let entry = Order {
             id: trade.entry.id,
-            broker_order_id: Some(Uuid::parse_str("b6b12dc0-8e21-4d2e-8315-907d3116a6b8").unwrap()),
+            broker_order_id: Some("b6b12dc0-8e21-4d2e-8315-907d3116a6b8".to_string()),
             filled_quantity: 500,
             average_filled_price: Some(dec!(39.9)),
             status: OrderStatus::Filled,
@@ -830,7 +830,7 @@ impl BrokerResponse {
 
         let target = Order {
             id: trade.target.id,
-            broker_order_id: Some(Uuid::parse_str("b6b12dc0-8e21-4d2e-8315-907d3116a6b8").unwrap()),
+            broker_order_id: Some("b6b12dc0-8e21-4d2e-8315-907d3116a6b8".to_string()),
             filled_quantity: 500,
             average_filled_price: Some(dec!(52.9)),
             status: OrderStatus::Filled,
@@ -842,7 +842,7 @@ impl BrokerResponse {
 
         let stop = Order {
             id: trade.safety_stop.id,
-            broker_order_id: Some(Uuid::parse_str("b6b12dc0-8e21-4d2e-8315-907d3116a6b8").unwrap()),
+            broker_order_id: Some("b6b12dc0-8e21-4d2e-8315-907d3116a6b8".to_string()),
             filled_quantity: 0,
             average_filled_price: None,
             status: OrderStatus::Canceled,
@@ -858,7 +858,7 @@ impl BrokerResponse {
     fn orders_stop_filled(trade: &Trade) -> (Status, Vec<Order>) {
         let entry = Order {
             id: trade.entry.id,
-            broker_order_id: Some(Uuid::parse_str("b6b12dc0-8e21-4d2e-8315-907d3116a6b8").unwrap()),
+            broker_order_id: Some("b6b12dc0-8e21-4d2e-8315-907d3116a6b8".to_string()),
             filled_quantity: 500,
             average_filled_price: Some(dec!(39.9)),
             status: OrderStatus::Filled,
@@ -870,7 +870,7 @@ impl BrokerResponse {
 
         let target = Order {
             id: trade.target.id,
-            broker_order_id: Some(Uuid::parse_str("b6b12dc0-8e21-4d2e-8315-907d3116a6b8").unwrap()),
+            broker_order_id: Some("b6b12dc0-8e21-4d2e-8315-907d3116a6b8".to_string()),
             filled_quantity: 0,
             average_filled_price: None,
             status: OrderStatus::Canceled,
@@ -882,7 +882,7 @@ impl BrokerResponse {
 
         let stop = Order {
             id: trade.safety_stop.id,
-            broker_order_id: Some(Uuid::parse_str("b6b12dc0-8e21-4d2e-8315-907d3116a6b8").unwrap()),
+            broker_order_id: Some("b6b12dc0-8e21-4d2e-8315-907d3116a6b8".to_string()),
             filled_quantity: 500,
             average_filled_price: Some(dec!(39)),
             status: OrderStatus::Filled,
@@ -898,7 +898,7 @@ impl BrokerResponse {
     fn orders_stop_filled_slippage(trade: &Trade) -> (Status, Vec<Order>) {
         let entry = Order {
             id: trade.entry.id,
-            broker_order_id: Some(Uuid::parse_str("b6b12dc0-8e21-4d2e-8315-907d3116a6b8").unwrap()),
+            broker_order_id: Some("b6b12dc0-8e21-4d2e-8315-907d3116a6b8".to_string()),
             filled_quantity: 500,
             average_filled_price: Some(dec!(39.9)),
             status: OrderStatus::Filled,
@@ -910,7 +910,7 @@ impl BrokerResponse {
 
         let stop = Order {
             id: trade.safety_stop.id,
-            broker_order_id: Some(Uuid::parse_str("b6b12dc0-8e21-4d2e-8315-907d3116a6b8").unwrap()),
+            broker_order_id: Some("b6b12dc0-8e21-4d2e-8315-907d3116a6b8".to_string()),
             filled_quantity: 500,
             average_filled_price: Some(dec!(30.2)),
             status: OrderStatus::Filled,
@@ -926,7 +926,7 @@ impl BrokerResponse {
     fn closed_order(trade: &Trade) -> Option<Order> {
         Some(Order {
             id: trade.target.id,
-            broker_order_id: Some(Uuid::parse_str("b6b12dc0-8e21-4d2e-8315-907d3116a6b8").unwrap()),
+            broker_order_id: Some("b6b12dc0-8e21-4d2e-8315-907d3116a6b8".to_string()),
             status: OrderStatus::PendingNew,
             category: OrderCategory::Market,
             filled_at: None,
@@ -955,6 +955,10 @@ impl MockBroker {
 }
 
 impl Broker for MockBroker {
+    fn kind(&self) -> model::BrokerKind {
+        model::BrokerKind::Alpaca
+    }
+
     fn submit_trade(
         &self,
         _trade: &Trade,
@@ -962,9 +966,9 @@ impl Broker for MockBroker {
     ) -> Result<(BrokerLog, OrderIds), Box<dyn Error>> {
         let log = BrokerLog::default();
         let ids = OrderIds {
-            entry: Uuid::parse_str("b6b12dc0-8e21-4d2e-8315-907d3116a6b8").unwrap(),
-            target: Uuid::parse_str("90e41b1e-9089-444d-9f68-c204a4d32914").unwrap(),
-            stop: Uuid::parse_str("8654f70e-3b42-4014-a9ac-5a7101989aad").unwrap(),
+            entry: "b6b12dc0-8e21-4d2e-8315-907d3116a6b8".to_string(),
+            target: "90e41b1e-9089-444d-9f68-c204a4d32914".to_string(),
+            stop: "8654f70e-3b42-4014-a9ac-5a7101989aad".to_string(),
         };
         Ok((log, ids))
     }
@@ -998,12 +1002,12 @@ impl Broker for MockBroker {
         trade: &Trade,
         account: &Account,
         new_stop_price: Decimal,
-    ) -> Result<Uuid, Box<dyn Error>> {
+    ) -> Result<String, Box<dyn Error>> {
         assert_eq!(trade.account_id, account.id);
         assert_eq!(trade.safety_stop.unit_price, dec!(38));
         assert_eq!(new_stop_price, dec!(39));
 
-        Ok(Uuid::parse_str("7654f70e-3b42-4014-a9ac-5a7101989aad").unwrap())
+        Ok("7654f70e-3b42-4014-a9ac-5a7101989aad".to_string())
     }
 
     fn modify_target(
@@ -1011,12 +1015,12 @@ impl Broker for MockBroker {
         trade: &Trade,
         account: &Account,
         new_target_price: rust_decimal::Decimal,
-    ) -> Result<Uuid, Box<dyn Error>> {
+    ) -> Result<String, Box<dyn Error>> {
         assert_eq!(trade.account_id, account.id);
         assert_eq!(trade.target.unit_price, dec!(50));
         assert_eq!(new_target_price, dec!(100.1));
 
-        Ok(Uuid::parse_str("5654f70e-3b42-4014-a9ac-5a7101989aad").unwrap())
+        Ok("5654f70e-3b42-4014-a9ac-5a7101989aad".to_string())
     }
 }
 
@@ -1158,7 +1162,7 @@ fn test_short_trade_funding_with_better_entry_execution() {
 fn orders_short_trade_filled(trade: &Trade) -> (Status, Vec<Order>) {
     let entry = Order {
         id: trade.entry.id,
-        broker_order_id: Some(Uuid::new_v4()),
+        broker_order_id: Some(Uuid::new_v4().to_string()),
         filled_quantity: trade.entry.quantity,
         average_filled_price: Some(dec!(11)), // Better than expected $10
         status: OrderStatus::Filled,
@@ -1168,14 +1172,14 @@ fn orders_short_trade_filled(trade: &Trade) -> (Status, Vec<Order>) {
 
     let target = Order {
         id: trade.target.id,
-        broker_order_id: Some(Uuid::new_v4()),
+        broker_order_id: Some(Uuid::new_v4().to_string()),
         status: OrderStatus::Accepted,
         ..Default::default()
     };
 
     let stop = Order {
         id: trade.safety_stop.id,
-        broker_order_id: Some(Uuid::new_v4()),
+        broker_order_id: Some(Uuid::new_v4().to_string()),
         status: OrderStatus::Held,
         ..Default::default()
     };

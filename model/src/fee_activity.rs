@@ -12,7 +12,7 @@ pub struct FeeActivity {
     /// Related account.
     pub account_id: Uuid,
     /// Optional broker order id when provided by the broker.
-    pub broker_order_id: Option<Uuid>,
+    pub broker_order_id: Option<String>,
     /// Optional symbol when provided by the broker.
     pub symbol: Option<String>,
     /// Raw activity type (`FEE`, `PTC`, etc).

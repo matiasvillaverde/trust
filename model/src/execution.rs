@@ -108,7 +108,7 @@ pub struct Execution {
     /// Broker execution identifier (must be unique per broker+account).
     pub broker_execution_id: String,
     /// Broker order identifier (if available).
-    pub broker_order_id: Option<Uuid>,
+    pub broker_order_id: Option<String>,
 
     /// Executed symbol (as reported by broker).
     pub symbol: String,
@@ -134,7 +134,7 @@ impl Execution {
         source: ExecutionSource,
         account_id: Uuid,
         broker_execution_id: String,
-        broker_order_id: Option<Uuid>,
+        broker_order_id: Option<String>,
         symbol: String,
         side: ExecutionSide,
         qty: Decimal,

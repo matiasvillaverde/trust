@@ -38,13 +38,14 @@ use argon2::{
     password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2,
 };
+use broker_registry::BrokerRegistry;
 use calculators_trade::{
     LevelAdjustedQuantity, QuantityCalculator, TradeHypothesis, TradeHypothesisCalculator,
 };
 use events::trade::{CloseReason, TradeClosed};
 use model::database::TradingVehicleUpsert;
 use model::{
-    Account, AccountBalance, AccountType, BarTimeframe, Broker, BrokerLog, Currency,
+    Account, AccountBalance, AccountType, BarTimeframe, Broker, BrokerKind, BrokerLog, Currency,
     DatabaseFactory, DistributionHistory, DistributionResult, DistributionRules, DraftTrade,
     Environment, Execution, Level, LevelAdjustmentRules, LevelChange, LevelTrigger, MarketBar,
     MarketDataChannel, MarketDataStreamEvent, MarketSnapshot, MarketSnapshotSource,
@@ -296,13 +297,21 @@ impl TrustFacade {
     pub fn new(factory: Box<dyn DatabaseFactory>, broker: Box<dyn Broker>) -> Self {
         TrustFacade {
             factory,
-            broker,
+            broker: Box::new(BrokerRegistry::from_single(broker)),
             protected_mode: false,
             protected_authorized: false,
             distribution_rules_cache: HashMap::new(),
             level_snapshot_cache: HashMap::new(),
             advisory_history: Vec::new(),
         }
+    }
+
+    /// Creates a new instance of Trust with broker routing per account.
+    pub fn new_with_brokers(
+        factory: Box<dyn DatabaseFactory>,
+        brokers: Vec<Box<dyn Broker>>,
+    ) -> Self {
+        Self::new(factory, Box::new(BrokerRegistry::from_many(brokers)))
     }
 
     /// Enables protected-mutation enforcement for this facade instance.
@@ -338,32 +347,17 @@ impl TrustFacade {
         taxes_percentage: Decimal,
         earnings_percentage: Decimal,
     ) -> Result<Account, Box<dyn std::error::Error>> {
-        self.consume_protected_authorization("create_account")?;
-        let savepoint = "create_account_with_level";
-        self.factory.begin_savepoint(savepoint)?;
-
-        let account = match self.factory.account_write().create(
+        self.create_account_with_profile(
             name,
             description,
             environment,
             taxes_percentage,
             earnings_percentage,
-        ) {
-            Ok(account) => account,
-            Err(error) => {
-                let _ = self.factory.rollback_to_savepoint(savepoint);
-                return Err(error);
-            }
-        };
-
-        if let Err(error) = self.factory.level_write().create_default_level(&account) {
-            let _ = self.factory.rollback_to_savepoint(savepoint);
-            return Err(error);
-        }
-
-        self.factory.release_savepoint(savepoint)?;
-
-        Ok(account)
+            AccountType::Primary,
+            None,
+            BrokerKind::Alpaca,
+            None,
+        )
     }
 
     /// Returns current level for an account.
@@ -1621,11 +1615,7 @@ impl TrustFacade {
         account_type: AccountType,
         parent_account_id: Option<Uuid>,
     ) -> Result<Account, Box<dyn std::error::Error>> {
-        self.consume_protected_authorization("create_account_with_hierarchy")?;
-        let savepoint = "create_account_with_hierarchy";
-        self.factory.begin_savepoint(savepoint)?;
-
-        let account = match self.factory.account_write().create_with_hierarchy(
+        self.create_account_with_profile(
             name,
             description,
             environment,
@@ -1633,6 +1623,39 @@ impl TrustFacade {
             earnings_percentage,
             account_type,
             parent_account_id,
+            BrokerKind::Alpaca,
+            None,
+        )
+    }
+
+    /// Creates a new account with hierarchy and broker-profile metadata.
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_account_with_profile(
+        &mut self,
+        name: &str,
+        description: &str,
+        environment: Environment,
+        taxes_percentage: Decimal,
+        earnings_percentage: Decimal,
+        account_type: AccountType,
+        parent_account_id: Option<Uuid>,
+        broker_kind: BrokerKind,
+        broker_account_id: Option<&str>,
+    ) -> Result<Account, Box<dyn std::error::Error>> {
+        self.consume_protected_authorization("create_account_with_profile")?;
+        let savepoint = "create_account_with_profile";
+        self.factory.begin_savepoint(savepoint)?;
+
+        let account = match self.factory.account_write().create_with_profile(
+            name,
+            description,
+            environment,
+            taxes_percentage,
+            earnings_percentage,
+            account_type,
+            parent_account_id,
+            broker_kind,
+            broker_account_id,
         ) {
             Ok(account) => account,
             Err(error) => {
@@ -1963,6 +1986,7 @@ fn hash_distribution_password_legacy_sha256(
     Ok(format!("{digest:x}"))
 }
 
+mod broker_registry;
 mod calculators_account;
 pub mod calculators_advanced_metrics;
 pub mod calculators_concentration;

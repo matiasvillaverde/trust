@@ -57,7 +57,7 @@ mod tests {
             trade_id: Some(Uuid::new_v4()),
             order_id: Some(Uuid::new_v4()),
             broker_execution_id: "exec-1".to_string(),
-            broker_order_id: Some(Uuid::new_v4()),
+            broker_order_id: Some(Uuid::new_v4().to_string()),
             symbol: "AAPL".to_string(),
             side: ExecutionSide::Buy,
             qty: dec!(1.5),
