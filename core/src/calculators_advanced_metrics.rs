@@ -725,16 +725,28 @@ impl AdvancedMetricsCalculator {
             .collect();
 
         if downside_returns.len() < 2 {
-            return None;
+            return Some(base_ratio);
         }
 
-        let mean = Self::average(&downside_returns)?;
-        let downside_variance = Self::population_variance(&downside_returns, mean)?;
-        let downside_deviation = Self::decimal_sqrt(downside_variance)?;
-        let (skewness, excess_kurtosis) =
-            Self::standardized_moments(&downside_returns, mean, downside_deviation)?;
+        let Some(mean) = Self::average(&downside_returns) else {
+            return Some(base_ratio);
+        };
+        let Some(downside_variance) = Self::population_variance(&downside_returns, mean) else {
+            return Some(base_ratio);
+        };
+        let Some(downside_deviation) = Self::decimal_sqrt(downside_variance) else {
+            return Some(base_ratio);
+        };
+        if downside_deviation <= dec!(0) {
+            return Some(base_ratio);
+        }
+        let Some((skewness, excess_kurtosis)) =
+            Self::standardized_moments(&downside_returns, mean, downside_deviation)
+        else {
+            return Some(base_ratio);
+        };
 
-        Self::pezier_white_adjustment(base_ratio, skewness, excess_kurtosis)
+        Self::pezier_white_adjustment(base_ratio, skewness, excess_kurtosis).or(Some(base_ratio))
     }
 
     /// Calculate a report-grade Calmar ratio as
@@ -2097,7 +2109,7 @@ mod tests {
     }
 
     #[test]
-    fn test_adjusted_sortino_ratio_returns_none_for_zero_downside_variance() {
+    fn test_adjusted_sortino_ratio_falls_back_to_base_for_zero_downside_variance() {
         let trades = vec![
             create_test_trade(dec!(100)),
             create_test_trade(dec!(100)),
@@ -2106,12 +2118,31 @@ mod tests {
             create_test_trade(dec!(-50)),
         ];
 
-        let sortino = AdvancedMetricsCalculator::calculate_sortino_ratio(&trades, dec!(0.05));
+        let sortino = AdvancedMetricsCalculator::calculate_sortino_ratio(&trades, dec!(0.05))
+            .expect("base sortino");
         let adjusted =
-            AdvancedMetricsCalculator::calculate_adjusted_sortino_ratio(&trades, dec!(0.05));
+            AdvancedMetricsCalculator::calculate_adjusted_sortino_ratio(&trades, dec!(0.05))
+                .expect("adjusted sortino");
 
-        assert!(sortino.is_some(), "base sortino should still be calculable");
-        assert_eq!(adjusted, None);
+        assert_eq!(adjusted.round_dp(12), sortino.round_dp(12));
+    }
+
+    #[test]
+    fn test_adjusted_sortino_ratio_falls_back_to_base_for_single_downside_sample() {
+        let trades = vec![
+            create_test_trade(dec!(100)),
+            create_test_trade(dec!(100)),
+            create_test_trade(dec!(100)),
+            create_test_trade(dec!(-50)),
+        ];
+
+        let sortino = AdvancedMetricsCalculator::calculate_sortino_ratio(&trades, dec!(0.05))
+            .expect("base sortino");
+        let adjusted =
+            AdvancedMetricsCalculator::calculate_adjusted_sortino_ratio(&trades, dec!(0.05))
+                .expect("adjusted sortino");
+
+        assert_eq!(adjusted.round_dp(12), sortino.round_dp(12));
     }
 
     #[test]

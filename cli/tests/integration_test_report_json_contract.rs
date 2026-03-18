@@ -182,7 +182,10 @@ fn seed_empty_account(database_url: &str) -> Uuid {
     account.id
 }
 
-fn seed_account_with_adjusted_metrics_history(database_url: &str) -> Uuid {
+fn seed_account_with_closed_performance_series(
+    database_url: &str,
+    trade_specs: &[(Status, Decimal)],
+) -> Uuid {
     let database = SqliteDatabase::new(database_url);
     let mut trust = TrustFacade::new(Box::new(database), Box::new(alpaca_broker::AlpacaBroker));
 
@@ -214,15 +217,7 @@ fn seed_account_with_adjusted_metrics_history(database_url: &str) -> Uuid {
         )
         .expect("create trading vehicle");
 
-    let trade_specs = [
-        (Status::ClosedTarget, dec!(100)),
-        (Status::ClosedTarget, dec!(95)),
-        (Status::ClosedTarget, dec!(90)),
-        (Status::ClosedStopLoss, dec!(-50)),
-        (Status::ClosedStopLoss, dec!(-55)),
-    ];
-
-    for (index, (status, total_performance)) in trade_specs.into_iter().enumerate() {
+    for (index, &(status, total_performance)) in trade_specs.iter().enumerate() {
         let trade = trust
             .create_trade(
                 DraftTrade {
@@ -268,6 +263,19 @@ fn seed_account_with_adjusted_metrics_history(database_url: &str) -> Uuid {
     }
 
     account.id
+}
+
+fn seed_account_with_adjusted_metrics_history(database_url: &str) -> Uuid {
+    seed_account_with_closed_performance_series(
+        database_url,
+        &[
+            (Status::ClosedTarget, dec!(100)),
+            (Status::ClosedTarget, dec!(95)),
+            (Status::ClosedTarget, dec!(90)),
+            (Status::ClosedStopLoss, dec!(-50)),
+            (Status::ClosedStopLoss, dec!(-55)),
+        ],
+    )
 }
 
 #[test]
@@ -628,6 +636,57 @@ fn test_metrics_report_json_adjusted_ratios_are_non_null_for_varied_closed_histo
 
     assert_ne!(adjusted_sharpe.round_dp(6), sharpe.round_dp(6));
     assert_ne!(adjusted_sortino.round_dp(6), sortino.round_dp(6));
+}
+
+#[test]
+fn test_metrics_report_json_adjusted_sortino_falls_back_to_base_for_repeated_losses() {
+    let database_url = format!(
+        "file:test_metrics_report_adjusted_sortino_sparse_{}.db",
+        Uuid::new_v4().simple()
+    );
+    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let account_id = seed_account_with_closed_performance_series(
+        &database_url,
+        &[
+            (Status::ClosedTarget, dec!(100)),
+            (Status::ClosedTarget, dec!(100)),
+            (Status::ClosedTarget, dec!(100)),
+            (Status::ClosedStopLoss, dec!(-50)),
+            (Status::ClosedStopLoss, dec!(-50)),
+        ],
+    );
+
+    let output = run_report(
+        &database_url,
+        &[
+            "report",
+            "metrics",
+            "--format",
+            "json",
+            "--account",
+            &account_id.to_string(),
+        ],
+    );
+
+    assert!(output.status.success(), "metrics report should succeed");
+
+    let payload = parse_stdout_json(&output);
+    let risk_adjusted = payload["data"]["risk_adjusted_performance"]
+        .as_object()
+        .expect("risk_adjusted_performance must be an object");
+
+    let sortino = decimal_from_json(
+        risk_adjusted
+            .get("sortino_ratio")
+            .expect("base sortino must be present"),
+    );
+    let adjusted_sortino = decimal_from_json(
+        risk_adjusted
+            .get("adjusted_sortino_ratio")
+            .expect("adjusted sortino must be present"),
+    );
+
+    assert_eq!(adjusted_sortino.round_dp(12), sortino.round_dp(12));
 }
 
 #[test]

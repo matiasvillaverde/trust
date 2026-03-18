@@ -376,7 +376,7 @@ mod tests {
     }
 
     #[test]
-    fn test_csv_export_omits_adjusted_ratio_rows_when_not_calculable() {
+    fn test_csv_export_keeps_adjusted_sortino_row_for_repeated_losses() {
         let trades = vec![
             create_test_trade(dec!(100)),
             create_test_trade(dec!(100)),
@@ -386,6 +386,28 @@ mod tests {
         ];
         let result = MetricsExporter::to_csv(&trades, Some(dec!(0.05)));
 
+        let sortino = AdvancedMetricsCalculator::calculate_sortino_ratio(&trades, dec!(0.05))
+            .expect("base sortino");
+        let adjusted_sortino =
+            AdvancedMetricsCalculator::calculate_adjusted_sortino_ratio(&trades, dec!(0.05))
+                .expect("adjusted sortino");
+
+        assert_eq!(adjusted_sortino.round_dp(12), sortino.round_dp(12));
+        assert!(result.contains(&format!(
+            "risk_adjusted,adjusted_sortino_ratio,{adjusted_sortino:.4},ratio"
+        )));
+    }
+
+    #[test]
+    fn test_csv_export_omits_adjusted_sortino_row_when_base_sortino_is_unavailable() {
+        let trades = vec![
+            create_test_trade(dec!(100)),
+            create_test_trade(dec!(100)),
+            create_test_trade(dec!(100)),
+        ];
+        let result = MetricsExporter::to_csv(&trades, Some(dec!(0.05)));
+
+        assert!(AdvancedMetricsCalculator::calculate_sortino_ratio(&trades, dec!(0.05)).is_none());
         assert!(!result.contains("risk_adjusted,adjusted_sortino_ratio,"));
     }
 }
