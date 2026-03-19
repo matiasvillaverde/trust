@@ -263,6 +263,10 @@ fn test_levels_long_run_with_mixed_paths_never_leaves_bounds() {
 struct MockBroker;
 
 impl Broker for MockBroker {
+    fn kind(&self) -> model::BrokerKind {
+        model::BrokerKind::Alpaca
+    }
+
     fn submit_trade(
         &self,
         _trade: &Trade,
@@ -296,7 +300,7 @@ impl Broker for MockBroker {
         _trade: &Trade,
         _account: &Account,
         _new_stop_price: Decimal,
-    ) -> Result<Uuid, Box<dyn Error>> {
+    ) -> Result<String, Box<dyn Error>> {
         unimplemented!()
     }
 
@@ -305,7 +309,7 @@ impl Broker for MockBroker {
         _trade: &Trade,
         _account: &Account,
         _new_price: Decimal,
-    ) -> Result<Uuid, Box<dyn Error>> {
+    ) -> Result<String, Box<dyn Error>> {
         unimplemented!()
     }
 }

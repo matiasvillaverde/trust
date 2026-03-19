@@ -8,7 +8,6 @@ use model::{
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use std::error::Error;
-use uuid::Uuid;
 
 fn create_trust() -> TrustFacade {
     let db = SqliteDatabase::new_in_memory();
@@ -252,6 +251,10 @@ fn test_withdrawal_tax_and_earnings_transactions() {
 
 struct MockBroker;
 impl Broker for MockBroker {
+    fn kind(&self) -> model::BrokerKind {
+        model::BrokerKind::Alpaca
+    }
+
     fn submit_trade(
         &self,
         _trade: &Trade,
@@ -285,7 +288,7 @@ impl Broker for MockBroker {
         trade: &Trade,
         account: &Account,
         new_stop_price: Decimal,
-    ) -> Result<Uuid, Box<dyn Error>> {
+    ) -> Result<String, Box<dyn Error>> {
         unimplemented!(
             "Modify stop: {:?} {:?} {:?}",
             trade,
@@ -299,7 +302,7 @@ impl Broker for MockBroker {
         trade: &Trade,
         account: &Account,
         new_target_price: rust_decimal::Decimal,
-    ) -> Result<Uuid, Box<dyn Error>> {
+    ) -> Result<String, Box<dyn Error>> {
         unimplemented!(
             "Modify target: {:?} {:?} {:?}",
             trade,

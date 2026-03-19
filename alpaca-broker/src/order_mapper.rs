@@ -6,7 +6,6 @@ use model::{Order, OrderCategory, OrderStatus, Status, Trade};
 use rust_decimal::Decimal;
 use std::error::Error;
 use std::str::FromStr;
-use uuid::Uuid;
 
 /// Maps an Alpaca order to our domain model.
 pub fn map_entry(alpaca_order: AlpacaOrder, trade: &Trade) -> Result<Vec<Order>, Box<dyn Error>> {
@@ -18,8 +17,8 @@ pub fn map_entry(alpaca_order: AlpacaOrder, trade: &Trade) -> Result<Vec<Order>,
         let order_id_str = order.id.to_string();
 
         // Safely handle target order mapping
-        if let Some(target_broker_id) = trade.target.broker_order_id {
-            if order_id_str == target_broker_id.to_string() {
+        if let Some(target_broker_id) = trade.target.broker_order_id.as_deref() {
+            if order_id_str == target_broker_id {
                 // 1. Map target order to our domain model.
                 return match map(order, trade.target.clone()) {
                     Ok(mapped_order) => {
@@ -39,8 +38,8 @@ pub fn map_entry(alpaca_order: AlpacaOrder, trade: &Trade) -> Result<Vec<Order>,
         }
 
         // Safely handle safety stop order mapping
-        if let Some(stop_broker_id) = trade.safety_stop.broker_order_id {
-            if order_id_str == stop_broker_id.to_string() {
+        if let Some(stop_broker_id) = trade.safety_stop.broker_order_id.as_deref() {
+            if order_id_str == stop_broker_id {
                 // 1. Map stop order to our domain model.
                 return match map(order, trade.safety_stop.clone()) {
                     Ok(mapped_order) => {
@@ -87,13 +86,13 @@ fn apply_updates_to_order(original: &Order, updates: &[Order]) -> Order {
     }
 }
 
-fn has_recent_fill(order_id: Uuid, updated_orders: &[Order]) -> bool {
+fn has_recent_fill(order_id: uuid::Uuid, updated_orders: &[Order]) -> bool {
     updated_orders
         .iter()
         .any(|order| order.id == order_id && order.status == OrderStatus::Filled)
 }
 
-fn has_recent_unfill(order_id: Uuid, updated_orders: &[Order]) -> bool {
+fn has_recent_unfill(order_id: uuid::Uuid, updated_orders: &[Order]) -> bool {
     updated_orders
         .iter()
         .any(|order| order.id == order_id && order.status != OrderStatus::Filled)
@@ -141,9 +140,10 @@ pub fn map_trade_status(trade: &Trade, updated_orders: &[Order]) -> Status {
 fn map(alpaca_order: &AlpacaOrder, order: Order) -> Result<Order, Box<dyn Error>> {
     let broker_order_id = order
         .broker_order_id
+        .clone()
         .ok_or("order does not have a broker id. It can not be mapped into an alpaca order")?;
 
-    if alpaca_order.id.to_string() != broker_order_id.to_string() {
+    if alpaca_order.id.to_string() != broker_order_id {
         return Err("Order IDs do not match".into());
     }
 
@@ -167,10 +167,7 @@ fn map(alpaca_order: &AlpacaOrder, order: Order) -> Result<Order, Box<dyn Error>
 
 pub fn map_close_order(alpaca_order: &AlpacaOrder, target: Order) -> Result<Order, Box<dyn Error>> {
     let mut order = target;
-    order.broker_order_id = Some(
-        Uuid::parse_str(&alpaca_order.id.to_string())
-            .map_err(|e| format!("Failed to parse Alpaca order ID as UUID: {e}"))?,
-    );
+    order.broker_order_id = Some(alpaca_order.id.to_string());
     order.status = map_from_alpaca(alpaca_order.status);
     order.submitted_at = map_date(alpaca_order.submitted_at);
     order.category = OrderCategory::Market;
@@ -257,7 +254,9 @@ mod tests {
         let trade = Trade {
             entry: Order {
                 broker_order_id: Some(
-                    Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap(),
+                    Uuid::parse_str("00000000-0000-0000-0000-000000000000")
+                        .unwrap()
+                        .to_string(),
                 ),
                 ..Default::default()
             },
@@ -296,7 +295,7 @@ mod tests {
 
         let trade = Trade {
             entry: Order {
-                broker_order_id: Some(entry_id),
+                broker_order_id: Some(entry_id.to_string()),
                 ..Default::default()
             },
             ..Default::default()
@@ -337,15 +336,15 @@ mod tests {
 
         let trade = Trade {
             target: Order {
-                broker_order_id: Some(target_id),
+                broker_order_id: Some(target_id.to_string()),
                 ..Default::default()
             },
             safety_stop: Order {
-                broker_order_id: Some(Uuid::new_v4()),
+                broker_order_id: Some(Uuid::new_v4().to_string()),
                 ..Default::default()
             },
             entry: Order {
-                broker_order_id: Some(entry_id),
+                broker_order_id: Some(entry_id.to_string()),
                 ..Default::default()
             },
             ..Default::default()
@@ -395,15 +394,15 @@ mod tests {
 
         let trade = Trade {
             target: Order {
-                broker_order_id: Some(Uuid::new_v4()),
+                broker_order_id: Some(Uuid::new_v4().to_string()),
                 ..Default::default()
             },
             safety_stop: Order {
-                broker_order_id: Some(stop_id),
+                broker_order_id: Some(stop_id.to_string()),
                 ..Default::default()
             },
             entry: Order {
-                broker_order_id: Some(entry_id),
+                broker_order_id: Some(entry_id.to_string()),
                 ..Default::default()
             },
             ..Default::default()
@@ -632,14 +631,18 @@ mod tests {
     fn test_map_order_ids_match() {
         let alpaca_order = default();
         let order = Order {
-            broker_order_id: Some(Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap()),
+            broker_order_id: Some(
+                Uuid::parse_str("00000000-0000-0000-0000-000000000000")
+                    .unwrap()
+                    .to_string(),
+            ),
             ..Default::default()
         };
         let mapped_order = map(&alpaca_order, order);
 
         assert_eq!(
             mapped_order.unwrap().broker_order_id.unwrap(),
-            Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap()
+            "00000000-0000-0000-0000-000000000000"
         );
     }
 
@@ -649,7 +652,11 @@ mod tests {
         alpaca_order.filled_quantity = Num::from(10);
 
         let order = Order {
-            broker_order_id: Some(Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap()),
+            broker_order_id: Some(
+                Uuid::parse_str("00000000-0000-0000-0000-000000000000")
+                    .unwrap()
+                    .to_string(),
+            ),
             ..Default::default()
         };
 
@@ -664,7 +671,11 @@ mod tests {
         alpaca_order.average_fill_price = Some(Num::from_str("2112.1212").unwrap());
 
         let order = Order {
-            broker_order_id: Some(Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap()),
+            broker_order_id: Some(
+                Uuid::parse_str("00000000-0000-0000-0000-000000000000")
+                    .unwrap()
+                    .to_string(),
+            ),
             ..Default::default()
         };
 
@@ -682,7 +693,11 @@ mod tests {
         alpaca_order.status = AlpacaStatus::Filled;
 
         let order = Order {
-            broker_order_id: Some(Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap()),
+            broker_order_id: Some(
+                Uuid::parse_str("00000000-0000-0000-0000-000000000000")
+                    .unwrap()
+                    .to_string(),
+            ),
             ..Default::default()
         };
 
@@ -698,7 +713,11 @@ mod tests {
         alpaca_order.filled_at = Some(now);
 
         let order = Order {
-            broker_order_id: Some(Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap()),
+            broker_order_id: Some(
+                Uuid::parse_str("00000000-0000-0000-0000-000000000000")
+                    .unwrap()
+                    .to_string(),
+            ),
             ..Default::default()
         };
         let mapped_order = map(&alpaca_order, order);
@@ -712,7 +731,11 @@ mod tests {
         alpaca_order.expired_at = Some(now);
 
         let order = Order {
-            broker_order_id: Some(Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap()),
+            broker_order_id: Some(
+                Uuid::parse_str("00000000-0000-0000-0000-000000000000")
+                    .unwrap()
+                    .to_string(),
+            ),
             ..Default::default()
         };
 
@@ -728,7 +751,11 @@ mod tests {
         alpaca_order.canceled_at = Some(now);
 
         let order = Order {
-            broker_order_id: Some(Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap()),
+            broker_order_id: Some(
+                Uuid::parse_str("00000000-0000-0000-0000-000000000000")
+                    .unwrap()
+                    .to_string(),
+            ),
             ..Default::default()
         };
 

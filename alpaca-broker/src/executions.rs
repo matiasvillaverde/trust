@@ -7,8 +7,6 @@ use rust_decimal::Decimal;
 use std::error::Error;
 use std::str::FromStr;
 use tokio::runtime::Runtime;
-use uuid::Uuid;
-
 fn map_side(side: apca::api::v2::account_activities::Side) -> ExecutionSide {
     match side {
         apca::api::v2::account_activities::Side::Buy => ExecutionSide::Buy,
@@ -73,7 +71,7 @@ pub fn fetch_executions(
                     continue;
                 }
 
-                let broker_order_id = Uuid::parse_str(&trade_activity.order_id.to_string()).ok();
+                let broker_order_id = Some(trade_activity.order_id.to_string());
                 let qty = num_to_decimal(&trade_activity.quantity)?;
                 let price = num_to_decimal(&trade_activity.price)?;
 

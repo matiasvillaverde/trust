@@ -67,6 +67,20 @@ impl AccountCommandBuilder {
                         .required(false),
                 )
                 .arg(
+                    Arg::new("broker")
+                        .long("broker")
+                        .value_name("BROKER")
+                        .help("Broker kind: alpaca|ibkr")
+                        .required(false),
+                )
+                .arg(
+                    Arg::new("broker-account-id")
+                        .long("broker-account-id")
+                        .value_name("STRING")
+                        .help("External broker account identifier (required for IBKR primary accounts)")
+                        .required(false),
+                )
+                .arg(
                     Arg::new("parent")
                         .long("parent")
                         .value_name("UUID")
@@ -180,6 +194,10 @@ mod tests {
             "30",
             "--type",
             "tax-reserve",
+            "--broker",
+            "ibkr",
+            "--broker-account-id",
+            "U1234567",
             "--parent",
             parent,
         ]);

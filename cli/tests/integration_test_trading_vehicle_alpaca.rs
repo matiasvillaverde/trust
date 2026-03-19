@@ -94,7 +94,7 @@ fn test_create_from_alpaca_requires_account() {
 
     assert!(!output.status.success(), "command should fail");
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("alpaca_import_invalid_args"));
+    assert!(stderr.contains("broker_import_invalid_args"));
     assert!(stderr.contains("--account is required"));
 }
 
@@ -121,7 +121,7 @@ fn test_create_from_alpaca_requires_symbol() {
 
     assert!(!output.status.success(), "command should fail");
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("alpaca_import_invalid_args"));
+    assert!(stderr.contains("broker_import_invalid_args"));
     assert!(stderr.contains("--symbol is required"));
 }
 
@@ -150,5 +150,5 @@ fn test_create_from_alpaca_unknown_account_fails() {
 
     assert!(!output.status.success(), "command should fail");
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("alpaca_import_account_not_found"));
+    assert!(stderr.contains("broker_import_account_not_found"));
 }

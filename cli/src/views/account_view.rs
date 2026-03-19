@@ -8,6 +8,8 @@ pub struct AccountView {
     pub name: String,
     pub description: String,
     pub env: String,
+    pub broker: String,
+    pub broker_account: String,
 }
 
 impl AccountView {
@@ -16,6 +18,8 @@ impl AccountView {
             name: account.name,
             description: account.description,
             env: account.environment.to_string(),
+            broker: account.broker_kind.to_string(),
+            broker_account: account.broker_account_id.unwrap_or_else(|| "-".to_string()),
         }
     }
 
@@ -93,6 +97,8 @@ mod tests {
         assert_eq!(view.name, "paper");
         assert_eq!(view.description, "test account");
         assert_eq!(view.env, "paper");
+        assert_eq!(view.broker, "alpaca");
+        assert_eq!(view.broker_account, "-");
     }
 
     #[test]

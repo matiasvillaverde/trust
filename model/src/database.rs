@@ -1,9 +1,9 @@
 use crate::{
-    Account, AccountBalance, AccountType, BrokerLog, Currency, DistributionExecutionPlan,
-    DistributionHistory, DistributionRules, Environment, Execution, Level, LevelAdjustmentRules,
-    LevelChange, Order, OrderAction, OrderCategory, Rule, RuleLevel, RuleName, Status, Trade,
-    TradeBalance, TradeCategory, TradeGrade, TradingVehicle, TradingVehicleCategory, Transaction,
-    TransactionCategory,
+    Account, AccountBalance, AccountType, BrokerKind, BrokerLog, Currency,
+    DistributionExecutionPlan, DistributionHistory, DistributionRules, Environment, Execution,
+    Level, LevelAdjustmentRules, LevelChange, Order, OrderAction, OrderCategory, Rule, RuleLevel,
+    RuleName, Status, Trade, TradeBalance, TradeCategory, TradeGrade, TradingVehicle,
+    TradingVehicleCategory, Transaction, TransactionCategory,
 };
 use rust_decimal::Decimal;
 use uuid::Uuid;
@@ -137,6 +137,31 @@ pub trait AccountWrite {
             earnings_percentage,
         )
     }
+
+    /// Creates a new account with hierarchy and broker profile metadata.
+    #[allow(clippy::too_many_arguments)]
+    fn create_with_profile(
+        &mut self,
+        name: &str,
+        description: &str,
+        environment: Environment,
+        taxes_percentage: Decimal,
+        earnings_percentage: Decimal,
+        account_type: AccountType,
+        parent_account_id: Option<Uuid>,
+        _broker_kind: BrokerKind,
+        _broker_account_id: Option<&str>,
+    ) -> Result<Account, Box<dyn Error>> {
+        self.create_with_hierarchy(
+            name,
+            description,
+            environment,
+            taxes_percentage,
+            earnings_percentage,
+            account_type,
+            parent_account_id,
+        )
+    }
 }
 
 /// Trait for reading account balance data from the database
@@ -191,7 +216,11 @@ pub trait OrderWrite {
         category: &OrderCategory,
     ) -> Result<Order, Box<dyn Error>>;
     /// Marks an order as submitted with the broker's order ID
-    fn submit_of(&mut self, order: &Order, broker_order_id: Uuid) -> Result<Order, Box<dyn Error>>;
+    fn submit_of(
+        &mut self,
+        order: &Order,
+        broker_order_id: String,
+    ) -> Result<Order, Box<dyn Error>>;
     /// Marks an order as being filled
     fn filling_of(&mut self, order: &Order) -> Result<Order, Box<dyn Error>>;
     /// Marks an order as closed
@@ -203,7 +232,7 @@ pub trait OrderWrite {
         &mut self,
         order: &Order,
         price: Decimal,
-        broker_id: Uuid,
+        broker_id: String,
     ) -> Result<Order, Box<dyn Error>>;
 }
 

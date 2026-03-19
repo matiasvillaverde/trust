@@ -31,11 +31,11 @@
 #![warn(missing_docs, rust_2018_idioms, missing_debug_implementations)]
 
 use model::{
-    Account, BarTimeframe, Broker, BrokerLog, Environment, MarketBar, MarketDataChannel,
-    MarketDataStreamEvent, MarketQuote, MarketTradeTick, Order, OrderIds, Status, Trade,
+    Account, BarTimeframe, Broker, BrokerKind, BrokerLog, Environment, MarketBar,
+    MarketDataChannel, MarketDataStreamEvent, MarketQuote, MarketTradeTick, Order, OrderIds,
+    Status, Trade,
 };
 use std::error::Error;
-use uuid::Uuid;
 
 mod asset_lookup;
 mod cancel_trade;
@@ -59,6 +59,10 @@ pub struct AlpacaBroker;
 
 /// Generic Broker API
 impl Broker for AlpacaBroker {
+    fn kind(&self) -> BrokerKind {
+        BrokerKind::Alpaca
+    }
+
     fn submit_trade(
         &self,
         trade: &Trade,
@@ -93,7 +97,7 @@ impl Broker for AlpacaBroker {
         trade: &Trade,
         account: &Account,
         new_stop_price: rust_decimal::Decimal,
-    ) -> Result<Uuid, Box<dyn Error>> {
+    ) -> Result<String, Box<dyn Error>> {
         modify_stop::modify(trade, account, new_stop_price)
     }
 
@@ -102,7 +106,7 @@ impl Broker for AlpacaBroker {
         trade: &Trade,
         account: &Account,
         new_target_price: rust_decimal::Decimal,
-    ) -> Result<Uuid, Box<dyn Error>> {
+    ) -> Result<String, Box<dyn Error>> {
         modify_target::modify(trade, account, new_target_price)
     }
 

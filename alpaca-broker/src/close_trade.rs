@@ -19,7 +19,10 @@ pub fn close(trade: &Trade, account: &Account) -> Result<(Order, BrokerLog), Box
     let target_order_id = trade
         .target
         .broker_order_id
+        .as_deref()
         .ok_or("Target order ID is missing")?;
+    let target_order_id = Uuid::parse_str(target_order_id)
+        .map_err(|e| format!("Target order ID is not a valid UUID: {e}"))?;
 
     Runtime::new()
         .map_err(|e| Box::new(e) as Box<dyn Error>)?

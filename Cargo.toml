@@ -1,5 +1,5 @@
 [workspace]
-members = ["model", "db-sqlite", "core", "cli", "alpaca-broker", "broker-sync"]
+members = ["model", "db-sqlite", "core", "cli", "alpaca-broker", "ibkr-broker", "broker-sync"]
 resolver = "2"
 
 [workspace.package]

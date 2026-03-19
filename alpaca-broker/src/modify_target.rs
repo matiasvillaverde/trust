@@ -8,14 +8,17 @@ use std::{error::Error, str::FromStr};
 use tokio::runtime::Runtime;
 use uuid::Uuid;
 
-pub fn modify(trade: &Trade, account: &Account, price: Decimal) -> Result<Uuid, Box<dyn Error>> {
+pub fn modify(trade: &Trade, account: &Account, price: Decimal) -> Result<String, Box<dyn Error>> {
     assert!(trade.account_id == account.id); // Verify that the trade is for the account
 
     // Validate required input before touching keychain/network.
     let target_order_id = trade
         .target
         .broker_order_id
+        .as_deref()
         .ok_or("Target order ID is missing")?;
+    let target_order_id = Uuid::parse_str(target_order_id)
+        .map_err(|e| format!("Target order ID is not a valid UUID: {e}"))?;
 
     let api_info = keys::read_api_key(&account.environment, account)?;
     let client = Client::new(api_info);
@@ -24,7 +27,7 @@ pub fn modify(trade: &Trade, account: &Account, price: Decimal) -> Result<Uuid, 
         .map_err(|e| Box::new(e) as Box<dyn Error>)?
         .block_on(submit(&client, target_order_id, price))?;
 
-    Ok(alpaca_order.id.0)
+    Ok(alpaca_order.id.0.to_string())
 }
 
 async fn submit(client: &Client, order_id: Uuid, price: Decimal) -> Result<Order, Box<dyn Error>> {

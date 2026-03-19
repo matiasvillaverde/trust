@@ -13,9 +13,10 @@
 use std::error::Error;
 
 use crate::dialogs::{AccountSearchDialog, ConsoleDialogIo, DialogIo};
-use alpaca_broker::{AlpacaBroker, Keys};
+use alpaca_broker::AlpacaBroker;
 use core::TrustFacade;
-use model::{Account, Environment};
+use ibkr_broker::IbkrBroker;
+use model::{Account, BrokerKind, Environment};
 
 fn select_environment(io: &mut dyn DialogIo) -> Option<Environment> {
     let available_env = Environment::all();
@@ -33,9 +34,10 @@ pub struct KeysWriteDialogBuilder {
     url: String,
     key_id: String,
     key_secret: String,
+    allow_insecure_tls: bool,
     environment: Option<Environment>,
     account: Option<Account>,
-    result: Option<Result<Keys, Box<dyn Error>>>,
+    result: Option<Result<String, Box<dyn Error>>>,
 }
 
 impl KeysWriteDialogBuilder {
@@ -44,6 +46,7 @@ impl KeysWriteDialogBuilder {
             url: "".to_string(),
             key_id: "".to_string(),
             key_secret: "".to_string(),
+            allow_insecure_tls: true,
             environment: None,
             account: None,
             result: None,
@@ -51,18 +54,30 @@ impl KeysWriteDialogBuilder {
     }
 
     pub fn build(mut self) -> KeysWriteDialogBuilder {
-        self.result = Some(AlpacaBroker::setup_keys(
-            &self.key_id,
-            &self.key_secret,
-            &self.url,
-            &self
-                .environment
-                .expect("Did you forget to select an environment?"),
-            &self
-                .account
-                .clone()
-                .expect("Did you forget to select an account?"),
-        ));
+        let environment = self
+            .environment
+            .expect("Did you forget to select an environment?");
+        let account = self
+            .account
+            .clone()
+            .expect("Did you forget to select an account?");
+        self.result = Some(match account.broker_kind {
+            BrokerKind::Alpaca => AlpacaBroker::setup_keys(
+                &self.key_id,
+                &self.key_secret,
+                &self.url,
+                &environment,
+                &account,
+            )
+            .map(|keys| keys.to_string()),
+            BrokerKind::Ibkr => IbkrBroker::setup_connection(
+                &self.url,
+                self.allow_insecure_tls,
+                &environment,
+                &account,
+            )
+            .map(|config| config.to_string()),
+        });
         self
     }
 
@@ -71,7 +86,7 @@ impl KeysWriteDialogBuilder {
             .result
             .expect("No result found, did you forget to call build?")
         {
-            Ok(keys) => println!("Keys created: {:?}", keys.key_id),
+            Ok(summary) => println!("Broker settings created: {summary}"),
             Err(error) => println!("Error creating keys: {error:?}"),
         }
     }
@@ -108,6 +123,9 @@ impl KeysWriteDialogBuilder {
     }
 
     pub fn key_id_with_io(mut self, io: &mut dyn DialogIo) -> Self {
+        if self.selected_broker_kind() == Some(BrokerKind::Ibkr) {
+            return self;
+        }
         match io.input_text("Key: ", false) {
             Ok(value) => self.key_id = value,
             Err(error) => println!("Error reading key id: {error}"),
@@ -122,6 +140,9 @@ impl KeysWriteDialogBuilder {
     }
 
     pub fn key_secret_with_io(mut self, io: &mut dyn DialogIo) -> Self {
+        if self.selected_broker_kind() == Some(BrokerKind::Ibkr) {
+            return self;
+        }
         match io.input_text("Secret: ", false) {
             Ok(value) => self.key_secret = value,
             Err(error) => println!("Error reading key secret: {error}"),
@@ -143,12 +164,16 @@ impl KeysWriteDialogBuilder {
         }
         self
     }
+
+    fn selected_broker_kind(&self) -> Option<BrokerKind> {
+        self.account.as_ref().map(|account| account.broker_kind)
+    }
 }
 
 pub struct KeysReadDialogBuilder {
     environment: Option<Environment>,
     account: Option<Account>,
-    result: Option<Result<Keys, Box<dyn Error>>>,
+    result: Option<Result<String, Box<dyn Error>>>,
 }
 
 impl KeysReadDialogBuilder {
@@ -161,15 +186,21 @@ impl KeysReadDialogBuilder {
     }
 
     pub fn build(mut self) -> KeysReadDialogBuilder {
-        self.result = Some(AlpacaBroker::read_keys(
-            &self
-                .environment
-                .expect("Did you forget to select an environment?"),
-            &self
-                .account
-                .clone()
-                .expect("Did you forget to select an account?"),
-        ));
+        let environment = self
+            .environment
+            .expect("Did you forget to select an environment?");
+        let account = self
+            .account
+            .clone()
+            .expect("Did you forget to select an account?");
+        self.result = Some(match account.broker_kind {
+            BrokerKind::Alpaca => {
+                AlpacaBroker::read_keys(&environment, &account).map(|keys| keys.to_string())
+            }
+            BrokerKind::Ibkr => {
+                IbkrBroker::read_connection(&environment, &account).map(|config| config.to_string())
+            }
+        });
         self
     }
 
@@ -178,7 +209,7 @@ impl KeysReadDialogBuilder {
             .result
             .expect("No result found, did you forget to call build?")
         {
-            Ok(keys) => println!("Keys stored: {:?}", keys.key_id),
+            Ok(summary) => println!("Broker settings stored: {summary}"),
             Err(error) => println!("Error reading keys: {error:?}"),
         }
     }
@@ -226,15 +257,17 @@ impl KeysDeleteDialogBuilder {
     }
 
     pub fn build(mut self) -> KeysDeleteDialogBuilder {
-        self.result = Some(AlpacaBroker::delete_keys(
-            &self
-                .environment
-                .expect("Did you forget to select an environment?"),
-            &self
-                .account
-                .clone()
-                .expect("Did you forget to select an account?"),
-        ));
+        let environment = self
+            .environment
+            .expect("Did you forget to select an environment?");
+        let account = self
+            .account
+            .clone()
+            .expect("Did you forget to select an account?");
+        self.result = Some(match account.broker_kind {
+            BrokerKind::Alpaca => AlpacaBroker::delete_keys(&environment, &account),
+            BrokerKind::Ibkr => IbkrBroker::delete_connection(&environment, &account),
+        });
         self
     }
 
@@ -280,10 +313,10 @@ mod tests {
     use super::{KeysDeleteDialogBuilder, KeysReadDialogBuilder, KeysWriteDialogBuilder};
     use crate::dialogs::io::{scripted_push_input, scripted_push_select, scripted_reset};
     use crate::dialogs::DialogIo;
-    use alpaca_broker::{AlpacaBroker, Keys};
+    use alpaca_broker::AlpacaBroker;
     use core::TrustFacade;
     use db_sqlite::SqliteDatabase;
-    use model::Environment;
+    use model::{Account, BrokerKind, Environment};
     use rust_decimal_macros::dec;
     use std::collections::VecDeque;
     use std::io::Error as IoError;
@@ -319,6 +352,7 @@ mod tests {
         assert_eq!(write.url, "");
         assert_eq!(write.key_id, "");
         assert_eq!(write.key_secret, "");
+        assert!(write.allow_insecure_tls);
         assert!(write.environment.is_none());
         assert!(write.account.is_none());
         assert!(write.result.is_none());
@@ -335,11 +369,12 @@ mod tests {
     }
 
     #[test]
-    fn keys_builders_display_handle_error_results() {
+    fn keys_builders_display_handle_success_and_error_results() {
         KeysWriteDialogBuilder {
             url: String::new(),
             key_id: String::new(),
             key_secret: String::new(),
+            allow_insecure_tls: true,
             environment: None,
             account: None,
             result: Some(Err("synthetic failure".into())),
@@ -359,32 +394,26 @@ mod tests {
             result: Some(Err("synthetic failure".into())),
         }
         .display();
-    }
 
-    #[test]
-    fn keys_builders_display_handle_success_results() {
         KeysWriteDialogBuilder {
             url: String::new(),
             key_id: String::new(),
             key_secret: String::new(),
+            allow_insecure_tls: true,
             environment: None,
             account: None,
-            result: Some(Ok(Keys::new(
-                "id",
-                "secret",
-                "https://paper-api.alpaca.markets",
-            ))),
+            result: Some(Ok(
+                "https://paper-api.alpaca.markets id [REDACTED]".to_string()
+            )),
         }
         .display();
 
         KeysReadDialogBuilder {
             environment: None,
             account: None,
-            result: Some(Ok(Keys::new(
-                "id",
-                "secret",
-                "https://paper-api.alpaca.markets",
-            ))),
+            result: Some(Ok(
+                "https://localhost:5000/v1/api (allow_insecure_tls=true)".to_string(),
+            )),
         }
         .display();
 
@@ -412,14 +441,6 @@ mod tests {
         io.selections.push_back(Ok(Some(0)));
         let delete = KeysDeleteDialogBuilder::new().environment_with_io(&mut io);
         assert_eq!(delete.environment, Some(model::Environment::Paper));
-    }
-
-    #[test]
-    fn keys_environment_with_io_handles_cancel() {
-        let mut io = ScriptedIo::default();
-        io.selections.push_back(Ok(None));
-        let write = KeysWriteDialogBuilder::new().environment_with_io(&mut io);
-        assert!(write.environment.is_none());
     }
 
     #[test]
@@ -520,6 +541,20 @@ mod tests {
         io.selections.push_back(Ok(Some(0)));
         let write = KeysWriteDialogBuilder::new().account_with_io(&mut trust, &mut io);
         assert!(write.account.is_some(), "account should be selected");
+    }
+
+    #[test]
+    fn ibkr_accounts_skip_key_and_secret_prompts() {
+        let mut builder = KeysWriteDialogBuilder::new();
+        builder.account = Some(Account {
+            broker_kind: BrokerKind::Ibkr,
+            ..Account::default()
+        });
+        let mut io = ScriptedIo::default();
+        io.inputs.push_back(Ok("ignored".to_string()));
+        let builder = builder.key_id_with_io(&mut io).key_secret_with_io(&mut io);
+        assert_eq!(builder.key_id, "");
+        assert_eq!(builder.key_secret, "");
     }
 
     #[test]

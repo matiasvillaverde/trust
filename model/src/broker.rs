@@ -1,5 +1,5 @@
 use crate::{
-    Account, BarTimeframe, Execution, FeeActivity, MarketBar, MarketDataChannel,
+    Account, BarTimeframe, BrokerKind, Execution, FeeActivity, MarketBar, MarketDataChannel,
     MarketDataStreamEvent, MarketQuote, MarketTradeTick, Order, Status, Trade,
 };
 use chrono::NaiveDateTime;
@@ -47,15 +47,18 @@ impl Default for BrokerLog {
 #[derive(Debug)]
 pub struct OrderIds {
     /// ID of the stop loss order
-    pub stop: Uuid,
+    pub stop: String,
     /// ID of the entry order
-    pub entry: Uuid,
+    pub entry: String,
     /// ID of the target/take profit order
-    pub target: Uuid,
+    pub target: String,
 }
 
 /// Trait for implementing broker integrations
 pub trait Broker {
+    /// Stable broker identity used for runtime dispatch.
+    fn kind(&self) -> BrokerKind;
+
     /// Submit a new trade to the broker
     fn submit_trade(
         &self,
@@ -90,7 +93,7 @@ pub trait Broker {
         trade: &Trade,
         account: &Account,
         new_stop_price: Decimal,
-    ) -> Result<Uuid, Box<dyn Error>>;
+    ) -> Result<String, Box<dyn Error>>;
 
     /// Modify the target price of an existing trade
     fn modify_target(
@@ -98,7 +101,7 @@ pub trait Broker {
         trade: &Trade,
         account: &Account,
         new_price: Decimal,
-    ) -> Result<Uuid, Box<dyn Error>>;
+    ) -> Result<String, Box<dyn Error>>;
 
     /// Retrieve market bars for a symbol from the broker's market data API (if supported).
     ///

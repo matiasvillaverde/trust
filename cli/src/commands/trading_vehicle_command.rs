@@ -24,10 +24,16 @@ impl TradingVehicleCommandBuilder {
             Command::new("create")
                 .about("Create a new trading vehicle")
                 .arg(
+                    Arg::new("from-broker")
+                        .long("from-broker")
+                        .value_name("BROKER")
+                        .help("Fetch symbol metadata from a broker (alpaca|ibkr) instead of prompting manually"),
+                )
+                .arg(
                     Arg::new("from-alpaca")
                         .long("from-alpaca")
                         .action(ArgAction::SetTrue)
-                        .help("Fetch symbol metadata from Alpaca instead of prompting manually"),
+                        .help("Deprecated alias for --from-broker alpaca"),
                 )
                 .arg(
                     Arg::new("account")
@@ -75,7 +81,7 @@ mod tests {
     }
 
     #[test]
-    fn trading_vehicle_create_parses_alpaca_and_symbol_options() {
+    fn trading_vehicle_create_parses_broker_import_and_symbol_options() {
         let cmd = TradingVehicleCommandBuilder::new()
             .create_trading_vehicle()
             .build();
@@ -83,7 +89,8 @@ mod tests {
             .try_get_matches_from([
                 "trading-vehicle",
                 "create",
-                "--from-alpaca",
+                "--from-broker",
+                "ibkr",
                 "--account",
                 "paper",
                 "--symbol",
@@ -95,7 +102,10 @@ mod tests {
         let sub = matches
             .subcommand_matches("create")
             .expect("create subcommand");
-        assert!(sub.get_flag("from-alpaca"));
+        assert_eq!(
+            sub.get_one::<String>("from-broker").map(String::as_str),
+            Some("ibkr")
+        );
         assert_eq!(
             sub.get_one::<String>("account").map(String::as_str),
             Some("paper")

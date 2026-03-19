@@ -47,10 +47,7 @@ impl TryFrom<ExecutionSQLite> for Execution {
             trade_id: value.trade_id.map(|x| Uuid::parse_str(&x)).transpose()?,
             order_id: value.order_id.map(|x| Uuid::parse_str(&x)).transpose()?,
             broker_execution_id: value.broker_execution_id,
-            broker_order_id: value
-                .broker_order_id
-                .map(|x| Uuid::parse_str(&x))
-                .transpose()?,
+            broker_order_id: value.broker_order_id,
             symbol: value.symbol,
             side: ExecutionSide::from_str(&value.side)
                 .map_err(|_| "invalid execution.side in database")?,
@@ -77,7 +74,7 @@ impl From<&Execution> for ExecutionSQLite {
             trade_id: value.trade_id.map(|x| x.to_string()),
             order_id: value.order_id.map(|x| x.to_string()),
             broker_execution_id: value.broker_execution_id.clone(),
-            broker_order_id: value.broker_order_id.map(|x| x.to_string()),
+            broker_order_id: value.broker_order_id.clone(),
             symbol: value.symbol.clone(),
             side: value.side.to_string(),
             qty: value.qty.to_string(),
@@ -190,6 +187,8 @@ mod tests {
             earnings_percentage: dec!(0),
             account_type: AccountType::Primary,
             parent_account_id: None,
+            broker_kind: model::BrokerKind::Alpaca,
+            broker_account_id: None,
         }
     }
 

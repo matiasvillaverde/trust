@@ -45,6 +45,7 @@ mod dialogs;
 mod dispatcher;
 mod exporters;
 mod protected_keyword;
+mod trading_vehicle_import;
 mod views;
 
 fn build_keys_subcommand() -> Command {

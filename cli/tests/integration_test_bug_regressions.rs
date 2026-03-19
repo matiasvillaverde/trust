@@ -12,6 +12,10 @@ use uuid::Uuid;
 struct NoOpBroker;
 
 impl Broker for NoOpBroker {
+    fn kind(&self) -> model::BrokerKind {
+        model::BrokerKind::Alpaca
+    }
+
     fn submit_trade(
         &self,
         _trade: &Trade,
@@ -20,9 +24,9 @@ impl Broker for NoOpBroker {
         Ok((
             BrokerLog::default(),
             OrderIds {
-                entry: Uuid::new_v4(),
-                target: Uuid::new_v4(),
-                stop: Uuid::new_v4(),
+                entry: Uuid::new_v4().to_string(),
+                target: Uuid::new_v4().to_string(),
+                stop: Uuid::new_v4().to_string(),
             },
         ))
     }
@@ -34,7 +38,7 @@ impl Broker for NoOpBroker {
     ) -> Result<(Status, Vec<Order>, BrokerLog), Box<dyn Error>> {
         let entry = Order {
             id: trade.entry.id,
-            broker_order_id: trade.entry.broker_order_id,
+            broker_order_id: trade.entry.broker_order_id.clone(),
             filled_quantity: trade.entry.quantity,
             average_filled_price: Some(trade.entry.unit_price),
             status: model::OrderStatus::Filled,
@@ -43,13 +47,13 @@ impl Broker for NoOpBroker {
         };
         let target = Order {
             id: trade.target.id,
-            broker_order_id: trade.target.broker_order_id,
+            broker_order_id: trade.target.broker_order_id.clone(),
             status: model::OrderStatus::Held,
             ..Default::default()
         };
         let stop = Order {
             id: trade.safety_stop.id,
-            broker_order_id: trade.safety_stop.broker_order_id,
+            broker_order_id: trade.safety_stop.broker_order_id.clone(),
             status: model::OrderStatus::Held,
             ..Default::default()
         };
@@ -81,8 +85,8 @@ impl Broker for NoOpBroker {
         _trade: &Trade,
         _account: &Account,
         _new_stop_price: Decimal,
-    ) -> Result<Uuid, Box<dyn Error>> {
-        Ok(Uuid::new_v4())
+    ) -> Result<String, Box<dyn Error>> {
+        Ok(Uuid::new_v4().to_string())
     }
 
     fn modify_target(
@@ -90,8 +94,8 @@ impl Broker for NoOpBroker {
         _trade: &Trade,
         _account: &Account,
         _new_target_price: Decimal,
-    ) -> Result<Uuid, Box<dyn Error>> {
-        Ok(Uuid::new_v4())
+    ) -> Result<String, Box<dyn Error>> {
+        Ok(Uuid::new_v4().to_string())
     }
 }
 

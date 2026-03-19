@@ -6,7 +6,7 @@
 #![allow(clippy::cognitive_complexity)]
 
 use chrono::Utc;
-use model::{Account, AccountType, Currency, Environment, Trade, TradeBalance};
+use model::{Account, AccountType, BrokerKind, Currency, Environment, Trade, TradeBalance};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use std::error::Error;
@@ -409,6 +409,8 @@ impl IntegrationTestSuite {
             earnings_percentage: dec!(30.0),
             account_type: model::AccountType::Primary,
             parent_account_id: Some(Uuid::new_v4()), // Invalid!
+            broker_kind: BrokerKind::Alpaca,
+            broker_account_id: None,
         };
 
         // This would be caught by validation in real system
@@ -510,6 +512,8 @@ impl IntegrationTestSuite {
             earnings_percentage: dec!(30.0),
             account_type,
             parent_account_id: parent_id,
+            broker_kind: BrokerKind::Alpaca,
+            broker_account_id: None,
         })
     }
 

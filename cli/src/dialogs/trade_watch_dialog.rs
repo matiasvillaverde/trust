@@ -272,6 +272,10 @@ mod tests {
     struct TestBroker;
 
     impl Broker for TestBroker {
+        fn kind(&self) -> model::BrokerKind {
+            model::BrokerKind::Alpaca
+        }
+
         fn submit_trade(
             &self,
             _trade: &model::Trade,
@@ -280,9 +284,9 @@ mod tests {
             Ok((
                 BrokerLog::default(),
                 OrderIds {
-                    stop: Uuid::new_v4(),
-                    entry: Uuid::new_v4(),
-                    target: Uuid::new_v4(),
+                    stop: Uuid::new_v4().to_string(),
+                    entry: Uuid::new_v4().to_string(),
+                    target: Uuid::new_v4().to_string(),
                 },
             ))
         }
@@ -316,8 +320,8 @@ mod tests {
             _trade: &model::Trade,
             _account: &model::Account,
             _new_stop_price: rust_decimal::Decimal,
-        ) -> Result<Uuid, Box<dyn std::error::Error>> {
-            Ok(Uuid::new_v4())
+        ) -> Result<String, Box<dyn std::error::Error>> {
+            Ok(Uuid::new_v4().to_string())
         }
 
         fn modify_target(
@@ -325,8 +329,8 @@ mod tests {
             _trade: &model::Trade,
             _account: &model::Account,
             _new_price: rust_decimal::Decimal,
-        ) -> Result<Uuid, Box<dyn std::error::Error>> {
-            Ok(Uuid::new_v4())
+        ) -> Result<String, Box<dyn std::error::Error>> {
+            Ok(Uuid::new_v4().to_string())
         }
     }
 
@@ -433,6 +437,10 @@ mod tests {
     }
 
     impl Broker for ScenarioBroker {
+        fn kind(&self) -> model::BrokerKind {
+            model::BrokerKind::Alpaca
+        }
+
         fn submit_trade(
             &self,
             _trade: &model::Trade,
@@ -441,9 +449,9 @@ mod tests {
             Ok((
                 BrokerLog::default(),
                 OrderIds {
-                    stop: Uuid::new_v4(),
-                    entry: Uuid::new_v4(),
-                    target: Uuid::new_v4(),
+                    stop: Uuid::new_v4().to_string(),
+                    entry: Uuid::new_v4().to_string(),
+                    target: Uuid::new_v4().to_string(),
                 },
             ))
         }
@@ -493,8 +501,8 @@ mod tests {
             _trade: &model::Trade,
             _account: &model::Account,
             _new_stop_price: rust_decimal::Decimal,
-        ) -> Result<Uuid, Box<dyn std::error::Error>> {
-            Ok(Uuid::new_v4())
+        ) -> Result<String, Box<dyn std::error::Error>> {
+            Ok(Uuid::new_v4().to_string())
         }
 
         fn modify_target(
@@ -502,8 +510,8 @@ mod tests {
             _trade: &model::Trade,
             _account: &model::Account,
             _new_price: rust_decimal::Decimal,
-        ) -> Result<Uuid, Box<dyn std::error::Error>> {
-            Ok(Uuid::new_v4())
+        ) -> Result<String, Box<dyn std::error::Error>> {
+            Ok(Uuid::new_v4().to_string())
         }
     }
 
