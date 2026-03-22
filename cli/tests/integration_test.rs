@@ -1,3 +1,4 @@
 mod integration_test_account;
 mod integration_test_cancel_trade;
 mod integration_test_trade;
+mod integration_test_transactions;
