@@ -30,10 +30,7 @@ use uuid::Uuid;
 // ---------------------------------------------------------------------------
 
 fn new_facade(broker: impl Broker + 'static) -> TrustFacade {
-    TrustFacade::new(
-        Box::new(SqliteDatabase::new_in_memory()),
-        Box::new(broker),
-    )
+    TrustFacade::new(Box::new(SqliteDatabase::new_in_memory()), Box::new(broker))
 }
 
 fn setup_account(trust: &mut TrustFacade, deposit: Decimal) -> Account {
@@ -77,7 +74,12 @@ fn setup_account(trust: &mut TrustFacade, deposit: Decimal) -> Account {
 fn create_vehicle(trust: &mut TrustFacade, symbol: &str) -> model::TradingVehicle {
     let isin = format!("US{}", Uuid::new_v4().simple());
     trust
-        .create_trading_vehicle(symbol, Some(&isin), &TradingVehicleCategory::Stock, "NASDAQ")
+        .create_trading_vehicle(
+            symbol,
+            Some(&isin),
+            &TradingVehicleCategory::Stock,
+            "NASDAQ",
+        )
         .unwrap()
 }
 
@@ -131,9 +133,7 @@ struct SyncFailsBroker {
 
 impl SyncFailsBroker {
     fn new(msg: &'static str) -> Self {
-        Self {
-            error_message: msg,
-        }
+        Self { error_message: msg }
     }
 }
 
@@ -171,12 +171,7 @@ impl Broker for SyncFailsBroker {
     fn modify_stop(&self, _: &Trade, _: &Account, _: Decimal) -> Result<String, Box<dyn Error>> {
         unimplemented!()
     }
-    fn modify_target(
-        &self,
-        _: &Trade,
-        _: &Account,
-        _: Decimal,
-    ) -> Result<String, Box<dyn Error>> {
+    fn modify_target(&self, _: &Trade, _: &Account, _: Decimal) -> Result<String, Box<dyn Error>> {
         unimplemented!()
     }
 }
@@ -230,12 +225,7 @@ impl Broker for ExecutionFetchFailsBroker {
     fn modify_stop(&self, _: &Trade, _: &Account, _: Decimal) -> Result<String, Box<dyn Error>> {
         unimplemented!()
     }
-    fn modify_target(
-        &self,
-        _: &Trade,
-        _: &Account,
-        _: Decimal,
-    ) -> Result<String, Box<dyn Error>> {
+    fn modify_target(&self, _: &Trade, _: &Account, _: Decimal) -> Result<String, Box<dyn Error>> {
         unimplemented!()
     }
     fn fetch_executions(
@@ -317,12 +307,7 @@ impl Broker for TransientFailureBroker {
     fn modify_stop(&self, _: &Trade, _: &Account, _: Decimal) -> Result<String, Box<dyn Error>> {
         unimplemented!()
     }
-    fn modify_target(
-        &self,
-        _: &Trade,
-        _: &Account,
-        _: Decimal,
-    ) -> Result<String, Box<dyn Error>> {
+    fn modify_target(&self, _: &Trade, _: &Account, _: Decimal) -> Result<String, Box<dyn Error>> {
         unimplemented!()
     }
 }
@@ -365,12 +350,7 @@ impl Broker for EmptyOrdersBroker {
     fn modify_stop(&self, _: &Trade, _: &Account, _: Decimal) -> Result<String, Box<dyn Error>> {
         unimplemented!()
     }
-    fn modify_target(
-        &self,
-        _: &Trade,
-        _: &Account,
-        _: Decimal,
-    ) -> Result<String, Box<dyn Error>> {
+    fn modify_target(&self, _: &Trade, _: &Account, _: Decimal) -> Result<String, Box<dyn Error>> {
         unimplemented!()
     }
 }
@@ -422,12 +402,7 @@ impl Broker for WrongOrderIdBroker {
     fn modify_stop(&self, _: &Trade, _: &Account, _: Decimal) -> Result<String, Box<dyn Error>> {
         unimplemented!()
     }
-    fn modify_target(
-        &self,
-        _: &Trade,
-        _: &Account,
-        _: Decimal,
-    ) -> Result<String, Box<dyn Error>> {
+    fn modify_target(&self, _: &Trade, _: &Account, _: Decimal) -> Result<String, Box<dyn Error>> {
         unimplemented!()
     }
 }
@@ -489,12 +464,7 @@ impl Broker for DuplicateOrderIdBroker {
     fn modify_stop(&self, _: &Trade, _: &Account, _: Decimal) -> Result<String, Box<dyn Error>> {
         unimplemented!()
     }
-    fn modify_target(
-        &self,
-        _: &Trade,
-        _: &Account,
-        _: Decimal,
-    ) -> Result<String, Box<dyn Error>> {
+    fn modify_target(&self, _: &Trade, _: &Account, _: Decimal) -> Result<String, Box<dyn Error>> {
         unimplemented!()
     }
 }
@@ -544,7 +514,11 @@ impl Broker for StatusMismatchBroker {
             status: OrderStatus::Held,
             ..Default::default()
         };
-        Ok((Status::Filled, vec![entry, target, stop], BrokerLog::default()))
+        Ok((
+            Status::Filled,
+            vec![entry, target, stop],
+            BrokerLog::default(),
+        ))
     }
     fn close_trade(&self, _: &Trade, _: &Account) -> Result<(Order, BrokerLog), Box<dyn Error>> {
         unimplemented!()
@@ -555,12 +529,7 @@ impl Broker for StatusMismatchBroker {
     fn modify_stop(&self, _: &Trade, _: &Account, _: Decimal) -> Result<String, Box<dyn Error>> {
         unimplemented!()
     }
-    fn modify_target(
-        &self,
-        _: &Trade,
-        _: &Account,
-        _: Decimal,
-    ) -> Result<String, Box<dyn Error>> {
+    fn modify_target(&self, _: &Trade, _: &Account, _: Decimal) -> Result<String, Box<dyn Error>> {
         unimplemented!()
     }
 }
@@ -602,12 +571,7 @@ impl Broker for CancelFailsBroker {
     fn modify_stop(&self, _: &Trade, _: &Account, _: Decimal) -> Result<String, Box<dyn Error>> {
         unimplemented!()
     }
-    fn modify_target(
-        &self,
-        _: &Trade,
-        _: &Account,
-        _: Decimal,
-    ) -> Result<String, Box<dyn Error>> {
+    fn modify_target(&self, _: &Trade, _: &Account, _: Decimal) -> Result<String, Box<dyn Error>> {
         unimplemented!()
     }
 }
@@ -642,12 +606,7 @@ impl Broker for SubmitFailsBroker {
     fn modify_stop(&self, _: &Trade, _: &Account, _: Decimal) -> Result<String, Box<dyn Error>> {
         unimplemented!()
     }
-    fn modify_target(
-        &self,
-        _: &Trade,
-        _: &Account,
-        _: Decimal,
-    ) -> Result<String, Box<dyn Error>> {
+    fn modify_target(&self, _: &Trade, _: &Account, _: Decimal) -> Result<String, Box<dyn Error>> {
         unimplemented!()
     }
 }
@@ -667,9 +626,7 @@ fn test_sync_network_error_leaves_trade_unchanged() {
     assert!(result.is_err());
 
     // Trade must remain Submitted
-    let trades = trust
-        .search_trades(account.id, Status::Submitted)
-        .unwrap();
+    let trades = trust.search_trades(account.id, Status::Submitted).unwrap();
     assert_eq!(trades.len(), 1);
     assert_eq!(trades[0].id, trade.id);
 
@@ -677,9 +634,9 @@ fn test_sync_network_error_leaves_trade_unchanged() {
     let balance = trust.search_balance(account.id, &Currency::USD).unwrap();
     assert_eq!(balance.total_balance, dec!(50000));
     assert_eq!(balance.total_available, dec!(30000)); // 50000 - 20000 funded
-    // total_in_trade = 0 after Funded→Submitted. This is safe because the
-    // risk gatekeeper is total_available (reduced by FundTrade), NOT total_in_trade.
-    // total_in_trade is a display/reporting field — never used in risk decisions.
+                                                      // total_in_trade = 0 after Funded→Submitted. This is safe because the
+                                                      // risk gatekeeper is total_available (reduced by FundTrade), NOT total_in_trade.
+                                                      // total_in_trade is a display/reporting field — never used in risk decisions.
     assert_eq!(balance.total_in_trade, dec!(0));
 }
 
@@ -692,9 +649,7 @@ fn test_sync_auth_error_leaves_trade_unchanged() {
     let result = trust.sync_trade(&trade, &account);
     assert!(result.is_err());
 
-    let trades = trust
-        .search_trades(account.id, Status::Submitted)
-        .unwrap();
+    let trades = trust.search_trades(account.id, Status::Submitted).unwrap();
     assert_eq!(trades.len(), 1);
 
     let balance = trust.search_balance(account.id, &Currency::USD).unwrap();
@@ -755,7 +710,10 @@ fn test_execution_fetch_failure_does_not_block_sync() {
 
     // Should succeed despite execution/fee fetch failures (best-effort)
     let result = trust.sync_trade(&trade, &account);
-    assert!(result.is_ok(), "sync should succeed even when execution fetch fails");
+    assert!(
+        result.is_ok(),
+        "sync should succeed even when execution fetch fails"
+    );
 
     // Trade should be Filled
     let filled = trust.search_trades(account.id, Status::Filled).unwrap();
@@ -800,7 +758,10 @@ fn test_fee_fetch_failure_does_not_block_close() {
     let trade = create_submitted_trade(&mut trust, &account);
 
     let result = trust.sync_trade(&trade, &account);
-    assert!(result.is_ok(), "close should succeed even when fee fetch fails");
+    assert!(
+        result.is_ok(),
+        "close should succeed even when fee fetch fails"
+    );
 
     let closed = trust
         .search_trades(account.id, Status::ClosedTarget)
@@ -852,9 +813,7 @@ fn test_transient_failures_then_success_no_corruption() {
     }
 
     // Trade should still be Submitted after all failures
-    let trades = trust
-        .search_trades(account.id, Status::Submitted)
-        .unwrap();
+    let trades = trust.search_trades(account.id, Status::Submitted).unwrap();
     assert_eq!(trades.len(), 1);
     let balance = trust.search_balance(account.id, &Currency::USD).unwrap();
     // total_in_trade = 0 after Funded→Submitted transition
@@ -890,9 +849,7 @@ fn test_broker_returns_filled_with_no_orders_rejected() {
     );
 
     // Trade must remain Submitted
-    let trades = trust
-        .search_trades(account.id, Status::Submitted)
-        .unwrap();
+    let trades = trust.search_trades(account.id, Status::Submitted).unwrap();
     assert_eq!(trades.len(), 1);
 
     // Balance unchanged
@@ -918,9 +875,7 @@ fn test_broker_returns_wrong_order_ids_rejected() {
     );
 
     // Trade and balance unchanged
-    let trades = trust
-        .search_trades(account.id, Status::Submitted)
-        .unwrap();
+    let trades = trust.search_trades(account.id, Status::Submitted).unwrap();
     assert_eq!(trades.len(), 1);
     let balance = trust.search_balance(account.id, &Currency::USD).unwrap();
     assert_eq!(balance.total_available, dec!(30000));
@@ -944,9 +899,7 @@ fn test_broker_returns_duplicate_order_ids_rejected() {
     );
 
     // Trade and balance unchanged
-    let trades = trust
-        .search_trades(account.id, Status::Submitted)
-        .unwrap();
+    let trades = trust.search_trades(account.id, Status::Submitted).unwrap();
     assert_eq!(trades.len(), 1);
 }
 
@@ -967,9 +920,7 @@ fn test_status_mismatch_filled_but_entry_not_filled_rejected() {
         "Filled status with unfilled entry should be rejected by validate_sync_payload"
     );
 
-    let trades = trust
-        .search_trades(account.id, Status::Submitted)
-        .unwrap();
+    let trades = trust.search_trades(account.id, Status::Submitted).unwrap();
     assert_eq!(trades.len(), 1);
     let balance = trust.search_balance(account.id, &Currency::USD).unwrap();
     assert_eq!(balance.total_available, dec!(30000));
@@ -1097,9 +1048,7 @@ fn test_many_sync_failures_no_balance_drift() {
     assert_eq!(balance.taxed, dec!(0));
 
     // Trade must still be Submitted
-    let trades = trust
-        .search_trades(account.id, Status::Submitted)
-        .unwrap();
+    let trades = trust.search_trades(account.id, Status::Submitted).unwrap();
     assert_eq!(trades.len(), 1);
 }
 
@@ -1222,7 +1171,9 @@ fn test_alpaca_broker_kind() {
 
 #[test]
 fn test_sync_error_message_is_preserved() {
-    let mut trust = new_facade(SyncFailsBroker::new("IBKR Client Portal Gateway is not ready"));
+    let mut trust = new_facade(SyncFailsBroker::new(
+        "IBKR Client Portal Gateway is not ready",
+    ));
     let account = setup_account(&mut trust, dec!(50000));
     let trade = create_submitted_trade(&mut trust, &account);
 
@@ -1273,10 +1224,7 @@ fn test_cannot_over_risk_when_total_in_trade_is_zero() {
         .create_trade(draft, dec!(38), dec!(40), dec!(50))
         .unwrap();
     let trades_new = trust.search_trades(account.id, Status::New).unwrap();
-    let trade2 = trades_new
-        .iter()
-        .find(|t| t.id != trade1.id)
-        .unwrap();
+    let trade2 = trades_new.iter().find(|t| t.id != trade1.id).unwrap();
 
     let result = trust.fund_trade(trade2);
     assert!(

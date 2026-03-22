@@ -3,8 +3,7 @@ use core::TrustFacade;
 use db_sqlite::SqliteDatabase;
 use model::{
     Account, Broker, BrokerLog, Currency, DraftTrade, FeeActivity, Order, OrderIds, OrderStatus,
-    RuleLevel, RuleName, Status, Trade, TradeCategory, TradingVehicleCategory,
-    TransactionCategory,
+    RuleLevel, RuleName, Status, Trade, TradeCategory, TradingVehicleCategory, TransactionCategory,
 };
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
@@ -17,10 +16,7 @@ use uuid::Uuid;
 // ---------------------------------------------------------------------------
 
 fn setup_facade(broker: impl Broker + 'static) -> TrustFacade {
-    TrustFacade::new(
-        Box::new(SqliteDatabase::new_in_memory()),
-        Box::new(broker),
-    )
+    TrustFacade::new(Box::new(SqliteDatabase::new_in_memory()), Box::new(broker))
 }
 
 fn setup_account_with_rules(
@@ -198,12 +194,7 @@ impl Broker for StatefulBroker {
         unimplemented!()
     }
 
-    fn modify_target(
-        &self,
-        _: &Trade,
-        _: &Account,
-        _: Decimal,
-    ) -> Result<String, Box<dyn Error>> {
+    fn modify_target(&self, _: &Trade, _: &Account, _: Decimal) -> Result<String, Box<dyn Error>> {
         unimplemented!()
     }
 
@@ -257,12 +248,7 @@ impl Broker for NoOpBroker {
     fn modify_stop(&self, _: &Trade, _: &Account, _: Decimal) -> Result<String, Box<dyn Error>> {
         unimplemented!()
     }
-    fn modify_target(
-        &self,
-        _: &Trade,
-        _: &Account,
-        _: Decimal,
-    ) -> Result<String, Box<dyn Error>> {
+    fn modify_target(&self, _: &Trade, _: &Account, _: Decimal) -> Result<String, Box<dyn Error>> {
         unimplemented!()
     }
 }
@@ -518,9 +504,7 @@ fn test_sync_submitted_no_fills_is_noop() {
 
     trust.sync_trade(&trade, &account).unwrap();
 
-    let trades = trust
-        .search_trades(account.id, Status::Submitted)
-        .unwrap();
+    let trades = trust.search_trades(account.id, Status::Submitted).unwrap();
     assert_eq!(trades.len(), 1);
     assert_eq!(trades[0].status, Status::Submitted);
 
@@ -590,7 +574,11 @@ fn test_fee_activity_matched_by_broker_order_id() {
         .iter()
         .filter(|t| matches!(t.category, TransactionCategory::FeeOpen(_)))
         .collect();
-    assert_eq!(fee_txs.len(), 1, "should have exactly one FeeOpen transaction");
+    assert_eq!(
+        fee_txs.len(),
+        1,
+        "should have exactly one FeeOpen transaction"
+    );
     assert_eq!(fee_txs[0].amount, dec!(5.50));
 }
 
@@ -693,7 +681,11 @@ fn test_fee_activity_wrong_symbol_not_matched() {
         .iter()
         .filter(|t| matches!(t.category, TransactionCategory::FeeOpen(_)))
         .collect();
-    assert_eq!(fee_txs.len(), 0, "fee for wrong symbol should not be matched");
+    assert_eq!(
+        fee_txs.len(),
+        0,
+        "fee for wrong symbol should not be matched"
+    );
 
     let balance = trust.search_balance(account.id, &Currency::USD).unwrap();
     assert_eq!(balance.total_available, dec!(30000)); // No fee deducted
@@ -817,7 +809,11 @@ fn test_closing_fee_matched_to_target_order() {
         .iter()
         .filter(|t| matches!(t.category, TransactionCategory::FeeClose(_)))
         .collect();
-    assert_eq!(fee_close_txs.len(), 1, "should have one FeeClose transaction");
+    assert_eq!(
+        fee_close_txs.len(),
+        1,
+        "should have one FeeClose transaction"
+    );
     assert_eq!(fee_close_txs[0].amount, dec!(4.00));
 
     let closed = trust
@@ -1070,9 +1066,7 @@ fn test_two_trades_same_symbol_independent_lifecycles() {
     assert_eq!(filled[0].trading_vehicle.symbol, "TSLA");
 
     // Trade2 should still be Submitted
-    let submitted = trust
-        .search_trades(account.id, Status::Submitted)
-        .unwrap();
+    let submitted = trust.search_trades(account.id, Status::Submitted).unwrap();
     assert_eq!(submitted.len(), 1);
     assert_eq!(submitted[0].trading_vehicle.symbol, "AAPL");
 
@@ -1124,7 +1118,10 @@ fn test_trade_exceeding_risk_per_trade_rejected() {
         .unwrap();
 
     let result = trust.fund_trade(&trade);
-    assert!(result.is_err(), "trade exceeding risk limit should be rejected");
+    assert!(
+        result.is_err(),
+        "trade exceeding risk limit should be rejected"
+    );
 }
 
 #[test]
@@ -1232,9 +1229,7 @@ fn test_entry_fill_at_higher_price_than_planned_no_refund() {
     );
 
     // Trade should remain Submitted
-    let submitted = trust
-        .search_trades(account.id, Status::Submitted)
-        .unwrap();
+    let submitted = trust.search_trades(account.id, Status::Submitted).unwrap();
     assert_eq!(submitted.len(), 1);
 }
 

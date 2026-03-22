@@ -15,10 +15,7 @@ use uuid::Uuid;
 // ---------------------------------------------------------------------------
 
 fn new_facade(broker: impl Broker + 'static) -> TrustFacade {
-    TrustFacade::new(
-        Box::new(SqliteDatabase::new_in_memory()),
-        Box::new(broker),
-    )
+    TrustFacade::new(Box::new(SqliteDatabase::new_in_memory()), Box::new(broker))
 }
 
 fn setup_account(trust: &mut TrustFacade, deposit: Decimal) -> Account {
@@ -138,11 +135,7 @@ impl Broker for NoOpBroker {
     ) -> Result<(Status, Vec<Order>, BrokerLog), Box<dyn Error>> {
         unimplemented!()
     }
-    fn close_trade(
-        &self,
-        _: &Trade,
-        _: &Account,
-    ) -> Result<(Order, BrokerLog), Box<dyn Error>> {
+    fn close_trade(&self, _: &Trade, _: &Account) -> Result<(Order, BrokerLog), Box<dyn Error>> {
         unimplemented!()
     }
     fn cancel_trade(&self, _: &Trade, _: &Account) -> Result<(), Box<dyn Error>> {
@@ -192,11 +185,7 @@ impl Broker for SyncBroker {
         let (status, orders) = (self.response)(trade);
         Ok((status, orders, BrokerLog::default()))
     }
-    fn close_trade(
-        &self,
-        _: &Trade,
-        _: &Account,
-    ) -> Result<(Order, BrokerLog), Box<dyn Error>> {
+    fn close_trade(&self, _: &Trade, _: &Account) -> Result<(Order, BrokerLog), Box<dyn Error>> {
         unimplemented!()
     }
     fn cancel_trade(&self, _: &Trade, _: &Account) -> Result<(), Box<dyn Error>> {
@@ -705,7 +694,10 @@ fn test_profitable_trade_lifecycle_queryable_transaction_count() {
 
     assert_eq!(deposit_count, 1, "exactly one Deposit");
     assert_eq!(fund_count, 1, "exactly one FundTrade");
-    assert_eq!(payment_count, 1, "exactly one PaymentFromTrade (final return)");
+    assert_eq!(
+        payment_count, 1,
+        "exactly one PaymentFromTrade (final return)"
+    );
 }
 
 #[test]
@@ -808,7 +800,10 @@ fn test_withdraw_more_than_available_fails() {
         dec!(1000.01),
         &Currency::USD,
     );
-    assert!(result.is_err(), "withdrawal exceeding available should fail");
+    assert!(
+        result.is_err(),
+        "withdrawal exceeding available should fail"
+    );
 }
 
 #[test]
@@ -1488,7 +1483,9 @@ fn test_accounting_identity_after_funding_trade() {
 #[test]
 fn test_severe_slippage_stop_loss() {
     // Stop planned at 38, but filled at 30.2 — severe slippage for long
-    let mut trust = new_facade(SyncBroker::new(|t| stop_filled_at(t, dec!(39.9), dec!(30.2))));
+    let mut trust = new_facade(SyncBroker::new(|t| {
+        stop_filled_at(t, dec!(39.9), dec!(30.2))
+    }));
     let account = setup_account(&mut trust, dec!(50000));
     let trade = setup_submitted_trade(&mut trust, &account);
 
