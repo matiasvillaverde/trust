@@ -1998,6 +1998,7 @@ mod commands;
 /// Domain events used by core workflows.
 pub mod events;
 mod mocks;
+mod security_tests;
 /// Core service layer modules.
 pub mod services;
 mod validators;

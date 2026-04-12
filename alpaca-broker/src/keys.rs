@@ -137,4 +137,48 @@ mod tests {
         assert_eq!(parsed.secret, "my_secret");
         assert_eq!(parsed.url, "https://example.com");
     }
+
+    // ---------------------------------------------------------------
+    // Security tests — assert CORRECT behavior, #[should_panic] on bugs
+    // ---------------------------------------------------------------
+
+    /// Parsing an empty string should return Err, not empty Keys.
+    #[test]
+    #[should_panic = "should return Err for empty input"]
+    fn from_str_empty_string_should_error() {
+        assert!(
+            Keys::from_str("").is_err(),
+            "should return Err for empty input"
+        );
+    }
+
+    /// Parsing only a URL (missing key_id and secret) should return Err.
+    #[test]
+    #[should_panic = "should return Err for partial input"]
+    fn from_str_partial_input_should_error() {
+        assert!(
+            Keys::from_str("https://example.com").is_err(),
+            "should return Err for partial input"
+        );
+    }
+
+    /// Parsing URL + key_id but no secret should return Err.
+    #[test]
+    #[should_panic = "should return Err when secret is missing"]
+    fn from_str_missing_secret_should_error() {
+        assert!(
+            Keys::from_str("https://example.com my_key_id").is_err(),
+            "should return Err when secret is missing"
+        );
+    }
+
+    /// Extra tokens beyond the expected three should return Err.
+    #[test]
+    #[should_panic = "should return Err for extra tokens"]
+    fn from_str_extra_tokens_should_error() {
+        assert!(
+            Keys::from_str("https://example.com key_id secret EXTRA_DATA more_stuff").is_err(),
+            "should return Err for extra tokens"
+        );
+    }
 }

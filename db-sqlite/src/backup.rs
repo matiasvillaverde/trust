@@ -919,4 +919,77 @@ mod tests {
         let err = read_table_count(&mut conn, "accounts; DROP TABLE accounts").unwrap_err();
         assert!(err.to_string().contains("unknown or disallowed table name"));
     }
+
+    // ---------------------------------------------------------------
+    // Security tests — assert CORRECT behavior, #[should_panic] on bugs
+    // ---------------------------------------------------------------
+
+    /// Oversized backup files should be rejected with a size-limit error,
+    /// not read entirely into memory.
+    #[test]
+    #[should_panic]
+    fn backup_reader_should_enforce_size_limit() {
+        let big_payload = format!(
+            r#"{{"format":"trust-backup","version":1,"data":"{}"}}"#,
+            "x".repeat(10_000_000)
+        );
+        let reader = std::io::Cursor::new(big_payload.as_bytes());
+
+        let result = read_backup_from_reader(reader);
+        // CORRECT behavior: should fail with a size/limit error.
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("size") || err_msg.contains("limit") || err_msg.contains("too large"),
+            "Backup reader should reject oversized files with a size-limit error, got: {err_msg}"
+        );
+    }
+
+    /// Malformed UUIDs in backup JSON should be rejected during
+    /// deserialization.
+    #[test]
+    #[should_panic = "should reject malformed UUID"]
+    fn backup_should_reject_malformed_uuids() {
+        let malformed_backup = serde_json::json!({
+            "format": "trust-backup",
+            "version": 1,
+            "exported_at": "2026-01-01T00:00:00Z",
+            "schema": { "diesel_migrations": [] },
+            "tables": {
+                "accounts": [{
+                    "id": "NOT-A-VALID-UUID",
+                    "created_at": "2026-01-01T00:00:00",
+                    "updated_at": "2026-01-01T00:00:00",
+                    "deleted_at": null,
+                    "name": "evil",
+                    "description": "test",
+                    "environment": "paper",
+                    "taxes_percentage": "0",
+                    "earnings_percentage": "0",
+                    "account_type": "primary",
+                    "parent_account_id": null,
+                    "broker_kind": "alpaca",
+                    "broker_account_id": null
+                }],
+                "accounts_balances": [],
+                "logs": [],
+                "level_changes": [],
+                "levels": [],
+                "orders": [],
+                "rules": [],
+                "trade_grades": [],
+                "trades": [],
+                "trades_balances": [],
+                "trading_vehicles": [],
+                "transactions": []
+            }
+        });
+
+        let json_bytes = serde_json::to_vec(&malformed_backup).unwrap();
+        let reader = std::io::Cursor::new(json_bytes);
+        // CORRECT behavior: should reject malformed UUID.
+        assert!(
+            read_backup_from_reader(reader).is_err(),
+            "should reject malformed UUID"
+        );
+    }
 }
