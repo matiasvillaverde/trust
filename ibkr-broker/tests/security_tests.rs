@@ -1,15 +1,12 @@
 //! Security tests for the IBKR broker integration.
 //!
-//! Each test asserts the **correct** behavior.  Since the bugs are unfixed,
-//! the correct assertion fails — so tests are marked `#[should_panic]`.
-//!
-//! When you fix a bug, its test will stop panicking and the `#[should_panic]`
-//! will cause a test failure — that's your signal to remove the annotation.
+//! Each test asserts the expected security behavior directly. These tests should
+//! fail on a regression, not pass because a panic was expected.
 
 use ibkr_broker::{ConnectionConfig, IbkrBroker};
 use model::{
-    Account, Broker, BrokerKind, Environment, OrderStatus, Status, TimeInForce, Trade,
-    TradeCategory, TradingVehicleCategory,
+    Account, Broker, BrokerKind, Environment, TimeInForce, Trade, TradeCategory,
+    TradingVehicleCategory,
 };
 use rust_decimal_macros::dec;
 use serde_json::{json, Value};
@@ -44,11 +41,13 @@ fn with_mock_gateway<T>(server: &TestServer, run: impl FnOnce() -> T) -> T {
 }
 
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 struct MockHandle {
     state: Arc<Mutex<MockState>>,
     expectation_id: usize,
 }
 
+#[allow(dead_code)]
 impl MockHandle {
     fn assert(&self) {
         assert!(
@@ -150,6 +149,7 @@ impl TestServer {
         let thread = thread::spawn(move || loop {
             match listener.accept() {
                 Ok((stream, _)) => {
+                    let _ = stream.set_nonblocking(false);
                     let _ = handle_connection(stream, &thread_state);
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
@@ -362,7 +362,6 @@ fn mock_session(server: &TestServer) {
 
 /// Default config should NOT disable TLS verification.
 #[test]
-#[should_panic]
 fn default_config_should_enforce_tls() {
     let config = ConnectionConfig::default();
     assert!(
@@ -373,7 +372,6 @@ fn default_config_should_enforce_tls() {
 
 /// Missing TLS flag should default to secure (false).
 #[test]
-#[should_panic]
 fn config_parser_missing_tls_should_default_to_secure() {
     let config = ConnectionConfig::from_str("https://remote-gateway.example.com/v1/api").unwrap();
     assert!(
@@ -389,7 +387,6 @@ fn config_parser_missing_tls_should_default_to_secure() {
 /// When no exact symbol match is found, submit_trade should fail
 /// instead of silently using the wrong contract.
 #[test]
-#[should_panic = "Should reject when symbol doesn't match"]
 fn contract_search_should_reject_wrong_symbol() {
     let server = TestServer::start();
     mock_session(&server);
@@ -432,7 +429,6 @@ fn contract_search_should_reject_wrong_symbol() {
 /// When IBKR sends a buying-power warning, submit_trade should fail
 /// instead of blindly confirming.
 #[test]
-#[should_panic]
 fn should_reject_buying_power_warning() {
     let server = TestServer::start();
     mock_session(&server);
@@ -486,7 +482,6 @@ fn should_reject_buying_power_warning() {
 
 /// Zero-quantity orders should be rejected before hitting the broker.
 #[test]
-#[should_panic]
 fn should_reject_zero_quantity_orders() {
     let server = TestServer::start();
     mock_session(&server);
@@ -522,7 +517,6 @@ fn should_reject_zero_quantity_orders() {
 
 /// Zero-price orders should be rejected before hitting the broker.
 #[test]
-#[should_panic]
 fn should_reject_zero_price_orders() {
     let server = TestServer::start();
     mock_session(&server);
@@ -561,7 +555,6 @@ fn should_reject_zero_price_orders() {
 
 /// "blocked" should not be interpreted as a Buy execution.
 #[test]
-#[should_panic]
 fn malformed_execution_side_should_not_be_buy() {
     let server = TestServer::start();
     mock_session(&server);
@@ -588,14 +581,10 @@ fn malformed_execution_side_should_not_be_buy() {
 
     with_mock_gateway(&server, || {
         let broker = IbkrBroker;
-        let executions = broker.fetch_executions(&t, &a, None).unwrap();
-        assert_eq!(executions.len(), 1);
-        // CORRECT: "blocked" is not a valid side — should not be Buy.
-        assert_ne!(
-            executions[0].side,
-            model::ExecutionSide::Buy,
-            "'blocked' should not be parsed as Buy"
-        );
+        let error = broker
+            .fetch_executions(&t, &a, None)
+            .expect_err("'blocked' is not a valid execution side");
+        assert!(error.to_string().contains("execution side"));
     });
 }
 
@@ -606,7 +595,6 @@ fn malformed_execution_side_should_not_be_buy() {
 /// When IBKR returns unrecognized status strings, sync_trade should
 /// return an error instead of silently mapping to Unknown.
 #[test]
-#[should_panic]
 fn unrecognized_status_should_error() {
     let server = TestServer::start();
     mock_session(&server);
@@ -647,7 +635,6 @@ fn unrecognized_status_should_error() {
 
 /// Only http:// and https:// should be accepted as gateway URLs.
 #[test]
-#[should_panic = "should reject non-HTTP URL scheme"]
 fn config_should_reject_non_http_schemes() {
     // CORRECT: file:// scheme should be rejected.
     assert!(

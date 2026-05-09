@@ -4,7 +4,7 @@ use crate::parsing::{
     decimal_field, parse_epoch_datetime, string_field_optional, timestamp_field, u64_field_optional,
 };
 use chrono::{DateTime, NaiveDateTime, Utc};
-use model::{BarTimeframe, MarketBar, MarketQuote, MarketTradeTick};
+use model::{BarTimeframe, MarketBar, MarketQuote, MarketTradeTick, TradingVehicleCategory};
 use std::error::Error;
 
 pub(crate) fn get_bars(
@@ -14,7 +14,8 @@ pub(crate) fn get_bars(
     end: DateTime<Utc>,
     timeframe: BarTimeframe,
 ) -> Result<Vec<MarketBar>, Box<dyn Error>> {
-    let conid = fetch_contract_metadata_with_client(client, symbol)?.conid;
+    let conid =
+        fetch_contract_metadata_with_client(client, symbol, TradingVehicleCategory::Stock)?.conid;
     let response = client.get_json_value(
         "/iserver/marketdata/history",
         &[
@@ -25,6 +26,14 @@ pub(crate) fn get_bars(
             ("outsideRth", "true".to_string()),
         ],
     )?;
+    market_bars_from_history_response(&response, start, end)
+}
+
+fn market_bars_from_history_response(
+    response: &serde_json::Value,
+    start: DateTime<Utc>,
+    end: DateTime<Utc>,
+) -> Result<Vec<MarketBar>, Box<dyn Error>> {
     let bars = response
         .get("data")
         .and_then(serde_json::Value::as_array)
@@ -53,7 +62,8 @@ pub(crate) fn get_latest_quote(
     client: &IbkrClient,
     symbol: &str,
 ) -> Result<MarketQuote, Box<dyn Error>> {
-    let conid = fetch_contract_metadata_with_client(client, symbol)?.conid;
+    let conid =
+        fetch_contract_metadata_with_client(client, symbol, TradingVehicleCategory::Stock)?.conid;
     let snapshot = client.snapshot(&conid, &["55", "84", "88", "86", "85"])?;
     Ok(MarketQuote {
         symbol: string_field_optional(&snapshot, "55").unwrap_or_else(|| symbol.to_string()),
@@ -69,7 +79,8 @@ pub(crate) fn get_latest_trade(
     client: &IbkrClient,
     symbol: &str,
 ) -> Result<MarketTradeTick, Box<dyn Error>> {
-    let conid = fetch_contract_metadata_with_client(client, symbol)?.conid;
+    let conid =
+        fetch_contract_metadata_with_client(client, symbol, TradingVehicleCategory::Stock)?.conid;
     let snapshot = client.snapshot(&conid, &["55", "31", "7059"])?;
     Ok(MarketTradeTick {
         symbol: string_field_optional(&snapshot, "55").unwrap_or_else(|| symbol.to_string()),
@@ -106,9 +117,13 @@ pub(crate) fn format_ibkr_datetime(value: NaiveDateTime) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::history_period;
+    use super::{
+        format_ibkr_datetime, history_bar, history_period, market_bars_from_history_response,
+    };
     use chrono::{DateTime, Utc};
-    use model::BarTimeframe;
+    use model::{BarTimeframe, MarketBar};
+    use rust_decimal_macros::dec;
+    use serde_json::json;
 
     #[test]
     fn history_period_scales_with_requested_timeframe() {
@@ -124,5 +139,69 @@ mod tests {
         );
         assert_eq!(history_period(start, end, BarTimeframe::OneHour), "2h");
         assert_eq!(history_period(start, end, BarTimeframe::OneDay), "1d");
+    }
+
+    #[test]
+    fn history_bar_and_datetime_formatter_match_ibkr_contracts() {
+        let timestamp = DateTime::parse_from_rfc3339("2026-03-18T12:34:56Z")
+            .expect("valid timestamp")
+            .naive_utc();
+
+        assert_eq!(history_bar(BarTimeframe::OneMinute), "1min");
+        assert_eq!(history_bar(BarTimeframe::OneHour), "1h");
+        assert_eq!(history_bar(BarTimeframe::OneDay), "1d");
+        assert_eq!(format_ibkr_datetime(timestamp), "20260318-12:34:56");
+    }
+
+    #[test]
+    fn history_response_parser_filters_invalid_and_out_of_window_bars() {
+        let start = DateTime::parse_from_rfc3339("2026-03-18T10:00:00Z")
+            .expect("valid start")
+            .with_timezone(&Utc);
+        let end = DateTime::parse_from_rfc3339("2026-03-18T12:00:00Z")
+            .expect("valid end")
+            .with_timezone(&Utc);
+        let response = json!({
+            "data": [
+                {
+                    "t": start.timestamp_millis(),
+                    "o": "100.00",
+                    "h": "101.00",
+                    "l": "99.50",
+                    "c": "100.25",
+                    "v": 500
+                },
+                {
+                    "t": "not-an-epoch",
+                    "o": "1",
+                    "h": "1",
+                    "l": "1",
+                    "c": "1"
+                },
+                {
+                    "t": (end + chrono::Duration::minutes(1)).timestamp_millis(),
+                    "o": "102.00",
+                    "h": "103.00",
+                    "l": "101.00",
+                    "c": "102.50",
+                    "v": 900
+                }
+            ]
+        });
+
+        let bars = market_bars_from_history_response(&response, start, end)
+            .expect("history response should parse");
+
+        assert_eq!(
+            bars,
+            vec![MarketBar {
+                time: start,
+                open: dec!(100.00),
+                high: dec!(101.00),
+                low: dec!(99.50),
+                close: dec!(100.25),
+                volume: 500,
+            }]
+        );
     }
 }

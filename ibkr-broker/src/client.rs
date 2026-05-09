@@ -150,6 +150,8 @@ impl IbkrClient {
                 return Ok(response);
             }
 
+            reject_dangerous_order_reply(&response)?;
+
             let Some(reply_id) = string_field_optional(&response, "id") else {
                 return Ok(response);
             };
@@ -210,6 +212,32 @@ impl IbkrClient {
     }
 }
 
+fn reject_dangerous_order_reply(response: &Value) -> Result<(), Box<dyn Error>> {
+    let messages = reply_messages(response);
+    if messages.iter().any(|message| {
+        let normalized = message.to_ascii_lowercase();
+        normalized.contains("buying power")
+            || normalized.contains("insufficient")
+            || normalized.contains("margin")
+            || normalized.contains("exceeds")
+    }) {
+        return Err(format!("IBKR order confirmation requires manual review: {messages:?}").into());
+    }
+    Ok(())
+}
+
+fn reply_messages(response: &Value) -> Vec<String> {
+    match response.get("message") {
+        Some(Value::String(message)) => vec![message.to_string()],
+        Some(Value::Array(messages)) => messages
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::to_string)
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
 pub(crate) fn parse_json_response(
     method: &str,
     path: &str,
@@ -226,4 +254,476 @@ pub(crate) fn parse_json_response(
     serde_json::from_str(&body).map_err(|error| {
         format!("IBKR {method} {path} returned invalid JSON: {error}: {body}").into()
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{reject_dangerous_order_reply, reply_messages, IbkrClient};
+    use crate::config::ConnectionConfig;
+    use model::Account;
+    use reqwest::blocking::Client;
+    use serde_json::json;
+    use std::io::{BufRead, BufReader, Write};
+    use std::net::{Ipv4Addr, TcpListener, TcpStream};
+    use std::thread;
+
+    #[test]
+    fn reply_messages_extracts_string_array_and_ignores_missing_values() {
+        assert_eq!(
+            reply_messages(&json!({ "message": "Confirm outside regular trading hours" })),
+            vec!["Confirm outside regular trading hours".to_string()]
+        );
+        assert_eq!(
+            reply_messages(&json!({ "message": ["First", 42, "Second"] })),
+            vec!["First".to_string(), "Second".to_string()]
+        );
+        assert!(reply_messages(&json!({ "warning": "none" })).is_empty());
+    }
+
+    #[test]
+    fn dangerous_order_replies_require_manual_review() {
+        for message in [
+            "WARNING: This order exceeds your account buying power. Proceed?",
+            "Insufficient settled cash for this order",
+            "Margin impact is above the account limit",
+        ] {
+            let error = reject_dangerous_order_reply(&json!({ "message": [message] }))
+                .expect_err("dangerous reply should be rejected");
+            assert!(error.to_string().contains("manual review"));
+        }
+
+        reject_dangerous_order_reply(&json!({
+            "message": ["Confirm order submission"],
+            "id": "safe-reply"
+        }))
+        .expect("benign confirmation can be auto-confirmed");
+    }
+
+    #[test]
+    fn client_url_joins_base_and_path_without_double_slashes() {
+        let client = IbkrClient {
+            http: Client::new(),
+            config: ConnectionConfig::new("https://ibkr.local/v1/api/", false),
+        };
+
+        assert_eq!(
+            client.url("/iserver/accounts"),
+            "https://ibkr.local/v1/api/iserver/accounts"
+        );
+    }
+
+    #[test]
+    fn client_http_helpers_parse_successful_gateway_responses() {
+        with_test_server(
+            vec![
+                (
+                    "GET /iserver/auth/status",
+                    200,
+                    r#"{"authenticated":true,"connected":true}"#,
+                ),
+                ("GET /iserver/accounts", 200, r#"[]"#),
+                (
+                    "GET /iserver/account/orders",
+                    200,
+                    r#"[{"order_ref":"entry-ref","orderId":"9001"}]"#,
+                ),
+                ("GET /iserver/account/trades", 200, r#"[]"#),
+                (
+                    "GET /iserver/marketdata/snapshot",
+                    200,
+                    r#"[{"31":"101.25","_updated":1773848700000}]"#,
+                ),
+                ("POST /iserver/test", 200, r#"{"ok":true}"#),
+                ("DELETE /iserver/delete", 200, ""),
+            ],
+            |base_url| {
+                let client = test_client(&base_url);
+                let account = Account {
+                    broker_account_id: Some("U1234567".to_string()),
+                    ..Account::default()
+                };
+
+                client
+                    .prepare_trading_session(None)
+                    .expect("authenticated session");
+                assert_eq!(
+                    client
+                        .resolve_live_order_id(&account, "entry-ref")
+                        .expect("order id"),
+                    "9001"
+                );
+                assert!(client.account_trades().expect("account trades").is_empty());
+                assert_eq!(
+                    client
+                        .snapshot("265598", &["31"])
+                        .expect("snapshot")
+                        .get("31"),
+                    Some(&json!("101.25"))
+                );
+                assert_eq!(
+                    client
+                        .post_json_value("/iserver/test", &json!({"hello":"world"}))
+                        .expect("post response"),
+                    json!({"ok": true})
+                );
+                client
+                    .delete_no_content("/iserver/delete")
+                    .expect("delete response");
+            },
+        );
+    }
+
+    #[test]
+    fn client_json_helpers_surface_status_and_parse_errors() {
+        with_test_server(
+            vec![
+                ("GET /bad-status", 500, "broker down"),
+                ("GET /bad-json", 200, "not-json"),
+            ],
+            |base_url| {
+                let client = test_client(&base_url);
+
+                let status_error = client
+                    .get_json_value("/bad-status", &[])
+                    .expect_err("bad status should fail");
+                assert!(status_error.to_string().contains("500"));
+
+                let json_error = client
+                    .get_json_value("/bad-json", &[])
+                    .expect_err("invalid json should fail");
+                assert!(json_error.to_string().contains("invalid JSON"));
+            },
+        );
+    }
+
+    #[test]
+    fn post_json_with_replies_confirms_benign_replies_until_array_response() {
+        with_test_server(
+            vec![
+                (
+                    "POST /iserver/account/U1234567/orders",
+                    200,
+                    r#"{"id":"reply-safe-1","message":["Confirm order submission"]}"#,
+                ),
+                (
+                    "POST /iserver/reply/reply-safe-1",
+                    200,
+                    r#"[{"order_id":"9001","order_status":"Submitted"}]"#,
+                ),
+            ],
+            |base_url| {
+                let client = test_client(&base_url);
+
+                let response = client
+                    .post_json_with_replies(
+                        "/iserver/account/U1234567/orders",
+                        &json!({"orders":[]}),
+                    )
+                    .expect("benign reply confirmed");
+
+                assert!(response.is_array());
+            },
+        );
+    }
+
+    #[test]
+    fn session_preparation_selects_configured_broker_account() {
+        with_test_server(
+            vec![
+                (
+                    "GET /iserver/auth/status",
+                    200,
+                    r#"{"authenticated":true,"connected":true}"#,
+                ),
+                ("GET /iserver/accounts", 200, r#"[]"#),
+                ("POST /iserver/account", 200, r#"{"selected":true}"#),
+            ],
+            |base_url| {
+                let client = test_client(&base_url);
+                let account = Account {
+                    broker_account_id: Some("U1234567".to_string()),
+                    ..Account::default()
+                };
+
+                client
+                    .prepare_trading_session(Some(&account))
+                    .expect("account selection should be posted");
+            },
+        );
+    }
+
+    #[test]
+    fn session_preparation_rejects_unauthenticated_gateway() {
+        with_test_server(
+            vec![(
+                "GET /iserver/auth/status",
+                200,
+                r#"{"authenticated":false,"connected":true}"#,
+            )],
+            |base_url| {
+                let client = test_client(&base_url);
+
+                let error = client
+                    .prepare_trading_session(None)
+                    .expect_err("unauthenticated gateway should fail");
+
+                assert!(error.to_string().contains("Gateway is not ready"));
+                assert!(error.to_string().contains(&base_url));
+            },
+        );
+    }
+
+    #[test]
+    fn live_order_and_account_trade_helpers_reject_malformed_gateway_shapes() {
+        with_test_server(
+            vec![
+                ("GET /iserver/account/orders", 200, r#"{"unexpected":[]}"#),
+                ("GET /iserver/account/trades", 200, r#"{"trades":[]}"#),
+            ],
+            |base_url| {
+                let client = test_client(&base_url);
+                let account = Account {
+                    broker_account_id: Some("U1234567".to_string()),
+                    ..Account::default()
+                };
+
+                let orders_error = client
+                    .live_orders(&account)
+                    .expect_err("orders must be an array or orders object");
+                assert!(orders_error.to_string().contains("did not include orders"));
+
+                let trades_error = client
+                    .account_trades()
+                    .expect_err("account trades must be an array");
+                assert!(trades_error.to_string().contains("was not an array"));
+            },
+        );
+    }
+
+    #[test]
+    fn resolve_live_order_id_accepts_snake_case_order_id() {
+        with_test_server(
+            vec![(
+                "GET /iserver/account/orders",
+                200,
+                r#"[{"order_ref":"entry-ref","order_id":"fallback-9001"}]"#,
+            )],
+            |base_url| {
+                let client = test_client(&base_url);
+                let account = Account {
+                    broker_account_id: Some("U1234567".to_string()),
+                    ..Account::default()
+                };
+
+                assert_eq!(
+                    client
+                        .resolve_live_order_id(&account, "entry-ref")
+                        .expect("snake-case order id should be accepted"),
+                    "fallback-9001"
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn snapshot_retries_until_requested_fields_are_available() {
+        with_test_server(
+            vec![
+                (
+                    "GET /iserver/marketdata/snapshot",
+                    200,
+                    r#"[{"_updated":1773848700000}]"#,
+                ),
+                (
+                    "GET /iserver/marketdata/snapshot",
+                    200,
+                    r#"[{"31":"101.25","84":"101.20","_updated":1773848701000}]"#,
+                ),
+            ],
+            |base_url| {
+                let client = test_client(&base_url);
+
+                let snapshot = client
+                    .snapshot("265598", &["31", "84"])
+                    .expect("snapshot should retry until all fields arrive");
+
+                assert_eq!(snapshot.get("31"), Some(&json!("101.25")));
+                assert_eq!(snapshot.get("84"), Some(&json!("101.20")));
+            },
+        );
+    }
+
+    #[test]
+    fn snapshot_reports_empty_gateway_response() {
+        with_test_server(
+            vec![("GET /iserver/marketdata/snapshot", 200, r#"[]"#)],
+            |base_url| {
+                let client = test_client(&base_url);
+
+                let error = client
+                    .snapshot("265598", &["31"])
+                    .expect_err("empty snapshot should fail");
+
+                assert!(error.to_string().contains("snapshot response was empty"));
+            },
+        );
+    }
+
+    #[test]
+    fn post_json_with_replies_returns_safe_reply_without_reply_id() {
+        with_test_server(
+            vec![(
+                "POST /iserver/account/U1234567/orders",
+                200,
+                r#"{"message":["Order accepted without confirmation id"]}"#,
+            )],
+            |base_url| {
+                let client = test_client(&base_url);
+
+                let response = client
+                    .post_json_with_replies(
+                        "/iserver/account/U1234567/orders",
+                        &json!({"orders":[]}),
+                    )
+                    .expect("safe reply without id should be returned");
+
+                assert_eq!(
+                    response,
+                    json!({"message":["Order accepted without confirmation id"]})
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn post_json_with_replies_caps_confirmation_depth() {
+        with_test_server(
+            vec![
+                (
+                    "POST /iserver/account/U1234567/orders",
+                    200,
+                    r#"{"id":"reply-1","message":["Confirm order submission"]}"#,
+                ),
+                (
+                    "POST /iserver/reply/reply-1",
+                    200,
+                    r#"{"id":"reply-2","message":["Confirm order submission"]}"#,
+                ),
+                (
+                    "POST /iserver/reply/reply-2",
+                    200,
+                    r#"{"id":"reply-3","message":["Confirm order submission"]}"#,
+                ),
+                (
+                    "POST /iserver/reply/reply-3",
+                    200,
+                    r#"{"id":"reply-4","message":["Confirm order submission"]}"#,
+                ),
+                (
+                    "POST /iserver/reply/reply-4",
+                    200,
+                    r#"{"id":"reply-5","message":["Confirm order submission"]}"#,
+                ),
+            ],
+            |base_url| {
+                let client = test_client(&base_url);
+
+                let error = client
+                    .post_json_with_replies(
+                        "/iserver/account/U1234567/orders",
+                        &json!({"orders":[]}),
+                    )
+                    .expect_err("reply loop should be capped");
+
+                assert!(error.to_string().contains("maximum reply depth"));
+            },
+        );
+    }
+
+    #[test]
+    fn delete_no_content_surfaces_gateway_status_and_body() {
+        with_test_server(
+            vec![("DELETE /iserver/delete", 409, "cannot delete")],
+            |base_url| {
+                let client = test_client(&base_url);
+
+                let error = client
+                    .delete_no_content("/iserver/delete")
+                    .expect_err("non-success delete should fail");
+
+                assert!(error.to_string().contains("409"));
+                assert!(error.to_string().contains("cannot delete"));
+            },
+        );
+    }
+
+    #[test]
+    fn empty_success_body_parses_as_null_json_value() {
+        with_test_server(vec![("GET /empty", 200, "")], |base_url| {
+            let client = test_client(&base_url);
+
+            let response = client
+                .get_json_value("/empty", &[])
+                .expect("empty body should map to null");
+
+            assert!(response.is_null());
+        });
+    }
+
+    fn test_client(base_url: &str) -> IbkrClient {
+        IbkrClient {
+            http: Client::new(),
+            config: ConnectionConfig::new(base_url, false),
+        }
+    }
+
+    fn with_test_server(
+        responses: Vec<(&'static str, u16, &'static str)>,
+        run: impl FnOnce(String),
+    ) {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).expect("bind test server");
+        let base_url = format!("http://{}", listener.local_addr().expect("local addr"));
+        let server = thread::spawn(move || {
+            for (expected_request, status, body) in responses {
+                let (mut stream, _) = listener.accept().expect("accept request");
+                let request_line = read_request_line(&mut stream);
+                assert!(
+                    request_line.starts_with(expected_request),
+                    "expected request prefix {expected_request:?}, got {request_line:?}"
+                );
+                write_response(&mut stream, status, body);
+            }
+        });
+
+        run(base_url);
+        server.join().expect("test server finished");
+    }
+
+    fn read_request_line(stream: &mut TcpStream) -> String {
+        let mut reader = BufReader::new(stream.try_clone().expect("clone stream"));
+        let mut request_line = String::new();
+        reader
+            .read_line(&mut request_line)
+            .expect("read request line");
+        loop {
+            let mut header = String::new();
+            reader.read_line(&mut header).expect("read header");
+            if header == "\r\n" || header.is_empty() {
+                break;
+            }
+        }
+        request_line
+    }
+
+    fn write_response(stream: &mut TcpStream, status: u16, body: &str) {
+        let reason = if status < 400 { "OK" } else { "ERROR" };
+        write!(
+            stream,
+            "HTTP/1.1 {status} {reason}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        )
+        .expect("write response");
+        stream.flush().expect("flush response");
+    }
 }

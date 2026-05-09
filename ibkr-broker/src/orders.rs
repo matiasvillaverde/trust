@@ -14,6 +14,8 @@ pub(crate) fn build_bracket_orders(
     account_id: &str,
     conid: &str,
 ) -> Result<Vec<Value>, Box<dyn Error>> {
+    validate_bracket_trade(trade)?;
+
     let entry_ref = normalize_order_ref(&trade.entry);
     let target_ref = normalize_order_ref(&trade.target);
     let stop_ref = normalize_order_ref(&trade.safety_stop);
@@ -74,6 +76,22 @@ pub(crate) fn build_bracket_orders(
             "isClose": true,
         }),
     ])
+}
+
+pub(crate) fn validate_bracket_trade(trade: &Trade) -> Result<(), Box<dyn Error>> {
+    for (label, order) in [
+        ("entry", &trade.entry),
+        ("target", &trade.target),
+        ("safety stop", &trade.safety_stop),
+    ] {
+        if order.quantity == 0 {
+            return Err(format!("IBKR {label} order quantity must be greater than zero").into());
+        }
+        if order.unit_price <= Decimal::ZERO {
+            return Err(format!("IBKR {label} order price must be greater than zero").into());
+        }
+    }
+    Ok(())
 }
 
 pub(crate) fn build_close_order(
@@ -150,7 +168,7 @@ pub(crate) fn map_live_order(base: &Order, live_order: &Value) -> Result<Order, 
     let status_text = string_field_optional(live_order, "status")
         .or_else(|| string_field_optional(live_order, "order_status"))
         .unwrap_or_else(|| "unknown".to_string());
-    order.status = map_ibkr_order_status(&status_text);
+    order.status = map_ibkr_order_status(&status_text)?;
 
     if let Some(filled_quantity) =
         u64_field_optional_any(live_order, &["filledQuantity", "filled_qty"])
@@ -223,19 +241,19 @@ fn apply_order_update(base: &Order, updates: &[Order]) -> Order {
         .unwrap_or_else(|| base.clone())
 }
 
-pub(crate) fn map_ibkr_order_status(status: &str) -> OrderStatus {
+pub(crate) fn map_ibkr_order_status(status: &str) -> Result<OrderStatus, Box<dyn Error>> {
     match status.trim().to_ascii_lowercase().as_str() {
-        "submitted" | "pending_submit" | "api_pending" => OrderStatus::New,
-        "presubmitted" | "pre_submitted" | "inactive" => OrderStatus::Held,
-        "partially_filled" => OrderStatus::PartiallyFilled,
-        "filled" => OrderStatus::Filled,
-        "cancelled" | "canceled" | "api_cancelled" => OrderStatus::Canceled,
-        "pending_cancel" => OrderStatus::PendingCancel,
-        "pending_replace" => OrderStatus::PendingReplace,
-        "replaced" => OrderStatus::Replaced,
-        "rejected" => OrderStatus::Rejected,
-        "expired" => OrderStatus::Expired,
-        _ => OrderStatus::Unknown,
+        "submitted" | "pending_submit" | "api_pending" => Ok(OrderStatus::New),
+        "presubmitted" | "pre_submitted" | "inactive" => Ok(OrderStatus::Held),
+        "partially_filled" => Ok(OrderStatus::PartiallyFilled),
+        "filled" => Ok(OrderStatus::Filled),
+        "cancelled" | "canceled" | "api_cancelled" => Ok(OrderStatus::Canceled),
+        "pending_cancel" => Ok(OrderStatus::PendingCancel),
+        "pending_replace" => Ok(OrderStatus::PendingReplace),
+        "replaced" => Ok(OrderStatus::Replaced),
+        "rejected" => Ok(OrderStatus::Rejected),
+        "expired" => Ok(OrderStatus::Expired),
+        _ => Err(format!("IBKR order status '{status}' is unrecognized").into()),
     }
 }
 
