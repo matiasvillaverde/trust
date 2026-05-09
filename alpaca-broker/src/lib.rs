@@ -57,6 +57,13 @@ pub use keys::Keys;
 #[derive(Debug)]
 pub struct AlpacaBroker;
 
+fn ensure_trade_account(trade: &Trade, account: &Account) -> Result<(), Box<dyn Error>> {
+    if trade.account_id != account.id {
+        return Err("Trade account does not match broker account".into());
+    }
+    Ok(())
+}
+
 /// Generic Broker API
 impl Broker for AlpacaBroker {
     fn kind(&self) -> BrokerKind {
@@ -206,8 +213,25 @@ impl AlpacaBroker {
 #[cfg(test)]
 mod tests {
     use super::AlpacaBroker;
-    use model::{Account, Broker, Trade};
+    use chrono::{TimeZone, Utc};
+    use model::{Account, BarTimeframe, Broker, MarketDataChannel, Trade};
     use rust_decimal_macros::dec;
+    use uuid::Uuid;
+
+    fn mismatched_trade() -> (Account, Trade) {
+        let account = Account::default();
+        let trade = Trade {
+            account_id: Uuid::new_v4(),
+            ..Trade::default()
+        };
+        (account, trade)
+    }
+
+    fn assert_account_mismatch(error: Box<dyn std::error::Error>) {
+        assert!(error
+            .to_string()
+            .contains("Trade account does not match broker account"));
+    }
 
     #[test]
     fn broker_cancel_trade_fails_fast_when_entry_order_id_is_missing() {
@@ -252,5 +276,122 @@ mod tests {
             .modify_target(&trade, &account, dec!(120))
             .expect_err("missing target order id should fail before I/O");
         assert!(err.to_string().contains("Target order ID is missing"));
+    }
+
+    #[test]
+    fn broker_close_trade_returns_error_when_account_mismatches() {
+        let broker = AlpacaBroker;
+        let (account, trade) = mismatched_trade();
+
+        let err = broker
+            .close_trade(&trade, &account)
+            .expect_err("account mismatch should fail before I/O");
+
+        assert_account_mismatch(err);
+    }
+
+    #[test]
+    fn broker_submit_trade_returns_error_when_account_mismatches() {
+        let broker = AlpacaBroker;
+        let (account, trade) = mismatched_trade();
+
+        let err = broker
+            .submit_trade(&trade, &account)
+            .expect_err("account mismatch should fail before I/O");
+
+        assert_account_mismatch(err);
+    }
+
+    #[test]
+    fn broker_sync_trade_returns_error_when_account_mismatches() {
+        let broker = AlpacaBroker;
+        let (account, trade) = mismatched_trade();
+
+        let err = broker
+            .sync_trade(&trade, &account)
+            .expect_err("account mismatch should fail before I/O");
+
+        assert_account_mismatch(err);
+    }
+
+    #[test]
+    fn broker_fetch_executions_returns_error_when_account_mismatches() {
+        let broker = AlpacaBroker;
+        let (account, trade) = mismatched_trade();
+
+        let err = broker
+            .fetch_executions(&trade, &account, None)
+            .expect_err("account mismatch should fail before I/O");
+
+        assert_account_mismatch(err);
+    }
+
+    #[test]
+    fn broker_fetch_fee_activities_returns_error_when_account_mismatches() {
+        let broker = AlpacaBroker;
+        let (account, trade) = mismatched_trade();
+
+        let err = broker
+            .fetch_fee_activities(&trade, &account, None)
+            .expect_err("account mismatch should fail before I/O");
+
+        assert_account_mismatch(err);
+    }
+
+    #[test]
+    fn broker_stream_market_data_validates_request_before_credentials() {
+        let broker = AlpacaBroker;
+        let account = Account::default();
+        let channels = vec![MarketDataChannel::Quotes];
+
+        let err = broker
+            .stream_market_data(&[], &channels, 1, 1, &account)
+            .expect_err("empty symbols should fail before I/O");
+
+        assert_eq!(
+            err.to_string(),
+            "At least one symbol is required for streaming"
+        );
+    }
+
+    #[test]
+    fn broker_market_data_methods_validate_request_before_credentials() {
+        let broker = AlpacaBroker;
+        let account = Account::default();
+        let start = Utc.with_ymd_and_hms(2026, 5, 7, 13, 0, 0).unwrap();
+        let end = Utc.with_ymd_and_hms(2026, 5, 7, 14, 0, 0).unwrap();
+
+        let bars_err = broker
+            .get_bars(" \t", start, end, BarTimeframe::OneMinute, &account)
+            .expect_err("blank symbol should fail before I/O");
+        assert_eq!(bars_err.to_string(), "Symbol cannot be empty");
+
+        let window_err = broker
+            .get_bars("AAPL", end, start, BarTimeframe::OneMinute, &account)
+            .expect_err("invalid time window should fail before I/O");
+        assert_eq!(
+            window_err.to_string(),
+            "Bar end time must be after start time"
+        );
+
+        let quote_err = broker
+            .get_latest_quote("", &account)
+            .expect_err("blank quote symbol should fail before I/O");
+        assert_eq!(quote_err.to_string(), "Symbol cannot be empty");
+
+        let trade_err = broker
+            .get_latest_trade("\n", &account)
+            .expect_err("blank trade symbol should fail before I/O");
+        assert_eq!(trade_err.to_string(), "Symbol cannot be empty");
+    }
+
+    #[test]
+    fn broker_fetch_asset_metadata_validates_symbol_before_credentials() {
+        let account = Account::default();
+
+        let err = AlpacaBroker::fetch_asset_metadata(&account, " ")
+            .expect_err("blank symbol should fail before I/O");
+
+        assert_eq!(err.to_string(), "Symbol cannot be empty");
     }
 }

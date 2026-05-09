@@ -9,7 +9,7 @@ use tokio::runtime::Runtime;
 use uuid::Uuid;
 
 pub fn modify(trade: &Trade, account: &Account, price: Decimal) -> Result<String, Box<dyn Error>> {
-    assert!(trade.account_id == account.id); // Verify that the trade is for the account
+    crate::ensure_trade_account(trade, account)?;
 
     // Validate required input before touching keychain/network.
     let target_order_id = trade
@@ -30,14 +30,18 @@ pub fn modify(trade: &Trade, account: &Account, price: Decimal) -> Result<String
     Ok(alpaca_order.id.0.to_string())
 }
 
-async fn submit(client: &Client, order_id: Uuid, price: Decimal) -> Result<Order, Box<dyn Error>> {
-    let request = ChangeReq {
+fn change_request(price: Decimal) -> Result<ChangeReq, Box<dyn Error>> {
+    Ok(ChangeReq {
         limit_price: Some(
             Num::from_str(&price.to_string())
                 .map_err(|e| format!("Failed to parse limit price: {e:?}"))?,
         ),
         ..Default::default()
-    };
+    })
+}
+
+async fn submit(client: &Client, order_id: Uuid, price: Decimal) -> Result<Order, Box<dyn Error>> {
+    let request = change_request(price)?;
 
     let result = client.issue::<Change>(&(Id(order_id), request)).await;
     match result {
@@ -51,9 +55,11 @@ async fn submit(client: &Client, order_id: Uuid, price: Decimal) -> Result<Order
 
 #[cfg(test)]
 mod tests {
-    use super::modify;
+    use super::{change_request, modify};
     use model::{Account, Trade};
+    use num_decimal::Num;
     use rust_decimal_macros::dec;
+    use std::str::FromStr;
     use uuid::Uuid;
 
     #[test]
@@ -70,14 +76,46 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
-    fn modify_panics_when_trade_account_mismatch() {
+    fn modify_returns_error_when_target_broker_order_id_is_invalid() {
+        let account = Account::default();
+        let trade = Trade {
+            account_id: account.id,
+            target: model::Order {
+                broker_order_id: Some("not-a-uuid".to_string()),
+                ..Default::default()
+            },
+            ..Trade::default()
+        };
+
+        let err =
+            modify(&trade, &account, dec!(100)).expect_err("invalid target order id should fail");
+        assert!(err
+            .to_string()
+            .contains("Target order ID is not a valid UUID"));
+    }
+
+    #[test]
+    fn modify_returns_error_when_trade_account_mismatch() {
         let account = Account::default();
         let trade = Trade {
             account_id: Uuid::new_v4(),
             ..Trade::default()
         };
 
-        let _ = modify(&trade, &account, dec!(100));
+        let err = modify(&trade, &account, dec!(100)).expect_err("account mismatch should fail");
+        assert!(err
+            .to_string()
+            .contains("Trade account does not match broker account"));
+    }
+
+    #[test]
+    fn change_request_sets_only_limit_price() {
+        let request = change_request(dec!(234.56)).expect("valid decimal should build request");
+
+        assert_eq!(
+            request.limit_price,
+            Some(Num::from_str("234.56").expect("valid num"))
+        );
+        assert_eq!(request.stop_price, None);
     }
 }

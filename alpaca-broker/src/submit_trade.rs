@@ -17,7 +17,7 @@ pub fn submit_sync(
     trade: &Trade,
     account: &Account,
 ) -> Result<(BrokerLog, OrderIds), Box<dyn Error>> {
-    assert!(trade.account_id == account.id); // Verify that the trade is for the account
+    crate::ensure_trade_account(trade, account)?;
 
     let api_info = keys::read_api_key(&account.environment, account)?;
     let client = Client::new(api_info);
@@ -296,6 +296,84 @@ mod tests {
         assert_eq!(result.stop, "8654f70e-3b42-4014-a9ac-5a7101989aad");
         assert_eq!(result.entry, "b6b12dc0-8e21-4d2e-8315-907d3116a6b8");
         assert_eq!(result.target, "90e41b1e-9089-444d-9f68-c204a4d32914");
+    }
+
+    #[test]
+    fn extract_ids_rejects_leg_without_exactly_one_price() {
+        let mut entry = default();
+        let leg = entry
+            .legs
+            .first_mut()
+            .expect("fixture should include a target leg");
+        leg.stop_price = Some(Num::from_str("12.52").expect("valid stop price"));
+
+        let trade = Trade {
+            safety_stop: Order {
+                unit_price: dec!(12.52),
+                ..Default::default()
+            },
+            target: Order {
+                unit_price: dec!(12.58),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let err = extract_ids(&entry, &trade).expect_err("ambiguous leg should fail");
+        assert!(err.to_string().contains("No price found for leg"));
+    }
+
+    #[test]
+    fn extract_ids_reports_missing_stop_and_target_legs() {
+        let entry = default();
+        let missing_stop_trade = Trade {
+            safety_stop: Order {
+                unit_price: dec!(99.99),
+                ..Default::default()
+            },
+            target: Order {
+                unit_price: dec!(12.58),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let err = extract_ids(&entry, &missing_stop_trade).expect_err("missing stop should fail");
+        assert!(err.to_string().contains("Stop ID not found"));
+
+        let missing_target_trade = Trade {
+            safety_stop: Order {
+                unit_price: dec!(12.52),
+                ..Default::default()
+            },
+            target: Order {
+                unit_price: dec!(99.99),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let err =
+            extract_ids(&entry, &missing_target_trade).expect_err("missing target should fail");
+        assert!(err.to_string().contains("Target ID not found"));
+    }
+
+    #[test]
+    fn time_in_force_maps_all_supported_variants() {
+        let mut entry = Order {
+            time_in_force: model::TimeInForce::Day,
+            ..Default::default()
+        };
+        assert_eq!(time_in_force(&entry), TimeInForce::Day);
+
+        entry.time_in_force = model::TimeInForce::UntilCanceled;
+        assert_eq!(time_in_force(&entry), TimeInForce::UntilCanceled);
+
+        entry.time_in_force = model::TimeInForce::UntilMarketClose;
+        assert_eq!(time_in_force(&entry), TimeInForce::UntilMarketClose);
+
+        entry.time_in_force = model::TimeInForce::UntilMarketOpen;
+        assert_eq!(time_in_force(&entry), TimeInForce::UntilMarketOpen);
     }
 
     #[test]

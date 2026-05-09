@@ -133,4 +133,52 @@ mod tests {
         let metadata = from_asset(&asset).expect("metadata mapping");
         assert_eq!(metadata.category, TradingVehicleCategory::Crypto);
     }
+
+    #[test]
+    fn test_from_asset_preserves_inactive_and_capability_flags() {
+        let raw = r#"{
+            "id": "c7d8e1d2-6d54-4c28-95b1-eaa9d45983b4",
+            "class": "us_equity",
+            "exchange": "NYSE",
+            "symbol": "HALT",
+            "status": "inactive",
+            "tradable": false,
+            "marginable": false,
+            "shortable": false,
+            "easy_to_borrow": false,
+            "fractionable": false
+        }"#;
+
+        let asset: Asset = from_json(raw).expect("valid inactive asset json");
+        let metadata = from_asset(&asset).expect("metadata mapping");
+
+        assert!(!metadata.is_active);
+        assert!(!metadata.tradable);
+        assert!(!metadata.marginable);
+        assert!(!metadata.shortable);
+        assert!(!metadata.easy_to_borrow);
+        assert!(!metadata.fractionable);
+    }
+
+    #[test]
+    fn test_map_category_rejects_unknown_asset_class() {
+        let error = map_category(apca::api::v2::asset::Class::Unknown)
+            .expect_err("unknown class must be rejected");
+        assert!(error.to_string().contains("unknown"));
+    }
+
+    #[test]
+    fn test_fetch_asset_metadata_rejects_blank_symbol_before_key_lookup() {
+        let account = Account::default();
+        let error = fetch_asset_metadata(&account, " \t\n").expect_err("blank symbol rejected");
+        assert_eq!(error.to_string(), "Symbol cannot be empty");
+    }
+
+    #[test]
+    fn test_fetch_asset_metadata_rejects_invalid_symbol_before_key_lookup() {
+        let account = Account::default();
+        let error = fetch_asset_metadata(&account, "bad symbol")
+            .expect_err("invalid symbol should be rejected before key lookup");
+        assert!(error.to_string().contains("Invalid symbol 'BAD SYMBOL'"));
+    }
 }

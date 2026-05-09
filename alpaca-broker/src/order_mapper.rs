@@ -3,6 +3,7 @@ use chrono::DateTime;
 use chrono::NaiveDateTime;
 use chrono::Utc;
 use model::{Order, OrderCategory, OrderStatus, Status, Trade};
+use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 use std::error::Error;
 use std::str::FromStr;
@@ -98,6 +99,23 @@ fn has_recent_unfill(order_id: uuid::Uuid, updated_orders: &[Order]) -> bool {
         .any(|order| order.id == order_id && order.status != OrderStatus::Filled)
 }
 
+fn filled_quantity_to_u64(quantity: &num_decimal::Num) -> Result<u64, Box<dyn Error>> {
+    let value = Decimal::from_str(&quantity.to_string())
+        .map_err(|e| format!("Failed to parse filled quantity: {e}"))?;
+
+    if value < Decimal::ZERO {
+        return Err("Filled quantity cannot be negative".into());
+    }
+
+    if !value.is_integer() {
+        return Err("Filled quantity must be a whole number".into());
+    }
+
+    value
+        .to_u64()
+        .ok_or("Failed to convert filled quantity to u64".into())
+}
+
 pub fn map_trade_status(trade: &Trade, updated_orders: &[Order]) -> Status {
     // Priority 1: Recent fills (what became filled in this sync)
     if has_recent_fill(trade.safety_stop.id, updated_orders) {
@@ -148,10 +166,7 @@ fn map(alpaca_order: &AlpacaOrder, order: Order) -> Result<Order, Box<dyn Error>
     }
 
     let mut order = order;
-    order.filled_quantity = alpaca_order
-        .filled_quantity
-        .to_u64()
-        .ok_or("Failed to convert filled quantity to u64")?;
+    order.filled_quantity = filled_quantity_to_u64(&alpaca_order.filled_quantity)?;
     order.average_filled_price = alpaca_order
         .average_fill_price
         .clone()
@@ -628,6 +643,50 @@ mod tests {
     }
 
     #[test]
+    fn map_trade_status_returns_existing_trade_status_when_no_order_changes() {
+        let trade = Trade {
+            status: Status::Submitted,
+            entry: Order {
+                status: OrderStatus::Accepted,
+                ..Default::default()
+            },
+            target: Order {
+                status: OrderStatus::New,
+                ..Default::default()
+            },
+            safety_stop: Order {
+                status: OrderStatus::New,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        assert_eq!(map_trade_status(&trade, &[]), Status::Submitted);
+    }
+
+    #[test]
+    fn map_trade_status_prioritizes_existing_closed_stop_over_target_and_entry() {
+        let trade = Trade {
+            status: Status::Filled,
+            entry: Order {
+                status: OrderStatus::Filled,
+                ..Default::default()
+            },
+            target: Order {
+                status: OrderStatus::Filled,
+                ..Default::default()
+            },
+            safety_stop: Order {
+                status: OrderStatus::Filled,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        assert_eq!(map_trade_status(&trade, &[]), Status::ClosedStopLoss);
+    }
+
+    #[test]
     fn test_map_order_ids_match() {
         let alpaca_order = default();
         let order = Order {
@@ -644,6 +703,86 @@ mod tests {
             mapped_order.unwrap().broker_order_id.unwrap(),
             "00000000-0000-0000-0000-000000000000"
         );
+    }
+
+    #[test]
+    fn map_rejects_mismatched_broker_order_id() {
+        let alpaca_order = default();
+        let order = Order {
+            broker_order_id: Some(Uuid::new_v4().to_string()),
+            ..Default::default()
+        };
+
+        let error = map(&alpaca_order, order).expect_err("broker ids must match");
+
+        assert_eq!(error.to_string(), "Order IDs do not match");
+    }
+
+    #[test]
+    fn map_rejects_fractional_filled_quantity() {
+        let alpaca_order = AlpacaOrder {
+            filled_quantity: Num::from_str("1.5").unwrap(),
+            ..default()
+        };
+        let order = Order {
+            broker_order_id: Some(
+                Uuid::parse_str("00000000-0000-0000-0000-000000000000")
+                    .unwrap()
+                    .to_string(),
+            ),
+            ..Default::default()
+        };
+
+        let error = map(&alpaca_order, order).expect_err("fractional share count is unsupported");
+
+        assert_eq!(error.to_string(), "Filled quantity must be a whole number");
+    }
+
+    #[test]
+    fn map_rejects_negative_filled_quantity() {
+        let alpaca_order = AlpacaOrder {
+            filled_quantity: Num::from_str("-1").unwrap(),
+            ..default()
+        };
+        let order = Order {
+            broker_order_id: Some(
+                Uuid::parse_str("00000000-0000-0000-0000-000000000000")
+                    .unwrap()
+                    .to_string(),
+            ),
+            ..Default::default()
+        };
+
+        let error = map(&alpaca_order, order).expect_err("negative fill count is unsupported");
+
+        assert_eq!(error.to_string(), "Filled quantity cannot be negative");
+    }
+
+    #[test]
+    fn map_close_order_replaces_broker_fields_and_marks_market_order() {
+        let submitted_at = Utc::now();
+        let alpaca_order = AlpacaOrder {
+            id: Id(Uuid::parse_str("904837e3-3b76-47ec-b432-046db621571b").unwrap()),
+            status: AlpacaStatus::Filled,
+            submitted_at: Some(submitted_at),
+            ..default()
+        };
+        let target = Order {
+            broker_order_id: Some("old-target-id".to_string()),
+            category: OrderCategory::Limit,
+            status: OrderStatus::New,
+            ..Default::default()
+        };
+
+        let mapped = map_close_order(&alpaca_order, target).expect("close order maps");
+
+        assert_eq!(
+            mapped.broker_order_id.as_deref(),
+            Some("904837e3-3b76-47ec-b432-046db621571b")
+        );
+        assert_eq!(mapped.status, OrderStatus::Filled);
+        assert_eq!(mapped.submitted_at, map_date(Some(submitted_at)));
+        assert_eq!(mapped.category, OrderCategory::Market);
     }
 
     #[test]

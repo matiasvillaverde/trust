@@ -57,9 +57,12 @@ impl FromStr for Keys {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut split = s.split_whitespace();
-        let url = split.next().unwrap_or_default().to_string();
-        let key_id = split.next().unwrap_or_default().to_string();
-        let secret = split.next().unwrap_or_default().to_string();
+        let url = split.next().ok_or(KeysParseError)?.to_string();
+        let key_id = split.next().ok_or(KeysParseError)?.to_string();
+        let secret = split.next().ok_or(KeysParseError)?.to_string();
+        if split.next().is_some() {
+            return Err(KeysParseError);
+        }
         Ok(Keys::new(key_id.as_str(), secret.as_str(), url.as_str()))
     }
 }
@@ -139,46 +142,30 @@ mod tests {
     }
 
     // ---------------------------------------------------------------
-    // Security tests — assert CORRECT behavior, #[should_panic] on bugs
+    // Security tests
     // ---------------------------------------------------------------
 
     /// Parsing an empty string should return Err, not empty Keys.
     #[test]
-    #[should_panic = "should return Err for empty input"]
     fn from_str_empty_string_should_error() {
-        assert!(
-            Keys::from_str("").is_err(),
-            "should return Err for empty input"
-        );
+        assert!(Keys::from_str("").is_err());
     }
 
     /// Parsing only a URL (missing key_id and secret) should return Err.
     #[test]
-    #[should_panic = "should return Err for partial input"]
     fn from_str_partial_input_should_error() {
-        assert!(
-            Keys::from_str("https://example.com").is_err(),
-            "should return Err for partial input"
-        );
+        assert!(Keys::from_str("https://example.com").is_err());
     }
 
     /// Parsing URL + key_id but no secret should return Err.
     #[test]
-    #[should_panic = "should return Err when secret is missing"]
     fn from_str_missing_secret_should_error() {
-        assert!(
-            Keys::from_str("https://example.com my_key_id").is_err(),
-            "should return Err when secret is missing"
-        );
+        assert!(Keys::from_str("https://example.com my_key_id").is_err());
     }
 
     /// Extra tokens beyond the expected three should return Err.
     #[test]
-    #[should_panic = "should return Err for extra tokens"]
     fn from_str_extra_tokens_should_error() {
-        assert!(
-            Keys::from_str("https://example.com key_id secret EXTRA_DATA more_stuff").is_err(),
-            "should return Err for extra tokens"
-        );
+        assert!(Keys::from_str("https://example.com key_id secret EXTRA_DATA more_stuff").is_err());
     }
 }
