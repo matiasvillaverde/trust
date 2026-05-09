@@ -157,9 +157,18 @@ fn open_trades_for_account(
     trust: &mut TrustFacade,
     account_id: uuid::Uuid,
 ) -> Result<Vec<Trade>, Box<dyn Error>> {
-    let mut trades = trust.search_trades(account_id, Status::Submitted)?;
-    trades.append(&mut trust.search_trades(account_id, Status::Filled)?);
-    trades.append(&mut trust.search_trades(account_id, Status::PartiallyFilled)?);
+    open_trades_for_account_with(account_id, |account_id, status| {
+        trust.search_trades(account_id, status)
+    })
+}
+
+fn open_trades_for_account_with(
+    account_id: uuid::Uuid,
+    mut search: impl FnMut(uuid::Uuid, Status) -> Result<Vec<Trade>, Box<dyn Error>>,
+) -> Result<Vec<Trade>, Box<dyn Error>> {
+    let mut trades = search(account_id, Status::Submitted)?;
+    trades.append(&mut search(account_id, Status::Filled)?);
+    trades.append(&mut search(account_id, Status::PartiallyFilled)?);
     Ok(trades)
 }
 
@@ -234,10 +243,20 @@ fn watch_loop(
             break;
         }
 
-        sleep(Duration::from_secs(2));
+        sleep(watch_poll_delay());
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+fn watch_poll_delay() -> Duration {
+    Duration::from_millis(1)
+}
+
+#[cfg(not(test))]
+fn watch_poll_delay() -> Duration {
+    Duration::from_secs(2)
 }
 
 fn refresh_trade_snapshot(
@@ -246,8 +265,18 @@ fn refresh_trade_snapshot(
     trade_id: uuid::Uuid,
     status: Status,
 ) -> Option<Trade> {
-    trust
-        .search_trades(account_id, status)
+    refresh_trade_snapshot_with(account_id, trade_id, status, |account_id, status| {
+        trust.search_trades(account_id, status)
+    })
+}
+
+fn refresh_trade_snapshot_with(
+    account_id: uuid::Uuid,
+    trade_id: uuid::Uuid,
+    status: Status,
+    mut search: impl FnMut(uuid::Uuid, Status) -> Result<Vec<Trade>, Box<dyn Error>>,
+) -> Option<Trade> {
+    search(account_id, status)
         .ok()?
         .into_iter()
         .find(|trade| trade.id == trade_id)
@@ -256,7 +285,8 @@ fn refresh_trade_snapshot(
 #[cfg(test)]
 mod tests {
     use super::{
-        open_trades_for_account, refresh_trade_snapshot, terminal_status, TradeWatchDialogBuilder,
+        open_trades_for_account, open_trades_for_account_with, refresh_trade_snapshot,
+        refresh_trade_snapshot_with, terminal_status, TradeWatchDialogBuilder,
     };
     use crate::dialogs::io::{scripted_push_select, scripted_reset};
     use core::TrustFacade;
@@ -266,6 +296,7 @@ mod tests {
         TradeCategory, TradingVehicleCategory, TransactionCategory,
     };
     use rust_decimal_macros::dec;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use uuid::Uuid;
 
     #[derive(Default)]
@@ -422,17 +453,41 @@ mod tests {
         submitted
     }
 
+    enum ScenarioMode {
+        Terminal,
+        FailingSync,
+        SubmittedThenTerminal,
+    }
+
     struct ScenarioBroker {
-        fail_sync: bool,
+        mode: ScenarioMode,
+        sync_calls: AtomicUsize,
     }
 
     impl ScenarioBroker {
         fn terminal() -> Self {
-            Self { fail_sync: false }
+            Self {
+                mode: ScenarioMode::Terminal,
+                sync_calls: AtomicUsize::new(0),
+            }
         }
 
         fn failing_sync() -> Self {
-            Self { fail_sync: true }
+            Self {
+                mode: ScenarioMode::FailingSync,
+                sync_calls: AtomicUsize::new(0),
+            }
+        }
+
+        fn submitted_then_terminal() -> Self {
+            Self {
+                mode: ScenarioMode::SubmittedThenTerminal,
+                sync_calls: AtomicUsize::new(0),
+            }
+        }
+
+        fn sync_call_count(&self) -> usize {
+            self.sync_calls.load(Ordering::SeqCst)
         }
     }
 
@@ -461,15 +516,23 @@ mod tests {
             trade: &model::Trade,
             _account: &model::Account,
         ) -> Result<(Status, Vec<Order>, BrokerLog), Box<dyn std::error::Error>> {
-            if self.fail_sync {
+            if matches!(self.mode, ScenarioMode::FailingSync) {
                 return Err("sync failed".into());
+            }
+            let call = self.sync_calls.fetch_add(1, Ordering::SeqCst);
+            if matches!(self.mode, ScenarioMode::SubmittedThenTerminal) && call == 0 {
+                return Ok((Status::Submitted, vec![], BrokerLog::default()));
             }
             let mut entry = trade.entry.clone();
             entry.status = OrderStatus::Filled;
+            entry.filled_quantity = entry.quantity;
             entry.average_filled_price = Some(dec!(100));
+            entry.filled_at = Some(chrono::Utc::now().naive_utc());
             let mut target = trade.target.clone();
             target.status = OrderStatus::Filled;
+            target.filled_quantity = target.quantity;
             target.average_filled_price = Some(dec!(110));
+            target.filled_at = Some(chrono::Utc::now().naive_utc());
             let mut stop = trade.safety_stop.clone();
             stop.status = OrderStatus::Canceled;
 
@@ -575,6 +638,42 @@ mod tests {
     }
 
     #[test]
+    fn search_and_latest_store_open_trade_read_errors() {
+        let mut trust = TrustFacade::new(
+            Box::new(crate::test_support::ReadFailureFactory::trades()),
+            Box::<TestBroker>::default(),
+        );
+        let account = model::Account {
+            id: Uuid::new_v4(),
+            ..model::Account::default()
+        };
+
+        let searched = TradeWatchDialogBuilder {
+            account: Some(account.clone()),
+            trade: None,
+            result: None,
+        }
+        .search(&mut trust);
+        let search_error = searched
+            .result
+            .expect("result must be set")
+            .expect_err("search should surface trade read failures");
+        assert!(search_error.to_string().contains("trade read failed"));
+
+        let latest = TradeWatchDialogBuilder {
+            account: Some(account),
+            trade: None,
+            result: None,
+        }
+        .latest(&mut trust);
+        let latest_error = latest
+            .result
+            .expect("result must be set")
+            .expect_err("latest should surface trade read failures");
+        assert!(latest_error.to_string().contains("trade read failed"));
+    }
+
+    #[test]
     fn build_requires_trade_and_account() {
         let mut trust = test_trust();
         let missing_trade = TradeWatchDialogBuilder::new().build(&mut trust);
@@ -610,12 +709,45 @@ mod tests {
     }
 
     #[test]
+    fn display_handles_success_result() {
+        TradeWatchDialogBuilder {
+            account: None,
+            trade: None,
+            result: Some(Ok(())),
+        }
+        .display();
+    }
+
+    #[test]
     fn open_trades_for_account_returns_empty_when_no_open_statuses() {
         let mut trust = test_trust();
         let (account, _trade) = seed_account_with_trade(&mut trust, "watch-open");
 
         let trades = open_trades_for_account(&mut trust, account.id).expect("query should succeed");
         assert!(trades.is_empty());
+    }
+
+    #[test]
+    fn open_trades_for_account_propagates_each_status_query_failure() {
+        for fail_status in [Status::Submitted, Status::Filled, Status::PartiallyFilled] {
+            let account_id = Uuid::new_v4();
+            let mut queried_statuses = Vec::new();
+            let error = open_trades_for_account_with(account_id, |queried_account_id, status| {
+                assert_eq!(queried_account_id, account_id);
+                queried_statuses.push(status);
+                if status == fail_status {
+                    Err(format!("trade read failed for {status:?}").into())
+                } else {
+                    Ok(vec![])
+                }
+            })
+            .expect_err("status query failure should be returned");
+
+            assert!(error
+                .to_string()
+                .contains(&format!("trade read failed for {fail_status:?}")));
+            assert_eq!(queried_statuses.last().copied(), Some(fail_status));
+        }
     }
 
     #[test]
@@ -634,6 +766,24 @@ mod tests {
         let missing_id =
             refresh_trade_snapshot(&mut trust, account.id, Uuid::new_v4(), Status::New);
         assert!(missing_id.is_none());
+    }
+
+    #[test]
+    fn refresh_trade_snapshot_returns_none_when_status_query_fails() {
+        let account_id = Uuid::new_v4();
+        let trade_id = Uuid::new_v4();
+
+        assert!(refresh_trade_snapshot_with(
+            account_id,
+            trade_id,
+            Status::Submitted,
+            |queried_account_id, status| {
+                assert_eq!(queried_account_id, account_id);
+                assert_eq!(status, Status::Submitted);
+                Err("trade query failed".into())
+            }
+        )
+        .is_none());
     }
 
     #[test]
@@ -716,6 +866,39 @@ mod tests {
     }
 
     #[test]
+    fn watch_loop_polls_until_terminal_and_displays_new_executions() {
+        let scenario = ScenarioBroker::submitted_then_terminal();
+        let mut trust = test_trust_with_boxed_broker(Box::new(scenario));
+        let (account, trade) = seed_account_with_submitted_trade(&mut trust, "watch-poll");
+
+        let result = super::watch_loop(&mut trust, &trade, &account);
+
+        assert!(result.is_ok(), "terminal status should stop watch loop");
+        let executions = trust
+            .executions_for_trade(trade.id)
+            .expect("executions should be persisted");
+        assert!(
+            !executions.is_empty(),
+            "filled order sync should create execution rows"
+        );
+    }
+
+    #[test]
+    fn build_runs_watch_loop_when_account_and_trade_are_present() {
+        let mut trust = test_trust_with_boxed_broker(Box::new(ScenarioBroker::terminal()));
+        let (account, trade) = seed_account_with_submitted_trade(&mut trust, "watch-build-loop");
+
+        let builder = TradeWatchDialogBuilder {
+            account: Some(account),
+            trade: Some(trade),
+            result: None,
+        }
+        .build(&mut trust);
+
+        assert!(builder.result.expect("watch result should be set").is_ok());
+    }
+
+    #[test]
     fn watch_loop_propagates_sync_error() {
         let mut trust = test_trust_with_boxed_broker(Box::new(ScenarioBroker::failing_sync()));
         let (account, trade) = seed_account_with_submitted_trade(&mut trust, "watch-sync-error");
@@ -732,6 +915,7 @@ mod tests {
         let (account, trade) =
             seed_account_with_submitted_trade(&mut trust, "watch-broker-contract");
 
+        assert_eq!(broker.sync_call_count(), 0);
         assert!(broker.cancel_trade(&trade, &account).is_ok());
         assert!(broker.modify_stop(&trade, &account, dec!(90)).is_ok());
         assert!(broker.modify_target(&trade, &account, dec!(120)).is_ok());
@@ -739,5 +923,21 @@ mod tests {
             .close_trade(&trade, &account)
             .expect_err("close should remain unsupported in this test broker");
         assert!(close_error.to_string().contains("not used"));
+    }
+
+    #[test]
+    fn test_broker_aux_methods_have_expected_contracts() {
+        let broker = TestBroker;
+        let trade = model::Trade::default();
+        let account = model::Account::default();
+
+        assert!(broker.sync_trade(&trade, &account).is_ok());
+        assert!(broker.cancel_trade(&trade, &account).is_ok());
+        assert!(broker.modify_stop(&trade, &account, dec!(90)).is_ok());
+        assert!(broker.modify_target(&trade, &account, dec!(120)).is_ok());
+        let close_error = broker
+            .close_trade(&trade, &account)
+            .expect_err("close is intentionally unsupported by TestBroker");
+        assert!(close_error.to_string().contains("not implemented"));
     }
 }

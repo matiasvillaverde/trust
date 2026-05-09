@@ -148,14 +148,50 @@ fn setup_account_with_rules(
 }
 
 fn create_tv(trust: &mut TrustFacade, symbol: &str) -> model::TradingVehicle {
+    create_tv_with_category(trust, symbol, TradingVehicleCategory::Stock)
+}
+
+fn create_tv_with_category(
+    trust: &mut TrustFacade,
+    symbol: &str,
+    category: TradingVehicleCategory,
+) -> model::TradingVehicle {
     trust
-        .create_trading_vehicle(
-            symbol,
-            Some("US0000000000"),
-            &TradingVehicleCategory::Stock,
-            "NASDAQ",
-        )
+        .create_trading_vehicle(symbol, None, &category, "ibkr")
         .expect("trading vehicle creation should succeed")
+}
+
+fn create_trade_for_security(
+    trust: &mut TrustFacade,
+    account: &Account,
+    symbol: &str,
+    vehicle_category: TradingVehicleCategory,
+    trade_category: TradeCategory,
+    quantity: i64,
+) -> Trade {
+    let tv = create_tv_with_category(trust, symbol, vehicle_category);
+    let (stop, entry, target) = match trade_category {
+        TradeCategory::Long => (dec!(95), dec!(100), dec!(110)),
+        TradeCategory::Short => (dec!(105), dec!(100), dec!(90)),
+    };
+    trust
+        .create_trade(
+            DraftTrade {
+                account: account.clone(),
+                trading_vehicle: tv,
+                quantity,
+                currency: Currency::USD,
+                category: trade_category,
+                thesis: None,
+                sector: None,
+                asset_class: Some(vehicle_category.to_string()),
+                context: None,
+            },
+            stop,
+            entry,
+            target,
+        )
+        .expect("trade creation should succeed")
 }
 
 fn create_trade(
@@ -260,6 +296,59 @@ fn short_trade_should_respect_risk_per_trade_limits() {
         fund_result.is_err(),
         "short funding should fail when actual risk exceeds risk-per-trade limit"
     );
+}
+
+#[test]
+fn risk_per_trade_boundary_holds_across_sides_and_security_categories() {
+    let scenarios = [
+        (TradingVehicleCategory::Stock, "STK"),
+        (TradingVehicleCategory::Etf, "ETF"),
+        (TradingVehicleCategory::Bond, "BND"),
+    ];
+    let sides = [TradeCategory::Long, TradeCategory::Short];
+
+    for (vehicle_category, prefix) in scenarios {
+        for side in sides {
+            let side_label = match side {
+                TradeCategory::Long => "LONG",
+                TradeCategory::Short => "SHORT",
+            };
+
+            let mut trust = create_trust();
+            let account_name = format!("risk-ok-{prefix}-{side_label}");
+            let account = setup_account_with_rules(&mut trust, &account_name, dec!(100000), 2.0);
+            let trade = create_trade_for_security(
+                &mut trust,
+                &account,
+                &format!("{prefix}{side_label}OK"),
+                vehicle_category,
+                side,
+                400,
+            );
+            trust
+                .fund_trade(&trade)
+                .expect("exact risk boundary should fund");
+
+            let mut trust = create_trust();
+            let account_name = format!("risk-over-{prefix}-{side_label}");
+            let account = setup_account_with_rules(&mut trust, &account_name, dec!(100000), 2.0);
+            let trade = create_trade_for_security(
+                &mut trust,
+                &account,
+                &format!("{prefix}{side_label}OVER"),
+                vehicle_category,
+                side,
+                401,
+            );
+            let error = trust
+                .fund_trade(&trade)
+                .expect_err("one unit over risk boundary should be rejected");
+            assert!(
+                error.to_string().contains("Risk per trade exceeded"),
+                "unexpected risk error for {vehicle_category} {side:?}: {error}"
+            );
+        }
+    }
 }
 
 #[test]

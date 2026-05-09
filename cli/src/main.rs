@@ -45,6 +45,8 @@ mod dialogs;
 mod dispatcher;
 mod exporters;
 mod protected_keyword;
+#[cfg(test)]
+mod test_support;
 mod trading_vehicle_import;
 mod views;
 
@@ -100,7 +102,9 @@ fn build_cli() -> Command {
         .subcommand(
             TradingVehicleCommandBuilder::new()
                 .create_trading_vehicle()
+                .update_bond_terms()
                 .search_trading_vehicle()
+                .stats()
                 .build(),
         )
         .subcommand(
@@ -167,7 +171,13 @@ fn build_cli() -> Command {
                 .rules()
                 .build(),
         )
-        .subcommand(MetricsCommandBuilder::new().advanced().compare().build())
+        .subcommand(
+            MetricsCommandBuilder::new()
+                .advanced()
+                .compare()
+                .bond()
+                .build(),
+        )
         .subcommand(
             AdvisorCommandBuilder::new()
                 .configure()

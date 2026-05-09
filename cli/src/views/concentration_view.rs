@@ -54,7 +54,7 @@ impl ConcentrationView {
     fn display_groups(groups: &[ConcentrationGroup]) {
         // Sort groups by current open risk (descending)
         let mut sorted_groups = groups.to_vec();
-        sorted_groups.sort_by(|a, b| b.current_open_risk.cmp(&a.current_open_risk));
+        sorted_groups.sort_by_key(|group| std::cmp::Reverse(group.current_open_risk));
 
         for group in sorted_groups {
             let pnl_display = if group.realized_pnl >= dec!(0) {
@@ -177,12 +177,20 @@ mod tests {
         let sector_analysis = ConcentrationAnalysis {
             groups: vec![group("Tech", dec!(250), dec!(50))],
             total_risk: dec!(250),
-            concentration_warnings: vec![],
+            concentration_warnings: vec![ConcentrationWarning {
+                group_name: "Tech".to_string(),
+                risk_percentage: dec!(70),
+                level: WarningLevel::High,
+            }],
         };
         let asset_analysis = ConcentrationAnalysis {
-            groups: vec![],
+            groups: vec![group("Stocks", dec!(150), dec!(25))],
             total_risk: dec!(0),
-            concentration_warnings: vec![],
+            concentration_warnings: vec![ConcentrationWarning {
+                group_name: "Stocks".to_string(),
+                risk_percentage: dec!(55),
+                level: WarningLevel::Moderate,
+            }],
         };
 
         ConcentrationView::display(sector_analysis, asset_analysis, true);

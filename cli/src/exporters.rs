@@ -268,6 +268,23 @@ mod tests {
     }
 
     #[test]
+    fn filter_closed_trades_keeps_terminal_closures_only() {
+        let closed_target = create_test_trade(dec!(100));
+        let mut closed_stop = create_test_trade(dec!(-50));
+        closed_stop.status = Status::ClosedStopLoss;
+        let mut funded = create_test_trade(dec!(25));
+        funded.status = Status::Funded;
+
+        let filtered = MetricsExporter::filter_closed_trades(&[
+            closed_target.clone(),
+            closed_stop.clone(),
+            funded,
+        ]);
+
+        assert_eq!(filtered, vec![closed_target, closed_stop]);
+    }
+
+    #[test]
     fn test_json_export_empty_trades() {
         let trades = vec![];
         let result = MetricsExporter::to_json(&trades, None);

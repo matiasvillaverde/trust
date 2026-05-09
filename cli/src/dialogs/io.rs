@@ -39,9 +39,9 @@ pub struct DialoguerBackend;
 
 #[cfg(test)]
 mod scripted_backend {
+    use std::cell::RefCell;
     use std::collections::VecDeque;
     use std::io::Error as IoError;
-    use std::sync::{Mutex, OnceLock};
 
     #[derive(Default)]
     pub struct ScriptedState {
@@ -50,54 +50,55 @@ mod scripted_backend {
         pub inputs: VecDeque<Result<String, IoError>>,
     }
 
-    fn state() -> &'static Mutex<ScriptedState> {
-        static STATE: OnceLock<Mutex<ScriptedState>> = OnceLock::new();
-        STATE.get_or_init(|| Mutex::new(ScriptedState::default()))
+    thread_local! {
+        static STATE: RefCell<ScriptedState> = RefCell::new(ScriptedState::default());
     }
 
     pub(crate) fn push_select(result: Result<Option<usize>, IoError>) {
-        let mut guard = state().lock().expect("scripted state lock");
-        guard.selects.push_back(result);
+        STATE.with(|state| state.borrow_mut().selects.push_back(result));
     }
 
     #[allow(dead_code)]
     pub(crate) fn push_confirm(result: Result<bool, IoError>) {
-        let mut guard = state().lock().expect("scripted state lock");
-        guard.confirms.push_back(result);
+        STATE.with(|state| state.borrow_mut().confirms.push_back(result));
     }
 
     pub(crate) fn push_input(result: Result<String, IoError>) {
-        let mut guard = state().lock().expect("scripted state lock");
-        guard.inputs.push_back(result);
+        STATE.with(|state| state.borrow_mut().inputs.push_back(result));
     }
 
     pub(crate) fn reset() {
-        let mut guard = state().lock().expect("scripted state lock");
-        *guard = ScriptedState::default();
+        STATE.with(|state| *state.borrow_mut() = ScriptedState::default());
     }
 
     pub(crate) fn next_select() -> Result<Option<usize>, IoError> {
-        let mut guard = state().lock().expect("scripted state lock");
-        guard
-            .selects
-            .pop_front()
-            .unwrap_or_else(|| Err(IoError::other("no scripted selection response")))
+        STATE.with(|state| {
+            state
+                .borrow_mut()
+                .selects
+                .pop_front()
+                .unwrap_or_else(|| Err(IoError::other("no scripted selection response")))
+        })
     }
 
     pub(crate) fn next_confirm() -> Result<bool, IoError> {
-        let mut guard = state().lock().expect("scripted state lock");
-        guard
-            .confirms
-            .pop_front()
-            .unwrap_or_else(|| Err(IoError::other("no scripted confirm response")))
+        STATE.with(|state| {
+            state
+                .borrow_mut()
+                .confirms
+                .pop_front()
+                .unwrap_or_else(|| Err(IoError::other("no scripted confirm response")))
+        })
     }
 
     pub(crate) fn next_input() -> Result<String, IoError> {
-        let mut guard = state().lock().expect("scripted state lock");
-        guard
-            .inputs
-            .pop_front()
-            .unwrap_or_else(|| Err(IoError::other("no scripted input response")))
+        STATE.with(|state| {
+            state
+                .borrow_mut()
+                .inputs
+                .pop_front()
+                .unwrap_or_else(|| Err(IoError::other("no scripted input response")))
+        })
     }
 }
 
@@ -355,10 +356,26 @@ mod tests {
         }
 
         let mut io = ConsoleDialogIo::with_backend(InputBackend);
+        let labels = vec!["only".to_string()];
+        assert_eq!(io.select_index("Pick", &labels, 0).unwrap(), Some(0));
+        assert!(io.confirm("Continue?", false).unwrap());
         let value = io
             .input_text("Prompt", false)
             .expect("input should succeed");
         assert_eq!(value, "hello");
+    }
+
+    #[test]
+    fn input_text_delegates_to_default_stub_backend() {
+        let mut io = ConsoleDialogIo::with_backend(StubBackend {
+            next_select: Ok(None),
+            next_confirm: Ok(false),
+        });
+
+        let value = io
+            .input_text("Prompt", true)
+            .expect("stub input should succeed");
+        assert_eq!(value, "stub");
     }
 
     #[test]
@@ -380,6 +397,9 @@ mod tests {
         }
 
         let mut io = MinimalIo;
+        let labels = vec!["item".to_string()];
+        assert_eq!(io.select_index("Pick", &labels, 0).unwrap(), None);
+        assert!(!io.confirm("Continue?", true).unwrap());
         let error = io
             .input_text("Prompt", true)
             .expect_err("default input_text should be unsupported");

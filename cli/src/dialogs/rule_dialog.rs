@@ -319,6 +319,30 @@ mod tests {
     }
 
     #[test]
+    fn remove_select_rule_continues_after_rule_read_error() {
+        let mut trust = TrustFacade::new(
+            Box::new(crate::test_support::ReadFailureFactory::rules()),
+            Box::<AlpacaBroker>::default(),
+        );
+
+        let builder = RuleRemoveDialogBuilder {
+            account: Some(model::Account {
+                id: Uuid::new_v4(),
+                ..model::Account::default()
+            }),
+            rule_to_remove: None,
+            result: None,
+        }
+        .select_rule(&mut trust);
+
+        let err = builder
+            .result
+            .expect("empty fallback after read error should set result")
+            .expect_err("empty fallback should fail selection");
+        assert!(err.to_string().contains("No rules found"));
+    }
+
+    #[test]
     fn rule_name_and_level_with_io_select_values() {
         let mut io = ScriptedIo::default();
         io.selections.push_back(Ok(Some(0)));
@@ -342,6 +366,22 @@ mod tests {
         io.selections.push_back(Ok(None));
         let with_level = RuleDialogBuilder::new().level_with_io(&mut io);
         assert!(with_level.level.is_none());
+    }
+
+    #[test]
+    fn rule_selection_helpers_handle_io_errors_and_confirm_stub() {
+        let mut io = ScriptedIo::default();
+        io.selections.push_back(Err(IoError::other("name failed")));
+        let with_name = RuleDialogBuilder::new().name_with_io(&mut io);
+        assert!(with_name.name.is_none());
+
+        let mut io = ScriptedIo::default();
+        io.selections.push_back(Err(IoError::other("level failed")));
+        let with_level = RuleDialogBuilder::new().level_with_io(&mut io);
+        assert!(with_level.level.is_none());
+
+        let mut io = ScriptedIo::default();
+        assert!(!io.confirm("ignored", true).expect("confirm should succeed"));
     }
 
     #[test]
@@ -374,6 +414,63 @@ mod tests {
         }
         .risk_with_io(&mut io);
         assert_eq!(unchanged.name, Some(RuleName::RiskPerMonth(1.0)));
+    }
+
+    #[test]
+    fn rule_description_and_risk_with_io_cover_error_and_lower_bound_paths() {
+        let mut io = ScriptedIo::default();
+        io.inputs
+            .push_back(Err(IoError::other("description failed")));
+        let builder = RuleDialogBuilder::new().description_with_io(&mut io);
+        assert!(builder.description.is_none());
+
+        let mut io = ScriptedIo::default();
+        io.inputs.push_back(Ok("3.25".to_string()));
+        let monthly = RuleDialogBuilder {
+            name: Some(RuleName::RiskPerMonth(0.0)),
+            description: None,
+            level: None,
+            account: None,
+            result: None,
+        }
+        .risk_with_io(&mut io);
+        assert_eq!(monthly.name, Some(RuleName::RiskPerMonth(3.25)));
+
+        let mut io = ScriptedIo::default();
+        io.inputs.push_back(Ok("-1".to_string()));
+        let negative = RuleDialogBuilder {
+            name: Some(RuleName::RiskPerTrade(1.0)),
+            description: None,
+            level: None,
+            account: None,
+            result: None,
+        }
+        .risk_with_io(&mut io);
+        assert_eq!(negative.name, Some(RuleName::RiskPerTrade(1.0)));
+
+        let mut io = ScriptedIo::default();
+        io.inputs.push_back(Ok("not-a-risk".to_string()));
+        let invalid = RuleDialogBuilder {
+            name: Some(RuleName::RiskPerTrade(1.0)),
+            description: None,
+            level: None,
+            account: None,
+            result: None,
+        }
+        .risk_with_io(&mut io);
+        assert_eq!(invalid.name, Some(RuleName::RiskPerTrade(1.0)));
+
+        let mut io = ScriptedIo::default();
+        io.inputs.push_back(Err(IoError::other("risk failed")));
+        let failed = RuleDialogBuilder {
+            name: Some(RuleName::RiskPerTrade(1.0)),
+            description: None,
+            level: None,
+            account: None,
+            result: None,
+        }
+        .risk_with_io(&mut io);
+        assert_eq!(failed.name, Some(RuleName::RiskPerTrade(1.0)));
     }
 
     #[test]
@@ -431,6 +528,54 @@ mod tests {
             name: None,
             description: Some("desc".to_string()),
             level: Some(RuleLevel::Advice),
+            account: Some(account),
+            result: None,
+        }
+        .build(&mut trust);
+    }
+
+    #[test]
+    #[should_panic(expected = "Did you forget to enter a description?")]
+    fn rule_build_panics_when_description_missing() {
+        let mut trust = test_trust();
+        let account = trust
+            .create_account(
+                "rule-missing-description",
+                "desc",
+                Environment::Paper,
+                dec!(20),
+                dec!(10),
+            )
+            .expect("account should be created");
+
+        let _ = RuleDialogBuilder {
+            name: Some(RuleName::RiskPerTrade(1.0)),
+            description: None,
+            level: Some(RuleLevel::Advice),
+            account: Some(account),
+            result: None,
+        }
+        .build(&mut trust);
+    }
+
+    #[test]
+    #[should_panic(expected = "Did you forget to enter a level?")]
+    fn rule_build_panics_when_level_missing() {
+        let mut trust = test_trust();
+        let account = trust
+            .create_account(
+                "rule-missing-level",
+                "desc",
+                Environment::Paper,
+                dec!(20),
+                dec!(10),
+            )
+            .expect("account should be created");
+
+        let _ = RuleDialogBuilder {
+            name: Some(RuleName::RiskPerTrade(1.0)),
+            description: Some("desc".to_string()),
+            level: None,
             account: Some(account),
             result: None,
         }
@@ -521,6 +666,49 @@ mod tests {
     }
 
     #[test]
+    fn rule_remove_select_rule_with_io_captures_selection_error() {
+        let mut io = ScriptedIo::default();
+        io.selections
+            .push_back(Err(IoError::other("selection failed")));
+
+        let failed = RuleRemoveDialogBuilder::new().select_rule_with_io(
+            &[model::Rule {
+                id: Uuid::new_v4(),
+                created_at: chrono::Utc::now().naive_utc(),
+                updated_at: chrono::Utc::now().naive_utc(),
+                deleted_at: None,
+                name: RuleName::RiskPerTrade(1.0),
+                description: "tmp".to_string(),
+                priority: 1,
+                level: RuleLevel::Advice,
+                account_id: Uuid::new_v4(),
+                active: true,
+            }],
+            &mut io,
+        );
+
+        let error = failed
+            .result
+            .expect("selection error should be captured")
+            .expect_err("expected selection error")
+            .to_string();
+        assert!(error.contains("Rule selection was canceled"));
+    }
+
+    #[test]
+    fn rule_search_wrappers_handle_missing_records() {
+        let mut trust = test_trust();
+        scripted_reset();
+
+        let create = RuleDialogBuilder::new().account(&mut trust);
+        assert!(create.account.is_none());
+
+        let remove = RuleRemoveDialogBuilder::new().account(&mut trust);
+        assert!(remove.account.is_none());
+        scripted_reset();
+    }
+
+    #[test]
     fn rule_wrapper_methods_use_default_console_io_in_tests() {
         let mut trust = test_trust();
         let account = trust
@@ -548,6 +736,7 @@ mod tests {
         scripted_push_input(Ok("2.5".to_string()));
         scripted_push_select(Ok(Some(0)));
         scripted_push_select(Ok(Some(0)));
+        scripted_push_select(Ok(Some(0)));
 
         let created = RuleDialogBuilder::new()
             .account(&mut trust)
@@ -560,7 +749,7 @@ mod tests {
             account.id
         );
         assert_eq!(created.description.as_deref(), Some("wrapper desc"));
-        assert!(matches!(created.name, Some(RuleName::RiskPerTrade(2.5))));
+        assert_eq!(created.name, Some(RuleName::RiskPerTrade(2.5)));
         assert!(created.level.is_some());
 
         let removed = RuleRemoveDialogBuilder::new()
@@ -570,19 +759,18 @@ mod tests {
             removed.account.as_ref().expect("selected account").id,
             account.id
         );
-        if removed.rule_to_remove.is_none() {
-            let error = removed
-                .result
-                .as_ref()
-                .expect("missing rule should capture error")
-                .as_ref()
-                .expect_err("expected error")
-                .to_string();
-            assert!(
-                error.contains("No rules found") || error.contains("canceled"),
-                "unexpected remove wrapper error: {error}"
-            );
-        }
+        assert!(removed.rule_to_remove.is_some());
         scripted_reset();
+    }
+
+    #[test]
+    fn scripted_io_input_text_defaults_to_empty_string() {
+        let mut io = ScriptedIo::default();
+
+        assert_eq!(
+            io.input_text("Description:", false)
+                .expect("default text input should return"),
+            ""
+        );
     }
 }

@@ -141,6 +141,7 @@ impl CancelDialogBuilder {
 #[cfg(test)]
 mod tests {
     use super::CancelDialogBuilder;
+    use crate::dialogs::io::{scripted_push_select, scripted_reset};
     use alpaca_broker::AlpacaBroker;
     use core::TrustFacade;
     use db_sqlite::SqliteDatabase;
@@ -338,6 +339,58 @@ mod tests {
             .expect("result should be set")
             .expect_err("io error should fail");
         assert!(err.to_string().contains("Trade selection was canceled"));
+    }
+
+    #[test]
+    fn wrapper_methods_handle_default_console_paths() {
+        let mut trust = test_trust();
+        let (account, _trade) = seed_funded_trade(&mut trust);
+
+        let missing_account = CancelDialogBuilder::new().account(&mut trust);
+        assert!(missing_account.account.is_none());
+
+        scripted_reset();
+        scripted_push_select(Ok(Some(0)));
+        let selected_account = CancelDialogBuilder::new().account(&mut trust);
+        assert_eq!(
+            selected_account.account.as_ref().map(|a| a.id),
+            Some(account.id)
+        );
+
+        scripted_push_select(Ok(Some(0)));
+        let selected_trade = selected_account.search(&mut trust);
+        assert!(selected_trade.result.is_none());
+        assert!(selected_trade.trade.is_some());
+
+        scripted_reset();
+    }
+
+    #[test]
+    fn build_calls_submitted_cancel_path() {
+        let mut trust = test_trust();
+        let builder = CancelDialogBuilder {
+            account: None,
+            trade: Some(Trade {
+                status: Status::Submitted,
+                ..Trade::default()
+            }),
+            result: None,
+        }
+        .build(&mut trust);
+
+        assert!(builder.result.is_some());
+    }
+
+    #[test]
+    fn stub_dialog_io_confirm_default_is_false() {
+        let mut io = StubDialogIo {
+            select_result: Ok(None),
+        };
+
+        assert!(
+            !crate::dialogs::DialogIo::confirm(&mut io, "continue?", true)
+                .expect("confirm should return")
+        );
     }
 
     #[test]

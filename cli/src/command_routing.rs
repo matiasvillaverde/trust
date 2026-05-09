@@ -54,7 +54,9 @@ pub enum RulesSubcommand<'a> {
 
 pub enum TradingVehicleSubcommand<'a> {
     Create(&'a ArgMatches),
-    Search,
+    UpdateBondTerms(&'a ArgMatches),
+    Search(&'a ArgMatches),
+    Stats(&'a ArgMatches),
 }
 
 pub enum TradeSubcommand<'a> {
@@ -129,6 +131,7 @@ pub enum OnboardingSubcommand<'a> {
 pub enum MetricsSubcommand<'a> {
     Advanced(&'a ArgMatches),
     Compare(&'a ArgMatches),
+    Bond(&'a ArgMatches),
 }
 
 pub enum AdvisorSubcommand<'a> {
@@ -218,7 +221,11 @@ pub fn parse_rules_subcommand(sub_matches: &ArgMatches) -> RulesSubcommand<'_> {
 pub fn parse_trading_vehicle_subcommand(sub_matches: &ArgMatches) -> TradingVehicleSubcommand<'_> {
     match sub_matches.subcommand() {
         Some(("create", sub_sub_matches)) => TradingVehicleSubcommand::Create(sub_sub_matches),
-        Some(("search", _)) => TradingVehicleSubcommand::Search,
+        Some(("update-bond-terms", sub_sub_matches)) => {
+            TradingVehicleSubcommand::UpdateBondTerms(sub_sub_matches)
+        }
+        Some(("search", sub_sub_matches)) => TradingVehicleSubcommand::Search(sub_sub_matches),
+        Some(("stats", sub_sub_matches)) => TradingVehicleSubcommand::Stats(sub_sub_matches),
         _ => unreachable!("No subcommand provided"),
     }
 }
@@ -324,6 +331,7 @@ pub fn parse_metrics_subcommand(sub_matches: &ArgMatches) -> MetricsSubcommand<'
     match sub_matches.subcommand() {
         Some(("advanced", sub_sub_matches)) => MetricsSubcommand::Advanced(sub_sub_matches),
         Some(("compare", sub_sub_matches)) => MetricsSubcommand::Compare(sub_sub_matches),
+        Some(("bond", sub_sub_matches)) => MetricsSubcommand::Bond(sub_sub_matches),
         _ => unreachable!("No subcommand provided"),
     }
 }
@@ -375,7 +383,7 @@ mod tests {
             .subcommand(Command::new("account").subcommand(Command::new("balance")))
             .subcommand(Command::new("transaction").subcommand(Command::new("deposit")))
             .subcommand(Command::new("rule").subcommand(Command::new("remove")))
-            .subcommand(Command::new("trading-vehicle").subcommand(Command::new("search")))
+            .subcommand(Command::new("trading-vehicle").subcommand(Command::new("stats")))
             .subcommand(
                 Command::new("trade")
                     .subcommand(Command::new("size-preview"))
@@ -407,7 +415,7 @@ mod tests {
         let rule = app.clone().get_matches_from(["trust", "rule", "remove"]);
         let vehicle = app
             .clone()
-            .get_matches_from(["trust", "trading-vehicle", "search"]);
+            .get_matches_from(["trust", "trading-vehicle", "stats"]);
         let trade = app
             .clone()
             .get_matches_from(["trust", "trade", "size-preview"]);
@@ -460,7 +468,7 @@ mod tests {
             .expect("expected trading-vehicle subcommand");
         assert!(matches!(
             parse_trading_vehicle_subcommand(vehicle_m),
-            TradingVehicleSubcommand::Search
+            TradingVehicleSubcommand::Stats(_)
         ));
         let (_, trade_m) = trade.subcommand().expect("expected trade subcommand");
         assert!(matches!(
@@ -913,6 +921,15 @@ mod tests {
         let m = app.get_matches_from(["trust", "market-data"]);
         let (_, sm) = m.subcommand().expect("expected market-data");
         let _ = parse_market_data_subcommand(sm);
+    }
+
+    #[test]
+    #[should_panic(expected = "No subcommand provided")]
+    fn parse_level_subcommand_panics_without_nested_subcommand() {
+        let app = Command::new("trust").subcommand(Command::new("level"));
+        let m = app.get_matches_from(["trust", "level"]);
+        let (_, sm) = m.subcommand().expect("expected level");
+        let _ = parse_level_subcommand(sm);
     }
 
     #[test]

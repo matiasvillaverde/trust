@@ -151,7 +151,12 @@ mod tests {
     use alpaca_broker::AlpacaBroker;
     use core::TrustFacade;
     use db_sqlite::SqliteDatabase;
-    use model::{Account, Currency, Environment, Trade, Transaction, TransactionCategory};
+    use model::{
+        Account, Broker, BrokerKind, BrokerLog, Currency, DraftTrade, Environment, Order, OrderIds,
+        OrderStatus, Status, Trade, TradeCategory, TradingVehicleCategory, Transaction,
+        TransactionCategory,
+    };
+    use rust_decimal::Decimal;
     use rust_decimal_macros::dec;
     use std::collections::VecDeque;
     use std::io::{Error as IoError, ErrorKind};
@@ -194,6 +199,152 @@ mod tests {
         let path = std::env::temp_dir().join(format!("trust-test-{}.db", Uuid::new_v4()));
         let db = SqliteDatabase::new(path.to_str().expect("valid temp db path"));
         TrustFacade::new(Box::new(db), Box::<AlpacaBroker>::default())
+    }
+
+    struct SubmitOkBroker;
+
+    impl Broker for SubmitOkBroker {
+        fn kind(&self) -> BrokerKind {
+            BrokerKind::Alpaca
+        }
+
+        fn submit_trade(
+            &self,
+            trade: &Trade,
+            _account: &Account,
+        ) -> Result<(BrokerLog, OrderIds), Box<dyn std::error::Error>> {
+            Ok((
+                BrokerLog {
+                    trade_id: trade.id,
+                    log: "submitted".to_string(),
+                    ..BrokerLog::default()
+                },
+                OrderIds {
+                    entry: Uuid::new_v4().to_string(),
+                    stop: Uuid::new_v4().to_string(),
+                    target: Uuid::new_v4().to_string(),
+                },
+            ))
+        }
+
+        fn sync_trade(
+            &self,
+            trade: &Trade,
+            _account: &Account,
+        ) -> Result<(Status, Vec<Order>, BrokerLog), Box<dyn std::error::Error>> {
+            Ok((
+                Status::Filled,
+                vec![
+                    Order {
+                        id: trade.entry.id,
+                        broker_order_id: trade.entry.broker_order_id.clone(),
+                        filled_quantity: trade.entry.quantity,
+                        average_filled_price: Some(dec!(100)),
+                        status: OrderStatus::Filled,
+                        filled_at: Some(chrono::Utc::now().naive_utc()),
+                        ..Order::default()
+                    },
+                    Order {
+                        id: trade.target.id,
+                        broker_order_id: trade.target.broker_order_id.clone(),
+                        status: OrderStatus::Accepted,
+                        ..Order::default()
+                    },
+                    Order {
+                        id: trade.safety_stop.id,
+                        broker_order_id: trade.safety_stop.broker_order_id.clone(),
+                        status: OrderStatus::Held,
+                        ..Order::default()
+                    },
+                ],
+                BrokerLog {
+                    trade_id: trade.id,
+                    log: "filled".to_string(),
+                    ..BrokerLog::default()
+                },
+            ))
+        }
+
+        fn close_trade(
+            &self,
+            _trade: &Trade,
+            _account: &Account,
+        ) -> Result<(Order, BrokerLog), Box<dyn std::error::Error>> {
+            Err("close not supported".into())
+        }
+
+        fn cancel_trade(
+            &self,
+            _trade: &Trade,
+            _account: &Account,
+        ) -> Result<(), Box<dyn std::error::Error>> {
+            Err("cancel not supported".into())
+        }
+
+        fn modify_stop(
+            &self,
+            _trade: &Trade,
+            _account: &Account,
+            _new_stop_price: Decimal,
+        ) -> Result<String, Box<dyn std::error::Error>> {
+            Err("modify stop not supported".into())
+        }
+
+        fn modify_target(
+            &self,
+            _trade: &Trade,
+            _account: &Account,
+            _new_price: Decimal,
+        ) -> Result<String, Box<dyn std::error::Error>> {
+            Err("modify target not supported".into())
+        }
+    }
+
+    fn test_trust_with_submit_broker() -> TrustFacade {
+        TrustFacade::new(
+            Box::new(SqliteDatabase::new_in_memory()),
+            Box::new(SubmitOkBroker),
+        )
+    }
+
+    fn seed_filled_trade(trust: &mut TrustFacade, account_name: &str) -> (Account, Trade) {
+        let account = trust
+            .create_account(account_name, "desc", Environment::Paper, dec!(20), dec!(10))
+            .expect("account");
+        trust
+            .create_transaction(
+                &account,
+                &TransactionCategory::Deposit,
+                dec!(10_000),
+                &Currency::USD,
+            )
+            .expect("deposit");
+        let vehicle = trust
+            .create_trading_vehicle("AAPL", None, &TradingVehicleCategory::Stock, "alpaca")
+            .expect("vehicle");
+        let draft = DraftTrade {
+            account: account.clone(),
+            trading_vehicle: vehicle,
+            quantity: 10,
+            currency: Currency::USD,
+            category: TradeCategory::Long,
+            thesis: None,
+            sector: None,
+            asset_class: None,
+            context: None,
+        };
+        let trade = trust
+            .create_trade(draft, dec!(95), dec!(100), dec!(110))
+            .expect("trade");
+        let (funded, _, _, _) = trust.fund_trade(&trade).expect("fund trade");
+        let (submitted, _) = trust.submit_trade(&funded).expect("submit trade");
+        trust.sync_trade(&submitted, &account).expect("sync trade");
+        let filled = trust
+            .search_trades(account.id, Status::Filled)
+            .expect("filled search")
+            .pop()
+            .expect("filled trade");
+        (account, filled)
     }
 
     #[test]
@@ -326,6 +477,165 @@ mod tests {
             .search_with_io(&mut trust, &mut io);
         }));
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn search_with_io_stores_trade_read_errors() {
+        let mut trust = TrustFacade::new(
+            Box::new(crate::test_support::ReadFailureFactory::trades()),
+            Box::<AlpacaBroker>::default(),
+        );
+        let mut io = ScriptedIo::new();
+
+        let builder = ExitDialogBuilder {
+            account: Some(Account {
+                id: Uuid::new_v4(),
+                ..Account::default()
+            }),
+            ..ExitDialogBuilder::new()
+        }
+        .search_with_io(&mut trust, &mut io);
+
+        let err = builder
+            .result
+            .expect("trade read error should set result")
+            .expect_err("trade read should fail");
+        assert!(err.to_string().contains("trade read failed"));
+    }
+
+    #[test]
+    fn account_wrapper_handles_search_error() {
+        let mut trust = test_trust();
+        scripted_reset();
+
+        let builder = ExitDialogBuilder::new().account(&mut trust);
+
+        assert!(builder.account.is_none());
+        scripted_reset();
+    }
+
+    #[test]
+    fn search_wrapper_uses_default_console_io_and_propagates_empty_trade_panic() {
+        let mut trust = test_trust();
+        let account = trust
+            .create_account(
+                "exit-search-wrapper",
+                "desc",
+                Environment::Paper,
+                dec!(20),
+                dec!(10),
+            )
+            .expect("account");
+        scripted_reset();
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = ExitDialogBuilder {
+                account: Some(account),
+                ..ExitDialogBuilder::new()
+            }
+            .search(&mut trust);
+        }));
+
+        assert!(result.is_err());
+        scripted_reset();
+    }
+
+    #[test]
+    fn search_with_io_selects_filled_trade_and_handles_non_selection_paths() {
+        let mut trust = test_trust_with_submit_broker();
+        let (account, filled) = seed_filled_trade(&mut trust, "exit-search-select");
+
+        let mut selected_io = ScriptedIo::new();
+        selected_io.selects.push_back(Ok(Some(0)));
+        let selected = ExitDialogBuilder {
+            account: Some(account.clone()),
+            ..ExitDialogBuilder::new()
+        }
+        .search_with_io(&mut trust, &mut selected_io);
+        assert_eq!(selected.trade.expect("selected trade").id, filled.id);
+
+        let mut canceled_io = ScriptedIo::new();
+        canceled_io.selects.push_back(Ok(None));
+        let canceled = ExitDialogBuilder {
+            account: Some(account.clone()),
+            ..ExitDialogBuilder::new()
+        }
+        .search_with_io(&mut trust, &mut canceled_io);
+        assert!(canceled.trade.is_none());
+        assert!(canceled.result.is_none());
+
+        let mut error_io = ScriptedIo::new();
+        error_io
+            .selects
+            .push_back(Err(IoError::new(ErrorKind::BrokenPipe, "select failed")));
+        let errored = ExitDialogBuilder {
+            account: Some(account),
+            ..ExitDialogBuilder::new()
+        }
+        .search_with_io(&mut trust, &mut error_io);
+        let err = errored
+            .result
+            .expect("selection error should set result")
+            .expect_err("selection error should fail");
+        assert!(err.to_string().contains("select failed"));
+
+        let mut default_io = ScriptedIo::new();
+        assert!(default_io
+            .select_index("unused", &[], 0)
+            .expect("default select")
+            .is_none());
+        assert_eq!(
+            default_io
+                .input_text("unused", false)
+                .expect("default input"),
+            ""
+        );
+    }
+
+    #[test]
+    fn submit_ok_broker_aux_methods_have_expected_contracts() {
+        let broker = SubmitOkBroker;
+        let trade = Trade::default();
+        let account = Account::default();
+
+        assert_eq!(broker.kind(), BrokerKind::Alpaca);
+        let (log, ids) = broker
+            .submit_trade(&trade, &account)
+            .expect("submit should succeed");
+        assert_eq!(log.trade_id, trade.id);
+        assert!(!ids.entry.is_empty());
+        assert!(!ids.stop.is_empty());
+        assert!(!ids.target.is_empty());
+        let (status, orders, log) = broker.sync_trade(&trade, &account).expect("sync");
+        assert_eq!(status, Status::Filled);
+        assert_eq!(orders.len(), 3);
+        assert_eq!(log.trade_id, trade.id);
+
+        let close = broker
+            .close_trade(&trade, &account)
+            .expect_err("close should be unsupported");
+        assert!(close.to_string().contains("close not supported"));
+        let cancel = broker
+            .cancel_trade(&trade, &account)
+            .expect_err("cancel should be unsupported");
+        assert!(cancel.to_string().contains("cancel not supported"));
+        let stop = broker
+            .modify_stop(&trade, &account, dec!(1))
+            .expect_err("stop modify should be unsupported");
+        assert!(stop.to_string().contains("modify stop not supported"));
+        let target = broker
+            .modify_target(&trade, &account, dec!(1))
+            .expect_err("target modify should be unsupported");
+        assert!(target.to_string().contains("modify target not supported"));
+    }
+
+    #[test]
+    fn scripted_io_confirm_default_is_false() {
+        let mut io = ScriptedIo::new();
+
+        assert!(!io
+            .confirm("continue?", true)
+            .expect("confirm should return"));
     }
 
     #[test]

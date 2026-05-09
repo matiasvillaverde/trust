@@ -194,5 +194,33 @@ mod tests {
         };
         DrawdownView::display_drawdown_history(&no_drawdown);
         DrawdownView::display(no_drawdown);
+
+        let fully_recovered = DrawdownMetrics {
+            current_equity: dec!(10000),
+            current_drawdown: dec!(0),
+            max_drawdown: dec!(500),
+            ..sample_metrics()
+        };
+        DrawdownView::display_drawdown_history(&fully_recovered);
+    }
+
+    #[test]
+    fn display_handles_missing_max_date_zero_recovery_and_no_day_counts() {
+        let metrics = DrawdownMetrics {
+            current_equity: dec!(9500),
+            peak_equity: dec!(10000),
+            current_drawdown: dec!(500),
+            current_drawdown_percentage: dec!(5.0),
+            max_drawdown: dec!(500),
+            max_drawdown_percentage: dec!(5.0),
+            max_drawdown_date: None,
+            recovery_from_max: dec!(0),
+            recovery_percentage: dec!(0),
+            days_since_peak: 0,
+            days_in_drawdown: 0,
+        };
+
+        DrawdownView::display_drawdown_history(&metrics);
+        DrawdownView::display(metrics);
     }
 }
