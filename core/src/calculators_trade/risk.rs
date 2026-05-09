@@ -279,4 +279,39 @@ mod tests {
         );
         assert_eq!(result, Decimal::new(150, 0));
     }
+
+    #[test]
+    fn test_calculate_capital_allowed_to_risk_returns_zero_for_invalid_risk_input() {
+        let result = RiskCalculator::calculate_capital_allowed_to_risk(
+            Decimal::new(1000, 0),
+            Decimal::new(1000, 0),
+            Decimal::new(0, 0),
+            f32::NAN,
+        );
+
+        assert_eq!(result, Decimal::ZERO);
+    }
+
+    #[test]
+    fn test_calculate_capital_allowed_to_risk_returns_zero_for_overflow_paths() {
+        let cases = [
+            (Decimal::MAX, Decimal::ZERO, Decimal::ZERO, 200.0),
+            (Decimal::MAX, dec!(-1), Decimal::ZERO, 0.0),
+            (Decimal::ZERO, Decimal::MAX, Decimal::ONE, 0.0),
+            (Decimal::MAX, Decimal::MAX, Decimal::ONE, 0.0),
+            (Decimal::ZERO, Decimal::MAX, Decimal::ZERO, 200.0),
+        ];
+
+        for (beginning, current, not_at_risk, risk) in cases {
+            assert_eq!(
+                RiskCalculator::calculate_capital_allowed_to_risk(
+                    beginning,
+                    current,
+                    not_at_risk,
+                    risk,
+                ),
+                Decimal::ZERO
+            );
+        }
+    }
 }

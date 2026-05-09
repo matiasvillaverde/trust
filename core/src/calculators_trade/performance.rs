@@ -123,4 +123,38 @@ mod tests {
         let result = TradePerformance::calculate(Uuid::new_v4(), &mut database);
         assert_eq!(result.unwrap(), dec!(-52));
     }
+
+    #[test]
+    fn test_calculate_reports_subtraction_overflow() {
+        let mut database = MockDatabase::new();
+
+        database.set_transaction(TransactionCategory::OpenTrade(Uuid::new_v4()), Decimal::MAX);
+        database.set_transaction(TransactionCategory::FeeOpen(Uuid::new_v4()), dec!(1));
+
+        let error = TradePerformance::calculate(Uuid::new_v4(), &mut database).unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("Arithmetic overflow in subtraction"));
+    }
+
+    #[test]
+    fn test_calculate_reports_addition_overflow() {
+        let mut database = MockDatabase::new();
+
+        database.set_transaction(
+            TransactionCategory::CloseTarget(Uuid::new_v4()),
+            Decimal::MAX,
+        );
+        database.set_transaction(
+            TransactionCategory::CloseSafetyStop(Uuid::new_v4()),
+            dec!(1),
+        );
+
+        let error = TradePerformance::calculate(Uuid::new_v4(), &mut database).unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("Arithmetic overflow in addition"));
+    }
 }

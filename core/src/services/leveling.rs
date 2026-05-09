@@ -575,7 +575,7 @@ impl<P: LevelTransitionPolicy> LevelingService<P> {
             currency,
         )?;
         Self::ensure_trigger_point_present(&mut points, event);
-        points.sort_by(|a, b| b.0.cmp(&a.0));
+        points.sort_by_key(|point| std::cmp::Reverse(point.0));
 
         Self::snapshot_from_closed_trade_points(&points, baseline)
     }
@@ -774,7 +774,83 @@ impl Default for DefaultLevelTransitionPolicy {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::events::trade::CloseReason;
+    use db_sqlite::SqliteDatabase;
+    use diesel::prelude::*;
+    use model::AccountType;
     use model::LevelStatus;
+
+    fn create_level_account(database: &SqliteDatabase, name: &str) -> (model::Account, Level) {
+        let account = database
+            .account_write()
+            .create_with_hierarchy(
+                name,
+                name,
+                model::Environment::Paper,
+                dec!(25),
+                dec!(30),
+                AccountType::Primary,
+                None,
+            )
+            .expect("account should be created");
+        let level = database
+            .level_write()
+            .create_default_level(&account)
+            .expect("default level should be created");
+
+        (account, level)
+    }
+
+    fn temporary_file_database() -> (SqliteDatabase, std::path::PathBuf) {
+        let path = std::env::temp_dir().join(format!("trust-leveling-{}.sqlite", Uuid::new_v4()));
+        let database = SqliteDatabase::new(
+            path.to_str()
+                .expect("temporary database path should be valid unicode"),
+        );
+        (database, path)
+    }
+
+    fn install_sqlite_trigger(path: &std::path::Path, sql: &str) {
+        let mut connection = diesel::SqliteConnection::establish(
+            path.to_str()
+                .expect("temporary database path should be valid unicode"),
+        )
+        .expect("trigger connection should open");
+        diesel::sql_query(sql)
+            .execute(&mut connection)
+            .expect("sqlite trigger should be installed");
+    }
+
+    fn closed_event(account_id: Uuid, final_pnl: Decimal) -> TradeClosed {
+        TradeClosed {
+            trade_id: Uuid::new_v4(),
+            account_id,
+            final_pnl,
+            r_multiple: Decimal::ZERO,
+            close_reason: CloseReason::Manual,
+            closed_at: Utc::now().naive_utc(),
+        }
+    }
+
+    fn upgrade_snapshot() -> LevelPerformanceSnapshot {
+        LevelPerformanceSnapshot {
+            profitable_trades: 12,
+            win_rate_percentage: dec!(75),
+            monthly_loss_percentage: dec!(-1),
+            largest_loss_percentage: dec!(-0.5),
+            consecutive_wins: 4,
+        }
+    }
+
+    fn risk_breach_snapshot() -> LevelPerformanceSnapshot {
+        LevelPerformanceSnapshot {
+            profitable_trades: 2,
+            win_rate_percentage: dec!(40),
+            monthly_loss_percentage: dec!(-6),
+            largest_loss_percentage: dec!(-3),
+            consecutive_wins: 0,
+        }
+    }
 
     #[test]
     fn test_default_policy_upgrade() {
@@ -979,8 +1055,6 @@ mod tests {
 
     #[test]
     fn test_ensure_trigger_point_present_appends_when_missing() {
-        use crate::events::trade::CloseReason;
-
         let trade_id = Uuid::new_v4();
         let account_id = Uuid::new_v4();
         let now = Utc::now().naive_utc();
@@ -1004,5 +1078,388 @@ mod tests {
         let appended = points.get(1).expect("appended trigger point");
         assert_eq!(appended.0, now);
         assert_eq!(appended.1, dec!(-25));
+    }
+
+    #[test]
+    fn test_evaluate_and_apply_persists_upgrade_and_history() {
+        let mut database = SqliteDatabase::new_in_memory();
+        let (account, mut level) = create_level_account(&database, "level-upgrade");
+        level.trades_at_level = 5;
+        database
+            .level_write()
+            .update_level(&level)
+            .expect("level counter should be updated");
+
+        let service = LevelingService::default().with_stabilization_rules(5, 10);
+        let outcome = service
+            .evaluate_and_apply(&mut database, account.id, &upgrade_snapshot(), true)
+            .expect("upgrade evaluation should succeed");
+
+        let applied = outcome
+            .applied_level
+            .expect("eligible upgrade should be applied");
+        assert_eq!(outcome.current_level.current_level, 3);
+        assert_eq!(applied.current_level, 4);
+        assert_eq!(applied.risk_multiplier, dec!(1.50));
+        assert_eq!(
+            outcome
+                .decision
+                .expect("decision should be returned")
+                .trigger_type,
+            LevelTrigger::PerformanceUpgrade
+        );
+
+        let history = database
+            .level_read()
+            .recent_level_changes(account.id, 30)
+            .expect("recent level changes should be readable");
+        assert_eq!(history.len(), 1);
+        let change = history.first().expect("change should exist");
+        assert_eq!(change.old_level, 3);
+        assert_eq!(change.new_level, 4);
+    }
+
+    #[test]
+    fn test_evaluate_and_apply_without_apply_leaves_level_unchanged() {
+        let mut database = SqliteDatabase::new_in_memory();
+        let (account, mut level) = create_level_account(&database, "level-preview");
+        level.trades_at_level = 5;
+        database
+            .level_write()
+            .update_level(&level)
+            .expect("level counter should be updated");
+
+        let service = LevelingService::default().with_stabilization_rules(5, 10);
+        let outcome = service
+            .evaluate_and_apply(&mut database, account.id, &upgrade_snapshot(), false)
+            .expect("preview evaluation should succeed");
+
+        assert!(outcome.decision.is_some());
+        assert!(outcome.applied_level.is_none());
+        let persisted = database
+            .level_read()
+            .level_for_account(account.id)
+            .expect("level should be readable");
+        assert_eq!(persisted.current_level, 3);
+        assert_eq!(persisted.trades_at_level, 5);
+    }
+
+    #[test]
+    fn test_handle_trade_closed_with_snapshot_increments_counter_and_applies_risk_breach() {
+        let mut database = SqliteDatabase::new_in_memory();
+        let (account, _) = create_level_account(&database, "level-risk-breach");
+        let event = closed_event(account.id, dec!(-300));
+        let service = LevelingService::default().with_stabilization_rules(0, 10);
+
+        let outcome = service
+            .handle_trade_closed_with_snapshot(&mut database, &event, &risk_breach_snapshot())
+            .expect("closed trade event should be handled");
+
+        let applied = outcome
+            .applied_level
+            .expect("risk breach should downgrade immediately");
+        assert_eq!(applied.current_level, 2);
+        assert_eq!(applied.status, LevelStatus::Probation);
+        assert_eq!(applied.trades_at_level, 0);
+
+        let history = database
+            .level_read()
+            .recent_level_changes(account.id, 30)
+            .expect("recent level changes should be readable");
+        assert_eq!(history.len(), 1);
+        assert_eq!(
+            history.first().expect("change should exist").trigger_type,
+            LevelTrigger::RiskBreach
+        );
+    }
+
+    #[test]
+    fn test_handle_trade_closed_with_snapshot_suppresses_upgrade_until_min_trades() {
+        let mut database = SqliteDatabase::new_in_memory();
+        let (account, _) = create_level_account(&database, "level-upgrade-stabilized");
+        let event = closed_event(account.id, dec!(100));
+        let service = LevelingService::default().with_stabilization_rules(5, 10);
+
+        let outcome = service
+            .handle_trade_closed_with_snapshot(&mut database, &event, &upgrade_snapshot())
+            .expect("closed trade event should be handled");
+
+        assert!(outcome.decision.is_none());
+        assert!(outcome.applied_level.is_none());
+
+        let persisted = database
+            .level_read()
+            .level_for_account(account.id)
+            .expect("level should be readable");
+        assert_eq!(persisted.current_level, 3);
+        assert_eq!(persisted.trades_at_level, 1);
+    }
+
+    #[test]
+    fn test_handle_trade_closed_with_snapshot_suppresses_when_recent_change_limit_reached() {
+        let mut database = SqliteDatabase::new_in_memory();
+        let (account, level) = create_level_account(&database, "level-recent-change-limit");
+        let (_updated, recent_change) = level
+            .transition_to(
+                2,
+                "manual review before automated policy",
+                LevelTrigger::ManualReview,
+                Utc::now().naive_utc(),
+            )
+            .expect("manual transition should build an audit event");
+        database
+            .level_write()
+            .create_level_change(&recent_change)
+            .expect("recent change should be persisted");
+
+        let event = closed_event(account.id, dec!(-300));
+        let service = LevelingService::default().with_stabilization_rules(0, 1);
+
+        let outcome = service
+            .handle_trade_closed_with_snapshot(&mut database, &event, &risk_breach_snapshot())
+            .expect("closed trade event should be handled");
+
+        assert!(outcome.decision.is_none());
+        assert!(outcome.applied_level.is_none());
+
+        let persisted = database
+            .level_read()
+            .level_for_account(account.id)
+            .expect("level should be readable");
+        assert_eq!(persisted.current_level, 3);
+        assert_eq!(persisted.trades_at_level, 1);
+    }
+
+    #[test]
+    fn test_handle_trade_closed_builds_snapshot_from_trigger_event_when_read_is_empty() {
+        let mut database = SqliteDatabase::new_in_memory();
+        let (account, _) = create_level_account(&database, "level-built-snapshot");
+        let event = closed_event(account.id, dec!(-6));
+        let service = LevelingService::default().with_stabilization_rules(0, 10);
+
+        let outcome = service
+            .handle_trade_closed(&mut database, &event, &model::Currency::USD)
+            .expect("closed trade event should build snapshot");
+
+        assert_eq!(outcome.current_level.trades_at_level, 1);
+        let decision = outcome.decision.expect("negative event should breach risk");
+        assert_eq!(decision.direction, LevelDirection::Downgrade);
+        assert_eq!(decision.trigger_type, LevelTrigger::RiskBreach);
+        assert_eq!(
+            outcome
+                .applied_level
+                .expect("risk breach should be applied")
+                .current_level,
+            2
+        );
+    }
+
+    #[test]
+    fn test_handle_trade_closed_rejects_invalid_recent_window_timestamp() {
+        let mut database = SqliteDatabase::new_in_memory();
+        let (account, _) = create_level_account(&database, "level-invalid-window");
+        let mut event = closed_event(account.id, dec!(-1));
+        event.closed_at = chrono::NaiveDateTime::MIN;
+
+        let error = LevelingService::default()
+            .handle_trade_closed(&mut database, &event, &model::Currency::USD)
+            .expect_err("timestamp underflow should reject snapshot window");
+
+        assert!(error
+            .to_string()
+            .contains("Invalid trade close timestamp window"));
+    }
+
+    #[test]
+    fn test_handle_trade_closed_uses_unit_baseline_when_account_balance_is_zero() {
+        let mut database = SqliteDatabase::new_in_memory();
+        let (account, _) = create_level_account(&database, "level-zero-balance-baseline");
+        database
+            .account_balance_write()
+            .create(&account, &model::Currency::USD)
+            .expect("zero account balance should be created");
+        let event = closed_event(account.id, dec!(-1));
+        let service = LevelingService::default().with_stabilization_rules(0, 10);
+
+        let outcome = service
+            .handle_trade_closed(&mut database, &event, &model::Currency::USD)
+            .expect("closed trade event should build snapshot from zero balance");
+
+        let decision = outcome
+            .decision
+            .expect("unit baseline should make the loss a risk breach");
+        assert_eq!(decision.trigger_type, LevelTrigger::RiskBreach);
+        assert_eq!(decision.direction, LevelDirection::Downgrade);
+    }
+
+    #[test]
+    fn test_snapshot_from_closed_trade_points_calculates_loss_metrics_and_streaks() {
+        let now = Utc::now().naive_utc();
+        let points = vec![
+            (now, dec!(25)),
+            (now - chrono::Duration::minutes(1), dec!(15)),
+            (now - chrono::Duration::minutes(2), dec!(-20)),
+            (now - chrono::Duration::minutes(3), dec!(-5)),
+        ];
+
+        let snapshot =
+            LevelingService::<DefaultLevelTransitionPolicy>::snapshot_from_closed_trade_points(
+                &points,
+                dec!(1000),
+            )
+            .expect("snapshot should be calculated");
+
+        assert_eq!(snapshot.profitable_trades, 2);
+        assert_eq!(snapshot.win_rate_percentage, dec!(50));
+        assert_eq!(snapshot.monthly_loss_percentage, Decimal::ZERO);
+        assert_eq!(snapshot.largest_loss_percentage, dec!(-2.00));
+        assert_eq!(snapshot.consecutive_wins, 2);
+    }
+
+    #[test]
+    fn test_snapshot_from_empty_closed_trade_points_is_zeroed() {
+        let snapshot =
+            LevelingService::<DefaultLevelTransitionPolicy>::snapshot_from_closed_trade_points(
+                &[],
+                dec!(1000),
+            )
+            .expect("empty snapshot should still be representable");
+
+        assert_eq!(snapshot.profitable_trades, 0);
+        assert_eq!(snapshot.win_rate_percentage, Decimal::ZERO);
+        assert_eq!(snapshot.monthly_loss_percentage, Decimal::ZERO);
+        assert_eq!(snapshot.largest_loss_percentage, Decimal::ZERO);
+        assert_eq!(snapshot.consecutive_wins, 0);
+    }
+
+    #[test]
+    fn test_apply_decision_rolls_back_invalid_transition() {
+        let mut database = SqliteDatabase::new_in_memory();
+        let (account, level) = create_level_account(&database, "level-invalid-transition");
+        let decision = LevelDecision {
+            target_level: level.current_level,
+            reason: "same level is invalid".to_string(),
+            trigger_type: LevelTrigger::ManualReview,
+            direction: LevelDirection::Upgrade,
+        };
+
+        let error = LevelingService::<DefaultLevelTransitionPolicy>::apply_decision(
+            &mut database,
+            &level,
+            &decision,
+        )
+        .expect_err("same-level transition should be rejected");
+
+        assert!(error.to_string().contains("keeps current level"));
+        let persisted = database
+            .level_read()
+            .level_for_account(account.id)
+            .expect("level should remain readable after rollback");
+        assert_eq!(persisted.current_level, level.current_level);
+        let history = database
+            .level_read()
+            .recent_level_changes(account.id, 30)
+            .expect("history should remain readable after rollback");
+        assert!(history.is_empty());
+    }
+
+    #[test]
+    fn test_apply_decision_rolls_back_when_level_update_fails() {
+        let (mut database, path) = temporary_file_database();
+        let (account, level) = create_level_account(&database, "level-update-failure");
+        install_sqlite_trigger(
+            &path,
+            "CREATE TRIGGER fail_level_update \
+             BEFORE UPDATE ON levels \
+             BEGIN \
+             SELECT RAISE(ABORT, 'forced level update failure'); \
+             END",
+        );
+        let decision = LevelDecision {
+            target_level: 4,
+            reason: "forced update failure".to_string(),
+            trigger_type: LevelTrigger::PerformanceUpgrade,
+            direction: LevelDirection::Upgrade,
+        };
+
+        let error = LevelingService::<DefaultLevelTransitionPolicy>::apply_decision(
+            &mut database,
+            &level,
+            &decision,
+        )
+        .expect_err("forced update failure should be surfaced");
+
+        assert!(error.to_string().contains("forced level update failure"));
+        let persisted = database
+            .level_read()
+            .level_for_account(account.id)
+            .expect("level should remain readable after rollback");
+        assert_eq!(persisted.current_level, level.current_level);
+        let history = database
+            .level_read()
+            .recent_level_changes(account.id, 30)
+            .expect("history should remain readable after rollback");
+        assert!(history.is_empty());
+        std::fs::remove_file(path).expect("temporary database should be removed");
+    }
+
+    #[test]
+    fn test_apply_decision_rolls_back_when_level_change_insert_fails() {
+        let (mut database, path) = temporary_file_database();
+        let (account, level) = create_level_account(&database, "level-change-failure");
+        install_sqlite_trigger(
+            &path,
+            "CREATE TRIGGER fail_level_change_insert \
+             BEFORE INSERT ON level_changes \
+             BEGIN \
+             SELECT RAISE(ABORT, 'forced level change failure'); \
+             END",
+        );
+        let decision = LevelDecision {
+            target_level: 4,
+            reason: "forced level change failure".to_string(),
+            trigger_type: LevelTrigger::PerformanceUpgrade,
+            direction: LevelDirection::Upgrade,
+        };
+
+        let error = LevelingService::<DefaultLevelTransitionPolicy>::apply_decision(
+            &mut database,
+            &level,
+            &decision,
+        )
+        .expect_err("forced level-change failure should be surfaced");
+
+        assert!(error.to_string().contains("forced level change failure"));
+        let persisted = database
+            .level_read()
+            .level_for_account(account.id)
+            .expect("level should remain readable after rollback");
+        assert_eq!(persisted.current_level, level.current_level);
+        let history = database
+            .level_read()
+            .recent_level_changes(account.id, 30)
+            .expect("history should remain readable after rollback");
+        assert!(history.is_empty());
+        std::fs::remove_file(path).expect("temporary database should be removed");
+    }
+
+    #[test]
+    fn test_progress_omits_paths_blocked_by_level_bounds() {
+        let snapshot = risk_breach_snapshot();
+        let mut level_zero = Level::default_for_account(Uuid::new_v4());
+        level_zero.current_level = 0;
+        level_zero.risk_multiplier = dec!(0.10);
+        let level_zero_progress =
+            DefaultLevelTransitionPolicy::default().progress(&level_zero, &snapshot);
+        assert_eq!(level_zero_progress.downgrade_paths.len(), 0);
+        assert_eq!(level_zero_progress.upgrade_paths.len(), 1);
+
+        let mut level_four = Level::default_for_account(Uuid::new_v4());
+        level_four.current_level = 4;
+        level_four.risk_multiplier = dec!(1.50);
+        let level_four_progress =
+            DefaultLevelTransitionPolicy::default().progress(&level_four, &snapshot);
+        assert_eq!(level_four_progress.upgrade_paths.len(), 0);
+        assert_eq!(level_four_progress.downgrade_paths.len(), 3);
     }
 }

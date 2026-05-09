@@ -25,3 +25,5 @@ rand_core = {workspace = true}
 
 [dev-dependencies]
 db-sqlite = { path = "../db-sqlite", version = "0.3.2" }
+diesel = { workspace = true }
+proptest = "1"

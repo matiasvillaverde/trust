@@ -362,4 +362,22 @@ mod tests {
         let result = can_modify_target(&trade);
         assert!(result.is_err());
     }
+
+    #[test]
+    #[allow(deprecated)]
+    fn trade_validation_error_display_and_description_are_stable() {
+        let error = TradeValidationError {
+            code: TradeValidationErrorCode::TradeNotFunded,
+            message: "trade is not funded".to_string(),
+        };
+
+        assert_eq!(
+            error.to_string(),
+            "TradeValidationError: trade is not funded, code: TradeNotFunded"
+        );
+        assert_eq!(
+            std::error::Error::description(&error),
+            "trade is not funded"
+        );
+    }
 }

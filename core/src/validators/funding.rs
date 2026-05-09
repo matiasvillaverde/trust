@@ -71,7 +71,7 @@ fn sorted_rules(account_id: Uuid, database: &mut dyn DatabaseFactory) -> Vec<Rul
         .rule_read()
         .read_all_rules(account_id)
         .unwrap_or_else(|_| vec![]);
-    rules.sort_by(|a, b| a.priority.cmp(&b.priority));
+    rules.sort_by_key(|rule| rule.priority);
     rules
 }
 
@@ -308,8 +308,124 @@ pub enum FundValidationErrorCode {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use model::{Order, TradeCategory};
+    use db_sqlite::SqliteDatabase;
+    use model::{
+        Account, AccountType, Currency, Environment, Order, RuleLevel, TradeCategory,
+        TransactionCategory,
+    };
     use uuid::Uuid;
+
+    fn create_test_account(database: &SqliteDatabase, name: &str) -> Account {
+        database
+            .account_write()
+            .create_with_hierarchy(
+                name,
+                name,
+                Environment::Paper,
+                dec!(0),
+                dec!(0),
+                AccountType::Primary,
+                None,
+            )
+            .expect("account should be created")
+    }
+
+    fn create_test_balance(database: &SqliteDatabase, account: &Account, available: Decimal) {
+        let balance = database
+            .account_balance_write()
+            .create(account, &Currency::USD)
+            .expect("account balance should be created");
+        database
+            .account_balance_write()
+            .update(&balance, available, Decimal::ZERO, available, Decimal::ZERO)
+            .expect("account balance should be updated");
+    }
+
+    fn create_test_deposit(database: &SqliteDatabase, account: &Account, amount: Decimal) {
+        database
+            .transaction_write()
+            .create_transaction(
+                account,
+                amount,
+                &Currency::USD,
+                TransactionCategory::Deposit,
+            )
+            .expect("deposit should be created");
+    }
+
+    fn create_default_level(database: &SqliteDatabase, account: &Account) {
+        database
+            .level_write()
+            .create_default_level(account)
+            .expect("default level should be created");
+    }
+
+    fn create_test_rule(
+        database: &SqliteDatabase,
+        account: &Account,
+        name: RuleName,
+        priority: u32,
+    ) {
+        database
+            .rule_write()
+            .create_rule(
+                account,
+                &name,
+                "funding validator test rule",
+                priority,
+                &RuleLevel::Error,
+            )
+            .expect("rule should be created");
+    }
+
+    fn long_trade(
+        account_id: Uuid,
+        quantity: u64,
+        entry_price: Decimal,
+        stop_price: Decimal,
+    ) -> Trade {
+        Trade {
+            account_id,
+            currency: Currency::USD,
+            category: TradeCategory::Long,
+            entry: Order {
+                unit_price: entry_price,
+                quantity,
+                ..Default::default()
+            },
+            safety_stop: Order {
+                unit_price: stop_price,
+                quantity,
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_can_fund_accepts_trade_with_balance_and_level_adjusted_capacity() {
+        let mut database = SqliteDatabase::new_in_memory();
+        let account = create_test_account(&database, "funding-success");
+        create_test_balance(&database, &account, dec!(1_000));
+        create_test_deposit(&database, &account, dec!(1_000));
+        create_default_level(&database, &account);
+        let trade = long_trade(account.id, 4, dec!(250), dec!(200));
+
+        assert!(can_fund(&trade, &mut database).is_ok());
+    }
+
+    #[test]
+    fn test_can_fund_reports_missing_account_balance_projection() {
+        let mut database = SqliteDatabase::new_in_memory();
+        let account = create_test_account(&database, "funding-missing-balance");
+        let trade = long_trade(account.id, 1, dec!(100), dec!(90));
+
+        let error = can_fund(&trade, &mut database).unwrap_err();
+
+        assert_eq!(error.code, FundValidationErrorCode::NotEnoughFunds);
+        assert!(error.message.contains("Not enough funds in account"));
+        assert!(error.message.contains("currency USD"));
+    }
 
     #[test]
     fn test_validate_enough_capital_success() {
@@ -354,6 +470,28 @@ mod tests {
         let err_msg = result.unwrap_err().message;
         assert!(err_msg.contains("10000")); // Required amount
         assert!(err_msg.contains("100")); // Available amount
+    }
+
+    #[test]
+    fn test_validate_enough_capital_reports_required_capital_overflow() {
+        let trade = Trade {
+            entry: Order {
+                unit_price: Decimal::MAX,
+                quantity: 2,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let balance = AccountBalance {
+            total_available: Decimal::MAX,
+            ..Default::default()
+        };
+
+        let error = validate_enough_capital(&trade, &balance).unwrap_err();
+
+        assert_eq!(error.code, FundValidationErrorCode::NotEnoughFunds);
+        assert!(error.message.contains("Error calculating required capital"));
+        assert!(error.message.contains("Arithmetic overflow"));
     }
 
     #[test]
@@ -417,6 +555,78 @@ mod tests {
         assert!(err.message.contains("stop price"));
         assert!(err.message.contains("60")); // Required amount
         assert!(err.message.contains("45")); // Available amount
+    }
+
+    #[test]
+    fn test_validate_rules_reports_risk_per_month_calculation_errors() {
+        let mut database = SqliteDatabase::new_in_memory();
+        let account = create_test_account(&database, "funding-risk-month-error");
+        create_test_rule(&database, &account, RuleName::RiskPerMonth(2.0), 1);
+        let trade = long_trade(account.id, 1, dec!(100), dec!(90));
+        let account_balance = AccountBalance {
+            account_id: account.id,
+            total_available: dec!(1_000),
+            currency: Currency::USD,
+            ..Default::default()
+        };
+
+        let error = validate_rules(&trade, &account_balance, &mut database).unwrap_err();
+
+        assert_eq!(error.code, FundValidationErrorCode::NotEnoughFunds);
+        assert!(error.message.contains("Error calculating risk per month"));
+    }
+
+    #[test]
+    fn test_validate_level_adjusted_quantity_skips_short_trades() {
+        let mut database = SqliteDatabase::new_in_memory();
+        let trade = Trade {
+            category: TradeCategory::Short,
+            entry: Order {
+                unit_price: dec!(100),
+                quantity: u64::MAX,
+                ..Default::default()
+            },
+            safety_stop: Order {
+                unit_price: dec!(110),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        assert!(validate_level_adjusted_quantity(&trade, &mut database).is_ok());
+    }
+
+    #[test]
+    fn test_validate_level_adjusted_quantity_wraps_calculator_errors() {
+        let mut database = SqliteDatabase::new_in_memory();
+        let account = create_test_account(&database, "funding-level-calculator-error");
+        let trade = long_trade(account.id, 1, Decimal::ZERO, dec!(90));
+
+        let error = validate_level_adjusted_quantity(&trade, &mut database).unwrap_err();
+
+        assert_eq!(error.code, FundValidationErrorCode::NotEnoughFunds);
+        assert!(error
+            .message
+            .contains("Error calculating level-adjusted quantity"));
+        assert!(error.message.contains("Invalid entry price"));
+    }
+
+    #[test]
+    fn test_validate_level_adjusted_quantity_rejects_quantity_above_adjusted_cap() {
+        let mut database = SqliteDatabase::new_in_memory();
+        let account = create_test_account(&database, "funding-level-cap");
+        create_test_deposit(&database, &account, dec!(1_000));
+        create_default_level(&database, &account);
+        let trade = long_trade(account.id, 5, dec!(250), dec!(200));
+
+        let error = validate_level_adjusted_quantity(&trade, &mut database).unwrap_err();
+
+        assert_eq!(
+            error.code,
+            FundValidationErrorCode::LevelAdjustedQuantityExceeded
+        );
+        assert!(error.message.contains("exceeds level-adjusted maximum 4"));
+        assert!(error.message.contains("base 4"));
     }
 
     #[test]
@@ -498,6 +708,59 @@ mod tests {
     }
 
     #[test]
+    fn test_risk_per_trade_zero_quantity_rejected_before_risk_math() {
+        let trade = Trade {
+            entry: Order {
+                unit_price: dec!(10),
+                quantity: 0,
+                ..Default::default()
+            },
+            safety_stop: Order {
+                unit_price: dec!(9),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let account_balance = AccountBalance {
+            total_available: dec!(100),
+            ..Default::default()
+        };
+
+        let error =
+            validate_risk_per_trade(&trade, &account_balance, dec!(5), dec!(6)).unwrap_err();
+
+        assert_eq!(error.code, FundValidationErrorCode::InvalidQuantity);
+        assert!(error.message.contains("greater than zero"));
+    }
+
+    #[test]
+    fn test_risk_per_trade_short_stop_below_entry_rejected() {
+        let trade = Trade {
+            category: TradeCategory::Short,
+            entry: Order {
+                unit_price: dec!(10),
+                quantity: 5,
+                ..Default::default()
+            },
+            safety_stop: Order {
+                unit_price: dec!(9),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let account_balance = AccountBalance {
+            total_available: dec!(100),
+            ..Default::default()
+        };
+
+        let error =
+            validate_risk_per_trade(&trade, &account_balance, dec!(5), dec!(6)).unwrap_err();
+
+        assert_eq!(error.code, FundValidationErrorCode::InvalidPriceDifference);
+        assert!(error.message.contains("short trade"));
+    }
+
+    #[test]
     fn test_risk_per_trade_exceeded() {
         let trade = Trade {
             entry: Order {
@@ -524,5 +787,123 @@ mod tests {
                 message: "Risk per trade exceeded for risk per trade rule, maximum that can be at risk is 3.00, trade is attempting to risk 5".to_string(),
             }))
         );
+    }
+
+    #[test]
+    fn test_risk_per_trade_reports_total_risk_overflow() {
+        let trade = Trade {
+            entry: Order {
+                unit_price: Decimal::MAX,
+                quantity: 2,
+                ..Default::default()
+            },
+            safety_stop: Order {
+                unit_price: Decimal::ZERO,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let account_balance = AccountBalance {
+            total_available: Decimal::MAX,
+            ..Default::default()
+        };
+
+        let error =
+            validate_risk_per_trade(&trade, &account_balance, dec!(100), dec!(100)).unwrap_err();
+
+        assert_eq!(error.code, FundValidationErrorCode::NotEnoughFunds);
+        assert_eq!(
+            error.message,
+            "Multiplication overflow calculating total risk"
+        );
+    }
+
+    #[test]
+    fn test_risk_per_trade_reports_maximum_risk_overflow() {
+        let trade = Trade {
+            entry: Order {
+                unit_price: dec!(10),
+                quantity: 1,
+                ..Default::default()
+            },
+            safety_stop: Order {
+                unit_price: dec!(9),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let account_balance = AccountBalance {
+            total_available: Decimal::MAX,
+            ..Default::default()
+        };
+
+        let error =
+            validate_risk_per_trade(&trade, &account_balance, dec!(200), dec!(200)).unwrap_err();
+
+        assert_eq!(error.code, FundValidationErrorCode::NotEnoughFunds);
+        assert_eq!(
+            error.message,
+            "Multiplication overflow calculating maximum risk"
+        );
+    }
+
+    #[test]
+    fn test_calculate_price_diff_reports_long_subtraction_overflow() {
+        let trade = Trade {
+            category: TradeCategory::Long,
+            entry: Order {
+                unit_price: Decimal::MIN,
+                ..Default::default()
+            },
+            safety_stop: Order {
+                unit_price: Decimal::MAX,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let error = calculate_price_diff(&trade).unwrap_err();
+
+        assert_eq!(error.code, FundValidationErrorCode::NotEnoughFunds);
+        assert_eq!(
+            error.message,
+            "Subtraction overflow calculating price difference"
+        );
+    }
+
+    #[test]
+    fn test_calculate_price_diff_reports_short_subtraction_overflow() {
+        let trade = Trade {
+            category: TradeCategory::Short,
+            entry: Order {
+                unit_price: Decimal::MAX,
+                ..Default::default()
+            },
+            safety_stop: Order {
+                unit_price: Decimal::MIN,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let error = calculate_price_diff(&trade).unwrap_err();
+
+        assert_eq!(error.code, FundValidationErrorCode::NotEnoughFunds);
+        assert_eq!(
+            error.message,
+            "Subtraction overflow calculating price difference"
+        );
+    }
+
+    #[test]
+    #[allow(deprecated)]
+    fn fund_validation_error_display_and_description_are_stable() {
+        let error = FundValidationError {
+            code: FundValidationErrorCode::NotEnoughFunds,
+            message: "not enough cash".to_string(),
+        };
+
+        assert_eq!(error.to_string(), "FundValidationError: not enough cash");
+        assert_eq!(std::error::Error::description(&error), "not enough cash");
     }
 }

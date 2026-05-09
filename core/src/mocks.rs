@@ -209,4 +209,54 @@ pub mod read_transaction_db_mocks {
             Ok(Vec::new())
         }
     }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use rust_decimal_macros::dec;
+
+        #[test]
+        fn mock_database_read_trade_methods_return_seeded_trade() {
+            let mut database = MockDatabase::new();
+            database.set_trade(dec!(10), dec!(12), dec!(9), 5);
+
+            let trades = database
+                .read_trades_with_status(Uuid::new_v4(), Status::New)
+                .expect("seeded trades should be readable by status");
+            assert_eq!(trades.len(), 1);
+
+            let trade = database
+                .read_trade(Uuid::new_v4())
+                .expect("first seeded trade should be readable");
+            assert_eq!(trade.entry.unit_price, dec!(10));
+
+            let status = database
+                .read_trade_status(Uuid::new_v4())
+                .expect("first seeded trade status should be readable");
+            assert_eq!(status, Status::New);
+
+            let balance = database
+                .read_trade_balance(Uuid::new_v4())
+                .expect("first seeded trade balance should be readable");
+            assert_eq!(balance.funding, Decimal::ZERO);
+            assert_eq!(balance.capital_in_market, Decimal::ZERO);
+            assert_eq!(balance.capital_out_market, Decimal::ZERO);
+            assert_eq!(balance.total_performance, Decimal::ZERO);
+        }
+
+        #[test]
+        fn mock_database_recent_performance_methods_default_empty() {
+            let mut database = MockDatabase::new();
+            let cutoff = Utc::now().naive_utc();
+
+            assert!(database
+                .read_recent_closed_trade_performances(Uuid::new_v4(), &Currency::USD, cutoff)
+                .expect("closed performance stub should be readable")
+                .is_empty());
+            assert!(database
+                .read_recent_closed_trade_performance_points(Uuid::new_v4(), &Currency::USD, cutoff)
+                .expect("closed performance point stub should be readable")
+                .is_empty());
+        }
+    }
 }

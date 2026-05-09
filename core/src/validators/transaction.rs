@@ -164,6 +164,46 @@ mod tests {
     use model::{Order, TradeBalance};
 
     use super::*;
+    use std::io;
+
+    struct BalanceReadStub {
+        balance: Option<AccountBalance>,
+    }
+
+    impl AccountBalanceRead for BalanceReadStub {
+        fn for_account(
+            &mut self,
+            _account_id: Uuid,
+        ) -> Result<Vec<AccountBalance>, Box<dyn Error>> {
+            Ok(self.balance.iter().copied().collect())
+        }
+
+        fn for_currency(
+            &mut self,
+            _account_id: Uuid,
+            _currency: &Currency,
+        ) -> Result<AccountBalance, Box<dyn Error>> {
+            self.balance
+                .ok_or_else(|| Box::new(io::Error::new(io::ErrorKind::NotFound, "missing")) as _)
+        }
+    }
+
+    #[test]
+    fn balance_read_stub_returns_configured_account_balance_list() {
+        let balance = AccountBalance {
+            total_available: dec!(42),
+            ..Default::default()
+        };
+        let mut database = BalanceReadStub {
+            balance: Some(balance),
+        };
+
+        let balances = database
+            .for_account(Uuid::new_v4())
+            .expect("configured balance should be returned");
+
+        assert_eq!(balances, vec![balance]);
+    }
 
     #[test]
     fn test_validate_fill_with_enough_funds() {
@@ -337,5 +377,115 @@ mod tests {
             TransactionValidationErrorCode::ClosingMustBePositive
         );
         assert_eq!(err.message, "Closing must be positive");
+    }
+
+    #[test]
+    fn test_validate_deposit_requires_existing_balance_for_currency() {
+        let account_id = Uuid::new_v4();
+        let currency = Currency::USD;
+        let mut existing_balance = BalanceReadStub {
+            balance: Some(AccountBalance {
+                account_id,
+                currency,
+                ..Default::default()
+            }),
+        };
+
+        assert!(
+            can_transfer_deposit(dec!(0), &currency, account_id, &mut existing_balance).is_ok()
+        );
+
+        let mut missing_balance = BalanceReadStub { balance: None };
+        let error = can_transfer_deposit(dec!(10), &currency, account_id, &mut missing_balance)
+            .unwrap_err();
+
+        assert_eq!(error.code, TransactionValidationErrorCode::OverviewNotFound);
+        assert!(error.message.contains("Overview not found"));
+
+        let mut existing_balance = BalanceReadStub {
+            balance: Some(AccountBalance {
+                account_id,
+                currency,
+                ..Default::default()
+            }),
+        };
+        let error = can_transfer_deposit(dec!(-1), &currency, account_id, &mut existing_balance)
+            .unwrap_err();
+        assert_eq!(
+            error.code,
+            TransactionValidationErrorCode::AmountOfDepositMustBePositive
+        );
+    }
+
+    #[test]
+    fn test_validate_withdraw_requires_positive_amount_existing_balance_and_available_cash() {
+        let account_id = Uuid::new_v4();
+        let currency = Currency::USD;
+        let balance = AccountBalance {
+            account_id,
+            currency,
+            total_available: dec!(100),
+            ..Default::default()
+        };
+        let mut funded_account = BalanceReadStub {
+            balance: Some(balance),
+        };
+
+        assert!(
+            can_transfer_withdraw(dec!(100), &currency, account_id, &mut funded_account).is_ok()
+        );
+
+        let mut funded_account = BalanceReadStub {
+            balance: Some(balance),
+        };
+        let error = can_transfer_withdraw(dec!(101), &currency, account_id, &mut funded_account)
+            .unwrap_err();
+        assert_eq!(
+            error.code,
+            TransactionValidationErrorCode::WithdrawalAmountIsGreaterThanAvailableAmount
+        );
+
+        let mut funded_account = BalanceReadStub {
+            balance: Some(balance),
+        };
+        let error =
+            can_transfer_withdraw(dec!(0), &currency, account_id, &mut funded_account).unwrap_err();
+        assert_eq!(
+            error.code,
+            TransactionValidationErrorCode::AmountOfWithdrawalMustBePositive
+        );
+
+        let mut funded_account = BalanceReadStub {
+            balance: Some(balance),
+        };
+        let error = can_transfer_withdraw(dec!(-1), &currency, account_id, &mut funded_account)
+            .unwrap_err();
+        assert_eq!(
+            error.code,
+            TransactionValidationErrorCode::AmountOfWithdrawalMustBePositive
+        );
+
+        let mut missing_balance = BalanceReadStub { balance: None };
+        let error = can_transfer_withdraw(dec!(1), &currency, account_id, &mut missing_balance)
+            .unwrap_err();
+        assert_eq!(
+            error.code,
+            TransactionValidationErrorCode::OverviewForWithdrawNotFound
+        );
+    }
+
+    #[test]
+    #[allow(deprecated)]
+    fn transaction_validation_error_display_and_description_are_stable() {
+        let error = TransactionValidationError {
+            code: TransactionValidationErrorCode::NotEnoughFunds,
+            message: "not enough funds".to_string(),
+        };
+
+        assert_eq!(
+            error.to_string(),
+            "TransactionValidationError: not enough funds"
+        );
+        assert_eq!(std::error::Error::description(&error), "not enough funds");
     }
 }

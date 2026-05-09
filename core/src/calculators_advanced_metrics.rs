@@ -1432,7 +1432,7 @@ impl AdvancedMetricsCalculator {
         }
 
         let mut trades: Vec<Trade> = closed_trades.to_vec();
-        trades.sort_by(|a, b| a.updated_at.cmp(&b.updated_at));
+        trades.sort_by_key(|trade| trade.updated_at);
 
         let mut win_streaks: Vec<u32> = Vec::new();
         let mut loss_streaks: Vec<u32> = Vec::new();
@@ -1869,6 +1869,47 @@ mod tests {
     }
 
     #[test]
+    fn test_private_sample_helpers_and_payoff_guards_handle_empty_inputs() {
+        let empty: Vec<Decimal> = Vec::new();
+        let mut empty_for_median: Vec<Decimal> = Vec::new();
+        let mut empty_for_percentile: Vec<Decimal> = Vec::new();
+
+        assert_eq!(AdvancedMetricsCalculator::average(&empty), None);
+        assert_eq!(
+            AdvancedMetricsCalculator::population_variance(&empty, dec!(0)),
+            None
+        );
+        assert_eq!(
+            AdvancedMetricsCalculator::median_opt(&mut empty_for_median),
+            None
+        );
+        assert_eq!(
+            AdvancedMetricsCalculator::percentile_opt(&mut empty_for_percentile, dec!(0.5)),
+            None
+        );
+
+        let mut values = vec![dec!(30), dec!(10), dec!(20)];
+        assert_eq!(
+            AdvancedMetricsCalculator::percentile_opt(&mut values, dec!(0)),
+            Some(dec!(10))
+        );
+        assert_eq!(
+            AdvancedMetricsCalculator::percentile_opt(&mut values, dec!(1)),
+            Some(dec!(30))
+        );
+
+        assert_eq!(AdvancedMetricsCalculator::calculate_payoff_ratio(&[]), None);
+        assert_eq!(
+            AdvancedMetricsCalculator::calculate_payoff_ratio(&[create_test_trade(dec!(10))]),
+            None
+        );
+        assert_eq!(
+            AdvancedMetricsCalculator::calculate_average_trade_pnl(&[]),
+            dec!(0)
+        );
+    }
+
+    #[test]
     fn test_median_trade_pnl_even_and_odd() {
         let odd = vec![
             create_test_trade(dec!(10)),
@@ -1930,6 +1971,21 @@ mod tests {
         // Expectancy = (0.3333 * 50) - (0.6667 * 150) = 16.67 - 100 = -83.33
         let expected = dec!(-83.33);
         assert!((result - expected).abs() < dec!(0.1));
+    }
+
+    #[test]
+    fn test_calculate_expectancy_handles_one_sided_outcomes() {
+        let all_winners = vec![create_test_trade(dec!(10)), create_test_trade(dec!(30))];
+        let all_losers = vec![create_test_trade(dec!(-10)), create_test_trade(dec!(-30))];
+
+        assert_eq!(
+            AdvancedMetricsCalculator::calculate_expectancy(&all_winners),
+            dec!(20)
+        );
+        assert_eq!(
+            AdvancedMetricsCalculator::calculate_expectancy(&all_losers),
+            dec!(-20)
+        );
     }
 
     #[test]
@@ -2343,6 +2399,25 @@ mod tests {
     }
 
     #[test]
+    fn test_tail_risk_metrics_handle_boundary_inputs() {
+        let repeated_losses = vec![create_test_trade(dec!(-50)), create_test_trade(dec!(-50))];
+        assert_eq!(
+            AdvancedMetricsCalculator::calculate_sortino_ratio(&repeated_losses, dec!(0)),
+            Some(dec!(-1))
+        );
+
+        let varied_losses = vec![create_test_trade(dec!(-100)), create_test_trade(dec!(-50))];
+        assert_eq!(
+            AdvancedMetricsCalculator::calculate_value_at_risk(&varied_losses, dec!(-1)),
+            Some(dec!(-2))
+        );
+        assert_eq!(
+            AdvancedMetricsCalculator::calculate_ulcer_index(&varied_losses),
+            Some(dec!(0))
+        );
+    }
+
+    #[test]
     fn test_calculate_rolling_metrics_returns_points_per_window() {
         let trades = vec![
             create_test_trade(dec!(100)),
@@ -2385,6 +2460,33 @@ mod tests {
         assert!(metrics.p95_abs_entry_slippage_bps.is_some());
         assert_eq!(metrics.stop_fill_price_coverage_percentage, dec!(0));
         assert_eq!(metrics.target_fill_price_coverage_percentage, dec!(0));
+    }
+
+    #[test]
+    fn test_calculate_execution_quality_includes_exit_fills_and_holding_time() {
+        let mut target_trade = create_dated_test_trade(dec!(120), -3);
+        target_trade.updated_at = target_trade.created_at + chrono::Duration::days(3);
+        target_trade.entry.average_filled_price = Some(dec!(100.50));
+        target_trade.entry.unit_price = dec!(100);
+        target_trade.target.average_filled_price = Some(dec!(111));
+        target_trade.target.unit_price = dec!(110);
+
+        let mut stop_trade = create_dated_test_trade(dec!(-60), -1);
+        stop_trade.updated_at = stop_trade.created_at + chrono::Duration::days(1);
+        stop_trade.entry.average_filled_price = Some(dec!(99));
+        stop_trade.entry.unit_price = dec!(100);
+        stop_trade.safety_stop.average_filled_price = Some(dec!(94));
+        stop_trade.safety_stop.unit_price = dec!(95);
+
+        let metrics =
+            AdvancedMetricsCalculator::calculate_execution_quality(&[target_trade, stop_trade]);
+
+        assert!(metrics.stop_fill_price_coverage_percentage > dec!(0));
+        assert!(metrics.target_fill_price_coverage_percentage > dec!(0));
+        assert!(metrics.average_stop_slippage_bps.is_some());
+        assert!(metrics.average_target_slippage_bps.is_some());
+        assert!(metrics.average_setup_reward_to_risk.is_some());
+        assert!(metrics.profit_per_holding_day.is_some());
     }
 
     #[test]
@@ -2435,6 +2537,36 @@ mod tests {
     }
 
     #[test]
+    fn test_calculate_streak_metrics_zero_pnl_breaks_current_streak() {
+        let now = chrono::Utc::now().naive_utc();
+        let mut win = create_test_trade(dec!(10));
+        win.updated_at = now;
+        let mut breakeven = create_test_trade(dec!(0));
+        breakeven.updated_at = now + chrono::Duration::seconds(1);
+
+        let streaks = AdvancedMetricsCalculator::calculate_streak_metrics(&[win, breakeven]);
+
+        assert_eq!(streaks.max_consecutive_wins, 1);
+        assert_eq!(streaks.max_consecutive_losses, 0);
+        assert_eq!(streaks.current_streak_type, None);
+        assert_eq!(streaks.current_streak_len, 0);
+        assert_eq!(streaks.average_loss_streak, None);
+
+        let mut loss = create_test_trade(dec!(-10));
+        loss.updated_at = now;
+        let mut later_breakeven = create_test_trade(dec!(0));
+        later_breakeven.updated_at = now + chrono::Duration::seconds(1);
+        let loss_then_flat =
+            AdvancedMetricsCalculator::calculate_streak_metrics(&[loss, later_breakeven]);
+        assert_eq!(loss_then_flat.max_consecutive_losses, 1);
+        assert_eq!(loss_then_flat.current_streak_type, None);
+
+        let empty = AdvancedMetricsCalculator::calculate_streak_metrics(&[]);
+        assert_eq!(empty.current_streak_type, None);
+        assert_eq!(empty.current_streak_len, 0);
+    }
+
+    #[test]
     fn test_calculate_exposure_metrics_with_open_capital() {
         let mut long = create_test_trade(dec!(100));
         long.category = TradeCategory::Long;
@@ -2455,6 +2587,20 @@ mod tests {
     }
 
     #[test]
+    fn test_calculate_exposure_metrics_ignores_zero_exposure() {
+        let mut flat = create_test_trade(dec!(0));
+        flat.balance.capital_in_market = dec!(0);
+        flat.sector = None;
+
+        let metrics = AdvancedMetricsCalculator::calculate_exposure_metrics(&[flat]);
+
+        assert_eq!(metrics.gross_exposure, dec!(0));
+        assert_eq!(metrics.net_exposure, dec!(0));
+        assert_eq!(metrics.top_3_symbol_concentration_percentage, dec!(0));
+        assert_eq!(metrics.top_sector_concentration_percentage, dec!(0));
+    }
+
+    #[test]
     fn test_calculate_risk_of_ruin_proxy_in_bounds() {
         let trades = vec![
             create_test_trade(dec!(100)),
@@ -2467,6 +2613,42 @@ mod tests {
             .expect("risk-of-ruin proxy");
         assert!(risk >= dec!(0));
         assert!(risk <= dec!(1));
+    }
+
+    #[test]
+    fn test_risk_of_ruin_and_bootstrap_reject_insufficient_inputs() {
+        let trades = vec![create_test_trade(dec!(100)), create_test_trade(dec!(-50))];
+
+        assert_eq!(
+            AdvancedMetricsCalculator::calculate_risk_of_ruin_proxy(&[], 10, 2),
+            None
+        );
+        assert_eq!(
+            AdvancedMetricsCalculator::calculate_risk_of_ruin_proxy(&trades, 1, 2),
+            None
+        );
+        assert_eq!(
+            AdvancedMetricsCalculator::calculate_risk_of_ruin_proxy(&trades, 10, 0),
+            None
+        );
+
+        let ci = AdvancedMetricsCalculator::calculate_bootstrap_confidence_intervals(
+            &trades,
+            9,
+            dec!(0),
+        );
+        assert_eq!(ci.expectancy_95, None);
+        assert_eq!(ci.sharpe_95, None);
+
+        let mut empty_samples: Vec<Decimal> = Vec::new();
+        assert_eq!(
+            AdvancedMetricsCalculator::percentile_band(
+                &mut empty_samples,
+                dec!(0.025),
+                dec!(0.975)
+            ),
+            None
+        );
     }
 
     #[test]

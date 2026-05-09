@@ -118,4 +118,44 @@ mod tests {
             TradeCapitalNotAtRisk::calculate(Uuid::new_v4(), &Currency::USD, &mut database);
         assert_eq!(result.unwrap(), dec!(7599.0));
     }
+
+    #[test]
+    fn test_calculate_reports_price_difference_overflow() {
+        let mut database = MockDatabase::new();
+        database.set_trade(Decimal::MAX, dec!(0), dec!(-1), 1);
+
+        let error = TradeCapitalNotAtRisk::calculate(Uuid::new_v4(), &Currency::USD, &mut database)
+            .unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("Arithmetic overflow in subtraction"));
+    }
+
+    #[test]
+    fn test_calculate_reports_per_trade_multiplication_overflow() {
+        let mut database = MockDatabase::new();
+        database.set_trade(Decimal::MAX, dec!(0), Decimal::MAX, 2);
+
+        let error = TradeCapitalNotAtRisk::calculate(Uuid::new_v4(), &Currency::USD, &mut database)
+            .unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("Arithmetic overflow in multiplication"));
+    }
+
+    #[test]
+    fn test_calculate_reports_total_addition_overflow() {
+        let mut database = MockDatabase::new();
+        database.set_trade(Decimal::MAX, dec!(0), Decimal::MAX, 1);
+        database.set_trade(Decimal::MAX, dec!(0), Decimal::MAX, 1);
+
+        let error = TradeCapitalNotAtRisk::calculate(Uuid::new_v4(), &Currency::USD, &mut database)
+            .unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("Arithmetic overflow in addition"));
+    }
 }

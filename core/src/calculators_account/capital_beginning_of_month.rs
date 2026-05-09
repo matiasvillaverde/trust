@@ -180,4 +180,64 @@ mod tests {
             "capital_at_beginning_of_month: capital at beginning of the month was negative -100",
         );
     }
+
+    #[test]
+    fn test_capital_at_beginning_of_month_reports_withdrawal_overflow() {
+        let mut database = MockDatabase::new();
+        database.set_transaction(TransactionCategory::Withdrawal, Decimal::MAX);
+        database.set_transaction(TransactionCategory::Withdrawal, dec!(1));
+
+        let error = AccountCapitalBeginningOfMonth::calculate(
+            Uuid::new_v4(),
+            &Currency::USD,
+            &mut database,
+        )
+        .unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("Arithmetic overflow in subtraction"));
+    }
+
+    #[test]
+    fn test_capital_at_beginning_of_month_reports_payment_addition_overflow() {
+        let mut database = MockDatabase::new();
+        database.set_transaction(
+            TransactionCategory::PaymentFromTrade(Uuid::new_v4()),
+            Decimal::MAX,
+        );
+        database.set_transaction(
+            TransactionCategory::PaymentFromTrade(Uuid::new_v4()),
+            Decimal::MAX,
+        );
+
+        let error = AccountCapitalBeginningOfMonth::calculate(
+            Uuid::new_v4(),
+            &Currency::USD,
+            &mut database,
+        )
+        .unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("Arithmetic overflow in addition"));
+    }
+
+    #[test]
+    fn test_capital_at_beginning_of_month_reports_deposit_addition_overflow() {
+        let mut database = MockDatabase::new();
+        database.set_transaction(TransactionCategory::Deposit, Decimal::MAX);
+        database.set_transaction(TransactionCategory::Deposit, Decimal::MAX);
+
+        let error = AccountCapitalBeginningOfMonth::calculate(
+            Uuid::new_v4(),
+            &Currency::USD,
+            &mut database,
+        )
+        .unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("Arithmetic overflow in addition"));
+    }
 }

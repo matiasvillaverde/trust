@@ -142,4 +142,47 @@ mod tests {
         // Then: Should return $250 (stop price * stop quantity)
         assert_eq!(required, dec!(250));
     }
+
+    #[test]
+    fn test_calculate_required_capital_long_trade_reports_overflow() {
+        let trade = Trade {
+            category: TradeCategory::Long,
+            entry: Order {
+                unit_price: Decimal::MAX,
+                quantity: 2,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let error = TradeCapitalRequired::calculate(&trade).unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("Arithmetic overflow in multiplication"));
+    }
+
+    #[test]
+    fn test_calculate_required_capital_short_trade_reports_overflow() {
+        let trade = Trade {
+            category: TradeCategory::Short,
+            entry: Order {
+                unit_price: dec!(10),
+                quantity: 2,
+                ..Default::default()
+            },
+            safety_stop: Order {
+                unit_price: Decimal::MAX,
+                quantity: 2,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let error = TradeCapitalRequired::calculate(&trade).unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("Arithmetic overflow in multiplication"));
+    }
 }

@@ -838,8 +838,271 @@ fn decimal_to_i32_rounded(value: Decimal) -> Option<i32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::TimeZone;
-    use model::{MarketBar, TradeCategory};
+    use chrono::{DateTime, TimeZone};
+    use model::{
+        BrokerKind, BrokerLog, Currency, DraftTrade, Environment, MarketBar, OrderAction, OrderIds,
+        OrderStatus, TradeCategory, TradingVehicleCategory,
+    };
+
+    #[derive(Clone)]
+    enum BarsResponse {
+        Bars(Vec<MarketBar>),
+        Error(&'static str),
+    }
+
+    struct MarketDataBroker {
+        daily: BarsResponse,
+        window: BarsResponse,
+    }
+
+    impl MarketDataBroker {
+        fn empty() -> Self {
+            Self {
+                daily: BarsResponse::Error("market data unavailable"),
+                window: BarsResponse::Error("market data unavailable"),
+            }
+        }
+
+        fn with_bars(daily: Vec<MarketBar>, window: Vec<MarketBar>) -> Self {
+            Self {
+                daily: BarsResponse::Bars(daily),
+                window: BarsResponse::Bars(window),
+            }
+        }
+    }
+
+    impl Broker for MarketDataBroker {
+        fn kind(&self) -> BrokerKind {
+            BrokerKind::Alpaca
+        }
+
+        fn submit_trade(
+            &self,
+            _trade: &Trade,
+            _account: &Account,
+        ) -> Result<(BrokerLog, OrderIds), Box<dyn Error>> {
+            Err("not used in grading tests".into())
+        }
+
+        fn sync_trade(
+            &self,
+            _trade: &Trade,
+            _account: &Account,
+        ) -> Result<(Status, Vec<model::Order>, BrokerLog), Box<dyn Error>> {
+            Err("not used in grading tests".into())
+        }
+
+        fn close_trade(
+            &self,
+            _trade: &Trade,
+            _account: &Account,
+        ) -> Result<(model::Order, BrokerLog), Box<dyn Error>> {
+            Err("not used in grading tests".into())
+        }
+
+        fn cancel_trade(&self, _trade: &Trade, _account: &Account) -> Result<(), Box<dyn Error>> {
+            Err("not used in grading tests".into())
+        }
+
+        fn modify_stop(
+            &self,
+            _trade: &Trade,
+            _account: &Account,
+            _new_stop_price: Decimal,
+        ) -> Result<String, Box<dyn Error>> {
+            Err("not used in grading tests".into())
+        }
+
+        fn modify_target(
+            &self,
+            _trade: &Trade,
+            _account: &Account,
+            _new_price: Decimal,
+        ) -> Result<String, Box<dyn Error>> {
+            Err("not used in grading tests".into())
+        }
+
+        fn get_bars(
+            &self,
+            _symbol: &str,
+            _start: DateTime<Utc>,
+            _end: DateTime<Utc>,
+            timeframe: BarTimeframe,
+            _account: &Account,
+        ) -> Result<Vec<MarketBar>, Box<dyn Error>> {
+            let response = if timeframe == BarTimeframe::OneDay {
+                &self.daily
+            } else {
+                &self.window
+            };
+
+            match response {
+                BarsResponse::Bars(bars) => Ok(bars.clone()),
+                BarsResponse::Error(message) => Err((*message).into()),
+            }
+        }
+    }
+
+    fn order(price: Decimal, category: OrderCategory, quantity: u64) -> model::Order {
+        model::Order {
+            unit_price: price,
+            category,
+            quantity,
+            ..Default::default()
+        }
+    }
+
+    fn trade_with_plan(
+        category: TradeCategory,
+        entry: Decimal,
+        stop: Decimal,
+        target: Decimal,
+    ) -> Trade {
+        Trade {
+            category,
+            entry: order(entry, OrderCategory::Limit, 10),
+            safety_stop: order(stop, OrderCategory::Stop, 10),
+            target: order(target, OrderCategory::Limit, 10),
+            thesis: Some("Breakout after consolidation".to_string()),
+            context: Some("Daily range expansion".to_string()),
+            sector: Some("Technology".to_string()),
+            asset_class: Some("Stock".to_string()),
+            ..Default::default()
+        }
+    }
+
+    fn market_bar(day: u32, high: Decimal, low: Decimal, close: Decimal, volume: u64) -> MarketBar {
+        MarketBar {
+            time: Utc.with_ymd_and_hms(2024, 1, day, 0, 0, 0).unwrap(),
+            open: close,
+            high,
+            low,
+            close,
+            volume,
+        }
+    }
+
+    fn persist_closed_target_trade(database: &mut db_sqlite::SqliteDatabase) -> (Account, Trade) {
+        let account = database
+            .account_write()
+            .create(
+                "grade-service-account",
+                "service grade tests",
+                Environment::Paper,
+                dec!(20),
+                dec!(10),
+            )
+            .expect("account should be created");
+        let balance = database
+            .account_balance_write()
+            .create(&account, &Currency::USD)
+            .expect("balance should be created");
+        database
+            .account_balance_write()
+            .update(&balance, dec!(50000), dec!(0), dec!(50000), dec!(0))
+            .expect("balance should be funded");
+
+        let vehicle = database
+            .trading_vehicle_write()
+            .create_trading_vehicle(
+                "AAPL",
+                Some("US0378331005"),
+                &TradingVehicleCategory::Stock,
+                "alpaca",
+            )
+            .expect("vehicle should be created");
+        let stop = database
+            .order_write()
+            .create(
+                &vehicle,
+                10,
+                dec!(95),
+                &Currency::USD,
+                &OrderAction::Sell,
+                &OrderCategory::Stop,
+            )
+            .expect("stop should be created");
+        let entry = database
+            .order_write()
+            .create(
+                &vehicle,
+                10,
+                dec!(100),
+                &Currency::USD,
+                &OrderAction::Buy,
+                &OrderCategory::Limit,
+            )
+            .expect("entry should be created");
+        let target = database
+            .order_write()
+            .create(
+                &vehicle,
+                10,
+                dec!(115),
+                &Currency::USD,
+                &OrderAction::Sell,
+                &OrderCategory::Limit,
+            )
+            .expect("target should be created");
+        let trade = database
+            .trade_write()
+            .create_trade(
+                DraftTrade {
+                    account: account.clone(),
+                    trading_vehicle: vehicle,
+                    quantity: 10,
+                    currency: Currency::USD,
+                    category: TradeCategory::Long,
+                    thesis: Some("Breakout after consolidation".to_string()),
+                    sector: Some("Technology".to_string()),
+                    asset_class: Some("Stock".to_string()),
+                    context: Some("Daily range expansion".to_string()),
+                },
+                &stop,
+                &entry,
+                &target,
+            )
+            .expect("trade should be created");
+
+        let entry_time = Utc
+            .with_ymd_and_hms(2024, 1, 31, 9, 30, 0)
+            .unwrap()
+            .naive_utc();
+        let exit_time = Utc
+            .with_ymd_and_hms(2024, 1, 31, 10, 30, 0)
+            .unwrap()
+            .naive_utc();
+        let mut entry = trade.entry.clone();
+        entry.average_filled_price = Some(entry.unit_price);
+        entry.filled_quantity = entry.quantity;
+        entry.status = OrderStatus::Filled;
+        entry.filled_at = Some(entry_time);
+        database
+            .order_write()
+            .update(&entry)
+            .expect("entry fill should be persisted");
+
+        let mut target = trade.target.clone();
+        target.average_filled_price = Some(target.unit_price);
+        target.filled_quantity = target.quantity;
+        target.status = OrderStatus::Filled;
+        target.filled_at = Some(exit_time);
+        database
+            .order_write()
+            .update(&target)
+            .expect("target fill should be persisted");
+
+        let trade = database
+            .trade_read()
+            .read_trade(trade.id)
+            .expect("trade should be readable");
+        let trade = database
+            .trade_write()
+            .update_trade_status(Status::ClosedTarget, &trade)
+            .expect("trade should be closed");
+
+        (account, trade)
+    }
 
     #[test]
     fn test_weighted_score_math_is_deterministic_and_sums() {
@@ -851,11 +1114,289 @@ mod tests {
     }
 
     #[test]
+    fn grading_weights_validate_rejects_non_1000_sum() {
+        let weights = GradingWeightsPermille {
+            process: 400,
+            risk: 300,
+            execution: 200,
+            documentation: 99,
+        };
+
+        let err = weights.validate().expect_err("invalid sum should fail");
+
+        assert!(err
+            .to_string()
+            .contains("expected sum=1000 permille, got 999"));
+    }
+
+    #[test]
     fn test_slippage_bps_rounding() {
         // 0.5% = 50 bps
         let fill = Some(dec!(100.50));
         let intended = dec!(100);
         assert_eq!(slippage_bps(fill, intended), Some(50));
+    }
+
+    #[test]
+    fn slippage_bps_uses_absolute_difference_and_rejects_non_positive_intended() {
+        assert_eq!(slippage_bps(Some(dec!(99)), dec!(100)), Some(100));
+        assert_eq!(slippage_bps(Some(dec!(100)), dec!(0)), None);
+        assert_eq!(slippage_bps(None, dec!(100)), None);
+    }
+
+    #[test]
+    fn score_documentation_rewards_complete_metadata_and_lists_missing_fields() {
+        let complete = trade_with_plan(TradeCategory::Long, dec!(100), dec!(95), dec!(115));
+        let (score, recs) = score_documentation(&complete);
+        assert_eq!(score, 100);
+        assert!(recs.is_empty());
+
+        let missing = Trade::default();
+        let (score, recs) = score_documentation(&missing);
+        assert_eq!(score, 0);
+        assert_eq!(recs.len(), 4);
+        assert!(recs.iter().any(|rec| rec.contains("trade thesis")));
+        assert!(recs.iter().any(|rec| rec.contains("trade context")));
+        assert!(recs.iter().any(|rec| rec.contains("sector")));
+        assert!(recs.iter().any(|rec| rec.contains("asset_class")));
+    }
+
+    #[test]
+    fn score_process_penalizes_bad_order_shape_and_low_reward_to_risk() {
+        let trade = Trade {
+            entry: order(dec!(100), OrderCategory::Market, 10),
+            safety_stop: order(dec!(95), OrderCategory::Limit, 10),
+            target: order(dec!(104), OrderCategory::Market, 10),
+            ..trade_with_plan(TradeCategory::Long, dec!(100), dec!(95), dec!(104))
+        };
+
+        let (score, recs) = score_process(&trade);
+
+        assert_eq!(score, 30);
+        assert!(recs
+            .iter()
+            .any(|rec| rec.contains("limit orders for entries")));
+        assert!(recs
+            .iter()
+            .any(|rec| rec.contains("limit orders for targets")));
+        assert!(recs
+            .iter()
+            .any(|rec| rec.contains("stop orders for safety stops")));
+        assert!(recs.iter().any(|rec| rec.contains("Planned R:R is < 1.0")));
+    }
+
+    #[test]
+    fn score_process_penalizes_uncomputable_reward_to_risk() {
+        let trade = trade_with_plan(TradeCategory::Long, dec!(100), dec!(100), dec!(115));
+
+        let (score, recs) = score_process(&trade);
+
+        assert_eq!(score, 80);
+        assert!(recs.iter().any(|rec| rec.contains("could not be computed")));
+    }
+
+    #[test]
+    fn market_data_broker_stub_non_market_methods_fail_fast() {
+        let broker = MarketDataBroker::empty();
+        let trade = Trade::default();
+        let account = Account::default();
+
+        assert_eq!(broker.kind(), BrokerKind::Alpaca);
+        assert!(broker.submit_trade(&trade, &account).is_err());
+        assert!(broker.sync_trade(&trade, &account).is_err());
+        assert!(broker.close_trade(&trade, &account).is_err());
+        assert!(broker.cancel_trade(&trade, &account).is_err());
+        assert!(broker.modify_stop(&trade, &account, dec!(99)).is_err());
+        assert!(broker.modify_target(&trade, &account, dec!(101)).is_err());
+    }
+
+    #[test]
+    fn grade_trade_persists_and_service_read_methods_return_grade_snapshots() {
+        let mut database = db_sqlite::SqliteDatabase::new_in_memory();
+        let mut broker = MarketDataBroker::empty();
+        let (account, trade) = persist_closed_target_trade(&mut database);
+        let mut service = TradeGradeService::new(&mut database, &mut broker);
+
+        assert!(service
+            .latest_grade_for_trade(trade.id)
+            .expect("empty latest grade lookup should succeed")
+            .is_none());
+
+        let detailed = service
+            .grade_trade(trade.id, GradingWeightsPermille::default())
+            .expect("closed trade should be graded");
+
+        let latest = service
+            .latest_grade_for_trade(trade.id)
+            .expect("latest grade lookup should succeed")
+            .expect("persisted grade should exist");
+        assert_eq!(latest.id, detailed.grade.id);
+        assert_eq!(latest.trade_id, trade.id);
+
+        let account_grades = service
+            .grades_for_account_days(account.id, 30)
+            .expect("account grade lookup should succeed");
+        assert_eq!(account_grades.len(), 1);
+        assert_eq!(account_grades[0].id, detailed.grade.id);
+        assert_eq!(detailed.trade_id, trade.id);
+        assert_eq!(detailed.weights, GradingWeightsPermille::default());
+    }
+
+    #[test]
+    fn planned_reward_risk_math_handles_long_short_and_invalid_geometry() {
+        let long = trade_with_plan(TradeCategory::Long, dec!(100), dec!(95), dec!(115));
+        assert_eq!(planned_stop_distance(&long, dec!(100)), Some(dec!(5)));
+        assert_eq!(planned_reward_distance(&long, dec!(100)), Some(dec!(15)));
+        assert_eq!(planned_rr_ratio(&long), Some(dec!(3)));
+        assert_eq!(planned_risk_amount(&long, dec!(100)), Some(dec!(50)));
+
+        let short = trade_with_plan(TradeCategory::Short, dec!(100), dec!(105), dec!(90));
+        assert_eq!(planned_stop_distance(&short, dec!(100)), Some(dec!(5)));
+        assert_eq!(planned_reward_distance(&short, dec!(100)), Some(dec!(10)));
+        assert_eq!(planned_rr_ratio(&short), Some(dec!(2)));
+
+        let invalid = trade_with_plan(TradeCategory::Long, dec!(100), dec!(100), dec!(115));
+        assert_eq!(planned_rr_ratio(&invalid), None);
+    }
+
+    #[test]
+    fn score_risk_penalizes_late_stop_submission_and_missing_equity() {
+        let mut database = db_sqlite::SqliteDatabase::new_in_memory();
+        let entry_filled = Utc
+            .with_ymd_and_hms(2024, 1, 1, 9, 35, 0)
+            .unwrap()
+            .naive_utc();
+        let stop_submitted = Utc
+            .with_ymd_and_hms(2024, 1, 1, 9, 36, 0)
+            .unwrap()
+            .naive_utc();
+        let mut trade = trade_with_plan(TradeCategory::Long, dec!(100), dec!(95), dec!(115));
+        trade.entry.filled_at = Some(entry_filled);
+        trade.safety_stop.submitted_at = Some(stop_submitted);
+
+        let (score, recs) = score_risk(&mut database, &trade, Some(dec!(100)), Some(entry_filled));
+
+        assert_eq!(score, 60);
+        assert!(recs
+            .iter()
+            .any(|rec| rec.contains("submitted after entry filled")));
+        assert!(recs.iter().any(|rec| rec.contains("equity unavailable")));
+    }
+
+    #[test]
+    fn score_execution_penalizes_missing_fills_and_moderate_exit_slippage() {
+        let account = Account::default();
+        let trade = trade_with_plan(TradeCategory::Long, dec!(100), dec!(95), dec!(110));
+        let mut broker = MarketDataBroker::empty();
+
+        let (score, recs, market) =
+            score_execution_with_market_data(&mut broker, &account, &trade, None, None, None, None);
+
+        assert_eq!(score, 80);
+        assert_eq!(market.status, MarketDataStatus::NotApplicable);
+        assert!(recs.iter().any(|rec| rec.contains("Entry fill data")));
+        assert!(recs.iter().any(|rec| rec.contains("Exit fill data")));
+
+        let closed_trade = Trade {
+            status: Status::ClosedTarget,
+            ..trade_with_plan(TradeCategory::Long, dec!(100), dec!(95), dec!(110))
+        };
+        let (score, recs, market) = score_execution_with_market_data(
+            &mut broker,
+            &account,
+            &closed_trade,
+            Some(dec!(100)),
+            None,
+            Some(dec!(110.50)),
+            None,
+        );
+
+        assert_eq!(score, 93);
+        assert_eq!(market.exit_slippage_bps, Some(45));
+        assert!(recs.iter().any(|rec| rec.contains("Exit slippage > 0.20%")));
+    }
+
+    #[test]
+    fn score_execution_uses_market_bars_for_liquidity_volatility_and_excursion() {
+        let account = Account::default();
+        let entry_time = Utc
+            .with_ymd_and_hms(2024, 1, 31, 9, 30, 0)
+            .unwrap()
+            .naive_utc();
+        let exit_time = Utc
+            .with_ymd_and_hms(2024, 1, 31, 10, 30, 0)
+            .unwrap()
+            .naive_utc();
+        let mut trade = trade_with_plan(TradeCategory::Long, dec!(100), dec!(95), dec!(110));
+        trade.status = Status::ClosedTarget;
+        trade.entry.filled_at = Some(entry_time);
+        trade.target.filled_at = Some(exit_time);
+        let daily_bars = (1..=20)
+            .map(|day| market_bar(day, dec!(103), dec!(93), dec!(100), 100_000))
+            .collect();
+        let window_bars = vec![
+            market_bar(31, dec!(108), dec!(97), dec!(104), 10_000),
+            market_bar(31, dec!(112), dec!(94), dec!(110), 10_000),
+        ];
+        let mut broker = MarketDataBroker::with_bars(daily_bars, window_bars);
+
+        let (score, recs, market) = score_execution_with_market_data(
+            &mut broker,
+            &account,
+            &trade,
+            Some(dec!(100)),
+            Some(entry_time),
+            Some(dec!(110)),
+            Some(exit_time),
+        );
+
+        assert_eq!(score, 80);
+        assert_eq!(market.status, MarketDataStatus::Ok);
+        assert_eq!(market.timeframe, Some(BarTimeframe::OneMinute));
+        assert_eq!(market.mfe_bps, Some(1200));
+        assert_eq!(market.mae_bps, Some(600));
+        assert_eq!(market.adv20, Some(100_000));
+        assert_eq!(market.atr14, Some(dec!(10)));
+        assert_eq!(market.stop_distance_atr, Some(dec!(0.5)));
+        assert!(recs.iter().any(|rec| rec.contains("ADV20 < 500k")));
+        assert!(recs.iter().any(|rec| rec.contains("Stop distance < 1 ATR")));
+    }
+
+    #[test]
+    fn fetch_market_metrics_marks_unsupported_window_errors() {
+        let account = Account::default();
+        let entry_time = Utc
+            .with_ymd_and_hms(2024, 1, 31, 9, 30, 0)
+            .unwrap()
+            .naive_utc();
+        let exit_time = Utc
+            .with_ymd_and_hms(2024, 1, 31, 10, 30, 0)
+            .unwrap()
+            .naive_utc();
+        let trade = trade_with_plan(TradeCategory::Long, dec!(100), dec!(95), dec!(110));
+        let mut broker = MarketDataBroker {
+            daily: BarsResponse::Error("daily unavailable"),
+            window: BarsResponse::Error("unsupported timeframe"),
+        };
+
+        let (status, timeframe, mfe, mae, adv20, atr14, stop_atr) =
+            fetch_and_compute_market_metrics(
+                &mut broker,
+                &account,
+                &trade,
+                Some(dec!(100)),
+                Some(entry_time),
+                Some(dec!(110)),
+                Some(exit_time),
+            );
+
+        assert_eq!(status, MarketDataStatus::Unsupported);
+        assert_eq!(timeframe, Some(BarTimeframe::OneMinute));
+        assert_eq!(mfe, None);
+        assert_eq!(mae, None);
+        assert_eq!(adv20, None);
+        assert_eq!(atr14, None);
+        assert_eq!(stop_atr, None);
     }
 
     #[test]
@@ -888,9 +1429,192 @@ mod tests {
     }
 
     #[test]
+    fn mfe_mae_handles_short_trades_empty_bars_and_zero_entry() {
+        let mut trade = Trade::default();
+        trade.category = TradeCategory::Short;
+        let bars = vec![
+            market_bar(1, dec!(104), dec!(92), dec!(98), 1000),
+            market_bar(2, dec!(105), dec!(90), dec!(95), 1000),
+        ];
+
+        let (mfe, mae) = mfe_mae_bps(&trade, dec!(100), &bars);
+        assert_eq!(mfe, Some(1000));
+        assert_eq!(mae, Some(500));
+        assert_eq!(mfe_mae_bps(&trade, dec!(100), &[]), (None, None));
+        assert_eq!(mfe_mae_bps(&trade, dec!(0), &bars), (None, None));
+    }
+
+    #[test]
     fn test_atr14_requires_enough_bars() {
         let bars: Vec<MarketBar> = Vec::new();
         assert_eq!(atr14_from_bars(&bars), None);
+    }
+
+    #[test]
+    fn atr14_and_adv20_use_recent_complete_windows() {
+        let bars: Vec<MarketBar> = (0..20)
+            .map(|index| {
+                let day = u32::try_from(index + 1).unwrap();
+                let volume = u64::try_from(index).unwrap() + 1000;
+                market_bar(day, dec!(11), dec!(9), dec!(10), volume)
+            })
+            .collect();
+
+        assert_eq!(atr14_from_bars(&bars), Some(dec!(2)));
+        assert_eq!(adv20_from_bars(&bars), Some(1009));
+        assert_eq!(adv20_from_bars(&bars[..19]), None);
+    }
+
+    #[test]
+    fn timeframe_for_window_uses_duration_boundaries() {
+        let start = Utc
+            .with_ymd_and_hms(2024, 1, 1, 0, 0, 0)
+            .unwrap()
+            .naive_utc();
+
+        assert_eq!(
+            timeframe_for_window(start, start + Duration::days(2)),
+            BarTimeframe::OneMinute
+        );
+        assert_eq!(
+            timeframe_for_window(start, start + Duration::days(14)),
+            BarTimeframe::OneHour
+        );
+        assert_eq!(
+            timeframe_for_window(start, start + Duration::days(15)),
+            BarTimeframe::OneDay
+        );
+    }
+
+    #[test]
+    fn best_effort_fill_and_exit_fill_cover_status_specific_fallbacks() {
+        let filled_at = Utc
+            .with_ymd_and_hms(2024, 1, 1, 9, 30, 0)
+            .unwrap()
+            .naive_utc();
+        let order = model::Order {
+            unit_price: dec!(100),
+            average_filled_price: Some(dec!(101)),
+            filled_at: Some(filled_at),
+            ..Default::default()
+        };
+        assert_eq!(
+            best_effort_fill(&order, dec!(99)),
+            (Some(dec!(101)), Some(filled_at))
+        );
+
+        let target_trade = Trade {
+            status: Status::ClosedTarget,
+            target: model::Order {
+                unit_price: dec!(120),
+                average_filled_price: Some(dec!(119)),
+                filled_at: Some(filled_at),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        assert_eq!(
+            best_effort_exit_fill(&target_trade, dec!(120), dec!(95)),
+            (Some(dec!(119)), Some(filled_at))
+        );
+
+        let stop_trade = Trade {
+            status: Status::ClosedStopLoss,
+            safety_stop: model::Order {
+                unit_price: dec!(95),
+                average_filled_price: None,
+                filled_at: Some(filled_at),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        assert_eq!(
+            best_effort_exit_fill(&stop_trade, dec!(120), dec!(95)),
+            (Some(dec!(95)), Some(filled_at))
+        );
+
+        let canceled_with_fill = Trade {
+            status: Status::Canceled,
+            target: model::Order {
+                average_filled_price: Some(dec!(118)),
+                filled_at: Some(filled_at),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        assert_eq!(
+            best_effort_exit_fill(&canceled_with_fill, dec!(120), dec!(95)),
+            (Some(dec!(118)), Some(filled_at))
+        );
+
+        let open_trade = Trade {
+            status: Status::Filled,
+            ..Default::default()
+        };
+        assert_eq!(
+            best_effort_exit_fill(&open_trade, dec!(120), dec!(95)),
+            (None, None)
+        );
+    }
+
+    #[test]
+    fn intended_exit_price_tracks_terminal_status() {
+        let target_trade = Trade {
+            status: Status::ClosedTarget,
+            target: order(dec!(120), OrderCategory::Limit, 10),
+            ..Default::default()
+        };
+        let stop_trade = Trade {
+            status: Status::ClosedStopLoss,
+            safety_stop: order(dec!(95), OrderCategory::Stop, 10),
+            ..Default::default()
+        };
+        let open_trade = Trade {
+            status: Status::Filled,
+            ..Default::default()
+        };
+
+        assert_eq!(intended_exit_price(&target_trade), Some(dec!(120)));
+        assert_eq!(intended_exit_price(&stop_trade), Some(dec!(95)));
+        assert_eq!(intended_exit_price(&open_trade), None);
+    }
+
+    #[test]
+    fn compute_points_breakdown_matches_weighted_scores() {
+        let weights = GradingWeightsPermille {
+            process: 400,
+            risk: 300,
+            execution: 200,
+            documentation: 100,
+        };
+        let now = Utc::now().naive_utc();
+        let grade = TradeGrade {
+            id: Uuid::new_v4(),
+            created_at: now,
+            updated_at: now,
+            deleted_at: None,
+            trade_id: Uuid::new_v4(),
+            overall_score: 79,
+            overall_grade: Grade::CPlus,
+            process_score: 80,
+            risk_score: 90,
+            execution_score: 70,
+            documentation_score: 60,
+            recommendations: Vec::new(),
+            graded_at: now,
+            process_weight_permille: weights.process,
+            risk_weight_permille: weights.risk,
+            execution_weight_permille: weights.execution,
+            documentation_weight_permille: weights.documentation,
+        };
+
+        let points = compute_points(&grade, weights);
+
+        assert_eq!(points.process_points, dec!(32));
+        assert_eq!(points.risk_points, dec!(27));
+        assert_eq!(points.execution_points, dec!(14));
+        assert_eq!(points.documentation_points, dec!(6));
+        assert_eq!(points.total_points, dec!(79));
     }
 
     #[test]

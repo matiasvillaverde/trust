@@ -193,8 +193,9 @@ impl Broker for BrokerRegistry {
 #[cfg(test)]
 mod tests {
     use super::BrokerRegistry;
+    use chrono::Utc;
     use model::{
-        Account, Broker, BrokerKind, BrokerLog, Execution, FeeActivity, MarketBar,
+        Account, BarTimeframe, Broker, BrokerKind, BrokerLog, Execution, FeeActivity, MarketBar,
         MarketDataChannel, MarketDataStreamEvent, MarketQuote, MarketTradeTick, Order, OrderIds,
         Status, Trade,
     };
@@ -271,40 +272,68 @@ mod tests {
 
         fn get_bars(
             &self,
-            _symbol: &str,
-            _start: chrono::DateTime<chrono::Utc>,
+            symbol: &str,
+            start: chrono::DateTime<chrono::Utc>,
             _end: chrono::DateTime<chrono::Utc>,
             _timeframe: model::BarTimeframe,
             _account: &Account,
         ) -> Result<Vec<MarketBar>, Box<dyn Error>> {
-            Ok(vec![])
+            let volume = u64::try_from(symbol.len()).unwrap();
+            Ok(vec![MarketBar {
+                time: start,
+                open: Decimal::ONE,
+                high: Decimal::ONE,
+                low: Decimal::ONE,
+                close: Decimal::ONE,
+                volume,
+            }])
         }
 
         fn get_latest_quote(
             &self,
-            _symbol: &str,
+            symbol: &str,
             _account: &Account,
         ) -> Result<MarketQuote, Box<dyn Error>> {
-            Err("not used".into())
+            Ok(MarketQuote {
+                symbol: format!("{}-{symbol}", self.kind),
+                as_of: Utc::now(),
+                bid_price: Decimal::ONE,
+                bid_size: 100,
+                ask_price: Decimal::ONE,
+                ask_size: 200,
+            })
         }
 
         fn get_latest_trade(
             &self,
-            _symbol: &str,
+            symbol: &str,
             _account: &Account,
         ) -> Result<MarketTradeTick, Box<dyn Error>> {
-            Err("not used".into())
+            Ok(MarketTradeTick {
+                symbol: format!("{}-{symbol}", self.kind),
+                as_of: Utc::now(),
+                price: Decimal::ONE,
+                size: 10,
+            })
         }
 
         fn stream_market_data(
             &self,
-            _symbols: &[String],
-            _channels: &[MarketDataChannel],
+            symbols: &[String],
+            channels: &[MarketDataChannel],
             _max_events: usize,
             _timeout_seconds: u64,
             _account: &Account,
         ) -> Result<Vec<MarketDataStreamEvent>, Box<dyn Error>> {
-            Ok(vec![])
+            let channel = *channels.first().unwrap();
+            let symbol = symbols.first().unwrap();
+            Ok(vec![MarketDataStreamEvent {
+                channel,
+                symbol: format!("{}-{symbol}", self.kind),
+                as_of: Utc::now(),
+                price: Decimal::ONE,
+                size: 10,
+            }])
         }
 
         fn fetch_executions(
@@ -326,6 +355,19 @@ mod tests {
         }
     }
 
+    fn registry_with_ibkr_account() -> (BrokerRegistry, Account, Trade) {
+        let registry = BrokerRegistry::from_many(vec![
+            Box::new(StubBroker::new(BrokerKind::Alpaca)),
+            Box::new(StubBroker::new(BrokerKind::Ibkr)),
+        ]);
+        let account = Account {
+            broker_kind: BrokerKind::Ibkr,
+            name: "ibkr-main".to_string(),
+            ..Account::default()
+        };
+        (registry, account, Trade::default())
+    }
+
     #[test]
     fn registry_routes_submit_trade_by_account_broker_kind() {
         let registry = BrokerRegistry::from_many(vec![
@@ -340,6 +382,78 @@ mod tests {
 
         let (_, ids) = registry.submit_trade(&Trade::default(), &account).unwrap();
         assert_eq!(ids.entry, "ibkr-entry");
+    }
+
+    #[test]
+    fn registry_routes_order_management_by_account_broker_kind() {
+        let (registry, account, trade) = registry_with_ibkr_account();
+
+        assert_eq!(registry.kind(), BrokerKind::Alpaca);
+        let debug = format!("{registry:?}");
+        assert!(debug.contains("alpaca"));
+        assert!(debug.contains("ibkr"));
+
+        let (status, orders, _) = registry.sync_trade(&trade, &account).unwrap();
+        assert_eq!(status, Status::Submitted);
+        assert!(orders.is_empty());
+
+        let (closed_order, _) = registry.close_trade(&trade, &account).unwrap();
+        assert_eq!(closed_order.status, Order::default().status);
+        assert_eq!(closed_order.category, Order::default().category);
+        registry.cancel_trade(&trade, &account).unwrap();
+        assert_eq!(
+            registry
+                .modify_stop(&trade, &account, Decimal::ONE)
+                .unwrap(),
+            "ibkr-stop"
+        );
+        assert_eq!(
+            registry
+                .modify_target(&trade, &account, Decimal::ONE)
+                .unwrap(),
+            "ibkr-target"
+        );
+    }
+
+    #[test]
+    fn registry_routes_market_data_and_accounting_feeds_by_account_broker_kind() {
+        let (registry, account, trade) = registry_with_ibkr_account();
+
+        let now = Utc::now();
+        let bars = registry
+            .get_bars("SPY", now, now, BarTimeframe::OneMinute, &account)
+            .unwrap();
+        assert_eq!(bars.len(), 1);
+        assert_eq!(bars.first().unwrap().volume, 3);
+        assert_eq!(
+            registry.get_latest_quote("SPY", &account).unwrap().symbol,
+            "ibkr-SPY"
+        );
+        assert_eq!(
+            registry.get_latest_trade("SPY", &account).unwrap().symbol,
+            "ibkr-SPY"
+        );
+
+        let events = registry
+            .stream_market_data(
+                &[String::from("SPY")],
+                &[MarketDataChannel::Quotes],
+                1,
+                1,
+                &account,
+            )
+            .unwrap();
+        let event = events.first().unwrap();
+        assert_eq!(event.symbol, "ibkr-SPY");
+        assert_eq!(event.channel, MarketDataChannel::Quotes);
+        assert!(registry
+            .fetch_executions(&trade, &account, Some(now))
+            .unwrap()
+            .is_empty());
+        assert!(registry
+            .fetch_fee_activities(&trade, &account, Some(now))
+            .unwrap()
+            .is_empty());
     }
 
     #[test]

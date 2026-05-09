@@ -175,6 +175,105 @@ mod tests {
     use super::*;
 
     use chrono::Utc;
+    use db_sqlite::SqliteDatabase;
+    use model::{
+        Account, Currency, DraftTrade, Environment, Order, OrderAction, OrderCategory,
+        TradeCategory, TradingVehicle, TradingVehicleCategory,
+    };
+
+    fn create_test_account(database: &mut SqliteDatabase, name: &str) -> Account {
+        database
+            .account_write()
+            .create(name, name, Environment::Paper, dec!(0), dec!(0))
+            .expect("account should be created")
+    }
+
+    fn create_test_vehicle(database: &mut SqliteDatabase, symbol: &str) -> TradingVehicle {
+        database
+            .trading_vehicle_write()
+            .create_trading_vehicle(
+                symbol,
+                Some(symbol),
+                &TradingVehicleCategory::Stock,
+                "alpaca",
+            )
+            .expect("trading vehicle should be created")
+    }
+
+    fn create_test_order(
+        database: &mut SqliteDatabase,
+        vehicle: &TradingVehicle,
+        action: OrderAction,
+        category: OrderCategory,
+        price: Decimal,
+    ) -> Order {
+        database
+            .order_write()
+            .create(vehicle, 10, price, &Currency::USD, &action, &category)
+            .expect("order should be created")
+    }
+
+    fn create_test_trade(
+        database: &mut SqliteDatabase,
+        account: &Account,
+        symbol: &str,
+        status: Status,
+    ) -> Trade {
+        let vehicle = create_test_vehicle(database, symbol);
+        let stop = create_test_order(
+            database,
+            &vehicle,
+            OrderAction::Sell,
+            OrderCategory::Stop,
+            dec!(90),
+        );
+        let entry = create_test_order(
+            database,
+            &vehicle,
+            OrderAction::Buy,
+            OrderCategory::Limit,
+            dec!(100),
+        );
+        let target = create_test_order(
+            database,
+            &vehicle,
+            OrderAction::Sell,
+            OrderCategory::Limit,
+            dec!(120),
+        );
+        let draft = DraftTrade {
+            account: account.clone(),
+            trading_vehicle: vehicle,
+            quantity: 10,
+            currency: Currency::USD,
+            category: TradeCategory::Long,
+            thesis: None,
+            sector: None,
+            asset_class: None,
+            context: None,
+        };
+        let trade = database
+            .trade_write()
+            .create_trade(draft, &stop, &entry, &target)
+            .expect("trade should be created");
+
+        database
+            .trade_write()
+            .update_trade_status(status, &trade)
+            .expect("trade status should be updated")
+    }
+
+    fn create_trade_transaction(
+        database: &mut SqliteDatabase,
+        account: &Account,
+        amount: Decimal,
+        category: TransactionCategory,
+    ) -> model::Transaction {
+        database
+            .transaction_write()
+            .create_transaction(account, amount, &Currency::USD, category)
+            .expect("transaction should be created")
+    }
 
     #[test]
     fn test_calculate_total_capital_at_risk_empty() {
@@ -228,5 +327,145 @@ mod tests {
         let result = CapitalAtRiskCalculator::calculate_total_capital_at_risk(&positions);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), dec!(5000));
+    }
+
+    #[test]
+    fn test_calculate_total_capital_at_risk_reports_addition_overflow() {
+        let funded_date = Utc::now().naive_utc();
+        let positions = vec![
+            OpenPosition {
+                trade_id: Uuid::new_v4(),
+                symbol: "MAX1".to_string(),
+                capital_amount: Decimal::MAX,
+                status: Status::Funded,
+                funded_date,
+            },
+            OpenPosition {
+                trade_id: Uuid::new_v4(),
+                symbol: "MAX2".to_string(),
+                capital_amount: Decimal::ONE,
+                status: Status::Funded,
+                funded_date,
+            },
+        ];
+
+        let error = CapitalAtRiskCalculator::calculate_total_capital_at_risk(&positions)
+            .expect_err("portfolio risk summation overflow should be explicit");
+
+        assert_eq!(
+            error.to_string(),
+            "Arithmetic overflow calculating total capital at risk"
+        );
+    }
+
+    #[test]
+    fn test_calculate_open_positions_includes_funded_trade_with_funding_date() {
+        let mut database = SqliteDatabase::new_in_memory();
+        let account = create_test_account(&mut database, "risk-open-position");
+        let trade = create_test_trade(&mut database, &account, "RISKOPEN", Status::Funded);
+        let funding = create_trade_transaction(
+            &mut database,
+            &account,
+            dec!(250),
+            TransactionCategory::FundTrade(trade.id),
+        );
+
+        let positions =
+            CapitalAtRiskCalculator::calculate_open_positions(Some(account.id), &mut database)
+                .expect("positions should calculate");
+
+        assert_eq!(positions.len(), 1);
+        assert_eq!(
+            positions.first().expect("position should exist"),
+            &OpenPosition {
+                trade_id: trade.id,
+                symbol: "RISKOPEN".to_string(),
+                capital_amount: dec!(250),
+                status: Status::Funded,
+                funded_date: funding.created_at,
+            }
+        );
+    }
+
+    #[test]
+    fn test_closing_transaction_excludes_trade_from_open_positions() {
+        let mut database = SqliteDatabase::new_in_memory();
+        let account = create_test_account(&mut database, "risk-closed-position");
+        let trade = create_test_trade(&mut database, &account, "RISKCLOSED", Status::Filled);
+        create_trade_transaction(
+            &mut database,
+            &account,
+            dec!(250),
+            TransactionCategory::FundTrade(trade.id),
+        );
+        create_trade_transaction(
+            &mut database,
+            &account,
+            dec!(300),
+            TransactionCategory::CloseTarget(trade.id),
+        );
+
+        let is_open = CapitalAtRiskCalculator::is_trade_open(&trade, &mut database)
+            .expect("open state should calculate");
+        let positions =
+            CapitalAtRiskCalculator::calculate_open_positions(Some(account.id), &mut database)
+                .expect("positions should calculate");
+
+        assert!(!is_open);
+        assert!(positions.is_empty());
+    }
+
+    #[test]
+    fn test_funding_date_falls_back_to_trade_created_at_without_funding_transaction() {
+        let mut database = SqliteDatabase::new_in_memory();
+        let account = create_test_account(&mut database, "risk-funding-fallback");
+        let trade = create_test_trade(&mut database, &account, "RISKFALLBACK", Status::Submitted);
+
+        let funding_date = CapitalAtRiskCalculator::get_trade_funding_date(&trade, &mut database)
+            .expect("funding date should calculate");
+
+        assert_eq!(funding_date, trade.created_at);
+    }
+
+    #[test]
+    fn test_calculate_open_positions_without_account_scans_all_accounts() {
+        let mut database = SqliteDatabase::new_in_memory();
+        let first_account = create_test_account(&mut database, "risk-all-accounts-1");
+        let second_account = create_test_account(&mut database, "risk-all-accounts-2");
+        let first_trade =
+            create_test_trade(&mut database, &first_account, "RISKALL1", Status::Funded);
+        let second_trade = create_test_trade(
+            &mut database,
+            &second_account,
+            "RISKALL2",
+            Status::Submitted,
+        );
+        create_trade_transaction(
+            &mut database,
+            &first_account,
+            dec!(100),
+            TransactionCategory::FundTrade(first_trade.id),
+        );
+        create_trade_transaction(
+            &mut database,
+            &second_account,
+            dec!(150),
+            TransactionCategory::FundTrade(second_trade.id),
+        );
+
+        let positions = CapitalAtRiskCalculator::calculate_open_positions(None, &mut database)
+            .expect("positions should calculate across accounts");
+
+        assert_eq!(positions.len(), 2);
+        assert!(positions.iter().any(|position| {
+            position.trade_id == first_trade.id
+                && position.symbol == "RISKALL1"
+                && position.capital_amount == dec!(100)
+        }));
+        assert!(positions.iter().any(|position| {
+            position.trade_id == second_trade.id
+                && position.symbol == "RISKALL2"
+                && position.capital_amount == dec!(150)
+        }));
     }
 }

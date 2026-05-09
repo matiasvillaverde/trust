@@ -36,18 +36,13 @@ impl<'a> EventDistributionService<'a> {
         }
 
         let source_account = self.database.account_read().id(trade.account_id)?;
-        let rules = match self
-            .database
-            .distribution_read()
-            .for_account(trade.account_id)
-        {
-            Ok(rules) => rules,
-            Err(error) => {
-                if error.downcast_ref::<DistributionRulesNotFound>().is_some() {
-                    return Ok(None);
-                }
-                return Err(error);
-            }
+        let rules = match distribution_rules_or_none(
+            self.database
+                .distribution_read()
+                .for_account(trade.account_id),
+        )? {
+            Some(rules) => rules,
+            None => return Ok(None),
         };
 
         // Rules exist, but threshold can still opt-out.
@@ -111,139 +106,28 @@ impl<'a> EventDistributionService<'a> {
     }
 }
 
+fn distribution_rules_or_none(
+    result: Result<model::DistributionRules, Box<dyn Error>>,
+) -> Result<Option<model::DistributionRules>, Box<dyn Error>> {
+    match result {
+        Ok(rules) => Ok(Some(rules)),
+        Err(error) => {
+            if error.downcast_ref::<DistributionRulesNotFound>().is_some() {
+                return Ok(None);
+            }
+            Err(error)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use chrono::Utc;
-    use model::{Currency, DatabaseFactory, DistributionRulesNotFound, Status};
+    use db_sqlite::SqliteDatabase;
+    use model::{Currency, DistributionRulesNotFound, Status};
     use rust_decimal_macros::dec;
     use uuid::Uuid;
-
-    // Mock database factory for testing
-    #[derive(Debug)]
-    struct MockDatabaseFactory;
-
-    impl DatabaseFactory for MockDatabaseFactory {
-        fn account_read(&self) -> Box<dyn model::AccountRead> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn account_write(&self) -> Box<dyn model::AccountWrite> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn account_balance_read(&self) -> Box<dyn model::AccountBalanceRead> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn account_balance_write(&self) -> Box<dyn model::AccountBalanceWrite> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn order_read(&self) -> Box<dyn model::OrderRead> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn order_write(&self) -> Box<dyn model::OrderWrite> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn transaction_read(&self) -> Box<dyn model::ReadTransactionDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn transaction_write(&self) -> Box<dyn model::WriteTransactionDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn trade_read(&self) -> Box<dyn model::ReadTradeDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn trade_write(&self) -> Box<dyn model::WriteTradeDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn trade_balance_write(&self) -> Box<dyn model::database::WriteAccountBalanceDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn rule_read(&self) -> Box<dyn model::ReadRuleDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn rule_write(&self) -> Box<dyn model::WriteRuleDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn trading_vehicle_read(&self) -> Box<dyn model::ReadTradingVehicleDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn trading_vehicle_write(&self) -> Box<dyn model::WriteTradingVehicleDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn log_read(&self) -> Box<dyn model::ReadBrokerLogsDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn log_write(&self) -> Box<dyn model::WriteBrokerLogsDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn distribution_read(&self) -> Box<dyn model::DistributionRead> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn distribution_write(&self) -> Box<dyn model::DistributionWrite> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn advisory_read(&self) -> Box<dyn model::AdvisoryRead> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn advisory_write(&self) -> Box<dyn model::AdvisoryWrite> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn execution_read(&self) -> Box<dyn model::ReadExecutionDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn execution_write(&self) -> Box<dyn model::WriteExecutionDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn trade_grade_read(&self) -> Box<dyn model::ReadTradeGradeDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn trade_grade_write(&self) -> Box<dyn model::WriteTradeGradeDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn level_read(&self) -> Box<dyn model::ReadLevelDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn level_write(&self) -> Box<dyn model::WriteLevelDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn begin_savepoint(&mut self, _name: &str) -> Result<(), Box<dyn Error>> {
-            Ok(())
-        }
-
-        fn release_savepoint(&mut self, _name: &str) -> Result<(), Box<dyn Error>> {
-            Ok(())
-        }
-
-        fn rollback_to_savepoint(&mut self, _name: &str) -> Result<(), Box<dyn Error>> {
-            Ok(())
-        }
-    }
 
     fn create_test_trade_profitable() -> Trade {
         use model::{Currency, TradeBalance};
@@ -279,21 +163,169 @@ mod tests {
         trade
     }
 
-    fn child_account(parent: uuid::Uuid, account_type: AccountType, name: &str) -> Account {
-        Account {
-            id: Uuid::new_v4(),
-            name: name.to_string(),
-            account_type,
-            parent_account_id: Some(parent),
-            ..Account::default()
-        }
+    fn create_sqlite_distribution_hierarchy(
+        database: &SqliteDatabase,
+    ) -> (Account, Account, Account, Account) {
+        let source_account = database
+            .account_write()
+            .create_with_hierarchy(
+                "event-main",
+                "event main",
+                model::Environment::Paper,
+                dec!(25),
+                dec!(30),
+                AccountType::Primary,
+                None,
+            )
+            .expect("source account should be created");
+        let earnings_account = database
+            .account_write()
+            .create_with_hierarchy(
+                "event-earnings",
+                "event earnings",
+                model::Environment::Paper,
+                dec!(0),
+                dec!(0),
+                AccountType::Earnings,
+                Some(source_account.id),
+            )
+            .expect("earnings account should be created");
+        let tax_account = database
+            .account_write()
+            .create_with_hierarchy(
+                "event-tax",
+                "event tax",
+                model::Environment::Paper,
+                dec!(0),
+                dec!(0),
+                AccountType::TaxReserve,
+                Some(source_account.id),
+            )
+            .expect("tax account should be created");
+        let reinvestment_account = database
+            .account_write()
+            .create_with_hierarchy(
+                "event-reinvestment",
+                "event reinvestment",
+                model::Environment::Paper,
+                dec!(0),
+                dec!(0),
+                AccountType::Reinvestment,
+                Some(source_account.id),
+            )
+            .expect("reinvestment account should be created");
+
+        (
+            source_account,
+            earnings_account,
+            tax_account,
+            reinvestment_account,
+        )
+    }
+
+    fn create_persisted_trade(database: &mut SqliteDatabase, account: &Account) -> Trade {
+        let vehicle = database
+            .trading_vehicle_write()
+            .create_trading_vehicle(
+                "EVENTDIST",
+                Some("EVENTDIST"),
+                &model::TradingVehicleCategory::Stock,
+                "alpaca",
+            )
+            .expect("trading vehicle should be created");
+        let stop = database
+            .order_write()
+            .create(
+                &vehicle,
+                10,
+                dec!(90),
+                &Currency::USD,
+                &model::OrderAction::Sell,
+                &model::OrderCategory::Stop,
+            )
+            .expect("stop order should be created");
+        let entry = database
+            .order_write()
+            .create(
+                &vehicle,
+                10,
+                dec!(100),
+                &Currency::USD,
+                &model::OrderAction::Buy,
+                &model::OrderCategory::Limit,
+            )
+            .expect("entry order should be created");
+        let target = database
+            .order_write()
+            .create(
+                &vehicle,
+                10,
+                dec!(120),
+                &Currency::USD,
+                &model::OrderAction::Sell,
+                &model::OrderCategory::Limit,
+            )
+            .expect("target order should be created");
+        let draft = model::DraftTrade {
+            account: account.clone(),
+            trading_vehicle: vehicle,
+            quantity: 10,
+            currency: Currency::USD,
+            category: model::TradeCategory::Long,
+            thesis: None,
+            sector: None,
+            asset_class: None,
+            context: None,
+        };
+
+        database
+            .trade_write()
+            .create_trade(draft, &stop, &entry, &target)
+            .expect("trade should be created")
+    }
+
+    fn account_transactions(
+        database: &SqliteDatabase,
+        account_id: Uuid,
+        currency: &Currency,
+        _label: &str,
+    ) -> Vec<model::Transaction> {
+        database
+            .transaction_read()
+            .all_transactions(account_id, currency)
+            .expect("transactions should be readable")
+    }
+
+    fn assert_transaction_total(transactions: &[model::Transaction], expected_total: Decimal) {
+        assert_eq!(transactions.len(), 3);
+        assert_eq!(
+            transactions
+                .iter()
+                .try_fold(Decimal::ZERO, |total, tx| total.checked_add(tx.amount))
+                .expect("transaction total should not overflow"),
+            expected_total
+        );
+    }
+
+    fn assert_single_transaction(
+        transactions: &[model::Transaction],
+        expected_category: model::TransactionCategory,
+        expected_amount: Decimal,
+        _label: &str,
+    ) {
+        assert_eq!(transactions.len(), 1);
+        let transaction = transactions
+            .first()
+            .expect("destination transaction should exist");
+        assert_eq!(transaction.category, expected_category);
+        assert_eq!(transaction.amount, expected_amount);
     }
 
     #[test]
     fn test_calculate_trade_profit_profitable() {
         // Given: Event distribution service
-        let mut mock_db = MockDatabaseFactory;
-        let service = EventDistributionService::new(&mut mock_db);
+        let mut database = SqliteDatabase::new_in_memory();
+        let service = EventDistributionService::new(&mut database);
 
         // And: A profitable trade
         let trade = create_test_trade_profitable();
@@ -308,8 +340,8 @@ mod tests {
     #[test]
     fn test_calculate_trade_profit_loss() {
         // Given: Event distribution service
-        let mut mock_db = MockDatabaseFactory;
-        let service = EventDistributionService::new(&mut mock_db);
+        let mut database = SqliteDatabase::new_in_memory();
+        let service = EventDistributionService::new(&mut database);
 
         // And: A losing trade
         let trade = create_test_trade_loss();
@@ -322,10 +354,21 @@ mod tests {
     }
 
     #[test]
+    fn test_debug_redacts_database_trait_object() {
+        let mut database = SqliteDatabase::new_in_memory();
+        let service = EventDistributionService::new(&mut database);
+
+        assert_eq!(
+            format!("{service:?}"),
+            "EventDistributionService { database: \"&mut dyn DatabaseFactory\" }"
+        );
+    }
+
+    #[test]
     fn test_handle_trade_closed_event_loss_no_distribution() {
         // Given: Event distribution service
-        let mut mock_db = MockDatabaseFactory;
-        let mut service = EventDistributionService::new(&mut mock_db);
+        let mut database = SqliteDatabase::new_in_memory();
+        let mut service = EventDistributionService::new(&mut database);
 
         // And: A losing trade
         let trade = create_test_trade_loss();
@@ -342,8 +385,8 @@ mod tests {
 
     #[test]
     fn test_event_distribution_integration() {
-        let mut mock_db = MockDatabaseFactory;
-        let service = EventDistributionService::new(&mut mock_db);
+        let mut database = SqliteDatabase::new_in_memory();
+        let service = EventDistributionService::new(&mut database);
         let trade = create_test_trade_profitable();
 
         // The event service should identify profitable trades deterministically.
@@ -351,405 +394,44 @@ mod tests {
         assert!(profit > Decimal::ZERO);
     }
 
-    #[derive(Debug)]
-    struct FailingDistributionRead;
+    #[test]
+    fn test_distribution_rules_or_none_propagates_distribution_read_errors() {
+        let error = distribution_rules_or_none(Err("database unavailable".into()))
+            .expect_err("non not-found errors should propagate");
 
-    impl model::DistributionRead for FailingDistributionRead {
-        fn for_account(
-            &mut self,
-            _account_id: uuid::Uuid,
-        ) -> Result<model::DistributionRules, Box<dyn std::error::Error>> {
-            Err("database unavailable".into())
-        }
-
-        fn history_for_account(
-            &mut self,
-            _account_id: uuid::Uuid,
-        ) -> Result<Vec<model::DistributionHistory>, Box<dyn std::error::Error>> {
-            Ok(Vec::new())
-        }
-    }
-
-    #[derive(Debug)]
-    struct NotFoundDistributionRead {
-        account_id: uuid::Uuid,
-    }
-
-    impl model::DistributionRead for NotFoundDistributionRead {
-        fn for_account(
-            &mut self,
-            _account_id: uuid::Uuid,
-        ) -> Result<model::DistributionRules, Box<dyn std::error::Error>> {
-            Err(DistributionRulesNotFound {
-                account_id: self.account_id,
-            }
-            .into())
-        }
-
-        fn history_for_account(
-            &mut self,
-            _account_id: uuid::Uuid,
-        ) -> Result<Vec<model::DistributionHistory>, Box<dyn std::error::Error>> {
-            Ok(Vec::new())
-        }
-    }
-
-    #[derive(Debug)]
-    struct FixedAccountRead {
-        account: Account,
-    }
-
-    impl model::AccountRead for FixedAccountRead {
-        fn for_name(&mut self, _name: &str) -> Result<Account, Box<dyn std::error::Error>> {
-            Ok(self.account.clone())
-        }
-
-        fn id(&mut self, _id: uuid::Uuid) -> Result<Account, Box<dyn std::error::Error>> {
-            Ok(self.account.clone())
-        }
-
-        fn all(&mut self) -> Result<Vec<Account>, Box<dyn std::error::Error>> {
-            Ok(vec![self.account.clone()])
-        }
-    }
-
-    #[derive(Debug)]
-    struct ErrorPropagationDatabase {
-        account: Account,
-        return_not_found: bool,
-    }
-
-    impl DatabaseFactory for ErrorPropagationDatabase {
-        fn account_read(&self) -> Box<dyn model::AccountRead> {
-            Box::new(FixedAccountRead {
-                account: self.account.clone(),
-            })
-        }
-        fn account_write(&self) -> Box<dyn model::AccountWrite> {
-            todo!("not used")
-        }
-        fn account_balance_read(&self) -> Box<dyn model::AccountBalanceRead> {
-            todo!("not used")
-        }
-        fn account_balance_write(&self) -> Box<dyn model::AccountBalanceWrite> {
-            todo!("not used")
-        }
-        fn order_read(&self) -> Box<dyn model::OrderRead> {
-            todo!("not used")
-        }
-        fn order_write(&self) -> Box<dyn model::OrderWrite> {
-            todo!("not used")
-        }
-        fn transaction_read(&self) -> Box<dyn model::ReadTransactionDB> {
-            todo!("not used")
-        }
-        fn transaction_write(&self) -> Box<dyn model::WriteTransactionDB> {
-            todo!("not used")
-        }
-        fn trade_read(&self) -> Box<dyn model::ReadTradeDB> {
-            todo!("not used")
-        }
-        fn trade_write(&self) -> Box<dyn model::WriteTradeDB> {
-            todo!("not used")
-        }
-        fn trade_balance_write(&self) -> Box<dyn model::database::WriteAccountBalanceDB> {
-            todo!("not used")
-        }
-        fn rule_read(&self) -> Box<dyn model::ReadRuleDB> {
-            todo!("not used")
-        }
-        fn rule_write(&self) -> Box<dyn model::WriteRuleDB> {
-            todo!("not used")
-        }
-        fn trading_vehicle_read(&self) -> Box<dyn model::ReadTradingVehicleDB> {
-            todo!("not used")
-        }
-        fn trading_vehicle_write(&self) -> Box<dyn model::WriteTradingVehicleDB> {
-            todo!("not used")
-        }
-        fn log_read(&self) -> Box<dyn model::ReadBrokerLogsDB> {
-            todo!("not used")
-        }
-        fn log_write(&self) -> Box<dyn model::WriteBrokerLogsDB> {
-            todo!("not used")
-        }
-        fn distribution_read(&self) -> Box<dyn model::DistributionRead> {
-            if self.return_not_found {
-                Box::new(NotFoundDistributionRead {
-                    account_id: self.account.id,
-                })
-            } else {
-                Box::new(FailingDistributionRead)
-            }
-        }
-        fn distribution_write(&self) -> Box<dyn model::DistributionWrite> {
-            todo!("not used")
-        }
-
-        fn advisory_read(&self) -> Box<dyn model::AdvisoryRead> {
-            todo!("not used")
-        }
-
-        fn advisory_write(&self) -> Box<dyn model::AdvisoryWrite> {
-            todo!("not used")
-        }
-
-        fn execution_read(&self) -> Box<dyn model::ReadExecutionDB> {
-            todo!("not used")
-        }
-
-        fn execution_write(&self) -> Box<dyn model::WriteExecutionDB> {
-            todo!("not used")
-        }
-
-        fn trade_grade_read(&self) -> Box<dyn model::ReadTradeGradeDB> {
-            todo!("not used")
-        }
-
-        fn trade_grade_write(&self) -> Box<dyn model::WriteTradeGradeDB> {
-            todo!("not used")
-        }
-
-        fn level_read(&self) -> Box<dyn model::ReadLevelDB> {
-            todo!("not used")
-        }
-
-        fn level_write(&self) -> Box<dyn model::WriteLevelDB> {
-            todo!("not used")
-        }
-
-        fn begin_savepoint(&mut self, _name: &str) -> Result<(), Box<dyn Error>> {
-            Ok(())
-        }
-
-        fn release_savepoint(&mut self, _name: &str) -> Result<(), Box<dyn Error>> {
-            Ok(())
-        }
-
-        fn rollback_to_savepoint(&mut self, _name: &str) -> Result<(), Box<dyn Error>> {
-            Ok(())
-        }
+        assert!(error.to_string().contains("database unavailable"));
     }
 
     #[test]
-    fn test_handle_trade_closed_event_propagates_distribution_read_errors() {
-        let trade = create_test_trade_profitable();
-        let source_account = Account {
-            id: trade.account_id,
-            ..Account::default()
-        };
-        let mut db = ErrorPropagationDatabase {
-            account: source_account,
-            return_not_found: false,
-        };
-        let mut service = EventDistributionService::new(&mut db);
+    fn test_distribution_rules_or_none_treats_rules_not_found_as_none() {
+        let account_id = Uuid::new_v4();
+        let result =
+            distribution_rules_or_none(Err(DistributionRulesNotFound { account_id }.into()))
+                .expect("missing distribution rules should opt out");
 
-        let result = service.handle_trade_closed_event(&trade, &Currency::USD);
-        assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("database unavailable"));
+        assert!(result.is_none());
     }
 
     #[test]
     fn test_handle_trade_closed_event_treats_rules_not_found_as_none() {
-        let trade = create_test_trade_profitable();
-        let source_account = Account {
-            id: trade.account_id,
-            ..Account::default()
-        };
-        let mut db = ErrorPropagationDatabase {
-            account: source_account,
-            return_not_found: true,
-        };
-        let mut service = EventDistributionService::new(&mut db);
+        let mut database = SqliteDatabase::new_in_memory();
+        let (source_account, _, _, _) = create_sqlite_distribution_hierarchy(&database);
+        let mut trade = create_test_trade_profitable();
+        trade.account_id = source_account.id;
+        let mut service = EventDistributionService::new(&mut database);
 
-        let result = service.handle_trade_closed_event(&trade, &Currency::USD);
-        assert!(result.is_ok());
-        assert!(result.unwrap().is_none());
-    }
+        let result = service
+            .handle_trade_closed_event(&trade, &Currency::USD)
+            .expect("missing distribution rules should opt out");
 
-    #[derive(Debug)]
-    struct StaticAccountRead {
-        accounts: Vec<Account>,
-        id_error: Option<String>,
-    }
-
-    impl model::AccountRead for StaticAccountRead {
-        fn for_name(&mut self, name: &str) -> Result<Account, Box<dyn std::error::Error>> {
-            self.accounts
-                .iter()
-                .find(|account| account.name == name)
-                .cloned()
-                .ok_or_else(|| "account not found".into())
-        }
-
-        fn id(&mut self, id: uuid::Uuid) -> Result<Account, Box<dyn std::error::Error>> {
-            if let Some(message) = &self.id_error {
-                return Err(message.clone().into());
-            }
-            self.accounts
-                .iter()
-                .find(|account| account.id == id)
-                .cloned()
-                .ok_or_else(|| "account not found".into())
-        }
-
-        fn all(&mut self) -> Result<Vec<Account>, Box<dyn std::error::Error>> {
-            Ok(self.accounts.clone())
-        }
-    }
-
-    #[derive(Debug)]
-    struct StaticDistributionRead {
-        rules_result: Result<model::DistributionRules, String>,
-    }
-
-    impl model::DistributionRead for StaticDistributionRead {
-        fn for_account(
-            &mut self,
-            _account_id: uuid::Uuid,
-        ) -> Result<model::DistributionRules, Box<dyn std::error::Error>> {
-            self.rules_result
-                .clone()
-                .map_err(|message| message.clone().into())
-        }
-
-        fn history_for_account(
-            &mut self,
-            _account_id: uuid::Uuid,
-        ) -> Result<Vec<model::DistributionHistory>, Box<dyn std::error::Error>> {
-            Ok(vec![])
-        }
-    }
-
-    #[derive(Debug)]
-    struct StaticEventDb {
-        accounts: Vec<Account>,
-        id_error: Option<String>,
-        rules_result: Result<model::DistributionRules, String>,
-    }
-
-    impl DatabaseFactory for StaticEventDb {
-        fn account_read(&self) -> Box<dyn model::AccountRead> {
-            Box::new(StaticAccountRead {
-                accounts: self.accounts.clone(),
-                id_error: self.id_error.clone(),
-            })
-        }
-        fn account_write(&self) -> Box<dyn model::AccountWrite> {
-            todo!("not used")
-        }
-        fn account_balance_read(&self) -> Box<dyn model::AccountBalanceRead> {
-            todo!("not used")
-        }
-        fn account_balance_write(&self) -> Box<dyn model::AccountBalanceWrite> {
-            todo!("not used")
-        }
-        fn order_read(&self) -> Box<dyn model::OrderRead> {
-            todo!("not used")
-        }
-        fn order_write(&self) -> Box<dyn model::OrderWrite> {
-            todo!("not used")
-        }
-        fn transaction_read(&self) -> Box<dyn model::ReadTransactionDB> {
-            todo!("not used")
-        }
-        fn transaction_write(&self) -> Box<dyn model::WriteTransactionDB> {
-            todo!("not used")
-        }
-        fn trade_read(&self) -> Box<dyn model::ReadTradeDB> {
-            todo!("not used")
-        }
-        fn trade_write(&self) -> Box<dyn model::WriteTradeDB> {
-            todo!("not used")
-        }
-        fn trade_balance_write(&self) -> Box<dyn model::database::WriteAccountBalanceDB> {
-            todo!("not used")
-        }
-        fn rule_read(&self) -> Box<dyn model::ReadRuleDB> {
-            todo!("not used")
-        }
-        fn rule_write(&self) -> Box<dyn model::WriteRuleDB> {
-            todo!("not used")
-        }
-        fn trading_vehicle_read(&self) -> Box<dyn model::ReadTradingVehicleDB> {
-            todo!("not used")
-        }
-        fn trading_vehicle_write(&self) -> Box<dyn model::WriteTradingVehicleDB> {
-            todo!("not used")
-        }
-        fn log_read(&self) -> Box<dyn model::ReadBrokerLogsDB> {
-            todo!("not used")
-        }
-        fn log_write(&self) -> Box<dyn model::WriteBrokerLogsDB> {
-            todo!("not used")
-        }
-        fn distribution_read(&self) -> Box<dyn model::DistributionRead> {
-            Box::new(StaticDistributionRead {
-                rules_result: self.rules_result.clone(),
-            })
-        }
-        fn distribution_write(&self) -> Box<dyn model::DistributionWrite> {
-            todo!("not used")
-        }
-        fn advisory_read(&self) -> Box<dyn model::AdvisoryRead> {
-            todo!("not used")
-        }
-        fn advisory_write(&self) -> Box<dyn model::AdvisoryWrite> {
-            todo!("not used")
-        }
-        fn execution_read(&self) -> Box<dyn model::ReadExecutionDB> {
-            todo!("not used")
-        }
-        fn execution_write(&self) -> Box<dyn model::WriteExecutionDB> {
-            todo!("not used")
-        }
-        fn trade_grade_read(&self) -> Box<dyn model::ReadTradeGradeDB> {
-            todo!("not used")
-        }
-        fn trade_grade_write(&self) -> Box<dyn model::WriteTradeGradeDB> {
-            todo!("not used")
-        }
-        fn level_read(&self) -> Box<dyn model::ReadLevelDB> {
-            todo!("not used")
-        }
-        fn level_write(&self) -> Box<dyn model::WriteLevelDB> {
-            todo!("not used")
-        }
-        fn begin_savepoint(&mut self, _name: &str) -> Result<(), Box<dyn Error>> {
-            Ok(())
-        }
-        fn release_savepoint(&mut self, _name: &str) -> Result<(), Box<dyn Error>> {
-            Ok(())
-        }
-        fn rollback_to_savepoint(&mut self, _name: &str) -> Result<(), Box<dyn Error>> {
-            Ok(())
-        }
+        assert!(result.is_none());
     }
 
     #[test]
     fn test_find_distribution_accounts_returns_expected_children() {
-        let source = Account {
-            id: Uuid::new_v4(),
-            ..Account::default()
-        };
-        let earnings = child_account(source.id, AccountType::Earnings, "earnings");
-        let tax = child_account(source.id, AccountType::TaxReserve, "tax");
-        let reinvestment = child_account(source.id, AccountType::Reinvestment, "reinvestment");
-
-        let mut db = StaticEventDb {
-            accounts: vec![
-                source.clone(),
-                earnings.clone(),
-                tax.clone(),
-                reinvestment.clone(),
-            ],
-            id_error: None,
-            rules_result: Ok(model::DistributionRules::default_for_account(source.id)),
-        };
-        let mut service = EventDistributionService::new(&mut db);
+        let mut database = SqliteDatabase::new_in_memory();
+        let (source, earnings, tax, reinvestment) = create_sqlite_distribution_hierarchy(&database);
+        let mut service = EventDistributionService::new(&mut database);
 
         let (e, t, r) = service
             .find_distribution_accounts(source.id)
@@ -761,19 +443,45 @@ mod tests {
 
     #[test]
     fn test_find_distribution_accounts_errors_when_missing_required_child() {
-        let source = Account {
-            id: Uuid::new_v4(),
-            ..Account::default()
-        };
-        let earnings = child_account(source.id, AccountType::Earnings, "earnings");
-        let tax = child_account(source.id, AccountType::TaxReserve, "tax");
+        let mut database = SqliteDatabase::new_in_memory();
+        let source = database
+            .account_write()
+            .create_with_hierarchy(
+                "event-main",
+                "event main",
+                model::Environment::Paper,
+                dec!(25),
+                dec!(30),
+                AccountType::Primary,
+                None,
+            )
+            .expect("source account should be created");
+        database
+            .account_write()
+            .create_with_hierarchy(
+                "event-earnings",
+                "event earnings",
+                model::Environment::Paper,
+                dec!(0),
+                dec!(0),
+                AccountType::Earnings,
+                Some(source.id),
+            )
+            .expect("earnings account should be created");
+        database
+            .account_write()
+            .create_with_hierarchy(
+                "event-tax",
+                "event tax",
+                model::Environment::Paper,
+                dec!(0),
+                dec!(0),
+                AccountType::TaxReserve,
+                Some(source.id),
+            )
+            .expect("tax account should be created");
 
-        let mut db = StaticEventDb {
-            accounts: vec![source.clone(), earnings, tax],
-            id_error: None,
-            rules_result: Ok(model::DistributionRules::default_for_account(source.id)),
-        };
-        let mut service = EventDistributionService::new(&mut db);
+        let mut service = EventDistributionService::new(&mut database);
 
         let err = service
             .find_distribution_accounts(source.id)
@@ -783,21 +491,22 @@ mod tests {
 
     #[test]
     fn test_handle_trade_closed_event_returns_none_when_below_threshold() {
-        let trade = create_test_trade_profitable();
-        let source = Account {
-            id: trade.account_id,
-            ..Account::default()
-        };
-        let rules = model::DistributionRules {
-            minimum_threshold: dec!(1_000_000),
-            ..model::DistributionRules::default_for_account(source.id)
-        };
-        let mut db = StaticEventDb {
-            accounts: vec![source],
-            id_error: None,
-            rules_result: Ok(rules),
-        };
-        let mut service = EventDistributionService::new(&mut db);
+        let mut database = SqliteDatabase::new_in_memory();
+        let (source_account, _, _, _) = create_sqlite_distribution_hierarchy(&database);
+        database
+            .distribution_write()
+            .create_or_update(
+                source_account.id,
+                dec!(0.40),
+                dec!(0.30),
+                dec!(0.30),
+                dec!(1_000_000),
+                "hashed-password",
+            )
+            .expect("distribution rules should be stored");
+        let mut trade = create_test_trade_profitable();
+        trade.account_id = source_account.id;
+        let mut service = EventDistributionService::new(&mut database);
 
         let result = service
             .handle_trade_closed_event(&trade, &Currency::USD)
@@ -807,23 +516,94 @@ mod tests {
 
     #[test]
     fn test_handle_trade_closed_event_propagates_account_lookup_errors() {
+        let mut database = SqliteDatabase::new_in_memory();
         let trade = create_test_trade_profitable();
-        let source = Account {
-            id: trade.account_id,
-            ..Account::default()
-        };
-        let mut db = StaticEventDb {
-            accounts: vec![source],
-            id_error: Some("account lookup failed".to_string()),
-            rules_result: Ok(model::DistributionRules::default_for_account(
-                trade.account_id,
-            )),
-        };
-        let mut service = EventDistributionService::new(&mut db);
+        let mut service = EventDistributionService::new(&mut database);
 
         let err = service
             .handle_trade_closed_event(&trade, &Currency::USD)
             .expect_err("account lookup errors should propagate");
-        assert!(err.to_string().contains("account lookup failed"));
+        assert!(!err.to_string().is_empty());
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn test_handle_trade_closed_event_executes_distribution_and_audit_trail() {
+        let mut database = SqliteDatabase::new_in_memory();
+        let (source_account, earnings_account, tax_account, reinvestment_account) =
+            create_sqlite_distribution_hierarchy(&database);
+        database
+            .distribution_write()
+            .create_or_update(
+                source_account.id,
+                dec!(0.40),
+                dec!(0.30),
+                dec!(0.30),
+                dec!(100),
+                "hashed-password",
+            )
+            .expect("distribution rules should be stored");
+
+        let mut trade = create_persisted_trade(&mut database, &source_account);
+        trade.status = Status::ClosedTarget;
+        trade.balance.total_performance = dec!(1000);
+
+        let distribution_result = {
+            let mut service = EventDistributionService::new(&mut database);
+            service
+                .handle_trade_closed_event(&trade, &Currency::USD)
+                .expect("profitable trade event should be handled")
+                .expect("profitable trade should distribute")
+        };
+
+        assert_eq!(distribution_result.source_account_id, source_account.id);
+        assert_eq!(distribution_result.original_amount, dec!(1000));
+        assert_eq!(distribution_result.earnings_amount, Some(dec!(400.00)));
+        assert_eq!(distribution_result.tax_amount, Some(dec!(300.00)));
+        assert_eq!(distribution_result.reinvestment_amount, Some(dec!(300.00)));
+        assert_eq!(distribution_result.transactions_created.len(), 3);
+
+        let history = database
+            .distribution_read()
+            .history_for_account(source_account.id)
+            .expect("distribution history should be readable");
+        assert_eq!(history.len(), 1);
+        let history = history.first().expect("history row should exist");
+        assert_eq!(history.trade_id, Some(trade.id));
+        assert_eq!(history.original_amount, dec!(1000));
+
+        let source_transactions =
+            account_transactions(&database, source_account.id, &Currency::USD, "source");
+        assert_transaction_total(&source_transactions, dec!(-1000));
+
+        let earnings_transactions =
+            account_transactions(&database, earnings_account.id, &Currency::USD, "earnings");
+        let tax_transactions =
+            account_transactions(&database, tax_account.id, &Currency::USD, "tax");
+        let reinvestment_transactions = account_transactions(
+            &database,
+            reinvestment_account.id,
+            &Currency::USD,
+            "reinvestment",
+        );
+
+        assert_single_transaction(
+            &earnings_transactions,
+            model::TransactionCategory::PaymentEarnings(trade.id),
+            dec!(400),
+            "earnings",
+        );
+        assert_single_transaction(
+            &tax_transactions,
+            model::TransactionCategory::PaymentTax(trade.id),
+            dec!(300),
+            "tax",
+        );
+        assert_single_transaction(
+            &reinvestment_transactions,
+            model::TransactionCategory::Deposit,
+            dec!(300),
+            "reinvestment",
+        );
     }
 }

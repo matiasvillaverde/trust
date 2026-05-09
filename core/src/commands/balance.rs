@@ -738,7 +738,11 @@ pub fn calculate_trade(
 mod tests {
     use super::*;
     use chrono::Utc;
-    use model::{Currency, Status, TradeCategory, TradingVehicle};
+    use db_sqlite::SqliteDatabase;
+    use model::{
+        DraftTrade, Environment, Order, OrderAction, OrderCategory, TradeCategory, TradingVehicle,
+        TradingVehicleCategory, Transaction,
+    };
     use rust_decimal_macros::dec;
     use uuid::Uuid;
 
@@ -795,6 +799,106 @@ mod tests {
         }
     }
 
+    fn create_sqlite_account(database: &mut SqliteDatabase, name: &str) -> Account {
+        database
+            .account_write()
+            .create(name, name, Environment::Paper, dec!(0), dec!(0))
+            .expect("account should be created")
+    }
+
+    fn create_sqlite_account_balance(
+        database: &mut SqliteDatabase,
+        account: &Account,
+    ) -> AccountBalance {
+        database
+            .account_balance_write()
+            .create(account, &Currency::USD)
+            .expect("account balance should be created")
+    }
+
+    fn create_sqlite_vehicle(database: &mut SqliteDatabase, symbol: &str) -> TradingVehicle {
+        database
+            .trading_vehicle_write()
+            .create_trading_vehicle(
+                symbol,
+                Some(symbol),
+                &TradingVehicleCategory::Stock,
+                "alpaca",
+            )
+            .expect("trading vehicle should be created")
+    }
+
+    fn create_sqlite_order(
+        database: &mut SqliteDatabase,
+        vehicle: &TradingVehicle,
+        action: OrderAction,
+        category: OrderCategory,
+        price: Decimal,
+    ) -> Order {
+        database
+            .order_write()
+            .create(vehicle, 10, price, &Currency::USD, &action, &category)
+            .expect("order should be created")
+    }
+
+    fn create_sqlite_trade(
+        database: &mut SqliteDatabase,
+        account: &Account,
+        symbol: &str,
+    ) -> Trade {
+        let vehicle = create_sqlite_vehicle(database, symbol);
+        let stop = create_sqlite_order(
+            database,
+            &vehicle,
+            OrderAction::Sell,
+            OrderCategory::Stop,
+            dec!(90),
+        );
+        let entry = create_sqlite_order(
+            database,
+            &vehicle,
+            OrderAction::Buy,
+            OrderCategory::Limit,
+            dec!(100),
+        );
+        let target = create_sqlite_order(
+            database,
+            &vehicle,
+            OrderAction::Sell,
+            OrderCategory::Limit,
+            dec!(120),
+        );
+
+        let draft = DraftTrade {
+            account: account.clone(),
+            trading_vehicle: vehicle,
+            quantity: 10,
+            currency: Currency::USD,
+            category: TradeCategory::Long,
+            thesis: Some("balance recalculation test".to_string()),
+            sector: Some("technology".to_string()),
+            asset_class: Some("equity".to_string()),
+            context: Some("unit test".to_string()),
+        };
+
+        database
+            .trade_write()
+            .create_trade(draft, &stop, &entry, &target)
+            .expect("trade should be created")
+    }
+
+    fn create_sqlite_transaction(
+        database: &mut SqliteDatabase,
+        account: &Account,
+        category: TransactionCategory,
+        amount: Decimal,
+    ) -> Transaction {
+        database
+            .transaction_write()
+            .create_transaction(account, amount, &Currency::USD, category)
+            .expect("transaction should be created")
+    }
+
     #[test]
     fn reduce_account_projection_updates_expected_fields() {
         let current = sample_account_balance();
@@ -826,6 +930,52 @@ mod tests {
         )
         .expect("reduce account tax");
         assert_eq!(after_tax.taxed, dec!(80));
+    }
+
+    #[test]
+    fn checked_decimal_helpers_report_overflow() {
+        let add_error = checked_add(Decimal::MAX, Decimal::ONE, "test add")
+            .expect_err("overflowing additions must be rejected");
+        assert_eq!(
+            add_error.to_string(),
+            format!(
+                "Arithmetic overflow in addition (test add): {} + {}",
+                Decimal::MAX,
+                Decimal::ONE
+            )
+        );
+
+        let sub_error = checked_sub(Decimal::MIN, Decimal::ONE, "test sub")
+            .expect_err("overflowing subtractions must be rejected");
+        assert_eq!(
+            sub_error.to_string(),
+            format!(
+                "Arithmetic overflow in subtraction (test sub): {} - {}",
+                Decimal::MIN,
+                Decimal::ONE
+            )
+        );
+
+        assert_eq!(
+            checked_neg(Decimal::MIN, "test neg").expect("Decimal::MIN negation should fit"),
+            Decimal::MAX
+        );
+    }
+
+    #[test]
+    fn reduce_account_projection_rejects_negative_available_cash() {
+        let current = AccountBalance {
+            total_available: Decimal::ZERO,
+            ..sample_account_balance()
+        };
+
+        let error = reduce_account_projection(current, TransactionCategory::Withdrawal, dec!(1))
+            .expect_err("account available cash must not project negative");
+
+        assert_eq!(
+            error.to_string(),
+            "account projection invariant failed: total_available is negative (-1)"
+        );
     }
 
     #[test]
@@ -862,6 +1012,38 @@ mod tests {
     }
 
     #[test]
+    fn reduce_trade_projection_applies_tax_payments() {
+        let current = sample_trade_balance();
+
+        let after_tax = reduce_trade_projection(
+            current,
+            TransactionCategory::PaymentTax(Uuid::new_v4()),
+            dec!(20),
+        )
+        .expect("reduce trade tax");
+
+        assert_eq!(after_tax.taxed, dec!(20));
+        assert_eq!(after_tax.total_performance, dec!(-20));
+    }
+
+    #[test]
+    fn reduce_trade_projection_rejects_negative_capital_in_market() {
+        let current = sample_trade_balance();
+
+        let error = reduce_trade_projection(
+            current,
+            TransactionCategory::OpenTrade(Uuid::new_v4()),
+            dec!(-1),
+        )
+        .expect_err("trade capital in market must not project negative");
+
+        assert_eq!(
+            error.to_string(),
+            "trade projection invariant failed: capital_in_market is negative (-1)"
+        );
+    }
+
+    #[test]
     fn in_trade_delta_follows_supported_status_transitions() {
         let funded_trade = sample_trade(Status::Funded, dec!(1200), dec!(0));
         assert_eq!(
@@ -890,6 +1072,37 @@ mod tests {
                 .expect("filled to canceled should not release in-trade capital"),
             None
         );
+    }
+
+    #[test]
+    fn in_trade_delta_covers_all_terminal_release_paths() {
+        let funded_trade = sample_trade(Status::Funded, dec!(1200), Decimal::ZERO);
+        assert_eq!(
+            in_trade_delta_for_status_transition(&funded_trade, Status::Canceled)
+                .expect("funded cancel delta"),
+            Some(dec!(-1200))
+        );
+
+        for terminal_status in [
+            Status::ClosedTarget,
+            Status::ClosedStopLoss,
+            Status::Expired,
+            Status::Rejected,
+        ] {
+            let filled_trade = sample_trade(Status::Filled, dec!(1200), dec!(975));
+            assert_eq!(
+                in_trade_delta_for_status_transition(&filled_trade, terminal_status)
+                    .expect("filled terminal delta"),
+                Some(dec!(-975))
+            );
+
+            let canceled_trade = sample_trade(Status::Canceled, dec!(1200), dec!(975));
+            assert_eq!(
+                in_trade_delta_for_status_transition(&canceled_trade, terminal_status)
+                    .expect("canceled terminal delta"),
+                Some(dec!(-975))
+            );
+        }
     }
 
     #[test]
@@ -943,5 +1156,305 @@ mod tests {
         assert_eq!(accumulated.capital_out_market, expected.capital_out_market);
         assert_eq!(accumulated.taxed, expected.taxed);
         assert_eq!(accumulated.total_performance, expected.total_performance);
+    }
+
+    #[test]
+    fn calculate_account_recomputes_from_persisted_transactions() {
+        let mut database = SqliteDatabase::new_in_memory();
+        let account = create_sqlite_account(&mut database, "balance-recalc-account");
+        let stale_balance = create_sqlite_account_balance(&mut database, &account);
+        let trade = create_sqlite_trade(&mut database, &account, "BALANCE_RECALC_ACCOUNT_POSITION");
+        let funded_trade = database
+            .trade_write()
+            .update_trade_status(Status::Funded, &trade)
+            .expect("trade should be funded");
+
+        create_sqlite_transaction(
+            &mut database,
+            &account,
+            TransactionCategory::Deposit,
+            dec!(1000),
+        );
+        create_sqlite_transaction(
+            &mut database,
+            &account,
+            TransactionCategory::Withdrawal,
+            dec!(150),
+        );
+        create_sqlite_transaction(
+            &mut database,
+            &account,
+            TransactionCategory::FundTrade(funded_trade.id),
+            dec!(300),
+        );
+        create_sqlite_transaction(
+            &mut database,
+            &account,
+            TransactionCategory::PaymentTax(funded_trade.id),
+            dec!(80),
+        );
+        create_sqlite_transaction(
+            &mut database,
+            &account,
+            TransactionCategory::WithdrawalTax,
+            dec!(20),
+        );
+
+        let updated = calculate_account(&mut database, &account, &Currency::USD)
+            .expect("account balance should be recalculated");
+
+        assert_eq!(updated.id, stale_balance.id);
+        assert_eq!(updated.total_balance, dec!(830));
+        assert_eq!(updated.total_available, dec!(550));
+        assert_eq!(updated.total_in_trade, dec!(300));
+        assert_eq!(updated.taxed, dec!(60));
+
+        let persisted = database
+            .account_balance_read()
+            .for_currency(account.id, &Currency::USD)
+            .expect("updated account balance should be persisted");
+        assert_eq!(persisted.total_balance, updated.total_balance);
+        assert_eq!(persisted.total_available, updated.total_available);
+        assert_eq!(persisted.total_in_trade, updated.total_in_trade);
+        assert_eq!(persisted.taxed, updated.taxed);
+    }
+
+    #[test]
+    fn calculate_trade_recomputes_from_persisted_transactions() {
+        let mut database = SqliteDatabase::new_in_memory();
+        let account = create_sqlite_account(&mut database, "balance-recalc-trade-account");
+        create_sqlite_account_balance(&mut database, &account);
+        let trade = create_sqlite_trade(&mut database, &account, "BALANCE_RECALC_TRADE_POSITION");
+
+        create_sqlite_transaction(
+            &mut database,
+            &account,
+            TransactionCategory::FundTrade(trade.id),
+            dec!(1000),
+        );
+        create_sqlite_transaction(
+            &mut database,
+            &account,
+            TransactionCategory::OpenTrade(trade.id),
+            dec!(950),
+        );
+        create_sqlite_transaction(
+            &mut database,
+            &account,
+            TransactionCategory::FeeClose(trade.id),
+            dec!(5),
+        );
+        create_sqlite_transaction(
+            &mut database,
+            &account,
+            TransactionCategory::CloseTarget(trade.id),
+            dec!(1100),
+        );
+        create_sqlite_transaction(
+            &mut database,
+            &account,
+            TransactionCategory::PaymentTax(trade.id),
+            dec!(20),
+        );
+
+        let updated =
+            calculate_trade(&mut database, &trade).expect("trade balance should be recalculated");
+
+        assert_eq!(updated.id, trade.balance.id);
+        assert_eq!(updated.funding, dec!(1000));
+        assert_eq!(updated.capital_in_market, dec!(0));
+        assert_eq!(updated.capital_out_market, dec!(1150));
+        assert_eq!(updated.taxed, dec!(20));
+        assert_eq!(updated.total_performance, dec!(125));
+
+        let persisted = database
+            .trade_read()
+            .read_trade_balance(trade.balance.id)
+            .expect("updated trade balance should be persisted");
+        assert_eq!(persisted.funding, updated.funding);
+        assert_eq!(persisted.capital_in_market, updated.capital_in_market);
+        assert_eq!(persisted.capital_out_market, updated.capital_out_market);
+        assert_eq!(persisted.taxed, updated.taxed);
+        assert_eq!(persisted.total_performance, updated.total_performance);
+    }
+
+    #[test]
+    fn empty_projection_batches_return_current_balances_without_writes() {
+        let mut database = SqliteDatabase::new_in_memory();
+        let account = create_sqlite_account(&mut database, "balance-empty-batch-account");
+        let account_balance = create_sqlite_account_balance(&mut database, &account);
+        let trade = create_sqlite_trade(&mut database, &account, "BALANCE_EMPTY_BATCH_POSITION");
+
+        let returned_account_balance = apply_account_projection_batch_by_id(
+            &mut database,
+            account.id,
+            &Currency::USD,
+            &[],
+            Decimal::ZERO,
+        )
+        .expect("empty account batch should return current balance");
+        assert_eq!(returned_account_balance.id, account_balance.id);
+        assert_eq!(
+            returned_account_balance.updated_at,
+            account_balance.updated_at
+        );
+
+        let returned_trade_balance = apply_trade_projection_batch(&mut database, &trade, &[])
+            .expect("empty trade batch should return current balance");
+        assert_eq!(returned_trade_balance.id, trade.balance.id);
+        assert_eq!(returned_trade_balance.updated_at, trade.balance.updated_at);
+    }
+
+    #[test]
+    fn account_in_trade_delta_rejects_negative_projection() {
+        let mut database = SqliteDatabase::new_in_memory();
+        let account = create_sqlite_account(&mut database, "balance-negative-in-trade-account");
+        create_sqlite_account_balance(&mut database, &account);
+
+        let error =
+            apply_account_in_trade_delta_by_id(&mut database, account.id, &Currency::USD, dec!(-1))
+                .expect_err("negative in-trade projection should fail");
+
+        assert_eq!(
+            error.to_string(),
+            "account projection invariant failed: total_in_trade is negative (-1)"
+        );
+    }
+
+    #[test]
+    fn account_combined_projection_rejects_negative_in_trade_without_write() {
+        let mut database = SqliteDatabase::new_in_memory();
+        let account = create_sqlite_account(&mut database, "balance-negative-combined-account");
+        let current_balance = create_sqlite_account_balance(&mut database, &account);
+        database
+            .account_balance_write()
+            .update(
+                &current_balance,
+                dec!(100),
+                Decimal::ZERO,
+                dec!(100),
+                Decimal::ZERO,
+            )
+            .expect("seed account balance");
+
+        let error = apply_account_projection_with_in_trade_delta_by_id(
+            &mut database,
+            account.id,
+            &Currency::USD,
+            TransactionCategory::Deposit,
+            dec!(10),
+            dec!(-1),
+        )
+        .expect_err("negative combined in-trade projection should fail");
+
+        assert_eq!(
+            error.to_string(),
+            "account projection invariant failed: total_in_trade is negative (-1)"
+        );
+        let persisted = database
+            .account_balance_read()
+            .for_currency(account.id, &Currency::USD)
+            .expect("account balance should remain readable");
+        assert_eq!(persisted.total_balance, dec!(100));
+        assert_eq!(persisted.total_in_trade, Decimal::ZERO);
+        assert_eq!(persisted.total_available, dec!(100));
+    }
+
+    #[test]
+    fn account_batch_projection_rejects_negative_in_trade_without_write() {
+        let mut database = SqliteDatabase::new_in_memory();
+        let account = create_sqlite_account(&mut database, "balance-negative-batch-account");
+        let current_balance = create_sqlite_account_balance(&mut database, &account);
+        database
+            .account_balance_write()
+            .update(
+                &current_balance,
+                dec!(100),
+                Decimal::ZERO,
+                dec!(100),
+                Decimal::ZERO,
+            )
+            .expect("seed account balance");
+
+        let error = apply_account_projection_batch_by_id(
+            &mut database,
+            account.id,
+            &Currency::USD,
+            &[(TransactionCategory::Deposit, dec!(10))],
+            dec!(-1),
+        )
+        .expect_err("negative batched in-trade projection should fail");
+
+        assert_eq!(
+            error.to_string(),
+            "account projection invariant failed: total_in_trade is negative (-1)"
+        );
+        let persisted = database
+            .account_balance_read()
+            .for_currency(account.id, &Currency::USD)
+            .expect("account balance should remain readable");
+        assert_eq!(persisted.total_balance, dec!(100));
+        assert_eq!(persisted.total_in_trade, Decimal::ZERO);
+        assert_eq!(persisted.total_available, dec!(100));
+    }
+
+    #[test]
+    fn trade_status_transition_updates_cached_in_trade_projection() {
+        let mut database = SqliteDatabase::new_in_memory();
+        let account = create_sqlite_account(&mut database, "balance-status-transition-account");
+        let balance = create_sqlite_account_balance(&mut database, &account);
+        let balance = database
+            .account_balance_write()
+            .update(&balance, dec!(2000), dec!(1200), dec!(800), Decimal::ZERO)
+            .expect("seed funded in-trade projection");
+
+        let mut funded_trade = sample_trade(Status::Funded, dec!(1200), Decimal::ZERO);
+        funded_trade.account_id = account.id;
+
+        let updated = apply_account_projection_for_trade_status_transition(
+            &mut database,
+            &funded_trade,
+            Status::Submitted,
+        )
+        .expect("funded status transition should update")
+        .expect("funded transition should release capital");
+
+        assert_eq!(updated.total_in_trade, Decimal::ZERO);
+
+        let balance = database
+            .account_balance_write()
+            .update(&balance, dec!(2000), dec!(975), dec!(1025), Decimal::ZERO)
+            .expect("seed filled in-market projection");
+        let mut filled_trade = sample_trade(Status::Filled, dec!(1200), dec!(975));
+        filled_trade.account_id = account.id;
+
+        let updated = apply_account_projection_for_trade_status_transition(
+            &mut database,
+            &filled_trade,
+            Status::ClosedStopLoss,
+        )
+        .expect("filled terminal transition should update")
+        .expect("filled transition should release capital");
+
+        assert_eq!(updated.id, balance.id);
+        assert_eq!(updated.total_in_trade, Decimal::ZERO);
+    }
+
+    #[test]
+    fn trade_status_transition_returns_none_for_untracked_transition() {
+        let mut database = SqliteDatabase::new_in_memory();
+        let account = create_sqlite_account(&mut database, "balance-status-noop-account");
+        create_sqlite_account_balance(&mut database, &account);
+        let mut submitted_trade = sample_trade(Status::Submitted, dec!(1200), Decimal::ZERO);
+        submitted_trade.account_id = account.id;
+
+        let updated = apply_account_projection_for_trade_status_transition(
+            &mut database,
+            &submitted_trade,
+            Status::Filled,
+        )
+        .expect("untracked transition should be accepted");
+
+        assert!(updated.is_none());
     }
 }
