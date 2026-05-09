@@ -237,28 +237,28 @@ mod tests {
     };
     use rust_decimal_macros::dec;
 
-    #[test]
-    fn test_create_and_read_latest_trade_grade_roundtrip() {
-        pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
+    pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
 
+    fn setup_connection() -> SqliteConnection {
         let mut conn = SqliteConnection::establish(":memory:").unwrap();
         conn.run_pending_migrations(MIGRATIONS).unwrap();
         conn.begin_test_transaction().unwrap();
+        conn
+    }
 
-        let now = Utc::now().naive_utc();
-        let account_id = Uuid::new_v4();
-
+    fn create_trade(conn: &mut SqliteConnection, account_id: Uuid) -> model::Trade {
+        let symbol = format!("T{}", Uuid::new_v4().simple());
         let tv = WorkerTradingVehicle::create(
-            &mut conn,
-            "AAPL",
-            Some("US0378331005"),
+            conn,
+            &symbol,
+            None,
             &TradingVehicleCategory::Stock,
             "NASDAQ",
         )
         .unwrap();
 
         let stop = WorkerOrder::create(
-            &mut conn,
+            conn,
             dec!(190),
             &Currency::USD,
             10,
@@ -268,7 +268,7 @@ mod tests {
         )
         .unwrap();
         let entry = WorkerOrder::create(
-            &mut conn,
+            conn,
             dec!(200),
             &Currency::USD,
             10,
@@ -278,7 +278,7 @@ mod tests {
         )
         .unwrap();
         let target = WorkerOrder::create(
-            &mut conn,
+            conn,
             dec!(220),
             &Currency::USD,
             10,
@@ -288,8 +288,8 @@ mod tests {
         )
         .unwrap();
 
-        let trade = WorkerTrade::create(
-            &mut conn,
+        WorkerTrade::create(
+            conn,
             DraftTrade {
                 account: model::Account {
                     id: account_id,
@@ -308,18 +308,16 @@ mod tests {
             &entry,
             &target,
         )
-        .unwrap();
+        .unwrap()
+    }
 
-        // Ensure trade exists for account join filters used by read_for_account_days.
-        assert_eq!(trade.account_id, account_id);
-        assert_eq!(trade.status, Status::New);
-
-        let grade = TradeGrade {
+    fn grade_for(trade_id: Uuid, graded_at: NaiveDateTime) -> TradeGrade {
+        TradeGrade {
             id: Uuid::new_v4(),
-            created_at: now,
-            updated_at: now,
+            created_at: graded_at,
+            updated_at: graded_at,
             deleted_at: None,
-            trade_id: trade.id,
+            trade_id,
             overall_score: 87,
             overall_grade: Grade::BPlus,
             process_score: 90,
@@ -327,12 +325,54 @@ mod tests {
             execution_score: 80,
             documentation_score: 75,
             recommendations: vec!["do_thing".to_string(), "do_other".to_string()],
+            graded_at,
+            process_weight_permille: 400,
+            risk_weight_permille: 300,
+            execution_weight_permille: 200,
+            documentation_weight_permille: 100,
+        }
+    }
+
+    fn base_sqlite_row() -> TradeGradeSQLite {
+        let now = Utc::now().naive_utc();
+        TradeGradeSQLite {
+            id: Uuid::new_v4().to_string(),
+            created_at: now,
+            updated_at: now,
+            deleted_at: None,
+            trade_id: Uuid::new_v4().to_string(),
+            overall_score: 87,
+            overall_grade: "B+".to_string(),
+            process_score: 90,
+            risk_score: 95,
+            execution_score: 80,
+            documentation_score: 75,
+            recommendations: Some(r#"["keep a tighter journal"]"#.to_string()),
             graded_at: now,
             process_weight_permille: 400,
             risk_weight_permille: 300,
             execution_weight_permille: 200,
             documentation_weight_permille: 100,
-        };
+        }
+    }
+
+    fn assert_conversion_error(row: TradeGradeSQLite, field: &str) {
+        let error = TradeGrade::try_from(row).expect_err("corrupt row must fail conversion");
+        assert!(error.to_string().contains(field));
+    }
+
+    #[test]
+    fn test_create_and_read_latest_trade_grade_roundtrip() {
+        let mut conn = setup_connection();
+        let now = Utc::now().naive_utc();
+        let account_id = Uuid::new_v4();
+        let trade = create_trade(&mut conn, account_id);
+
+        // Ensure trade exists for account join filters used by read_for_account_days.
+        assert_eq!(trade.account_id, account_id);
+        assert_eq!(trade.status, Status::New);
+
+        let grade = grade_for(trade.id, now);
 
         let created = WorkerTradeGrade::create(&mut conn, &grade).unwrap();
         assert_eq!(created.trade_id, trade.id);
@@ -350,5 +390,270 @@ mod tests {
             WorkerTradeGrade::read_for_account_days(&mut conn, account_id, 30).unwrap();
         assert_eq!(by_account.len(), 1);
         assert_eq!(by_account[0].id, created.id);
+    }
+
+    #[test]
+    fn latest_grade_prefers_newest_active_grade_and_ignores_soft_deleted_rows() {
+        let mut conn = setup_connection();
+        let account_id = Uuid::new_v4();
+        let trade = create_trade(&mut conn, account_id);
+        let now = Utc::now().naive_utc();
+        let older = WorkerTradeGrade::create(
+            &mut conn,
+            &TradeGrade {
+                overall_score: 73,
+                overall_grade: Grade::C,
+                recommendations: Vec::new(),
+                ..grade_for(trade.id, now - Duration::days(2))
+            },
+        )
+        .unwrap();
+        let newer = WorkerTradeGrade::create(
+            &mut conn,
+            &TradeGrade {
+                overall_score: 97,
+                overall_grade: Grade::APlus,
+                ..grade_for(trade.id, now)
+            },
+        )
+        .unwrap();
+
+        let latest = WorkerTradeGrade::read_latest_for_trade(&mut conn, trade.id)
+            .unwrap()
+            .expect("latest active grade");
+        assert_eq!(latest.id, newer.id);
+        assert_eq!(latest.overall_grade, Grade::APlus);
+
+        diesel::update(trade_grades::table.filter(trade_grades::id.eq(newer.id.to_string())))
+            .set(trade_grades::deleted_at.eq(Some(now)))
+            .execute(&mut conn)
+            .unwrap();
+
+        let latest = WorkerTradeGrade::read_latest_for_trade(&mut conn, trade.id)
+            .unwrap()
+            .expect("older active grade should remain");
+        assert_eq!(latest.id, older.id);
+        assert!(latest.recommendations.is_empty());
+    }
+
+    #[test]
+    fn latest_grade_returns_none_when_trade_has_no_active_grade() {
+        let mut conn = setup_connection();
+        let trade_id = Uuid::new_v4();
+
+        let latest = WorkerTradeGrade::read_latest_for_trade(&mut conn, trade_id).unwrap();
+
+        assert_eq!(latest, None);
+    }
+
+    #[test]
+    fn read_for_account_days_rejects_unrepresentable_window() {
+        let mut conn = setup_connection();
+        let error = WorkerTradeGrade::read_for_account_days(&mut conn, Uuid::new_v4(), u32::MAX)
+            .expect_err("oversized day window should fail before querying");
+
+        assert!(error.to_string().contains("Invalid days window"));
+    }
+
+    #[test]
+    fn debug_representation_is_stable() {
+        assert_eq!(format!("{WorkerTradeGrade:?}"), "WorkerTradeGrade");
+    }
+
+    #[test]
+    fn trade_grade_worker_reports_database_errors() {
+        let mut conn = setup_connection();
+        diesel::sql_query("DROP TABLE trade_grades")
+            .execute(&mut conn)
+            .expect("trade_grades table should drop");
+        let trade_id = Uuid::new_v4();
+
+        let create_error =
+            WorkerTradeGrade::create(&mut conn, &grade_for(trade_id, Utc::now().naive_utc()))
+                .expect_err("missing table should fail trade grade create");
+        assert!(create_error.to_string().contains("trade_grades"));
+
+        let latest_error = WorkerTradeGrade::read_latest_for_trade(&mut conn, trade_id)
+            .expect_err("missing table should fail latest grade read");
+        assert!(latest_error.to_string().contains("trade_grades"));
+
+        let account_error = WorkerTradeGrade::read_for_account_days(&mut conn, Uuid::new_v4(), 30)
+            .expect_err("missing table should fail account grade read");
+        assert!(account_error.to_string().contains("trade_grades"));
+    }
+
+    #[test]
+    fn read_for_account_days_filters_account_window_and_soft_deletes_then_sorts_ascending() {
+        let mut conn = setup_connection();
+        let account_id = Uuid::new_v4();
+        let other_account_id = Uuid::new_v4();
+        let now = Utc::now().naive_utc();
+        let older_trade = create_trade(&mut conn, account_id);
+        let newer_trade = create_trade(&mut conn, account_id);
+        let old_trade = create_trade(&mut conn, account_id);
+        let other_trade = create_trade(&mut conn, other_account_id);
+        let soft_deleted_grade_trade = create_trade(&mut conn, account_id);
+        let soft_deleted_trade = create_trade(&mut conn, account_id);
+
+        let older = WorkerTradeGrade::create(
+            &mut conn,
+            &grade_for(older_trade.id, now - Duration::days(3)),
+        )
+        .unwrap();
+        let newer = WorkerTradeGrade::create(&mut conn, &grade_for(newer_trade.id, now)).unwrap();
+        let old = WorkerTradeGrade::create(
+            &mut conn,
+            &grade_for(old_trade.id, now - Duration::days(40)),
+        )
+        .unwrap();
+        let other = WorkerTradeGrade::create(&mut conn, &grade_for(other_trade.id, now)).unwrap();
+        let deleted_grade =
+            WorkerTradeGrade::create(&mut conn, &grade_for(soft_deleted_grade_trade.id, now))
+                .unwrap();
+        let deleted_trade =
+            WorkerTradeGrade::create(&mut conn, &grade_for(soft_deleted_trade.id, now)).unwrap();
+
+        diesel::update(
+            trade_grades::table.filter(trade_grades::id.eq(deleted_grade.id.to_string())),
+        )
+        .set(trade_grades::deleted_at.eq(Some(now)))
+        .execute(&mut conn)
+        .unwrap();
+        diesel::update(trades::table.filter(trades::id.eq(soft_deleted_trade.id.to_string())))
+            .set(trades::deleted_at.eq(Some(now)))
+            .execute(&mut conn)
+            .unwrap();
+
+        let by_account =
+            WorkerTradeGrade::read_for_account_days(&mut conn, account_id, 30).unwrap();
+
+        assert_eq!(
+            by_account.iter().map(|grade| grade.id).collect::<Vec<_>>(),
+            vec![older.id, newer.id]
+        );
+        assert!(!by_account.iter().any(|grade| grade.id == old.id));
+        assert!(!by_account.iter().any(|grade| grade.id == other.id));
+        assert!(!by_account.iter().any(|grade| grade.id == deleted_grade.id));
+        assert!(!by_account.iter().any(|grade| grade.id == deleted_trade.id));
+    }
+
+    #[test]
+    fn trade_grade_sqlite_conversion_clamps_scores_and_negative_weights() {
+        let row = TradeGradeSQLite {
+            overall_score: 120,
+            process_score: -1,
+            risk_score: 101,
+            execution_score: -10,
+            documentation_score: 42,
+            process_weight_permille: -1,
+            risk_weight_permille: -300,
+            ..base_sqlite_row()
+        };
+
+        let grade = TradeGrade::try_from(row).unwrap();
+
+        assert_eq!(grade.overall_score, 100);
+        assert_eq!(grade.process_score, 0);
+        assert_eq!(grade.risk_score, 100);
+        assert_eq!(grade.execution_score, 0);
+        assert_eq!(grade.documentation_score, 42);
+        assert_eq!(grade.process_weight_permille, 0);
+        assert_eq!(grade.risk_weight_permille, 0);
+    }
+
+    #[test]
+    fn trade_grade_sqlite_conversion_reports_corrupt_fields() {
+        assert_conversion_error(
+            TradeGradeSQLite {
+                id: "not-a-uuid".to_string(),
+                ..base_sqlite_row()
+            },
+            "id",
+        );
+        assert_conversion_error(
+            TradeGradeSQLite {
+                trade_id: "not-a-uuid".to_string(),
+                ..base_sqlite_row()
+            },
+            "trade_id",
+        );
+        assert_conversion_error(
+            TradeGradeSQLite {
+                overall_grade: "Z".to_string(),
+                ..base_sqlite_row()
+            },
+            "overall_grade",
+        );
+        assert_conversion_error(
+            TradeGradeSQLite {
+                recommendations: Some("{not-json".to_string()),
+                ..base_sqlite_row()
+            },
+            "recommendations",
+        );
+        assert_conversion_error(
+            TradeGradeSQLite {
+                process_weight_permille: i32::MAX,
+                ..base_sqlite_row()
+            },
+            "process_weight_permille",
+        );
+        assert_conversion_error(
+            TradeGradeSQLite {
+                risk_weight_permille: i32::MAX,
+                ..base_sqlite_row()
+            },
+            "risk_weight_permille",
+        );
+        assert_conversion_error(
+            TradeGradeSQLite {
+                execution_weight_permille: i32::MAX,
+                ..base_sqlite_row()
+            },
+            "execution_weight_permille",
+        );
+        assert_conversion_error(
+            TradeGradeSQLite {
+                documentation_weight_permille: i32::MAX,
+                ..base_sqlite_row()
+            },
+            "documentation_weight_permille",
+        );
+    }
+
+    #[test]
+    fn read_latest_surfaces_corrupt_row_id() {
+        let mut conn = setup_connection();
+        let account_id = Uuid::new_v4();
+        let trade = create_trade(&mut conn, account_id);
+        let now = Utc::now().naive_utc();
+
+        diesel::insert_into(trade_grades::table)
+            .values(NewTradeGrade {
+                id: "not-a-uuid".to_string(),
+                created_at: now,
+                updated_at: now,
+                deleted_at: None,
+                trade_id: trade.id.to_string(),
+                overall_score: 87,
+                overall_grade: Grade::BPlus.to_string(),
+                process_score: 90,
+                risk_score: 95,
+                execution_score: 80,
+                documentation_score: 75,
+                recommendations: None,
+                graded_at: now,
+                process_weight_permille: 400,
+                risk_weight_permille: 300,
+                execution_weight_permille: 200,
+                documentation_weight_permille: 100,
+            })
+            .execute(&mut conn)
+            .expect("corrupt trade grade row should insert for conversion test");
+
+        let error = WorkerTradeGrade::read_latest_for_trade(&mut conn, trade.id)
+            .expect_err("corrupt trade grade row should fail read conversion");
+
+        assert!(error.to_string().contains("id"));
     }
 }

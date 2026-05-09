@@ -517,30 +517,120 @@ mod tests {
     use model::Environment;
     use rust_decimal_macros::dec;
 
-    fn setup_account(conn: &mut SqliteConnection, id: Uuid) {
-        let sql = format!(
-            "INSERT INTO accounts (id, created_at, updated_at, deleted_at, name, description, environment, taxes_percentage, earnings_percentage) VALUES ('{}', '2020-01-01 00:00:00', '2020-01-01 00:00:00', NULL, 'acct', 'acct', 'paper', '0', '0')",
-            id
-        );
-        sql_query(sql).execute(conn).expect("insert account");
-    }
+    pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
 
-    #[test]
-    fn test_create_default_and_manual_transition_roundtrip() {
-        pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
+    fn setup_connection() -> SqliteConnection {
         let mut conn = SqliteConnection::establish(":memory:").expect("sqlite in-memory");
         conn.run_pending_migrations(MIGRATIONS)
             .expect("run migrations");
         conn.begin_test_transaction().expect("begin transaction");
+        conn
+    }
+
+    fn setup_account(conn: &mut SqliteConnection, id: Uuid) {
+        let sql = format!(
+            "INSERT INTO accounts (id, created_at, updated_at, deleted_at, name, description, environment, taxes_percentage, earnings_percentage) VALUES ('{}', '2020-01-01 00:00:00', '2020-01-01 00:00:00', NULL, 'acct-{}', 'acct', 'paper', '0', '0')",
+            id, id
+        );
+        sql_query(sql).execute(conn).expect("insert account");
+    }
+
+    fn account(account_id: Uuid) -> Account {
+        model::Account {
+            id: account_id,
+            environment: Environment::Paper,
+            ..Default::default()
+        }
+    }
+
+    fn base_level_row() -> LevelSQLite {
+        let now = Utc::now().naive_utc();
+        LevelSQLite {
+            id: Uuid::new_v4().to_string(),
+            created_at: now,
+            updated_at: now,
+            deleted_at: None,
+            account_id: Uuid::new_v4().to_string(),
+            current_level: 3,
+            risk_multiplier: "1.00".to_string(),
+            status: "normal".to_string(),
+            trades_at_level: 0,
+            level_start_date: now.date(),
+        }
+    }
+
+    fn base_level_change_row() -> LevelChangeSQLite {
+        let now = Utc::now().naive_utc();
+        LevelChangeSQLite {
+            id: Uuid::new_v4().to_string(),
+            created_at: now,
+            updated_at: now,
+            deleted_at: None,
+            account_id: Uuid::new_v4().to_string(),
+            old_level: 3,
+            new_level: 2,
+            change_reason: "risk breach".to_string(),
+            trigger_type: "risk_breach".to_string(),
+            changed_at: now,
+        }
+    }
+
+    fn base_rules_row() -> LevelAdjustmentRulesSQLite {
+        let now = Utc::now().naive_utc();
+        LevelAdjustmentRulesSQLite {
+            id: Uuid::new_v4().to_string(),
+            created_at: now,
+            updated_at: now,
+            deleted_at: None,
+            account_id: Uuid::new_v4().to_string(),
+            monthly_loss_downgrade_pct: "-5.0".to_string(),
+            single_loss_downgrade_pct: "-2.0".to_string(),
+            upgrade_profitable_trades: 10,
+            upgrade_win_rate_pct: "70.0".to_string(),
+            upgrade_consecutive_wins: 3,
+            cooldown_profitable_trades: 20,
+            cooldown_win_rate_pct: "85.0".to_string(),
+            cooldown_consecutive_wins: 8,
+            recovery_profitable_trades: 5,
+            recovery_win_rate_pct: "65.0".to_string(),
+            recovery_consecutive_wins: 2,
+            min_trades_at_level_for_upgrade: 5,
+            max_changes_in_30_days: 2,
+        }
+    }
+
+    fn assert_level_conversion_error(row: LevelSQLite, field: &str) {
+        let err = Level::try_from(row).expect_err("corrupt level row should fail");
+        assert!(
+            err.to_string().contains(field),
+            "expected {field} conversion error, got {err}"
+        );
+    }
+
+    fn assert_change_conversion_error(row: LevelChangeSQLite, field: &str) {
+        let err = LevelChange::try_from(row).expect_err("corrupt change row should fail");
+        assert!(
+            err.to_string().contains(field),
+            "expected {field} conversion error, got {err}"
+        );
+    }
+
+    fn assert_rules_conversion_error(row: LevelAdjustmentRulesSQLite, field: &str) {
+        let err = LevelAdjustmentRules::try_from(row).expect_err("corrupt rules row should fail");
+        assert!(
+            err.to_string().contains(field),
+            "expected {field} conversion error, got {err}"
+        );
+    }
+
+    #[test]
+    fn test_create_default_and_manual_transition_roundtrip() {
+        let mut conn = setup_connection();
 
         let account_id = Uuid::new_v4();
         setup_account(&mut conn, account_id);
 
-        let account = model::Account {
-            id: account_id,
-            environment: Environment::Paper,
-            ..Default::default()
-        };
+        let account = account(account_id);
 
         let level = WorkerLevel::create_default(&mut conn, &account).expect("create level");
         assert_eq!(level.current_level, 3);
@@ -580,19 +670,11 @@ mod tests {
 
     #[test]
     fn test_create_default_twice_for_same_account_fails_unique_constraint() {
-        pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
-        let mut conn = SqliteConnection::establish(":memory:").expect("sqlite in-memory");
-        conn.run_pending_migrations(MIGRATIONS)
-            .expect("run migrations");
-        conn.begin_test_transaction().expect("begin transaction");
+        let mut conn = setup_connection();
 
         let account_id = Uuid::new_v4();
         setup_account(&mut conn, account_id);
-        let account = model::Account {
-            id: account_id,
-            environment: Environment::Paper,
-            ..Default::default()
-        };
+        let account = account(account_id);
 
         let first = WorkerLevel::create_default(&mut conn, &account);
         assert!(first.is_ok());
@@ -601,5 +683,385 @@ mod tests {
         assert!(second.is_err());
         let message = second.expect_err("error").to_string().to_lowercase();
         assert!(message.contains("unique"));
+    }
+
+    #[test]
+    fn read_adjustment_rules_creates_defaults_when_missing() {
+        let mut conn = setup_connection();
+        let account_id = Uuid::new_v4();
+        setup_account(&mut conn, account_id);
+
+        let rules =
+            WorkerLevel::read_adjustment_rules_for_account(&mut conn, account_id).expect("rules");
+        assert_eq!(rules, LevelAdjustmentRules::default());
+
+        let count = level_adjustment_rules::table
+            .filter(level_adjustment_rules::account_id.eq(account_id.to_string()))
+            .count()
+            .get_result::<i64>(&mut conn)
+            .expect("count rules");
+        assert_eq!(count, 1);
+
+        let reread =
+            WorkerLevel::read_adjustment_rules_for_account(&mut conn, account_id).expect("rules");
+        assert_eq!(reread, LevelAdjustmentRules::default());
+    }
+
+    #[test]
+    fn upsert_adjustment_rules_roundtrips_and_updates_existing_row() {
+        let mut conn = setup_connection();
+        let account_id = Uuid::new_v4();
+        setup_account(&mut conn, account_id);
+
+        let first = LevelAdjustmentRules {
+            monthly_loss_downgrade_pct: dec!(-6.5),
+            single_loss_downgrade_pct: dec!(-3.5),
+            upgrade_profitable_trades: 11,
+            upgrade_win_rate_pct: dec!(71.5),
+            upgrade_consecutive_wins: 4,
+            cooldown_profitable_trades: 21,
+            cooldown_win_rate_pct: dec!(86.5),
+            cooldown_consecutive_wins: 9,
+            recovery_profitable_trades: 6,
+            recovery_win_rate_pct: dec!(66.5),
+            recovery_consecutive_wins: 3,
+            min_trades_at_level_for_upgrade: 7,
+            max_changes_in_30_days: 3,
+        };
+        let stored =
+            WorkerLevel::upsert_adjustment_rules(&mut conn, account_id, &first).expect("upsert");
+        assert_eq!(stored, first);
+
+        let second = LevelAdjustmentRules {
+            monthly_loss_downgrade_pct: dec!(-7.0),
+            single_loss_downgrade_pct: dec!(-4.0),
+            upgrade_profitable_trades: 12,
+            upgrade_win_rate_pct: dec!(72.0),
+            upgrade_consecutive_wins: 5,
+            cooldown_profitable_trades: 22,
+            cooldown_win_rate_pct: dec!(87.0),
+            cooldown_consecutive_wins: 10,
+            recovery_profitable_trades: 7,
+            recovery_win_rate_pct: dec!(67.0),
+            recovery_consecutive_wins: 4,
+            min_trades_at_level_for_upgrade: 8,
+            max_changes_in_30_days: 4,
+        };
+        let updated =
+            WorkerLevel::upsert_adjustment_rules(&mut conn, account_id, &second).expect("upsert");
+        assert_eq!(updated, second);
+
+        let count = level_adjustment_rules::table
+            .filter(level_adjustment_rules::account_id.eq(account_id.to_string()))
+            .count()
+            .get_result::<i64>(&mut conn)
+            .expect("count rules");
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn recent_changes_filter_by_account_window_and_soft_delete() {
+        let mut conn = setup_connection();
+        let account_id = Uuid::new_v4();
+        let other_account_id = Uuid::new_v4();
+        setup_account(&mut conn, account_id);
+        setup_account(&mut conn, other_account_id);
+
+        let now = Utc::now().naive_utc();
+        for (owner, changed_at, deleted_at, reason) in [
+            (account_id, now - Duration::days(1), None, "recent"),
+            (account_id, now - Duration::days(40), None, "old"),
+            (
+                account_id,
+                now - Duration::days(2),
+                Some(now),
+                "soft deleted",
+            ),
+            (
+                other_account_id,
+                now - Duration::days(1),
+                None,
+                "other account",
+            ),
+        ] {
+            let change = LevelChange {
+                id: Uuid::new_v4(),
+                created_at: changed_at,
+                updated_at: changed_at,
+                deleted_at,
+                account_id: owner,
+                old_level: 3,
+                new_level: 2,
+                change_reason: reason.to_string(),
+                trigger_type: LevelTrigger::RiskBreach,
+                changed_at,
+            };
+            WorkerLevel::create_change(&mut conn, &change).expect("create change");
+        }
+
+        let recent = WorkerLevel::read_recent_changes_for_account(&mut conn, account_id, 30)
+            .expect("recent changes");
+        assert_eq!(recent.len(), 1);
+        assert_eq!(recent[0].change_reason, "recent");
+    }
+
+    #[test]
+    fn level_readers_report_missing_tables_and_invalid_recent_window() {
+        let mut conn = setup_connection();
+        let account_id = Uuid::new_v4();
+        setup_account(&mut conn, account_id);
+
+        let window_error =
+            WorkerLevel::read_recent_changes_for_account(&mut conn, account_id, u32::MAX)
+                .expect_err("unrepresentable days window should fail");
+        assert!(window_error.to_string().contains("Invalid days window"));
+
+        sql_query("DROP TABLE level_changes")
+            .execute(&mut conn)
+            .expect("level_changes table should drop");
+        let changes_error = WorkerLevel::read_changes_for_account(&mut conn, account_id)
+            .expect_err("missing level_changes should fail");
+        assert!(changes_error.to_string().contains("level_changes"));
+        let recent_error = WorkerLevel::read_recent_changes_for_account(&mut conn, account_id, 30)
+            .expect_err("missing level_changes should fail recent read");
+        assert!(recent_error.to_string().contains("level_changes"));
+
+        sql_query("DROP TABLE level_adjustment_rules")
+            .execute(&mut conn)
+            .expect("level_adjustment_rules table should drop");
+        let rules_error = WorkerLevel::read_adjustment_rules_for_account(&mut conn, account_id)
+            .expect_err("missing level_adjustment_rules should fail");
+        assert!(rules_error.to_string().contains("level_adjustment_rules"));
+    }
+
+    #[test]
+    fn adjustment_rule_write_failures_are_reported_for_upsert_and_default_level_creation() {
+        let mut conn = setup_connection();
+        let account_id = Uuid::new_v4();
+        let default_account_id = Uuid::new_v4();
+        setup_account(&mut conn, account_id);
+        setup_account(&mut conn, default_account_id);
+        sql_query(
+            "CREATE TRIGGER fail_level_adjustment_rules_insert \
+             BEFORE INSERT ON level_adjustment_rules \
+             BEGIN \
+             SELECT RAISE(ABORT, 'forced level rules failure'); \
+             END",
+        )
+        .execute(&mut conn)
+        .expect("level adjustment rules failure trigger should be created");
+
+        let upsert_error = WorkerLevel::upsert_adjustment_rules(
+            &mut conn,
+            account_id,
+            &LevelAdjustmentRules::default(),
+        )
+        .expect_err("trigger should fail level rule upsert");
+        assert!(upsert_error
+            .to_string()
+            .contains("forced level rules failure"));
+
+        let default_error = WorkerLevel::create_default(&mut conn, &account(default_account_id))
+            .expect_err("default level creation should surface rule creation failure");
+        assert!(default_error
+            .to_string()
+            .contains("forced level rules failure"));
+    }
+
+    #[test]
+    fn update_rejects_trades_at_level_overflow_before_writing() {
+        let mut conn = setup_connection();
+        let account_id = Uuid::new_v4();
+        setup_account(&mut conn, account_id);
+        let level =
+            WorkerLevel::create_default(&mut conn, &account(account_id)).expect("create level");
+
+        let invalid = Level {
+            trades_at_level: u32::MAX,
+            ..level.clone()
+        };
+        let err = WorkerLevel::update(&mut conn, &invalid).expect_err("overflow should fail");
+        assert!(err.to_string().contains("trades_at_level"));
+
+        let unchanged = WorkerLevel::read_for_account(&mut conn, account_id).expect("read level");
+        assert_eq!(unchanged.trades_at_level, 0);
+    }
+
+    #[test]
+    fn upsert_adjustment_rules_rejects_integer_overflows_before_writing() {
+        let mut conn = setup_connection();
+        let account_id = Uuid::new_v4();
+        setup_account(&mut conn, account_id);
+
+        for (field, rules) in [
+            (
+                "upgrade_profitable_trades",
+                LevelAdjustmentRules {
+                    upgrade_profitable_trades: u32::MAX,
+                    ..LevelAdjustmentRules::default()
+                },
+            ),
+            (
+                "upgrade_consecutive_wins",
+                LevelAdjustmentRules {
+                    upgrade_consecutive_wins: u32::MAX,
+                    ..LevelAdjustmentRules::default()
+                },
+            ),
+            (
+                "cooldown_profitable_trades",
+                LevelAdjustmentRules {
+                    cooldown_profitable_trades: u32::MAX,
+                    ..LevelAdjustmentRules::default()
+                },
+            ),
+            (
+                "cooldown_consecutive_wins",
+                LevelAdjustmentRules {
+                    cooldown_consecutive_wins: u32::MAX,
+                    ..LevelAdjustmentRules::default()
+                },
+            ),
+            (
+                "recovery_profitable_trades",
+                LevelAdjustmentRules {
+                    recovery_profitable_trades: u32::MAX,
+                    ..LevelAdjustmentRules::default()
+                },
+            ),
+            (
+                "recovery_consecutive_wins",
+                LevelAdjustmentRules {
+                    recovery_consecutive_wins: u32::MAX,
+                    ..LevelAdjustmentRules::default()
+                },
+            ),
+            (
+                "min_trades_at_level_for_upgrade",
+                LevelAdjustmentRules {
+                    min_trades_at_level_for_upgrade: u32::MAX,
+                    ..LevelAdjustmentRules::default()
+                },
+            ),
+            (
+                "max_changes_in_30_days",
+                LevelAdjustmentRules {
+                    max_changes_in_30_days: u32::MAX,
+                    ..LevelAdjustmentRules::default()
+                },
+            ),
+        ] {
+            let err = WorkerLevel::upsert_adjustment_rules(&mut conn, account_id, &rules)
+                .expect_err("overflow should fail");
+            assert!(
+                err.to_string().contains(field),
+                "expected {field} overflow, got {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn level_sqlite_conversion_reports_corrupt_fields() {
+        let mut row = base_level_row();
+        row.id = "not-a-uuid".to_string();
+        assert_level_conversion_error(row, "id");
+
+        let mut row = base_level_row();
+        row.account_id = "not-a-uuid".to_string();
+        assert_level_conversion_error(row, "account_id");
+
+        let mut row = base_level_row();
+        row.current_level = -1;
+        assert_level_conversion_error(row, "current_level");
+
+        let mut row = base_level_row();
+        row.risk_multiplier = "not-decimal".to_string();
+        assert_level_conversion_error(row, "risk_multiplier");
+
+        let mut row = base_level_row();
+        row.status = "bad-status".to_string();
+        assert_level_conversion_error(row, "status");
+
+        let mut row = base_level_row();
+        row.trades_at_level = -1;
+        assert_level_conversion_error(row, "trades_at_level");
+    }
+
+    #[test]
+    fn level_change_sqlite_conversion_reports_corrupt_fields() {
+        let mut row = base_level_change_row();
+        row.id = "not-a-uuid".to_string();
+        assert_change_conversion_error(row, "id");
+
+        let mut row = base_level_change_row();
+        row.account_id = "not-a-uuid".to_string();
+        assert_change_conversion_error(row, "account_id");
+
+        let mut row = base_level_change_row();
+        row.old_level = -1;
+        assert_change_conversion_error(row, "old_level");
+
+        let mut row = base_level_change_row();
+        row.new_level = -1;
+        assert_change_conversion_error(row, "new_level");
+
+        let mut row = base_level_change_row();
+        row.trigger_type = "   ".to_string();
+        assert_change_conversion_error(row, "trigger_type");
+    }
+
+    #[test]
+    fn adjustment_rules_sqlite_conversion_reports_corrupt_fields() {
+        let mut row = base_rules_row();
+        row.monthly_loss_downgrade_pct = "not-decimal".to_string();
+        assert_rules_conversion_error(row, "monthly_loss_downgrade_pct");
+
+        let mut row = base_rules_row();
+        row.single_loss_downgrade_pct = "not-decimal".to_string();
+        assert_rules_conversion_error(row, "single_loss_downgrade_pct");
+
+        let mut row = base_rules_row();
+        row.upgrade_profitable_trades = -1;
+        assert_rules_conversion_error(row, "upgrade_profitable_trades");
+
+        let mut row = base_rules_row();
+        row.upgrade_win_rate_pct = "not-decimal".to_string();
+        assert_rules_conversion_error(row, "upgrade_win_rate_pct");
+
+        let mut row = base_rules_row();
+        row.upgrade_consecutive_wins = -1;
+        assert_rules_conversion_error(row, "upgrade_consecutive_wins");
+
+        let mut row = base_rules_row();
+        row.cooldown_profitable_trades = -1;
+        assert_rules_conversion_error(row, "cooldown_profitable_trades");
+
+        let mut row = base_rules_row();
+        row.cooldown_win_rate_pct = "not-decimal".to_string();
+        assert_rules_conversion_error(row, "cooldown_win_rate_pct");
+
+        let mut row = base_rules_row();
+        row.cooldown_consecutive_wins = -1;
+        assert_rules_conversion_error(row, "cooldown_consecutive_wins");
+
+        let mut row = base_rules_row();
+        row.recovery_profitable_trades = -1;
+        assert_rules_conversion_error(row, "recovery_profitable_trades");
+
+        let mut row = base_rules_row();
+        row.recovery_win_rate_pct = "not-decimal".to_string();
+        assert_rules_conversion_error(row, "recovery_win_rate_pct");
+
+        let mut row = base_rules_row();
+        row.recovery_consecutive_wins = -1;
+        assert_rules_conversion_error(row, "recovery_consecutive_wins");
+
+        let mut row = base_rules_row();
+        row.min_trades_at_level_for_upgrade = -1;
+        assert_rules_conversion_error(row, "min_trades_at_level_for_upgrade");
+
+        let mut row = base_rules_row();
+        row.max_changes_in_30_days = -1;
+        assert_rules_conversion_error(row, "max_changes_in_30_days");
     }
 }

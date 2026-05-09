@@ -6,8 +6,7 @@ use diesel::SqliteConnection;
 use model::{Account, AccountBalance, AccountBalanceRead, AccountBalanceWrite, Currency};
 use rust_decimal::Decimal;
 use std::error::Error;
-use std::sync::Arc;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex, MutexGuard};
 use tracing::error;
 use uuid::Uuid;
 
@@ -24,6 +23,14 @@ impl std::fmt::Debug for AccountBalanceDB {
     }
 }
 
+impl AccountBalanceDB {
+    fn connection_guard(&self) -> Result<MutexGuard<'_, SqliteConnection>, Box<dyn Error>> {
+        self.connection.lock().map_err(|error| {
+            format!("failed to acquire account balance database connection lock: {error}").into()
+        })
+    }
+}
+
 impl AccountBalanceWrite for AccountBalanceDB {
     fn create(
         &mut self,
@@ -36,10 +43,8 @@ impl AccountBalanceWrite for AccountBalanceDB {
             ..Default::default()
         };
 
-        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap_or_else(|e| {
-            eprintln!("Failed to acquire connection lock: {e}");
-            std::process::exit(1);
-        });
+        let mut guard = self.connection_guard()?;
+        let connection: &mut SqliteConnection = &mut guard;
 
         diesel::insert_into(accounts_balances::table)
             .values(&new_account_balance)
@@ -59,10 +64,8 @@ impl AccountBalanceWrite for AccountBalanceDB {
         total_available: Decimal,
         total_taxed: Decimal,
     ) -> Result<AccountBalance, Box<dyn Error>> {
-        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap_or_else(|e| {
-            eprintln!("Failed to acquire connection lock: {e}");
-            std::process::exit(1);
-        });
+        let mut guard = self.connection_guard()?;
+        let connection: &mut SqliteConnection = &mut guard;
         let now = Utc::now().naive_utc();
         diesel::update(accounts_balances::table)
             .filter(accounts_balances::id.eq(&balance.id.to_string()))
@@ -91,10 +94,8 @@ impl AccountBalanceWrite for AccountBalanceDB {
 
 impl AccountBalanceRead for AccountBalanceDB {
     fn for_account(&mut self, account_id: Uuid) -> Result<Vec<AccountBalance>, Box<dyn Error>> {
-        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap_or_else(|e| {
-            eprintln!("Failed to acquire connection lock: {e}");
-            std::process::exit(1);
-        });
+        let mut guard = self.connection_guard()?;
+        let connection: &mut SqliteConnection = &mut guard;
         accounts_balances::table
             .filter(accounts_balances::account_id.eq(account_id.to_string()))
             .filter(accounts_balances::deleted_at.is_null())
@@ -111,10 +112,8 @@ impl AccountBalanceRead for AccountBalanceDB {
         account_id: Uuid,
         currency: &Currency,
     ) -> Result<AccountBalance, Box<dyn Error>> {
-        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap_or_else(|e| {
-            eprintln!("Failed to acquire connection lock: {e}");
-            std::process::exit(1);
-        });
+        let mut guard = self.connection_guard()?;
+        let connection: &mut SqliteConnection = &mut guard;
         accounts_balances::table
             .filter(accounts_balances::account_id.eq(account_id.to_string()))
             .filter(accounts_balances::currency.eq(currency.to_string()))
@@ -227,7 +226,7 @@ mod tests {
 
     use super::*;
     use diesel_migrations::*;
-    use model::DatabaseFactory;
+    use model::{DatabaseFactory, Environment};
     use rust_decimal_macros::dec;
 
     pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
@@ -244,6 +243,62 @@ mod tests {
         Box::new(SqliteDatabase::new_from(Arc::new(Mutex::new(
             establish_connection(),
         ))))
+    }
+
+    fn shared_database() -> (Arc<Mutex<SqliteConnection>>, SqliteDatabase) {
+        let connection = Arc::new(Mutex::new(establish_connection()));
+        let database = SqliteDatabase::new_from(connection.clone());
+        (connection, database)
+    }
+
+    fn poisoned_account_balance_db() -> AccountBalanceDB {
+        let connection = Arc::new(Mutex::new(establish_connection()));
+        let poisoned_connection = Arc::clone(&connection);
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = poisoned_connection
+                .lock()
+                .expect("connection lock should be acquired before poisoning");
+            std::panic::resume_unwind(Box::new("poison account balance connection lock"));
+        }));
+        AccountBalanceDB { connection }
+    }
+
+    fn assert_connection_lock_error<T>(result: Result<T, Box<dyn Error>>) {
+        assert!(result.is_err());
+        let error = result.err().expect("operation should fail");
+        assert!(error
+            .to_string()
+            .contains("failed to acquire account balance database connection lock"));
+    }
+
+    fn create_account(database: &SqliteDatabase, name: &str) -> Account {
+        database
+            .account_write()
+            .create(name, name, Environment::Paper, dec!(20), dec!(10))
+            .expect("account should be created")
+    }
+
+    fn base_sqlite_balance() -> AccountBalanceSQLite {
+        let now = Utc::now().naive_utc();
+        AccountBalanceSQLite {
+            id: Uuid::new_v4().to_string(),
+            created_at: now,
+            updated_at: now,
+            deleted_at: None,
+            account_id: Uuid::new_v4().to_string(),
+            total_balance: "100.25".to_string(),
+            total_in_trade: "10.50".to_string(),
+            total_available: "89.75".to_string(),
+            taxed: "5.25".to_string(),
+            currency: Currency::USD.to_string(),
+            total_earnings: "12.75".to_string(),
+        }
+    }
+
+    fn assert_conversion_error(row: AccountBalanceSQLite, field: &str) {
+        let error =
+            AccountBalance::try_from(row).expect_err("corrupt balance row must fail conversion");
+        assert!(error.to_string().contains(field));
     }
 
     #[test]
@@ -337,5 +392,227 @@ mod tests {
         assert_eq!(updated_balance.total_available, dec!(203));
         assert_eq!(updated_balance.total_in_trade, dec!(1));
         assert_eq!(updated_balance.taxed, dec!(44.2));
+    }
+
+    #[test]
+    fn debug_representation_hides_connection_internals() {
+        let db = AccountBalanceDB {
+            connection: Arc::new(Mutex::new(establish_connection())),
+        };
+
+        assert_eq!(
+            format!("{db:?}"),
+            "AccountBalanceDB { connection: \"Arc<Mutex<SqliteConnection>>\" }"
+        );
+    }
+
+    #[test]
+    fn account_balance_methods_return_errors_when_connection_lock_is_poisoned() {
+        let mut db = poisoned_account_balance_db();
+        let account = Account {
+            id: Uuid::new_v4(),
+            ..Default::default()
+        };
+        let balance = AccountBalance {
+            id: Uuid::new_v4(),
+            account_id: account.id,
+            ..Default::default()
+        };
+
+        assert_connection_lock_error(db.create(&account, &Currency::USD));
+        assert_connection_lock_error(db.update(&balance, dec!(10), dec!(2), dec!(8), dec!(1)));
+        assert_connection_lock_error(db.for_account(account.id));
+        assert_connection_lock_error(db.for_currency(account.id, &Currency::USD));
+    }
+
+    #[test]
+    fn read_filters_soft_deleted_balances_by_account_and_currency() {
+        let (connection, database) = shared_database();
+        let account = create_account(&database, "balance-soft-delete-account");
+        let deleted_balance = database
+            .account_balance_write()
+            .create(&account, &Currency::USD)
+            .expect("USD balance should be created");
+        let active_balance = database
+            .account_balance_write()
+            .create(&account, &Currency::BTC)
+            .expect("BTC balance should be created");
+
+        {
+            let mut conn = connection
+                .lock()
+                .expect("connection lock should be available");
+            diesel::update(
+                accounts_balances::table
+                    .filter(accounts_balances::id.eq(deleted_balance.id.to_string())),
+            )
+            .set(accounts_balances::deleted_at.eq(Some(Utc::now().naive_utc())))
+            .execute(&mut *conn)
+            .expect("balance should be soft deleted");
+        }
+
+        let balances = database
+            .account_balance_read()
+            .for_account(account.id)
+            .expect("active balances should read");
+        let active = database
+            .account_balance_read()
+            .for_currency(account.id, &Currency::BTC)
+            .expect("active currency balance should read");
+
+        assert_eq!(balances, vec![active_balance]);
+        assert_eq!(active.id, active_balance.id);
+        assert!(database
+            .account_balance_read()
+            .for_currency(account.id, &Currency::USD)
+            .is_err());
+    }
+
+    #[test]
+    fn create_reports_database_errors() {
+        let (connection, database) = shared_database();
+        let account = create_account(&database, "balance-create-db-error-account");
+        diesel::sql_query("DROP TABLE accounts_balances")
+            .execute(
+                &mut *connection
+                    .lock()
+                    .expect("connection lock should be available"),
+            )
+            .expect("accounts_balances table should drop");
+
+        let error = database
+            .account_balance_write()
+            .create(&account, &Currency::USD)
+            .expect_err("missing table should fail balance create");
+
+        assert!(error.to_string().contains("accounts_balances"));
+    }
+
+    #[test]
+    fn update_reports_database_errors() {
+        let (connection, database) = shared_database();
+        let account = create_account(&database, "balance-update-db-error-account");
+        let balance = database
+            .account_balance_write()
+            .create(&account, &Currency::USD)
+            .expect("USD balance should be created");
+        diesel::sql_query("DROP TABLE accounts_balances")
+            .execute(
+                &mut *connection
+                    .lock()
+                    .expect("connection lock should be available"),
+            )
+            .expect("accounts_balances table should drop");
+
+        let error = database
+            .account_balance_write()
+            .update(&balance, dec!(10), dec!(2), dec!(8), dec!(1))
+            .expect_err("missing table should fail balance update");
+
+        assert!(error.to_string().contains("accounts_balances"));
+    }
+
+    #[test]
+    fn for_account_reports_database_errors() {
+        let (connection, database) = shared_database();
+        diesel::sql_query("DROP TABLE accounts_balances")
+            .execute(
+                &mut *connection
+                    .lock()
+                    .expect("connection lock should be available"),
+            )
+            .expect("accounts_balances table should drop");
+
+        let error = database
+            .account_balance_read()
+            .for_account(Uuid::new_v4())
+            .expect_err("missing table should fail balance read");
+
+        assert!(error.to_string().contains("accounts_balances"));
+    }
+
+    #[test]
+    fn for_currency_reports_database_errors() {
+        let (connection, database) = shared_database();
+        diesel::sql_query("DROP TABLE accounts_balances")
+            .execute(
+                &mut *connection
+                    .lock()
+                    .expect("connection lock should be available"),
+            )
+            .expect("accounts_balances table should drop");
+
+        let error = database
+            .account_balance_read()
+            .for_currency(Uuid::new_v4(), &Currency::USD)
+            .expect_err("missing table should fail balance read");
+
+        assert!(error.to_string().contains("accounts_balances"));
+    }
+
+    #[test]
+    fn account_balance_sqlite_conversion_reports_corrupt_fields() {
+        let cases = vec![
+            (
+                AccountBalanceSQLite {
+                    id: "not-a-uuid".to_string(),
+                    ..base_sqlite_balance()
+                },
+                "id",
+            ),
+            (
+                AccountBalanceSQLite {
+                    account_id: "not-a-uuid".to_string(),
+                    ..base_sqlite_balance()
+                },
+                "account_id",
+            ),
+            (
+                AccountBalanceSQLite {
+                    total_balance: "not-a-decimal".to_string(),
+                    ..base_sqlite_balance()
+                },
+                "total_balance",
+            ),
+            (
+                AccountBalanceSQLite {
+                    total_in_trade: "not-a-decimal".to_string(),
+                    ..base_sqlite_balance()
+                },
+                "total_in_trade",
+            ),
+            (
+                AccountBalanceSQLite {
+                    total_available: "not-a-decimal".to_string(),
+                    ..base_sqlite_balance()
+                },
+                "total_available",
+            ),
+            (
+                AccountBalanceSQLite {
+                    taxed: "not-a-decimal".to_string(),
+                    ..base_sqlite_balance()
+                },
+                "taxed",
+            ),
+            (
+                AccountBalanceSQLite {
+                    currency: "XYZ".to_string(),
+                    ..base_sqlite_balance()
+                },
+                "currency",
+            ),
+            (
+                AccountBalanceSQLite {
+                    total_earnings: "not-a-decimal".to_string(),
+                    ..base_sqlite_balance()
+                },
+                "total_earnings",
+            ),
+        ];
+
+        for (row, field) in cases {
+            assert_conversion_error(row, field);
+        }
     }
 }

@@ -7,8 +7,7 @@ use model::{Account, AccountType, AccountWrite, BrokerKind, Environment};
 use rust_decimal::Decimal;
 use std::error::Error;
 use std::str::FromStr;
-use std::sync::Arc;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex, MutexGuard};
 use tracing::error;
 use uuid::Uuid;
 
@@ -22,6 +21,14 @@ impl std::fmt::Debug for AccountDB {
         f.debug_struct("AccountDB")
             .field("connection", &"Arc<Mutex<SqliteConnection>>")
             .finish()
+    }
+}
+
+impl AccountDB {
+    fn connection_guard(&self) -> Result<MutexGuard<'_, SqliteConnection>, Box<dyn Error>> {
+        self.connection.lock().map_err(|error| {
+            format!("failed to acquire account database connection lock: {error}").into()
+        })
     }
 }
 
@@ -90,10 +97,8 @@ impl AccountWrite for AccountDB {
             return Err("Primary accounts cannot have parent accounts".into());
         }
 
-        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap_or_else(|e| {
-            eprintln!("Failed to acquire connection lock: {e}");
-            std::process::exit(1);
-        });
+        let mut guard = self.connection_guard()?;
+        let connection: &mut SqliteConnection = &mut guard;
 
         if let Some(parent_id) = parent_account_id {
             let parent = accounts::table
@@ -141,10 +146,8 @@ impl AccountWrite for AccountDB {
 
 impl AccountRead for AccountDB {
     fn for_name(&mut self, name: &str) -> Result<Account, Box<dyn Error>> {
-        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap_or_else(|e| {
-            eprintln!("Failed to acquire connection lock: {e}");
-            std::process::exit(1);
-        });
+        let mut guard = self.connection_guard()?;
+        let connection: &mut SqliteConnection = &mut guard;
 
         accounts::table
             .filter(accounts::name.eq(name.to_lowercase()))
@@ -157,10 +160,8 @@ impl AccountRead for AccountDB {
     }
 
     fn id(&mut self, id: Uuid) -> Result<Account, Box<dyn Error>> {
-        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap_or_else(|e| {
-            eprintln!("Failed to acquire connection lock: {e}");
-            std::process::exit(1);
-        });
+        let mut guard = self.connection_guard()?;
+        let connection: &mut SqliteConnection = &mut guard;
 
         accounts::table
             .filter(accounts::id.eq(id.to_string()))
@@ -173,10 +174,8 @@ impl AccountRead for AccountDB {
     }
 
     fn all(&mut self) -> Result<Vec<Account>, Box<dyn Error>> {
-        let connection: &mut SqliteConnection = &mut self.connection.lock().unwrap_or_else(|e| {
-            eprintln!("Failed to acquire connection lock: {e}");
-            std::process::exit(1);
-        });
+        let mut guard = self.connection_guard()?;
+        let connection: &mut SqliteConnection = &mut guard;
         accounts::table
             .filter(accounts::deleted_at.is_null())
             .load::<AccountSQLite>(connection)
@@ -304,6 +303,106 @@ mod tests {
         Box::new(SqliteDatabase::new_from(Arc::new(Mutex::new(connection))))
     }
 
+    fn valid_account_sqlite() -> AccountSQLite {
+        let now = Utc::now().naive_utc();
+        AccountSQLite {
+            id: Uuid::new_v4().to_string(),
+            created_at: now,
+            updated_at: now,
+            deleted_at: None,
+            name: "account".to_string(),
+            description: "description".to_string(),
+            environment: "paper".to_string(),
+            taxes_percentage: "20".to_string(),
+            earnings_percentage: "80".to_string(),
+            account_type: "primary".to_string(),
+            parent_account_id: None,
+            broker_kind: "alpaca".to_string(),
+            broker_account_id: None,
+        }
+    }
+
+    fn assert_account_conversion_error(row: AccountSQLite, field: &str) {
+        let error = Account::try_from(row).unwrap_err();
+        assert!(
+            error.to_string().contains(&format!("field '{field}'")),
+            "unexpected conversion error: {error}"
+        );
+    }
+
+    fn assert_error_mentions(error: Box<dyn Error>, expected: &str) {
+        let message = error.to_string();
+        assert!(
+            message.contains(expected),
+            "expected error to mention {expected:?}, got {message:?}"
+        );
+    }
+
+    fn account_db() -> AccountDB {
+        AccountDB {
+            connection: Arc::new(Mutex::new(establish_connection())),
+        }
+    }
+
+    fn poisoned_account_db() -> AccountDB {
+        let connection = Arc::new(Mutex::new(establish_connection()));
+        let poisoned_connection = Arc::clone(&connection);
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = poisoned_connection
+                .lock()
+                .expect("connection lock should be acquired before poisoning");
+            std::panic::resume_unwind(Box::new("poison account connection lock"));
+        }));
+        AccountDB { connection }
+    }
+
+    fn assert_connection_lock_error<T>(result: Result<T, Box<dyn Error>>) {
+        assert!(result.is_err());
+        let error = result.err().expect("operation should fail");
+        assert!(error
+            .to_string()
+            .contains("failed to acquire account database connection lock"));
+    }
+
+    fn drop_accounts_table(db: &mut AccountDB) {
+        let mut conn = db
+            .connection
+            .lock()
+            .expect("connection lock should be available");
+        diesel::sql_query("DROP TABLE accounts")
+            .execute(&mut *conn)
+            .expect("accounts table should be dropped");
+    }
+
+    #[test]
+    fn debug_representation_hides_connection_internals() {
+        let conn = establish_connection();
+        let db = AccountDB {
+            connection: Arc::new(Mutex::new(conn)),
+        };
+
+        assert_eq!(
+            format!("{db:?}"),
+            "AccountDB { connection: \"Arc<Mutex<SqliteConnection>>\" }"
+        );
+    }
+
+    #[test]
+    fn account_methods_return_errors_when_connection_lock_is_poisoned() {
+        let mut db = poisoned_account_db();
+
+        assert_connection_lock_error(db.create(
+            "Locked Account",
+            "locked",
+            Environment::Paper,
+            dec!(20),
+            dec!(80),
+        ));
+        assert_connection_lock_error(db.for_name("locked account"));
+        assert_connection_lock_error(db.id(Uuid::new_v4()));
+        assert_connection_lock_error(db.all());
+    }
+
     #[test]
     fn test_create_account() {
         let conn: SqliteConnection = establish_connection();
@@ -325,6 +424,140 @@ mod tests {
         assert_eq!(account.environment, Environment::Paper);
         assert_eq!(account.deleted_at, None);
     }
+
+    #[test]
+    fn account_sqlite_conversion_reports_corrupt_fields() {
+        let mut invalid_id = valid_account_sqlite();
+        invalid_id.id = "not-a-uuid".to_string();
+        assert_account_conversion_error(invalid_id, "id");
+
+        let mut invalid_environment = valid_account_sqlite();
+        invalid_environment.environment = "sandbox".to_string();
+        assert_account_conversion_error(invalid_environment, "environment");
+
+        let mut invalid_taxes = valid_account_sqlite();
+        invalid_taxes.taxes_percentage = "nan".to_string();
+        assert_account_conversion_error(invalid_taxes, "taxes_percentage");
+
+        let mut invalid_earnings = valid_account_sqlite();
+        invalid_earnings.earnings_percentage = "nan".to_string();
+        assert_account_conversion_error(invalid_earnings, "earnings_percentage");
+
+        let mut invalid_account_type = valid_account_sqlite();
+        invalid_account_type.account_type = "settlement".to_string();
+        assert_account_conversion_error(invalid_account_type, "account_type");
+
+        let mut invalid_parent = valid_account_sqlite();
+        invalid_parent.parent_account_id = Some("not-a-uuid".to_string());
+        assert_account_conversion_error(invalid_parent, "parent_account_id");
+
+        let mut invalid_broker = valid_account_sqlite();
+        invalid_broker.broker_kind = "paper-broker".to_string();
+        assert_account_conversion_error(invalid_broker, "broker_kind");
+    }
+
+    #[test]
+    fn create_with_profile_enforces_hierarchy_and_preserves_broker_profile() {
+        let conn = establish_connection();
+        let mut db = AccountDB {
+            connection: Arc::new(Mutex::new(conn)),
+        };
+
+        let missing_parent = db
+            .create_with_hierarchy(
+                "Earnings without parent",
+                "child account",
+                Environment::Paper,
+                dec!(20),
+                dec!(80),
+                AccountType::Earnings,
+                None,
+            )
+            .unwrap_err();
+        assert!(missing_parent
+            .to_string()
+            .contains("Child account types require a parent account ID"));
+
+        let primary_with_parent = db
+            .create_with_hierarchy(
+                "Primary with parent",
+                "invalid parent",
+                Environment::Paper,
+                dec!(20),
+                dec!(80),
+                AccountType::Primary,
+                Some(Uuid::new_v4()),
+            )
+            .unwrap_err();
+        assert!(primary_with_parent
+            .to_string()
+            .contains("Primary accounts cannot have parent accounts"));
+
+        let parent = db
+            .create_with_profile(
+                "Parent Account",
+                "primary",
+                Environment::Paper,
+                dec!(20),
+                dec!(80),
+                AccountType::Primary,
+                None,
+                BrokerKind::Ibkr,
+                Some("DU12345"),
+            )
+            .expect("primary account with broker profile should persist");
+        assert_eq!(parent.broker_kind, BrokerKind::Ibkr);
+        assert_eq!(parent.broker_account_id.as_deref(), Some("DU12345"));
+
+        let child = db
+            .create_with_hierarchy(
+                "Earnings Account",
+                "child",
+                Environment::Paper,
+                dec!(20),
+                dec!(80),
+                AccountType::Earnings,
+                Some(parent.id),
+            )
+            .expect("child account should persist under a primary parent");
+        assert_eq!(child.account_type, AccountType::Earnings);
+        assert_eq!(child.parent_account_id, Some(parent.id));
+
+        let non_primary_parent = db
+            .create_with_hierarchy(
+                "Tax Reserve",
+                "invalid child",
+                Environment::Paper,
+                dec!(20),
+                dec!(80),
+                AccountType::TaxReserve,
+                Some(child.id),
+            )
+            .unwrap_err();
+        assert!(non_primary_parent
+            .to_string()
+            .contains("Parent account must be a primary account"));
+    }
+
+    #[test]
+    fn create_with_hierarchy_reports_missing_parent_lookup_errors() {
+        let mut db = account_db();
+
+        let error = db
+            .create_with_hierarchy(
+                "Earnings Account",
+                "missing parent",
+                Environment::Paper,
+                dec!(20),
+                dec!(80),
+                AccountType::Earnings,
+                Some(Uuid::new_v4()),
+            )
+            .expect_err("missing parent account should fail child creation");
+
+        assert_error_mentions(error, "not found");
+    }
+
     #[test]
     fn test_read_account() {
         let conn = establish_connection();
@@ -438,5 +671,113 @@ mod tests {
         // Read all account records
         let accounts = db.account_read().all().expect("Error reading all accounts");
         assert_eq!(accounts, created_accounts);
+    }
+
+    #[test]
+    fn read_all_filters_soft_deleted_accounts() {
+        let mut db = account_db();
+        let active = db
+            .create(
+                "Active Account",
+                "active",
+                Environment::Paper,
+                dec!(20),
+                dec!(80),
+            )
+            .expect("active account should be created");
+        let deleted = db
+            .create(
+                "Deleted Account",
+                "deleted",
+                Environment::Paper,
+                dec!(20),
+                dec!(80),
+            )
+            .expect("deleted account should be created");
+
+        {
+            let mut conn = db
+                .connection
+                .lock()
+                .expect("connection lock should be available");
+            diesel::update(accounts::table.filter(accounts::id.eq(deleted.id.to_string())))
+                .set(accounts::deleted_at.eq(Some(Utc::now().naive_utc())))
+                .execute(&mut *conn)
+                .expect("account should be soft deleted");
+        }
+
+        let accounts = db.all().expect("accounts should read");
+
+        assert_eq!(accounts.len(), 1);
+        assert_eq!(accounts.first().expect("one active account").id, active.id);
+    }
+
+    #[test]
+    fn read_all_surfaces_corrupt_row_id() {
+        let mut db = account_db();
+        {
+            let mut conn = db
+                .connection
+                .lock()
+                .expect("connection lock should be available");
+            diesel::insert_into(accounts::table)
+                .values(AccountSQLite {
+                    id: "not-a-uuid".to_string(),
+                    ..valid_account_sqlite()
+                })
+                .execute(&mut *conn)
+                .expect("corrupt account row should insert for conversion test");
+        }
+
+        let error = db
+            .all()
+            .expect_err("corrupt account row should fail conversion");
+
+        assert_error_mentions(error, "id");
+    }
+
+    #[test]
+    fn account_worker_reports_missing_table_errors() {
+        let mut db = account_db();
+        drop_accounts_table(&mut db);
+
+        let error = db
+            .create(
+                "Missing Table Account",
+                "create",
+                Environment::Paper,
+                dec!(20),
+                dec!(80),
+            )
+            .expect_err("missing accounts table should fail create");
+        assert_error_mentions(error, "accounts");
+
+        let error = db
+            .create_with_hierarchy(
+                "Child Account",
+                "parent read",
+                Environment::Paper,
+                dec!(20),
+                dec!(80),
+                AccountType::Earnings,
+                Some(Uuid::new_v4()),
+            )
+            .expect_err("missing accounts table should fail parent lookup");
+        assert_error_mentions(error, "accounts");
+
+        let error = db
+            .for_name("missing")
+            .expect_err("missing accounts table should fail name read");
+        assert_error_mentions(error, "accounts");
+
+        let error = db
+            .id(Uuid::new_v4())
+            .expect_err("missing accounts table should fail id read");
+        assert_error_mentions(error, "accounts");
+
+        let error = db
+            .all()
+            .expect_err("missing accounts table should fail all read");
+        assert_error_mentions(error, "accounts");
     }
 }
