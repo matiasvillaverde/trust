@@ -44,9 +44,9 @@ use db_sqlite::{ImportMode, ImportOptions};
 use dialoguer::Password;
 use ibkr_broker::IbkrBroker;
 use model::{
-    Account, AccountType, BarTimeframe, BrokerKind, Currency, DraftTrade, Environment, Level,
-    LevelAdjustmentRules, LevelTrigger, MarketDataChannel, MarketSnapshotSource, Status, Trade,
-    TradeCategory, TransactionCategory,
+    Account, AccountType, BarTimeframe, BrokerKind, Currency, DraftTrade, Environment,
+    FixedIncomeTerms, Level, LevelAdjustmentRules, LevelTrigger, MarketDataChannel,
+    MarketSnapshotSource, Status, Trade, TradeCategory, TransactionCategory,
 };
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
@@ -135,6 +135,36 @@ impl std::error::Error for CliError {}
 
 pub struct ArgDispatcher {
     trust: TrustFacade,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TradingVehicleSearchFilters {
+    category: Option<model::TradingVehicleCategory>,
+    broker: Option<String>,
+    symbol: Option<String>,
+    isin: Option<String>,
+    missing_bond_terms: bool,
+    list_all: bool,
+    format: ReportOutputFormat,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TradingVehicleInventoryStats {
+    total: usize,
+    by_category: BTreeMap<String, usize>,
+    by_broker: BTreeMap<String, usize>,
+    bonds: BondInventoryStats,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct BondInventoryStats {
+    total: usize,
+    complete_terms: usize,
+    missing_terms: usize,
+    coupon_rate_count: usize,
+    average_coupon_rate_pct: Option<Decimal>,
+    earliest_maturity: Option<NaiveDate>,
+    latest_maturity: Option<NaiveDate>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -504,7 +534,15 @@ impl ArgDispatcher {
             TradingVehicleSubcommand::Create(sub_sub_matches) => {
                 self.create_trading_vehicle(sub_sub_matches)?
             }
-            TradingVehicleSubcommand::Search => self.search_trading_vehicle(),
+            TradingVehicleSubcommand::UpdateBondTerms(sub_sub_matches) => {
+                self.update_bond_terms(sub_sub_matches)?
+            }
+            TradingVehicleSubcommand::Search(sub_sub_matches) => {
+                self.search_trading_vehicle(sub_sub_matches)?
+            }
+            TradingVehicleSubcommand::Stats(sub_sub_matches) => {
+                self.trading_vehicle_stats(sub_sub_matches)?
+            }
         }
         Ok(())
     }
@@ -682,6 +720,7 @@ impl ArgDispatcher {
         match parse_metrics_subcommand(sub_matches) {
             MetricsSubcommand::Advanced(sub_sub_matches) => self.metrics_advanced(sub_sub_matches),
             MetricsSubcommand::Compare(sub_sub_matches) => self.metrics_compare(sub_sub_matches),
+            MetricsSubcommand::Bond(sub_sub_matches) => self.metrics_bond(sub_sub_matches)?,
         }
         Ok(())
     }
@@ -710,13 +749,7 @@ impl ArgDispatcher {
     }
 
     fn print_json(payload: &Value) -> Result<(), CliError> {
-        let content = serde_json::to_string_pretty(payload).map_err(|error| {
-            CliError::new(
-                "json_serialization_failed",
-                format!("Failed to serialize report payload: {error}"),
-            )
-        })?;
-        println!("{content}");
+        println!("{payload:#}");
         Ok(())
     }
 
@@ -761,6 +794,25 @@ impl ArgDispatcher {
                 format!("Invalid decimal value for --{key}: {raw}"),
             )
         })
+    }
+
+    fn parse_optional_decimal_arg(
+        sub_matches: &ArgMatches,
+        key: &'static str,
+        format: ReportOutputFormat,
+    ) -> Result<Option<Decimal>, CliError> {
+        sub_matches
+            .get_one::<String>(key)
+            .map(|raw| {
+                Decimal::from_str(raw).map_err(|_| {
+                    Self::report_error(
+                        format,
+                        "invalid_decimal",
+                        format!("Invalid decimal value for --{key}: {raw}"),
+                    )
+                })
+            })
+            .transpose()
     }
 
     fn parse_uuid_arg(
@@ -1008,10 +1060,7 @@ impl ArgDispatcher {
             )
         })?;
 
-        if accounts.len() == 1 {
-            let account = accounts.first().ok_or_else(|| {
-                Self::report_error(format, "accounts_unavailable", "No accounts available")
-            })?;
+        if let [account] = accounts.as_slice() {
             return Ok(account.id);
         }
 
@@ -1496,6 +1545,17 @@ impl ArgDispatcher {
             CliError::new(
                 "invalid_broker_kind",
                 "Invalid --broker value (expected alpaca|ibkr)",
+            )
+        })
+    }
+
+    fn parse_trading_vehicle_category(
+        raw: &str,
+    ) -> Result<model::TradingVehicleCategory, CliError> {
+        raw.parse::<model::TradingVehicleCategory>().map_err(|_| {
+            CliError::new(
+                "invalid_trading_vehicle_category",
+                "Invalid --category value (expected stock|etf|bond|crypto|fiat)",
             )
         })
     }
@@ -2864,8 +2924,29 @@ impl ArgDispatcher {
             }
         };
 
-        let imported = trading_vehicle_import::import_from_broker(&account, symbol, broker_kind)
-            .map_err(|error| CliError::new(error.code(), error.message().to_string()))?;
+        let category_hint = matches
+            .get_one::<String>("category")
+            .map(|value| Self::parse_trading_vehicle_category(value))
+            .transpose()?;
+
+        let imported = trading_vehicle_import::import_from_broker(
+            &account,
+            symbol,
+            broker_kind,
+            category_hint,
+        )
+        .map_err(|error| CliError::new(error.code(), error.message().to_string()))?;
+
+        self.store_imported_trading_vehicle(matches, imported)
+    }
+
+    fn store_imported_trading_vehicle(
+        &mut self,
+        matches: &ArgMatches,
+        mut imported: trading_vehicle_import::ImportedTradingVehicle,
+    ) -> Result<(), CliError> {
+        imported.upsert.fixed_income =
+            Self::parse_fixed_income_terms(matches, imported.upsert.category)?;
 
         let result = self.trust.upsert_trading_vehicle(imported.upsert);
 
@@ -2884,10 +2965,539 @@ impl ArgDispatcher {
         Ok(())
     }
 
-    fn search_trading_vehicle(&mut self) {
-        TradingVehicleSearchDialogBuilder::new()
-            .search(&mut self.trust)
-            .display();
+    fn parse_fixed_income_terms(
+        matches: &ArgMatches,
+        category: model::TradingVehicleCategory,
+    ) -> Result<Option<FixedIncomeTerms>, CliError> {
+        if !Self::fixed_income_args_present(matches) {
+            return Ok(None);
+        }
+
+        if category != model::TradingVehicleCategory::Bond {
+            return Err(CliError::new(
+                "invalid_fixed_income_terms",
+                "Bond term flags require --category bond",
+            ));
+        }
+
+        Ok(Some(Self::merge_fixed_income_terms(matches, None)?))
+    }
+
+    fn update_bond_terms(&mut self, matches: &ArgMatches) -> Result<(), CliError> {
+        self.ensure_protected_keyword(matches, ReportOutputFormat::Text, "bond term update")?;
+
+        if !Self::fixed_income_args_present(matches) {
+            return Err(CliError::new(
+                "missing_bond_terms",
+                "At least one bond term flag is required",
+            ));
+        }
+
+        let symbol = Self::required_trimmed_arg(matches, "symbol")?;
+        let broker = Self::required_trimmed_arg(matches, "broker")?;
+        let vehicle = self.find_trading_vehicle_by_symbol_broker(symbol, broker)?;
+        if vehicle.category != model::TradingVehicleCategory::Bond {
+            return Err(CliError::new(
+                "bond_vehicle_wrong_category",
+                format!(
+                    "Trading vehicle {broker}:{symbol} is category {}, expected bond",
+                    vehicle.category
+                ),
+            ));
+        }
+
+        let fixed_income = Self::merge_fixed_income_terms(matches, vehicle.fixed_income.as_ref())?;
+        let updated = self
+            .trust
+            .upsert_trading_vehicle(Self::upsert_from_existing_vehicle(
+                &vehicle,
+                Some(fixed_income),
+            ))
+            .map_err(|error| CliError::new("bond_terms_update_failed", format!("{error}")))?;
+
+        crate::views::TradingVehicleView::display(updated);
+        Ok(())
+    }
+
+    fn merge_fixed_income_terms(
+        matches: &ArgMatches,
+        existing: Option<&FixedIncomeTerms>,
+    ) -> Result<FixedIncomeTerms, CliError> {
+        Ok(FixedIncomeTerms {
+            face_value: Self::parse_optional_decimal_arg(
+                matches,
+                "face-value",
+                ReportOutputFormat::Text,
+            )?
+            .or_else(|| existing.and_then(|terms| terms.face_value)),
+            annual_coupon_rate_pct: Self::parse_optional_decimal_arg(
+                matches,
+                "coupon-rate",
+                ReportOutputFormat::Text,
+            )?
+            .or_else(|| existing.and_then(|terms| terms.annual_coupon_rate_pct)),
+            maturity_date: Self::parse_maturity_date_arg(matches)?
+                .or_else(|| existing.and_then(|terms| terms.maturity_date)),
+            coupon_frequency_per_year: Self::parse_coupon_frequency_arg(matches)?
+                .or_else(|| existing.and_then(|terms| terms.coupon_frequency_per_year)),
+        })
+    }
+
+    fn fixed_income_args_present(matches: &ArgMatches) -> bool {
+        matches.get_one::<String>("face-value").is_some()
+            || matches.get_one::<String>("coupon-rate").is_some()
+            || matches.get_one::<String>("maturity-date").is_some()
+            || matches.get_one::<u16>("coupon-frequency").is_some()
+    }
+
+    fn parse_maturity_date_arg(matches: &ArgMatches) -> Result<Option<NaiveDate>, CliError> {
+        matches
+            .get_one::<String>("maturity-date")
+            .map(|raw| {
+                NaiveDate::parse_from_str(raw, "%Y-%m-%d").map_err(|_| {
+                    CliError::new(
+                        "invalid_maturity_date",
+                        format!("Invalid --maturity-date value (expected YYYY-MM-DD): {raw}"),
+                    )
+                })
+            })
+            .transpose()
+    }
+
+    fn parse_coupon_frequency_arg(matches: &ArgMatches) -> Result<Option<u16>, CliError> {
+        let coupon_frequency_per_year = matches.get_one::<u16>("coupon-frequency").copied();
+        if coupon_frequency_per_year == Some(0) {
+            return Err(CliError::new(
+                "invalid_coupon_frequency",
+                "--coupon-frequency must be greater than zero",
+            ));
+        }
+        Ok(coupon_frequency_per_year)
+    }
+
+    fn required_trimmed_arg<'a>(
+        matches: &'a ArgMatches,
+        key: &'static str,
+    ) -> Result<&'a str, CliError> {
+        matches
+            .get_one::<String>(key)
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| CliError::new("missing_argument", format!("Missing argument --{key}")))
+    }
+
+    fn find_trading_vehicle_by_symbol_broker(
+        &mut self,
+        symbol: &str,
+        broker: &str,
+    ) -> Result<model::TradingVehicle, CliError> {
+        let symbol_norm = symbol.to_uppercase();
+        let broker_norm = broker.to_lowercase();
+        let vehicles = self
+            .trust
+            .search_trading_vehicles()
+            .map_err(|error| CliError::new("trading_vehicle_lookup_failed", format!("{error}")))?;
+        vehicles
+            .into_iter()
+            .find(|vehicle| {
+                vehicle.symbol == symbol_norm && vehicle.broker.eq_ignore_ascii_case(&broker_norm)
+            })
+            .ok_or_else(|| {
+                CliError::new(
+                    "trading_vehicle_not_found",
+                    format!("No trading vehicle found for {broker}:{symbol}"),
+                )
+            })
+    }
+
+    fn upsert_from_existing_vehicle(
+        vehicle: &model::TradingVehicle,
+        fixed_income: Option<FixedIncomeTerms>,
+    ) -> model::database::TradingVehicleUpsert {
+        model::database::TradingVehicleUpsert {
+            symbol: vehicle.symbol.clone(),
+            isin: vehicle.isin.clone(),
+            category: vehicle.category,
+            broker: vehicle.broker.clone(),
+            broker_asset_id: vehicle.broker_asset_id.clone(),
+            exchange: vehicle.exchange.clone(),
+            broker_asset_class: vehicle.broker_asset_class.clone(),
+            broker_asset_status: vehicle.broker_asset_status.clone(),
+            tradable: vehicle.tradable,
+            marginable: vehicle.marginable,
+            shortable: vehicle.shortable,
+            easy_to_borrow: vehicle.easy_to_borrow,
+            fractionable: vehicle.fractionable,
+            fixed_income,
+        }
+    }
+
+    fn trading_vehicle_stats(&mut self, matches: &ArgMatches) -> Result<(), CliError> {
+        let format = Self::parse_report_format(matches);
+        let vehicles = self
+            .trust
+            .search_trading_vehicles()
+            .map_err(|error| CliError::new("trading_vehicle_stats_failed", format!("{error}")))?;
+        let stats = Self::calculate_trading_vehicle_inventory_stats(&vehicles)?;
+
+        match format {
+            ReportOutputFormat::Text => {
+                Self::print_trading_vehicle_stats(&stats);
+                Ok(())
+            }
+            ReportOutputFormat::Json => {
+                Self::print_json(&Self::trading_vehicle_stats_payload(&stats))
+            }
+        }
+    }
+
+    fn calculate_trading_vehicle_inventory_stats(
+        vehicles: &[model::TradingVehicle],
+    ) -> Result<TradingVehicleInventoryStats, CliError> {
+        let mut stats = TradingVehicleInventoryStats {
+            total: vehicles.len(),
+            by_category: BTreeMap::new(),
+            by_broker: BTreeMap::new(),
+            bonds: BondInventoryStats {
+                total: 0,
+                complete_terms: 0,
+                missing_terms: 0,
+                coupon_rate_count: 0,
+                average_coupon_rate_pct: None,
+                earliest_maturity: None,
+                latest_maturity: None,
+            },
+        };
+        let mut coupon_rate_sum = Decimal::ZERO;
+        let mut coupon_rate_divisor = Decimal::ZERO;
+
+        for vehicle in vehicles {
+            Self::increment_count(&mut stats.by_category, vehicle.category.to_string())?;
+            Self::increment_count(&mut stats.by_broker, vehicle.broker.to_ascii_lowercase())?;
+            if vehicle.category == model::TradingVehicleCategory::Bond {
+                Self::add_bond_inventory_stats(
+                    &mut stats.bonds,
+                    vehicle,
+                    &mut coupon_rate_sum,
+                    &mut coupon_rate_divisor,
+                )?;
+            }
+        }
+
+        if coupon_rate_divisor > Decimal::ZERO {
+            stats.bonds.average_coupon_rate_pct = Some(
+                coupon_rate_sum
+                    .checked_div(coupon_rate_divisor)
+                    .ok_or_else(|| {
+                        CliError::new("trading_vehicle_stats_failed", "average coupon overflow")
+                    })?,
+            );
+        }
+
+        Ok(stats)
+    }
+
+    fn add_bond_inventory_stats(
+        stats: &mut BondInventoryStats,
+        vehicle: &model::TradingVehicle,
+        coupon_rate_sum: &mut Decimal,
+        coupon_rate_divisor: &mut Decimal,
+    ) -> Result<(), CliError> {
+        stats.total = Self::checked_increment_usize(stats.total)?;
+        if Self::is_bond_missing_terms(vehicle) {
+            stats.missing_terms = Self::checked_increment_usize(stats.missing_terms)?;
+        } else {
+            stats.complete_terms = Self::checked_increment_usize(stats.complete_terms)?;
+        }
+
+        if let Some(terms) = &vehicle.fixed_income {
+            if let Some(coupon_rate) = terms.annual_coupon_rate_pct {
+                *coupon_rate_sum = coupon_rate_sum.checked_add(coupon_rate).ok_or_else(|| {
+                    CliError::new("trading_vehicle_stats_failed", "coupon sum overflow")
+                })?;
+                *coupon_rate_divisor =
+                    coupon_rate_divisor
+                        .checked_add(Decimal::ONE)
+                        .ok_or_else(|| {
+                            CliError::new("trading_vehicle_stats_failed", "coupon count overflow")
+                        })?;
+                stats.coupon_rate_count = Self::checked_increment_usize(stats.coupon_rate_count)?;
+            }
+            if let Some(maturity) = terms.maturity_date {
+                stats.earliest_maturity = Some(
+                    stats
+                        .earliest_maturity
+                        .map(|current| current.min(maturity))
+                        .unwrap_or(maturity),
+                );
+                stats.latest_maturity = Some(
+                    stats
+                        .latest_maturity
+                        .map(|current| current.max(maturity))
+                        .unwrap_or(maturity),
+                );
+            }
+        }
+
+        Ok(())
+    }
+
+    fn checked_increment_usize(value: usize) -> Result<usize, CliError> {
+        value
+            .checked_add(1)
+            .ok_or_else(|| CliError::new("trading_vehicle_stats_failed", "count overflow"))
+    }
+
+    fn increment_count(map: &mut BTreeMap<String, usize>, key: String) -> Result<(), CliError> {
+        let next = map
+            .get(&key)
+            .copied()
+            .unwrap_or_default()
+            .checked_add(1)
+            .ok_or_else(|| CliError::new("trading_vehicle_stats_failed", "count overflow"))?;
+        map.insert(key, next);
+        Ok(())
+    }
+
+    fn print_trading_vehicle_stats(stats: &TradingVehicleInventoryStats) {
+        println!("Trading Vehicle Stats");
+        println!("=====================");
+        println!("total: {}", stats.total);
+        println!("by_category:");
+        for (category, count) in &stats.by_category {
+            println!("  {category}: {count}");
+        }
+        println!("by_broker:");
+        for (broker, count) in &stats.by_broker {
+            println!("  {broker}: {count}");
+        }
+        println!("bonds:");
+        println!("  total: {}", stats.bonds.total);
+        println!("  complete_terms: {}", stats.bonds.complete_terms);
+        println!("  missing_terms: {}", stats.bonds.missing_terms);
+        println!(
+            "  average_coupon_rate: {}",
+            stats
+                .bonds
+                .average_coupon_rate_pct
+                .map(|value| format!("{}%", Self::decimal_string(value)))
+                .unwrap_or_else(|| "n/a".to_string())
+        );
+        println!(
+            "  maturity_range: {}",
+            Self::bond_maturity_range_text(&stats.bonds)
+        );
+    }
+
+    fn bond_maturity_range_text(stats: &BondInventoryStats) -> String {
+        match (stats.earliest_maturity, stats.latest_maturity) {
+            (Some(earliest), Some(latest)) => format!("{earliest}..{latest}"),
+            _ => "n/a".to_string(),
+        }
+    }
+
+    fn trading_vehicle_stats_payload(stats: &TradingVehicleInventoryStats) -> Value {
+        json!({
+            "report": "trading_vehicle_stats",
+            "total": stats.total,
+            "by_category": &stats.by_category,
+            "by_broker": &stats.by_broker,
+            "bonds": {
+                "total": stats.bonds.total,
+                "complete_terms": stats.bonds.complete_terms,
+                "missing_terms": stats.bonds.missing_terms,
+                "coupon_rate_count": stats.bonds.coupon_rate_count,
+                "average_coupon_rate_pct": stats.bonds.average_coupon_rate_pct.map(Self::decimal_string),
+                "earliest_maturity": stats.bonds.earliest_maturity.map(|value| value.to_string()),
+                "latest_maturity": stats.bonds.latest_maturity.map(|value| value.to_string()),
+            }
+        })
+    }
+
+    fn search_trading_vehicle(&mut self, matches: &ArgMatches) -> Result<(), CliError> {
+        let filters = Self::parse_trading_vehicle_search_filters(matches)?;
+        if !filters.has_non_interactive_filters() {
+            TradingVehicleSearchDialogBuilder::new()
+                .search(&mut self.trust)
+                .display();
+            return Ok(());
+        }
+
+        let vehicles = self
+            .trust
+            .search_trading_vehicles()
+            .map_err(|error| CliError::new("trading_vehicle_search_failed", format!("{error}")))?;
+        let filtered = Self::filter_trading_vehicles(vehicles, &filters);
+
+        match filters.format {
+            ReportOutputFormat::Text => {
+                if filtered.is_empty() {
+                    println!("No trading vehicles matched the filters.");
+                } else {
+                    crate::views::TradingVehicleView::display_table(filtered);
+                }
+                Ok(())
+            }
+            ReportOutputFormat::Json => {
+                Self::print_json(&Self::trading_vehicle_search_payload(&filtered, &filters))
+            }
+        }
+    }
+
+    fn parse_trading_vehicle_search_filters(
+        matches: &ArgMatches,
+    ) -> Result<TradingVehicleSearchFilters, CliError> {
+        Ok(TradingVehicleSearchFilters {
+            category: matches
+                .get_one::<String>("category")
+                .map(|value| Self::parse_trading_vehicle_category(value))
+                .transpose()?,
+            broker: Self::optional_trimmed_lowercase_arg(matches, "broker"),
+            symbol: Self::optional_trimmed_uppercase_arg(matches, "symbol"),
+            isin: Self::optional_trimmed_uppercase_arg(matches, "isin"),
+            missing_bond_terms: matches.get_flag("missing-bond-terms"),
+            list_all: matches.get_flag("all"),
+            format: Self::parse_report_format(matches),
+        })
+    }
+
+    fn optional_trimmed_lowercase_arg(matches: &ArgMatches, key: &'static str) -> Option<String> {
+        matches
+            .get_one::<String>(key)
+            .map(|value| value.trim().to_ascii_lowercase())
+            .filter(|value| !value.is_empty())
+    }
+
+    fn optional_trimmed_uppercase_arg(matches: &ArgMatches, key: &'static str) -> Option<String> {
+        matches
+            .get_one::<String>(key)
+            .map(|value| value.trim().to_ascii_uppercase())
+            .filter(|value| !value.is_empty())
+    }
+
+    fn filter_trading_vehicles(
+        vehicles: Vec<model::TradingVehicle>,
+        filters: &TradingVehicleSearchFilters,
+    ) -> Vec<model::TradingVehicle> {
+        let mut filtered: Vec<model::TradingVehicle> = vehicles
+            .into_iter()
+            .filter(|vehicle| Self::trading_vehicle_matches_filters(vehicle, filters))
+            .collect();
+        filtered.sort_by(|left, right| {
+            left.category
+                .to_string()
+                .cmp(&right.category.to_string())
+                .then_with(|| left.symbol.cmp(&right.symbol))
+                .then_with(|| left.broker.cmp(&right.broker))
+        });
+        filtered
+    }
+
+    fn trading_vehicle_matches_filters(
+        vehicle: &model::TradingVehicle,
+        filters: &TradingVehicleSearchFilters,
+    ) -> bool {
+        if filters
+            .category
+            .is_some_and(|category| vehicle.category != category)
+        {
+            return false;
+        }
+        if filters
+            .broker
+            .as_ref()
+            .is_some_and(|broker| !vehicle.broker.to_ascii_lowercase().contains(broker))
+        {
+            return false;
+        }
+        if filters
+            .symbol
+            .as_ref()
+            .is_some_and(|symbol| !vehicle.symbol.to_ascii_uppercase().contains(symbol))
+        {
+            return false;
+        }
+        if filters.isin.as_ref().is_some_and(|isin| {
+            vehicle
+                .isin
+                .as_ref()
+                .is_none_or(|value| !value.to_ascii_uppercase().contains(isin))
+        }) {
+            return false;
+        }
+        if filters.missing_bond_terms && !Self::is_bond_missing_terms(vehicle) {
+            return false;
+        }
+        true
+    }
+
+    fn is_bond_missing_terms(vehicle: &model::TradingVehicle) -> bool {
+        if vehicle.category != model::TradingVehicleCategory::Bond {
+            return false;
+        }
+        match &vehicle.fixed_income {
+            Some(terms) => {
+                terms.face_value.is_none()
+                    || terms.annual_coupon_rate_pct.is_none()
+                    || terms.maturity_date.is_none()
+                    || terms.coupon_frequency_per_year.is_none()
+            }
+            None => true,
+        }
+    }
+
+    fn trading_vehicle_search_payload(
+        vehicles: &[model::TradingVehicle],
+        filters: &TradingVehicleSearchFilters,
+    ) -> Value {
+        json!({
+            "report": "trading_vehicle_search",
+            "filters": {
+                "category": filters.category.map(|category| category.to_string()),
+                "broker": &filters.broker,
+                "symbol": &filters.symbol,
+                "isin": &filters.isin,
+                "missing_bond_terms": filters.missing_bond_terms,
+                "all": filters.list_all,
+            },
+            "count": vehicles.len(),
+            "data": vehicles.iter().map(Self::trading_vehicle_payload).collect::<Vec<_>>(),
+        })
+    }
+
+    fn trading_vehicle_payload(vehicle: &model::TradingVehicle) -> Value {
+        json!({
+            "id": vehicle.id.to_string(),
+            "category": vehicle.category.to_string(),
+            "symbol": &vehicle.symbol,
+            "broker": &vehicle.broker,
+            "isin": &vehicle.isin,
+            "broker_asset_id": &vehicle.broker_asset_id,
+            "exchange": &vehicle.exchange,
+            "broker_asset_class": &vehicle.broker_asset_class,
+            "tradable": vehicle.tradable,
+            "marginable": vehicle.marginable,
+            "shortable": vehicle.shortable,
+            "fractionable": vehicle.fractionable,
+            "fixed_income": vehicle.fixed_income.as_ref().map(|terms| json!({
+                "face_value": terms.face_value.map(Self::decimal_string),
+                "annual_coupon_rate_pct": terms.annual_coupon_rate_pct.map(Self::decimal_string),
+                "maturity_date": terms.maturity_date.map(|value| value.to_string()),
+                "coupon_frequency_per_year": terms.coupon_frequency_per_year,
+            })),
+        })
+    }
+}
+
+impl TradingVehicleSearchFilters {
+    fn has_non_interactive_filters(&self) -> bool {
+        self.list_all
+            || self.category.is_some()
+            || self.broker.is_some()
+            || self.symbol.is_some()
+            || self.isin.is_some()
+            || self.missing_bond_terms
+            || self.format == ReportOutputFormat::Json
     }
 }
 
@@ -2897,6 +3507,8 @@ fn category_to_str(category: model::TradingVehicleCategory) -> &'static str {
         model::TradingVehicleCategory::Crypto => "crypto",
         model::TradingVehicleCategory::Fiat => "fiat",
         model::TradingVehicleCategory::Stock => "stock",
+        model::TradingVehicleCategory::Etf => "etf",
+        model::TradingVehicleCategory::Bond => "bond",
         _ => "unknown",
     }
 }
@@ -5571,7 +6183,7 @@ impl ArgDispatcher {
             .into_iter()
             .map(|(key, (count, pnl, funding))| (key, count, pnl, funding))
             .collect();
-        rows.sort_by(|a, b| b.2.cmp(&a.2));
+        rows.sort_by_key(|row| std::cmp::Reverse(row.2));
 
         match format {
             ReportOutputFormat::Text => {
@@ -6200,13 +6812,13 @@ impl ArgDispatcher {
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .collect();
-        if parts.len() != 4 {
+        let [process_raw, risk_raw, execution_raw, documentation_raw] = parts.as_slice() else {
             return Err(Self::report_error(
                 format,
                 "invalid_weights",
                 "Weights must have 4 comma-separated numbers",
             ));
-        }
+        };
 
         let parse_u16 = |s: &str| -> Result<u16, CliError> {
             s.parse::<u16>().map_err(|_| {
@@ -6214,55 +6826,22 @@ impl ArgDispatcher {
             })
         };
 
-        let a = parse_u16(parts.first().ok_or_else(|| {
-            Self::report_error(
-                format,
-                "invalid_weights",
-                "Weights must have 4 comma-separated numbers",
-            )
-        })?)?;
-        let b = parse_u16(parts.get(1).ok_or_else(|| {
-            Self::report_error(
-                format,
-                "invalid_weights",
-                "Weights must have 4 comma-separated numbers",
-            )
-        })?)?;
-        let c = parse_u16(parts.get(2).ok_or_else(|| {
-            Self::report_error(
-                format,
-                "invalid_weights",
-                "Weights must have 4 comma-separated numbers",
-            )
-        })?)?;
-        let d = parse_u16(parts.get(3).ok_or_else(|| {
-            Self::report_error(
-                format,
-                "invalid_weights",
-                "Weights must have 4 comma-separated numbers",
-            )
-        })?)?;
+        let a = parse_u16(process_raw)?;
+        let b = parse_u16(risk_raw)?;
+        let c = parse_u16(execution_raw)?;
+        let d = parse_u16(documentation_raw)?;
 
         let sum = u32::from(a)
-            .checked_add(u32::from(b))
-            .and_then(|v| v.checked_add(u32::from(c)))
-            .and_then(|v| v.checked_add(u32::from(d)))
-            .ok_or_else(|| Self::report_error(format, "invalid_weights", "Weights sum overflow"))?;
+            .saturating_add(u32::from(b))
+            .saturating_add(u32::from(c))
+            .saturating_add(u32::from(d));
 
         let (process, risk, execution, documentation) = if sum == 100 {
             (
-                a.checked_mul(10).ok_or_else(|| {
-                    Self::report_error(format, "invalid_weights", "Weight overflow")
-                })?,
-                b.checked_mul(10).ok_or_else(|| {
-                    Self::report_error(format, "invalid_weights", "Weight overflow")
-                })?,
-                c.checked_mul(10).ok_or_else(|| {
-                    Self::report_error(format, "invalid_weights", "Weight overflow")
-                })?,
-                d.checked_mul(10).ok_or_else(|| {
-                    Self::report_error(format, "invalid_weights", "Weight overflow")
-                })?,
+                a.saturating_mul(10),
+                b.saturating_mul(10),
+                c.saturating_mul(10),
+                d.saturating_mul(10),
             )
         } else if sum == 1000 {
             (a, b, c, d)
@@ -6280,10 +6859,406 @@ impl ArgDispatcher {
             execution,
             documentation,
         };
-        weights.validate().map_err(|e| {
-            Self::report_error(format, "invalid_weights", format!("Invalid weights: {e}"))
-        })?;
         Ok(weights)
+    }
+
+    fn metrics_bond(&mut self, sub_matches: &ArgMatches) -> Result<(), CliError> {
+        let format = Self::parse_report_format(sub_matches);
+        let input = self.parse_bond_analytics_input(sub_matches, format)?;
+        let analytics = self
+            .trust
+            .calculate_bond_analytics(input.clone())
+            .map_err(|error| {
+                Self::report_error(
+                    format,
+                    "bond_analytics_failed",
+                    format!("Unable to calculate bond metrics: {error}"),
+                )
+            })?;
+
+        match format {
+            ReportOutputFormat::Text => {
+                Self::print_bond_metrics_text(&input, &analytics);
+                Ok(())
+            }
+            ReportOutputFormat::Json => {
+                Self::print_json(&Self::bond_metrics_payload(&input, &analytics))
+            }
+        }
+    }
+
+    fn parse_bond_analytics_input(
+        &mut self,
+        sub_matches: &ArgMatches,
+        format: ReportOutputFormat,
+    ) -> Result<core::calculators_fixed_income::BondAnalyticsInput, CliError> {
+        let quantity = sub_matches
+            .get_one::<i64>("quantity")
+            .copied()
+            .ok_or_else(|| {
+                Self::report_error(format, "missing_argument", "Missing argument --quantity")
+            })?;
+
+        let market_price = Self::parse_decimal_arg(sub_matches, "market-price", format)?;
+        let symbol = sub_matches
+            .get_one::<String>("symbol")
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty());
+        let broker = sub_matches
+            .get_one::<String>("broker")
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty());
+
+        match (symbol, broker) {
+            (Some(symbol), Some(broker)) => self.parse_bond_input_from_vehicle(
+                sub_matches,
+                symbol,
+                broker,
+                market_price,
+                quantity,
+                format,
+            ),
+            (Some(_), None) => Err(Self::report_error(
+                format,
+                "missing_argument",
+                "Missing argument --broker for stored bond lookup",
+            )),
+            (None, Some(_)) => Err(Self::report_error(
+                format,
+                "missing_argument",
+                "Missing argument --symbol for stored bond lookup",
+            )),
+            (None, None) => Ok(core::calculators_fixed_income::BondAnalyticsInput {
+                face_value: Self::parse_decimal_arg(sub_matches, "face-value", format)?,
+                market_price,
+                annual_coupon_rate_pct: Self::parse_decimal_arg(
+                    sub_matches,
+                    "coupon-rate",
+                    format,
+                )?,
+                quantity,
+                years_to_maturity: Self::parse_decimal_arg(
+                    sub_matches,
+                    "years-to-maturity",
+                    format,
+                )?,
+                accrued_interest: Self::parse_bond_accrued_interest_input(
+                    sub_matches,
+                    None,
+                    format,
+                )?,
+            }),
+        }
+    }
+
+    fn parse_bond_input_from_vehicle(
+        &mut self,
+        sub_matches: &ArgMatches,
+        symbol: &str,
+        broker: &str,
+        market_price: Decimal,
+        quantity: i64,
+        format: ReportOutputFormat,
+    ) -> Result<core::calculators_fixed_income::BondAnalyticsInput, CliError> {
+        let symbol_norm = symbol.to_uppercase();
+        let broker_norm = broker.to_lowercase();
+        let vehicles = self.trust.search_trading_vehicles().map_err(|error| {
+            Self::report_error(format, "bond_vehicle_lookup_failed", format!("{error}"))
+        })?;
+        let vehicle = vehicles
+            .into_iter()
+            .find(|vehicle| {
+                vehicle.symbol == symbol_norm && vehicle.broker.eq_ignore_ascii_case(&broker_norm)
+            })
+            .ok_or_else(|| {
+                Self::report_error(
+                    format,
+                    "bond_vehicle_not_found",
+                    format!("No trading vehicle found for {broker}:{symbol}"),
+                )
+            })?;
+
+        if vehicle.category != model::TradingVehicleCategory::Bond {
+            return Err(Self::report_error(
+                format,
+                "bond_vehicle_wrong_category",
+                format!(
+                    "Trading vehicle {broker}:{symbol} is category {}, expected bond",
+                    vehicle.category
+                ),
+            ));
+        }
+
+        let terms = vehicle.fixed_income.as_ref().ok_or_else(|| {
+            Self::report_error(
+                format,
+                "bond_terms_missing",
+                format!("Trading vehicle {broker}:{symbol} has no fixed-income terms"),
+            )
+        })?;
+
+        Ok(core::calculators_fixed_income::BondAnalyticsInput {
+            face_value: Self::decimal_arg_or_stored(
+                sub_matches,
+                "face-value",
+                terms.face_value,
+                "stored bond face value is missing; pass --face-value",
+                format,
+            )?,
+            market_price,
+            annual_coupon_rate_pct: Self::decimal_arg_or_stored(
+                sub_matches,
+                "coupon-rate",
+                terms.annual_coupon_rate_pct,
+                "stored bond coupon rate is missing; pass --coupon-rate",
+                format,
+            )?,
+            quantity,
+            years_to_maturity: Self::years_to_maturity_arg_or_stored(
+                sub_matches,
+                terms.maturity_date,
+                format,
+            )?,
+            accrued_interest: Self::parse_bond_accrued_interest_input(
+                sub_matches,
+                terms.coupon_frequency_per_year,
+                format,
+            )?,
+        })
+    }
+
+    fn parse_bond_accrued_interest_input(
+        sub_matches: &ArgMatches,
+        stored_coupon_frequency: Option<u16>,
+        format: ReportOutputFormat,
+    ) -> Result<Option<core::calculators_fixed_income::BondAccruedInterestInput>, CliError> {
+        if !Self::bond_accrued_interest_args_present(sub_matches) {
+            return Ok(None);
+        }
+
+        let coupon_frequency = sub_matches
+            .get_one::<u16>("coupon-frequency")
+            .copied()
+            .or(stored_coupon_frequency)
+            .ok_or_else(|| {
+                Self::report_error(
+                    format,
+                    "missing_argument",
+                    "Missing argument --coupon-frequency for accrued-interest calculations",
+                )
+            })?;
+        if coupon_frequency == 0 {
+            return Err(Self::report_error(
+                format,
+                "invalid_coupon_frequency",
+                "--coupon-frequency must be greater than zero",
+            ));
+        }
+
+        let day_count_basis = match sub_matches.get_one::<String>("day-count") {
+            Some(raw) => {
+                core::calculators_fixed_income::DayCountBasis::from_str(raw).map_err(|_| {
+                    Self::report_error(
+                        format,
+                        "invalid_day_count",
+                        format!("Invalid --day-count value: {raw}"),
+                    )
+                })?
+            }
+            None => core::calculators_fixed_income::DayCountBasis::ActualActual,
+        };
+
+        Ok(Some(
+            core::calculators_fixed_income::BondAccruedInterestInput {
+                settlement_date: Self::parse_required_bond_date_arg(
+                    sub_matches,
+                    "settlement-date",
+                    format,
+                )?,
+                last_coupon_date: Self::parse_required_bond_date_arg(
+                    sub_matches,
+                    "last-coupon-date",
+                    format,
+                )?,
+                next_coupon_date: Self::parse_required_bond_date_arg(
+                    sub_matches,
+                    "next-coupon-date",
+                    format,
+                )?,
+                coupon_frequency_per_year: coupon_frequency,
+                day_count_basis,
+            },
+        ))
+    }
+
+    fn bond_accrued_interest_args_present(sub_matches: &ArgMatches) -> bool {
+        sub_matches.get_one::<u16>("coupon-frequency").is_some()
+            || sub_matches.get_one::<String>("settlement-date").is_some()
+            || sub_matches.get_one::<String>("last-coupon-date").is_some()
+            || sub_matches.get_one::<String>("next-coupon-date").is_some()
+            || sub_matches.get_one::<String>("day-count").is_some()
+    }
+
+    fn parse_required_bond_date_arg(
+        sub_matches: &ArgMatches,
+        key: &'static str,
+        format: ReportOutputFormat,
+    ) -> Result<NaiveDate, CliError> {
+        let raw = sub_matches.get_one::<String>(key).ok_or_else(|| {
+            Self::report_error(
+                format,
+                "missing_argument",
+                format!("Missing argument --{key}"),
+            )
+        })?;
+        NaiveDate::parse_from_str(raw, "%Y-%m-%d").map_err(|_| {
+            Self::report_error(
+                format,
+                "invalid_date",
+                format!("Invalid --{key} value (expected YYYY-MM-DD): {raw}"),
+            )
+        })
+    }
+
+    fn decimal_arg_or_stored(
+        sub_matches: &ArgMatches,
+        key: &'static str,
+        stored: Option<Decimal>,
+        missing_message: &'static str,
+        format: ReportOutputFormat,
+    ) -> Result<Decimal, CliError> {
+        match Self::parse_optional_decimal_arg(sub_matches, key, format)? {
+            Some(value) => Ok(value),
+            None => stored
+                .ok_or_else(|| Self::report_error(format, "bond_terms_missing", missing_message)),
+        }
+    }
+
+    fn years_to_maturity_arg_or_stored(
+        sub_matches: &ArgMatches,
+        maturity_date: Option<NaiveDate>,
+        format: ReportOutputFormat,
+    ) -> Result<Decimal, CliError> {
+        if let Some(value) =
+            Self::parse_optional_decimal_arg(sub_matches, "years-to-maturity", format)?
+        {
+            return Ok(value);
+        }
+
+        let maturity_date = maturity_date.ok_or_else(|| {
+            Self::report_error(
+                format,
+                "bond_terms_missing",
+                "stored bond maturity date is missing; pass --years-to-maturity",
+            )
+        })?;
+        Self::years_to_maturity(maturity_date, Utc::now().date_naive(), format)
+    }
+
+    fn years_to_maturity(
+        maturity_date: NaiveDate,
+        as_of_date: NaiveDate,
+        _format: ReportOutputFormat,
+    ) -> Result<Decimal, CliError> {
+        let days = maturity_date.signed_duration_since(as_of_date).num_days();
+        if days <= 0 {
+            return Ok(Decimal::ZERO);
+        }
+        Ok(Decimal::from(days)
+            .checked_div(dec!(365))
+            .unwrap_or(dec!(0)))
+    }
+
+    fn print_bond_metrics_text(
+        input: &core::calculators_fixed_income::BondAnalyticsInput,
+        analytics: &core::calculators_fixed_income::BondAnalytics,
+    ) {
+        println!("Bond Metrics");
+        println!("============");
+        println!("face_value: {}", Self::decimal_string(input.face_value));
+        println!("market_price: {}", Self::decimal_string(input.market_price));
+        println!(
+            "coupon_rate: {}%",
+            Self::decimal_string(input.annual_coupon_rate_pct)
+        );
+        println!("quantity: {}", input.quantity);
+        println!(
+            "position_face_value: {}",
+            Self::decimal_string(analytics.position_face_value)
+        );
+        println!(
+            "position_market_value: {}",
+            Self::decimal_string(analytics.position_market_value)
+        );
+        println!(
+            "accrued_interest: {}",
+            Self::decimal_string(analytics.accrued_interest_total)
+        );
+        println!(
+            "dirty_price: {}",
+            Self::decimal_string(analytics.dirty_price)
+        );
+        println!(
+            "position_dirty_value: {}",
+            Self::decimal_string(analytics.position_dirty_value)
+        );
+        println!(
+            "annual_coupon_income: {}",
+            Self::decimal_string(analytics.annual_coupon_income)
+        );
+        println!(
+            "current_yield: {}%",
+            Self::decimal_string(analytics.current_yield_pct)
+        );
+        println!(
+            "approximate_ytm: {}",
+            analytics
+                .approximate_yield_to_maturity_pct
+                .map(|value| format!("{}%", Self::decimal_string(value)))
+                .unwrap_or_else(|| "n/a".to_string())
+        );
+        println!(
+            "premium_discount: {} ({}%)",
+            Self::decimal_string(analytics.price_premium_discount),
+            Self::decimal_string(analytics.price_premium_discount_pct)
+        );
+    }
+
+    fn bond_metrics_payload(
+        input: &core::calculators_fixed_income::BondAnalyticsInput,
+        analytics: &core::calculators_fixed_income::BondAnalytics,
+    ) -> Value {
+        json!({
+            "report": "bond_metrics",
+            "input": {
+                "face_value": Self::decimal_string(input.face_value),
+                "market_price": Self::decimal_string(input.market_price),
+                "annual_coupon_rate_pct": Self::decimal_string(input.annual_coupon_rate_pct),
+                "quantity": input.quantity,
+                "years_to_maturity": Self::decimal_string(input.years_to_maturity),
+                "accrued_interest": input.accrued_interest.as_ref().map(|accrual| json!({
+                    "settlement_date": accrual.settlement_date.to_string(),
+                    "last_coupon_date": accrual.last_coupon_date.to_string(),
+                    "next_coupon_date": accrual.next_coupon_date.to_string(),
+                    "coupon_frequency_per_year": accrual.coupon_frequency_per_year,
+                    "day_count_basis": accrual.day_count_basis.to_string(),
+                })),
+            },
+            "data": {
+                "position_face_value": Self::decimal_string(analytics.position_face_value),
+                "position_market_value": Self::decimal_string(analytics.position_market_value),
+                "annual_coupon_per_unit": Self::decimal_string(analytics.annual_coupon_per_unit),
+                "annual_coupon_income": Self::decimal_string(analytics.annual_coupon_income),
+                "current_yield_pct": Self::decimal_string(analytics.current_yield_pct),
+                "approximate_yield_to_maturity_pct": analytics.approximate_yield_to_maturity_pct.map(Self::decimal_string),
+                "price_premium_discount": Self::decimal_string(analytics.price_premium_discount),
+                "price_premium_discount_pct": Self::decimal_string(analytics.price_premium_discount_pct),
+                "accrued_interest_per_unit": Self::decimal_string(analytics.accrued_interest_per_unit),
+                "accrued_interest_total": Self::decimal_string(analytics.accrued_interest_total),
+                "dirty_price": Self::decimal_string(analytics.dirty_price),
+                "position_dirty_value": Self::decimal_string(analytics.position_dirty_value),
+            }
+        })
     }
 
     fn metrics_advanced(&mut self, sub_matches: &ArgMatches) {
@@ -7051,11 +8026,13 @@ mod tests {
     )]
 
     use super::ArgDispatcher;
+    use super::BondInventoryStats;
     use super::CliError;
     use super::ReportOutputFormat;
     use super::TradeHypothesisArgs;
     use super::TradeHypothesisReport;
     use super::TradePreviewArgs;
+    use super::TradingVehicleSearchFilters;
     use crate::commands::{
         AccountCommandBuilder, AdvisorCommandBuilder, DbCommandBuilder, DistributionCommandBuilder,
         GradeCommandBuilder, KeysCommandBuilder, LevelCommandBuilder, MarketDataCommandBuilder,
@@ -7075,16 +8052,15 @@ mod tests {
     use core::TrustFacade;
     use db_sqlite::SqliteDatabase;
     use model::{
-        AccountType, Broker, BrokerKind, BrokerLog, Currency, Environment, Level,
-        LevelAdjustmentRules, LevelDirection, LevelStatus, LevelTrigger, MarketBar,
-        MarketDataChannel, MarketDataStreamEvent, MarketQuote, MarketSnapshotSource,
-        MarketSnapshotV2, MarketTradeTick, OrderIds, Status, Trade, TradingVehicleCategory,
-        TransactionCategory,
+        database::TradingVehicleUpsert, AccountType, Broker, BrokerKind, BrokerLog, Currency,
+        Environment, FixedIncomeTerms, Level, LevelAdjustmentRules, LevelDirection, LevelStatus,
+        LevelTrigger, MarketBar, MarketDataChannel, MarketDataStreamEvent, MarketQuote,
+        MarketSnapshotSource, MarketSnapshotV2, MarketTradeTick, OrderIds, Status, Trade,
+        TradingVehicleCategory, TransactionCategory,
     };
     use rust_decimal::Decimal;
     use rust_decimal_macros::dec;
     use std::error::Error;
-    use std::sync::{Mutex, MutexGuard, OnceLock};
     use uuid::Uuid;
 
     #[derive(Clone)]
@@ -7093,6 +8069,11 @@ mod tests {
         quote: Option<MarketQuote>,
         trade: Option<MarketTradeTick>,
         events: Vec<MarketDataStreamEvent>,
+        fail_bars: bool,
+        fail_stream: bool,
+        submit_succeeds: bool,
+        sync_fills_entry: bool,
+        sync_returns_empty: bool,
     }
 
     impl StubBroker {
@@ -7151,7 +8132,25 @@ mod tests {
                         size: 10,
                     },
                 ],
+                fail_bars: false,
+                fail_stream: false,
+                submit_succeeds: false,
+                sync_fills_entry: false,
+                sync_returns_empty: false,
             }
+        }
+
+        fn submitted_fill_fixture() -> Self {
+            let mut broker = Self::quote_trade_fixture();
+            broker.submit_succeeds = true;
+            broker.sync_fills_entry = true;
+            broker
+        }
+
+        fn submitted_empty_sync_fixture() -> Self {
+            let mut broker = Self::submitted_fill_fixture();
+            broker.sync_returns_empty = true;
+            broker
         }
     }
 
@@ -7162,18 +8161,61 @@ mod tests {
 
         fn submit_trade(
             &self,
-            _trade: &Trade,
+            trade: &Trade,
             _account: &model::Account,
         ) -> Result<(BrokerLog, OrderIds), Box<dyn Error>> {
-            Err("not implemented in test stub".into())
+            if !self.submit_succeeds {
+                return Err("not implemented in test stub".into());
+            }
+            Ok((
+                BrokerLog {
+                    trade_id: trade.id,
+                    log: "submitted by test stub".to_string(),
+                    ..BrokerLog::default()
+                },
+                OrderIds {
+                    stop: format!("stop-{}", trade.id),
+                    entry: format!("entry-{}", trade.id),
+                    target: format!("target-{}", trade.id),
+                },
+            ))
         }
 
         fn sync_trade(
             &self,
-            _trade: &Trade,
+            trade: &Trade,
             _account: &model::Account,
         ) -> Result<(Status, Vec<model::Order>, BrokerLog), Box<dyn Error>> {
-            Err("not implemented in test stub".into())
+            if !self.sync_fills_entry {
+                return Err("not implemented in test stub".into());
+            }
+
+            if self.sync_returns_empty {
+                return Ok((
+                    Status::Submitted,
+                    vec![],
+                    BrokerLog {
+                        trade_id: trade.id,
+                        log: "empty sync by test stub".to_string(),
+                        ..BrokerLog::default()
+                    },
+                ));
+            }
+
+            let mut entry = trade.entry.clone();
+            entry.status = model::OrderStatus::Filled;
+            entry.filled_quantity = entry.quantity;
+            entry.average_filled_price = Some(entry.unit_price);
+            entry.filled_at = Some(Utc::now().naive_utc());
+            Ok((
+                Status::Filled,
+                vec![entry],
+                BrokerLog {
+                    trade_id: trade.id,
+                    log: "synced by test stub".to_string(),
+                    ..BrokerLog::default()
+                },
+            ))
         }
 
         fn close_trade(
@@ -7218,6 +8260,9 @@ mod tests {
             _timeframe: model::BarTimeframe,
             _account: &model::Account,
         ) -> Result<Vec<MarketBar>, Box<dyn Error>> {
+            if self.fail_bars {
+                return Err("bars unavailable".into());
+            }
             Ok(self.bars.clone())
         }
 
@@ -7245,20 +8290,15 @@ mod tests {
             _timeout_seconds: u64,
             _account: &model::Account,
         ) -> Result<Vec<MarketDataStreamEvent>, Box<dyn Error>> {
+            if self.fail_stream {
+                return Err("stream unavailable".into());
+            }
             Ok(self.events.clone())
         }
     }
 
-    fn env_lock() -> &'static Mutex<()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-    }
-
-    fn env_guard() -> MutexGuard<'static, ()> {
-        match env_lock().lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => poisoned.into_inner(),
-        }
+    fn env_guard() -> std::sync::MutexGuard<'static, ()> {
+        crate::protected_keyword::test_env_guard()
     }
 
     fn test_dispatcher() -> ArgDispatcher {
@@ -7271,6 +8311,13 @@ mod tests {
 
     fn test_dispatcher_with_broker(broker: Box<dyn Broker>) -> ArgDispatcher {
         let trust = TrustFacade::new(Box::new(SqliteDatabase::new_in_memory()), broker);
+        ArgDispatcher { trust }
+    }
+
+    fn test_dispatcher_with_read_failures(
+        factory: crate::test_support::ReadFailureFactory,
+    ) -> ArgDispatcher {
+        let trust = TrustFacade::new(Box::new(factory), Box::<AlpacaBroker>::default());
         ArgDispatcher { trust }
     }
 
@@ -7303,8 +8350,16 @@ mod tests {
             .arg(Arg::new("target").long("target"))
             .arg(Arg::new("quantity").long("quantity"))
             .arg(Arg::new("currency").long("currency"))
-            .arg(Arg::new("auto-fund").long("auto-fund"))
-            .arg(Arg::new("auto-submit").long("auto-submit"))
+            .arg(
+                Arg::new("auto-fund")
+                    .long("auto-fund")
+                    .action(clap::ArgAction::SetTrue),
+            )
+            .arg(
+                Arg::new("auto-submit")
+                    .long("auto-submit")
+                    .action(clap::ArgAction::SetTrue),
+            )
             .arg(Arg::new("thesis").long("thesis"))
             .arg(Arg::new("sector").long("sector"))
             .arg(Arg::new("asset-class").long("asset-class"))
@@ -7503,6 +8558,7 @@ mod tests {
             .subcommand(
                 TradingVehicleCommandBuilder::new()
                     .create_trading_vehicle()
+                    .update_bond_terms()
                     .search_trading_vehicle()
                     .build(),
             )
@@ -7569,7 +8625,13 @@ mod tests {
                     .rules()
                     .build(),
             )
-            .subcommand(MetricsCommandBuilder::new().advanced().compare().build())
+            .subcommand(
+                MetricsCommandBuilder::new()
+                    .advanced()
+                    .compare()
+                    .bond()
+                    .build(),
+            )
             .subcommand(
                 AdvisorCommandBuilder::new()
                     .configure()
@@ -7605,6 +8667,73 @@ mod tests {
         (account, vehicle)
     }
 
+    fn seed_new_trade(dispatcher: &mut ArgDispatcher) -> (model::Account, Trade) {
+        let (account, vehicle) = seed_account_and_vehicle(dispatcher);
+        let trade = dispatcher
+            .trust
+            .create_trade(
+                model::DraftTrade {
+                    account: account.clone(),
+                    trading_vehicle: vehicle,
+                    quantity: 2,
+                    category: model::TradeCategory::Long,
+                    currency: Currency::USD,
+                    thesis: Some("breakout".to_string()),
+                    sector: Some("technology".to_string()),
+                    asset_class: Some("equity".to_string()),
+                    context: None,
+                },
+                dec!(95),
+                dec!(100),
+                dec!(110),
+            )
+            .expect("seed trade");
+        (account, trade)
+    }
+
+    fn seed_filled_trade(dispatcher: &mut ArgDispatcher) -> (model::Account, Trade) {
+        let (account, trade) = seed_new_trade(dispatcher);
+        let (funded, _, _, _) = dispatcher.trust.fund_trade(&trade).expect("fund trade");
+        let (submitted, _) = dispatcher
+            .trust
+            .submit_trade(&funded)
+            .expect("submit trade");
+        let (status, _, _) = dispatcher
+            .trust
+            .sync_trade(&submitted, &account)
+            .expect("sync trade to filled");
+        assert_eq!(status, Status::Filled);
+        let filled = dispatcher
+            .trust
+            .search_trades(account.id, Status::Filled)
+            .expect("load filled trades")
+            .into_iter()
+            .find(|candidate| candidate.id == trade.id)
+            .expect("filled trade should be persisted");
+        (account, filled)
+    }
+
+    fn seed_closed_target_trade(dispatcher: &mut ArgDispatcher) -> (model::Account, Trade) {
+        let (account, filled) = seed_filled_trade(dispatcher);
+        let mut target_ready = filled.clone();
+        target_ready.target.status = model::OrderStatus::Filled;
+        target_ready.target.filled_quantity = target_ready.target.quantity;
+        target_ready.target.average_filled_price = Some(dec!(110));
+        target_ready.target.filled_at = Some(Utc::now().naive_utc());
+        dispatcher
+            .trust
+            .target_acquired(&target_ready, Decimal::ZERO)
+            .expect("seed closed target trade");
+        let closed = dispatcher
+            .trust
+            .search_trades(account.id, Status::ClosedTarget)
+            .expect("load closed target trades")
+            .into_iter()
+            .find(|candidate| candidate.id == filled.id)
+            .expect("closed trade should be persisted");
+        (account, closed)
+    }
+
     #[test]
     fn test_protected_keyword_validator() {
         assert!(ArgDispatcher::is_valid_protected_keyword("abc", "abc"));
@@ -7619,12 +8748,20 @@ mod tests {
             AccountType::Primary
         );
         assert_eq!(
+            ArgDispatcher::parse_account_type("earnings").unwrap(),
+            AccountType::Earnings
+        );
+        assert_eq!(
             ArgDispatcher::parse_account_type("tax-reserve").unwrap(),
             AccountType::TaxReserve
         );
         assert_eq!(
             ArgDispatcher::parse_account_type("tax_reserve").unwrap(),
             AccountType::TaxReserve
+        );
+        assert_eq!(
+            ArgDispatcher::parse_account_type("reinvestment").unwrap(),
+            AccountType::Reinvestment
         );
     }
 
@@ -7744,6 +8881,497 @@ mod tests {
     }
 
     #[test]
+    fn test_metrics_compare_executes_text_json_validation_and_exports() {
+        let mut dispatcher = test_dispatcher();
+        let account = dispatcher
+            .trust
+            .create_account(
+                "metrics-compare-account",
+                "metrics compare",
+                Environment::Paper,
+                dec!(10),
+                dec!(5),
+            )
+            .expect("seed account");
+        let text = MetricsCommandBuilder::new()
+            .compare()
+            .build()
+            .get_matches_from([
+                "metrics",
+                "compare",
+                "--period1",
+                "all",
+                "--period2",
+                "last-7-days",
+            ]);
+        dispatcher.metrics_compare(text.subcommand_matches("compare").unwrap());
+
+        let valid_account = MetricsCommandBuilder::new()
+            .compare()
+            .build()
+            .get_matches_from([
+                "metrics",
+                "compare",
+                "--period1",
+                "all",
+                "--period2",
+                "last-7-days",
+                "--account",
+                &account.id.to_string(),
+            ]);
+        dispatcher.metrics_compare(valid_account.subcommand_matches("compare").unwrap());
+
+        let json = MetricsCommandBuilder::new()
+            .compare()
+            .build()
+            .get_matches_from([
+                "metrics",
+                "compare",
+                "--period1",
+                "previous-7-days",
+                "--period2",
+                "last-7-days",
+                "--format",
+                "json",
+            ]);
+        dispatcher.metrics_compare(json.subcommand_matches("compare").unwrap());
+
+        let invalid_account = MetricsCommandBuilder::new()
+            .compare()
+            .build()
+            .get_matches_from([
+                "metrics",
+                "compare",
+                "--period1",
+                "all",
+                "--period2",
+                "last-7-days",
+                "--account",
+                "not-a-uuid",
+            ]);
+        dispatcher.metrics_compare(invalid_account.subcommand_matches("compare").unwrap());
+
+        let invalid_second_period = MetricsCommandBuilder::new()
+            .compare()
+            .build()
+            .get_matches_from([
+                "metrics",
+                "compare",
+                "--period1",
+                "all",
+                "--period2",
+                "not-a-period",
+            ]);
+        dispatcher.metrics_compare(invalid_second_period.subcommand_matches("compare").unwrap());
+
+        let csv_output =
+            std::env::temp_dir().join(format!("trust-metrics-compare-{}.csv", Uuid::new_v4()));
+        let csv_output_arg = csv_output.to_string_lossy().to_string();
+        let csv_export = MetricsCommandBuilder::new()
+            .compare()
+            .build()
+            .get_matches_from([
+                "metrics",
+                "compare",
+                "--period1",
+                "all",
+                "--period2",
+                "last-7-days",
+                "--export",
+                "csv",
+                "--output",
+                &csv_output_arg,
+            ]);
+        dispatcher.metrics_compare(csv_export.subcommand_matches("compare").unwrap());
+        assert!(csv_output.exists());
+        let _ = std::fs::remove_file(&csv_output);
+
+        let json_output =
+            std::env::temp_dir().join(format!("trust-metrics-compare-{}.json", Uuid::new_v4()));
+        let json_output_arg = json_output.to_string_lossy().to_string();
+        let json_export = MetricsCommandBuilder::new()
+            .compare()
+            .build()
+            .get_matches_from([
+                "metrics",
+                "compare",
+                "--period1",
+                "all",
+                "--period2",
+                "last-7-days",
+                "--format",
+                "json",
+                "--export",
+                "json",
+                "--output",
+                &json_output_arg,
+            ]);
+        dispatcher.metrics_compare(json_export.subcommand_matches("compare").unwrap());
+        assert!(json_output.exists());
+        let _ = std::fs::remove_file(&json_output);
+
+        let failed_export = MetricsCommandBuilder::new()
+            .compare()
+            .build()
+            .get_matches_from([
+                "metrics",
+                "compare",
+                "--period1",
+                "all",
+                "--period2",
+                "last-7-days",
+                "--export",
+                "csv",
+                "--output",
+                "/tmp",
+            ]);
+        dispatcher.metrics_compare(failed_export.subcommand_matches("compare").unwrap());
+
+        let unsupported_export = Command::new("compare")
+            .arg(Arg::new("period1").long("period1").required(true))
+            .arg(Arg::new("period2").long("period2").required(true))
+            .arg(Arg::new("account").long("account"))
+            .arg(Arg::new("format").long("format"))
+            .arg(Arg::new("export").long("export"))
+            .arg(Arg::new("output").long("output"))
+            .get_matches_from([
+                "compare",
+                "--period1",
+                "all",
+                "--period2",
+                "last-7-days",
+                "--export",
+                "xml",
+                "--output",
+                "/tmp",
+            ]);
+        dispatcher.metrics_compare(&unsupported_export);
+    }
+
+    #[test]
+    fn test_export_metrics_writes_json_csv_and_rejects_unknown_format() {
+        let dispatcher = test_dispatcher();
+        let mut trade = Trade {
+            status: Status::ClosedTarget,
+            ..Trade::default()
+        };
+        trade.balance.total_performance = dec!(125);
+        let trades = vec![trade];
+
+        let json_output =
+            std::env::temp_dir().join(format!("trust-advanced-metrics-{}.json", Uuid::new_v4()));
+        let json_output_arg = json_output.to_string_lossy().to_string();
+        dispatcher
+            .export_metrics(&trades, "json", &json_output_arg, dec!(0.05))
+            .expect("json export should succeed");
+        assert!(json_output.exists());
+        let _ = std::fs::remove_file(&json_output);
+
+        let csv_output =
+            std::env::temp_dir().join(format!("trust-advanced-metrics-{}.csv", Uuid::new_v4()));
+        let csv_output_arg = csv_output.to_string_lossy().to_string();
+        dispatcher
+            .export_metrics(&trades, "csv", &csv_output_arg, dec!(0.05))
+            .expect("csv export should succeed");
+        assert!(csv_output.exists());
+        let _ = std::fs::remove_file(&csv_output);
+
+        let unsupported = dispatcher
+            .export_metrics(&trades, "xml", "/tmp/unused-trust-metrics.xml", dec!(0.05))
+            .expect_err("unsupported export formats should fail");
+        assert!(unsupported
+            .to_string()
+            .contains("Unsupported export format"));
+    }
+
+    #[test]
+    fn test_metrics_advanced_executes_non_empty_display_and_export_paths() {
+        let mut empty_dispatcher = test_dispatcher();
+        let empty_display = MetricsCommandBuilder::new()
+            .advanced()
+            .build()
+            .get_matches_from(["metrics", "advanced"]);
+        empty_dispatcher.metrics_advanced(empty_display.subcommand_matches("advanced").unwrap());
+        let invalid_account = MetricsCommandBuilder::new()
+            .advanced()
+            .build()
+            .get_matches_from(["metrics", "advanced", "--account", "not-a-uuid"]);
+        empty_dispatcher.metrics_advanced(invalid_account.subcommand_matches("advanced").unwrap());
+
+        let mut dispatcher =
+            test_dispatcher_with_broker(Box::new(StubBroker::submitted_fill_fixture()));
+        let (account, _closed) = seed_closed_target_trade(&mut dispatcher);
+
+        let display = MetricsCommandBuilder::new()
+            .advanced()
+            .build()
+            .get_matches_from([
+                "metrics",
+                "advanced",
+                "--account",
+                &account.id.to_string(),
+                "--days",
+                "0",
+                "--risk-free-rate",
+                "0.03",
+            ]);
+        dispatcher.metrics_advanced(display.subcommand_matches("advanced").unwrap());
+
+        let json_output =
+            std::env::temp_dir().join(format!("trust-metrics-advanced-{}.json", Uuid::new_v4()));
+        let json_output_arg = json_output.to_string_lossy().to_string();
+        let json_export = MetricsCommandBuilder::new()
+            .advanced()
+            .build()
+            .get_matches_from([
+                "metrics",
+                "advanced",
+                "--account",
+                &account.id.to_string(),
+                "--days",
+                "0",
+                "--export",
+                "json",
+                "--output",
+                &json_output_arg,
+            ]);
+        dispatcher.metrics_advanced(json_export.subcommand_matches("advanced").unwrap());
+        assert!(json_output.exists());
+        let _ = std::fs::remove_file(&json_output);
+
+        let csv_output =
+            std::env::temp_dir().join(format!("trust-metrics-advanced-{}.csv", Uuid::new_v4()));
+        let csv_output_arg = csv_output.to_string_lossy().to_string();
+        let csv_export = MetricsCommandBuilder::new()
+            .advanced()
+            .build()
+            .get_matches_from([
+                "metrics",
+                "advanced",
+                "--account",
+                &account.id.to_string(),
+                "--days",
+                "0",
+                "--export",
+                "csv",
+                "--output",
+                &csv_output_arg,
+            ]);
+        dispatcher.metrics_advanced(csv_export.subcommand_matches("advanced").unwrap());
+        assert!(csv_output.exists());
+        let _ = std::fs::remove_file(&csv_output);
+
+        let failed_export = MetricsCommandBuilder::new()
+            .advanced()
+            .build()
+            .get_matches_from([
+                "metrics",
+                "advanced",
+                "--account",
+                &account.id.to_string(),
+                "--days",
+                "0",
+                "--export",
+                "json",
+                "--output",
+                "/tmp",
+            ]);
+        dispatcher.metrics_advanced(failed_export.subcommand_matches("advanced").unwrap());
+    }
+
+    #[test]
+    fn test_grade_show_and_summary_cover_text_json_regrade_and_empty_paths() {
+        let mut dispatcher =
+            test_dispatcher_with_broker(Box::new(StubBroker::submitted_fill_fixture()));
+        let (account, closed) = seed_closed_target_trade(&mut dispatcher);
+        let trade_id = closed.id.to_string();
+
+        let show_matches = GradeCommandBuilder::new()
+            .show()
+            .build()
+            .get_matches_from(["grade", "show", &trade_id]);
+        let show = show_matches
+            .subcommand_matches("show")
+            .expect("show subcommand");
+        dispatcher
+            .grade_show(show, ReportOutputFormat::Text)
+            .expect("grade show text should compute a grade");
+        dispatcher
+            .grade_show(show, ReportOutputFormat::Json)
+            .expect("grade show json should reuse the existing grade");
+
+        let mismatched_weights = GradeCommandBuilder::new().show().build().get_matches_from([
+            "grade",
+            "show",
+            &trade_id,
+            "--weights",
+            "25,25,25,25",
+        ]);
+        let mismatch_error = dispatcher
+            .grade_show(
+                mismatched_weights
+                    .subcommand_matches("show")
+                    .expect("show subcommand"),
+                ReportOutputFormat::Json,
+            )
+            .expect_err("mismatched weights should require --regrade");
+        assert!(mismatch_error.to_string().contains("weights_mismatch"));
+
+        let regrade_matches = GradeCommandBuilder::new().show().build().get_matches_from([
+            "grade",
+            "show",
+            &trade_id,
+            "--weights",
+            "25,25,25,25",
+            "--regrade",
+        ]);
+        dispatcher
+            .grade_show(
+                regrade_matches
+                    .subcommand_matches("show")
+                    .expect("show subcommand"),
+                ReportOutputFormat::Text,
+            )
+            .expect("regrade with explicit weights should succeed");
+
+        let stored_grade_matches = GradeCommandBuilder::new().show().build().get_matches_from([
+            "grade",
+            "show",
+            &Uuid::new_v4().to_string(),
+        ]);
+        let mut stored_grade_dispatcher = test_dispatcher_with_read_failures(
+            crate::test_support::ReadFailureFactory::existing_empty_trade_grade(),
+        );
+        stored_grade_dispatcher
+            .grade_show(
+                stored_grade_matches
+                    .subcommand_matches("show")
+                    .expect("show subcommand"),
+                ReportOutputFormat::Text,
+            )
+            .expect("stored grade with no recommendations should render");
+
+        let stored_grade_matching_weights =
+            GradeCommandBuilder::new().show().build().get_matches_from([
+                "grade",
+                "show",
+                &Uuid::new_v4().to_string(),
+                "--weights",
+                "40,30,20,10",
+            ]);
+        stored_grade_dispatcher
+            .grade_show(
+                stored_grade_matching_weights
+                    .subcommand_matches("show")
+                    .expect("show subcommand"),
+                ReportOutputFormat::Json,
+            )
+            .expect("stored grade should accept matching explicit weights");
+
+        let regrade_failure_matches = GradeCommandBuilder::new().show().build().get_matches_from([
+            "grade",
+            "show",
+            &Uuid::new_v4().to_string(),
+            "--regrade",
+        ]);
+        let mut regrade_failure_dispatcher = test_dispatcher_with_read_failures(
+            crate::test_support::ReadFailureFactory::existing_trade_grade_then_trade_failure(),
+        );
+        let error = regrade_failure_dispatcher
+            .grade_show(
+                regrade_failure_matches
+                    .subcommand_matches("show")
+                    .expect("show subcommand"),
+                ReportOutputFormat::Json,
+            )
+            .expect_err("regrade should surface grade computation failures");
+        assert_eq!(error.code, "grade_compute_failed");
+
+        let summary_matches = GradeCommandBuilder::new()
+            .summary()
+            .build()
+            .get_matches_from([
+                "grade",
+                "summary",
+                "--account",
+                &account.id.to_string(),
+                "--days",
+                "365",
+            ]);
+        let summary = summary_matches
+            .subcommand_matches("summary")
+            .expect("summary subcommand");
+        dispatcher
+            .grade_summary(summary, ReportOutputFormat::Text)
+            .expect("grade summary text should include non-empty distribution");
+        dispatcher
+            .grade_summary(summary, ReportOutputFormat::Json)
+            .expect("grade summary json should include non-empty distribution");
+
+        let mut ungraded_dispatcher =
+            test_dispatcher_with_broker(Box::new(StubBroker::submitted_fill_fixture()));
+        let (ungraded_account, _) = seed_closed_target_trade(&mut ungraded_dispatcher);
+        let ungraded_summary_matches = GradeCommandBuilder::new()
+            .summary()
+            .build()
+            .get_matches_from([
+                "grade",
+                "summary",
+                "--account",
+                &ungraded_account.id.to_string(),
+                "--days",
+                "365",
+            ]);
+        ungraded_dispatcher
+            .grade_summary(
+                ungraded_summary_matches
+                    .subcommand_matches("summary")
+                    .expect("summary subcommand"),
+                ReportOutputFormat::Json,
+            )
+            .expect("grade summary should compute missing grades");
+
+        let mut grade_failure_dispatcher = test_dispatcher_with_read_failures(
+            crate::test_support::ReadFailureFactory::closed_trade_without_grade_then_trade_read_failure(),
+        );
+        let grade_failure_account = Uuid::new_v4().to_string();
+        let grade_failure_summary = GradeCommandBuilder::new()
+            .summary()
+            .build()
+            .get_matches_from([
+                "grade",
+                "summary",
+                "--account",
+                &grade_failure_account,
+                "--days",
+                "365",
+            ]);
+        let error = grade_failure_dispatcher
+            .grade_summary(
+                grade_failure_summary
+                    .subcommand_matches("summary")
+                    .expect("summary subcommand"),
+                ReportOutputFormat::Json,
+            )
+            .expect_err("grade summary should surface grade computation failures");
+        assert_eq!(error.code, "grade_compute_failed");
+
+        let mut empty_dispatcher = test_dispatcher();
+        let empty_summary_matches = GradeCommandBuilder::new()
+            .summary()
+            .build()
+            .get_matches_from(["grade", "summary", "--days", "30"]);
+        empty_dispatcher
+            .grade_summary(
+                empty_summary_matches
+                    .subcommand_matches("summary")
+                    .expect("summary subcommand"),
+                ReportOutputFormat::Text,
+            )
+            .expect("empty grade summary text should succeed");
+    }
+
+    #[test]
     fn test_trade_in_window() {
         let trade = Trade {
             updated_at: Utc
@@ -7786,6 +9414,11 @@ mod tests {
         );
         assert!(!ArgDispatcher::trade_in_window(&trade, after_trade, None));
         assert!(!ArgDispatcher::trade_in_window(&trade, None, before_trade));
+        assert!(!ArgDispatcher::trade_in_window(
+            &trade,
+            Some(NaiveDate::from_ymd_opt(2026, 2, 1).unwrap()),
+            before_trade
+        ));
     }
 
     #[test]
@@ -7886,6 +9519,32 @@ mod tests {
     }
 
     #[test]
+    fn test_report_calmar_ratio_returns_none_without_realized_equity_baseline() {
+        let drawdown_metrics = core::calculators_drawdown::DrawdownMetrics {
+            current_equity: dec!(0),
+            peak_equity: dec!(0),
+            current_drawdown: dec!(0),
+            current_drawdown_percentage: dec!(0),
+            max_drawdown: dec!(0),
+            max_drawdown_percentage: dec!(0),
+            max_drawdown_date: None,
+            recovery_from_max: dec!(0),
+            recovery_percentage: dec!(0),
+            days_since_peak: 0,
+            days_in_drawdown: 0,
+        };
+        let mut trade = Trade {
+            status: Status::ClosedTarget,
+            ..Trade::default()
+        };
+        trade.balance.total_performance = dec!(100);
+
+        let calmar = ArgDispatcher::report_calmar_ratio(&[trade], &[], &drawdown_metrics);
+
+        assert_eq!(calmar, None);
+    }
+
+    #[test]
     fn test_parse_bar_timeframe_valid_values() {
         assert!(matches!(
             ArgDispatcher::parse_bar_timeframe("1m", ReportOutputFormat::Json).unwrap(),
@@ -7971,6 +9630,51 @@ mod tests {
         .expect_err("missing symbols should fail");
         assert!(error.to_string().contains("missing_argument"));
 
+        let missing_channels = market_stream_matches(&[
+            "--symbols",
+            "AAPL",
+            "--max-events",
+            "12",
+            "--timeout-seconds",
+            "7",
+        ]);
+        let error = ArgDispatcher::parse_market_data_stream_request(
+            &missing_channels,
+            ReportOutputFormat::Json,
+        )
+        .expect_err("missing channels should fail");
+        assert!(error.to_string().contains("missing_argument"));
+
+        let missing_max_events = market_stream_matches(&[
+            "--symbols",
+            "AAPL",
+            "--channels",
+            "quotes",
+            "--timeout-seconds",
+            "7",
+        ]);
+        let error = ArgDispatcher::parse_market_data_stream_request(
+            &missing_max_events,
+            ReportOutputFormat::Json,
+        )
+        .expect_err("missing max-events should fail");
+        assert!(error.to_string().contains("missing_argument"));
+
+        let missing_timeout = market_stream_matches(&[
+            "--symbols",
+            "AAPL",
+            "--channels",
+            "quotes",
+            "--max-events",
+            "12",
+        ]);
+        let error = ArgDispatcher::parse_market_data_stream_request(
+            &missing_timeout,
+            ReportOutputFormat::Json,
+        )
+        .expect_err("missing timeout should fail");
+        assert!(error.to_string().contains("missing_argument"));
+
         let invalid_max = market_stream_matches(&[
             "--symbols",
             "AAPL",
@@ -7984,6 +9688,23 @@ mod tests {
         let error =
             ArgDispatcher::parse_market_data_stream_request(&invalid_max, ReportOutputFormat::Json)
                 .expect_err("invalid max-events should fail");
+        assert!(error.to_string().contains("invalid_argument"));
+
+        let invalid_timeout = market_stream_matches(&[
+            "--symbols",
+            "AAPL",
+            "--channels",
+            "quotes",
+            "--max-events",
+            "10",
+            "--timeout-seconds",
+            "soon",
+        ]);
+        let error = ArgDispatcher::parse_market_data_stream_request(
+            &invalid_timeout,
+            ReportOutputFormat::Json,
+        )
+        .expect_err("invalid timeout should fail");
         assert!(error.to_string().contains("invalid_argument"));
 
         let invalid_symbols = market_stream_matches(&[
@@ -8101,6 +9822,127 @@ mod tests {
             .execute(&mut dispatcher, sub, ReportOutputFormat::Json)
             .expect_err("invalid account should fail");
         assert!(error.to_string().contains("account_not_found"));
+    }
+
+    #[test]
+    fn test_market_data_dispatch_validates_missing_required_arguments() {
+        let mut dispatcher = test_dispatcher();
+        let market_matches = |args: &[&str]| {
+            let mut argv = vec!["test"];
+            argv.extend_from_slice(args);
+            Command::new("test")
+                .arg(Arg::new("account").long("account"))
+                .arg(Arg::new("symbol").long("symbol"))
+                .arg(Arg::new("symbols").long("symbols"))
+                .arg(Arg::new("channels").long("channels"))
+                .arg(Arg::new("max-events").long("max-events"))
+                .arg(Arg::new("timeout-seconds").long("timeout-seconds"))
+                .arg(Arg::new("timeframe").long("timeframe"))
+                .arg(Arg::new("start").long("start"))
+                .arg(Arg::new("end").long("end"))
+                .get_matches_from(argv)
+        };
+
+        let snapshot_missing_account = market_matches(&["--symbol", "AAPL"]);
+        let error = dispatcher
+            .market_data_snapshot(&snapshot_missing_account, ReportOutputFormat::Json)
+            .expect_err("snapshot without account should fail");
+        assert!(error.to_string().contains("missing_argument"));
+
+        let snapshot_missing_symbol = market_matches(&["--account", "paper-main"]);
+        let error = dispatcher
+            .market_data_snapshot(&snapshot_missing_symbol, ReportOutputFormat::Json)
+            .expect_err("snapshot without symbol should fail");
+        assert!(error.to_string().contains("missing_argument"));
+
+        let quote_missing_account = market_matches(&["--symbol", "AAPL"]);
+        let error = dispatcher
+            .market_data_quote(&quote_missing_account, ReportOutputFormat::Json)
+            .expect_err("quote without account should fail");
+        assert!(error.to_string().contains("missing_argument"));
+
+        let trade_missing_symbol = market_matches(&["--account", "paper-main"]);
+        let error = dispatcher
+            .market_data_trade(&trade_missing_symbol, ReportOutputFormat::Json)
+            .expect_err("trade without symbol should fail");
+        assert!(error.to_string().contains("missing_argument"));
+
+        let stream_missing_account = market_matches(&[
+            "--symbols",
+            "AAPL",
+            "--channels",
+            "quotes",
+            "--max-events",
+            "1",
+            "--timeout-seconds",
+            "1",
+        ]);
+        let error = dispatcher
+            .market_data_stream(&stream_missing_account, ReportOutputFormat::Json)
+            .expect_err("stream without account should fail");
+        assert!(error.to_string().contains("missing_argument"));
+
+        let bars_missing_account = market_matches(&[
+            "--symbol",
+            "AAPL",
+            "--timeframe",
+            "1m",
+            "--start",
+            "2026-02-24T09:00:00Z",
+            "--end",
+            "2026-02-24T10:00:00Z",
+        ]);
+        let error = dispatcher
+            .market_data_bars(&bars_missing_account, ReportOutputFormat::Json)
+            .expect_err("bars without account should fail");
+        assert!(error.to_string().contains("missing_argument"));
+
+        let bars_missing_symbol = market_matches(&[
+            "--account",
+            "paper-main",
+            "--timeframe",
+            "1m",
+            "--start",
+            "2026-02-24T09:00:00Z",
+            "--end",
+            "2026-02-24T10:00:00Z",
+        ]);
+        let error = dispatcher
+            .market_data_bars(&bars_missing_symbol, ReportOutputFormat::Json)
+            .expect_err("bars without symbol should fail");
+        assert!(error.to_string().contains("missing_argument"));
+
+        let bars_missing_timeframe = market_matches(&[
+            "--account",
+            "paper-main",
+            "--symbol",
+            "AAPL",
+            "--start",
+            "2026-02-24T09:00:00Z",
+            "--end",
+            "2026-02-24T10:00:00Z",
+        ]);
+        let error = dispatcher
+            .market_data_bars(&bars_missing_timeframe, ReportOutputFormat::Json)
+            .expect_err("bars without timeframe should fail");
+        assert!(error.to_string().contains("missing_argument"));
+
+        let bars_reversed_range = market_matches(&[
+            "--account",
+            "paper-main",
+            "--symbol",
+            "AAPL",
+            "--timeframe",
+            "1m",
+            "--start",
+            "2026-02-24T10:00:00Z",
+            "--end",
+            "2026-02-24T09:00:00Z",
+        ]);
+        let error = dispatcher
+            .market_data_bars(&bars_reversed_range, ReportOutputFormat::Json)
+            .expect_err("reversed bars range should fail before account lookup");
+        assert!(error.to_string().contains("invalid_time_range"));
     }
 
     #[test]
@@ -8253,6 +10095,56 @@ mod tests {
         assert_eq!(payload["data"]["count"], 2);
         assert_eq!(payload["data"]["events"][0]["channel"], "quotes");
         assert_eq!(payload["data"]["events"][1]["channel"], "trades");
+    }
+
+    #[test]
+    fn test_market_data_label_helpers_cover_all_sources_and_channels() {
+        assert_eq!(
+            ArgDispatcher::market_snapshot_source_label(&MarketSnapshotSource::QuoteTrade),
+            "quote_trade"
+        );
+        assert_eq!(
+            ArgDispatcher::market_snapshot_source_label(&MarketSnapshotSource::BarsFallback),
+            "bars_fallback"
+        );
+        assert_eq!(
+            ArgDispatcher::market_data_channel_text_label(MarketDataChannel::Bars),
+            "bar"
+        );
+        assert_eq!(
+            ArgDispatcher::market_data_channel_text_label(MarketDataChannel::Quotes),
+            "quote"
+        );
+        assert_eq!(
+            ArgDispatcher::market_data_channel_text_label(MarketDataChannel::Trades),
+            "trade"
+        );
+        assert_eq!(
+            ArgDispatcher::market_data_channel_json_label(MarketDataChannel::Bars),
+            "bars"
+        );
+        assert_eq!(
+            ArgDispatcher::market_data_channel_json_label(MarketDataChannel::Quotes),
+            "quotes"
+        );
+        assert_eq!(
+            ArgDispatcher::market_data_channel_json_label(MarketDataChannel::Trades),
+            "trades"
+        );
+    }
+
+    #[test]
+    fn test_stub_broker_trade_operations_return_explicit_errors() {
+        let broker = StubBroker::quote_trade_fixture();
+        let trade = Trade::default();
+        let account = model::Account::default();
+
+        assert!(broker.submit_trade(&trade, &account).is_err());
+        assert!(broker.sync_trade(&trade, &account).is_err());
+        assert!(broker.close_trade(&trade, &account).is_err());
+        assert!(broker.cancel_trade(&trade, &account).is_err());
+        assert!(broker.modify_stop(&trade, &account, dec!(95)).is_err());
+        assert!(broker.modify_target(&trade, &account, dec!(125)).is_err());
     }
 
     #[test]
@@ -8551,6 +10443,16 @@ mod tests {
         dispatcher
             .dispatch_market_data(&snapshot)
             .expect("snapshot dispatch should succeed");
+        let snapshot_text = market_data_command_matches(&[
+            "snapshot",
+            "--account",
+            &account_id,
+            "--symbol",
+            "aapl",
+        ]);
+        dispatcher
+            .dispatch_market_data(&snapshot_text)
+            .expect("text snapshot dispatch should succeed");
 
         let quote = market_data_command_matches(&[
             "quote",
@@ -8564,6 +10466,11 @@ mod tests {
         dispatcher
             .dispatch_market_data(&quote)
             .expect("quote dispatch should succeed");
+        let quote_text =
+            market_data_command_matches(&["quote", "--account", &account_id, "--symbol", "AAPL"]);
+        dispatcher
+            .dispatch_market_data(&quote_text)
+            .expect("text quote dispatch should succeed");
 
         let trade = market_data_command_matches(&[
             "trade",
@@ -8577,6 +10484,11 @@ mod tests {
         dispatcher
             .dispatch_market_data(&trade)
             .expect("trade dispatch should succeed");
+        let trade_text =
+            market_data_command_matches(&["trade", "--account", &account_id, "--symbol", "AAPL"]);
+        dispatcher
+            .dispatch_market_data(&trade_text)
+            .expect("text trade dispatch should succeed");
 
         let session = market_data_command_matches(&[
             "session",
@@ -8590,6 +10502,11 @@ mod tests {
         dispatcher
             .dispatch_market_data(&session)
             .expect("session dispatch should succeed");
+        let session_text =
+            market_data_command_matches(&["session", "--account", &account_id, "--symbol", "AAPL"]);
+        dispatcher
+            .dispatch_market_data(&session_text)
+            .expect("text session dispatch should succeed");
 
         let stream = market_data_command_matches(&[
             "stream",
@@ -8609,6 +10526,22 @@ mod tests {
         dispatcher
             .dispatch_market_data(&stream)
             .expect("stream dispatch should succeed");
+        let stream_text = market_data_command_matches(&[
+            "stream",
+            "--account",
+            &account_id,
+            "--symbols",
+            "AAPL,MSFT",
+            "--channels",
+            "quotes,trades",
+            "--max-events",
+            "5",
+            "--timeout-seconds",
+            "2",
+        ]);
+        dispatcher
+            .dispatch_market_data(&stream_text)
+            .expect("text stream dispatch should succeed");
 
         let bars = market_data_command_matches(&[
             "bars",
@@ -8628,6 +10561,131 @@ mod tests {
         dispatcher
             .dispatch_market_data(&bars)
             .expect("bars dispatch should succeed");
+        let bars_text = market_data_command_matches(&[
+            "bars",
+            "--account",
+            &account_id,
+            "--symbol",
+            "AAPL",
+            "--timeframe",
+            "1m",
+            "--start",
+            "2026-02-24T09:00:00Z",
+            "--end",
+            "2026-02-24T11:00:00Z",
+        ]);
+        dispatcher
+            .dispatch_market_data(&bars_text)
+            .expect("text bars dispatch should succeed");
+    }
+
+    #[test]
+    fn test_market_data_failure_paths_and_long_bars_are_reported() {
+        let mut snapshot_failure_broker = StubBroker::quote_trade_fixture();
+        snapshot_failure_broker.quote = None;
+        snapshot_failure_broker.trade = None;
+        snapshot_failure_broker.fail_bars = true;
+        let mut dispatcher = test_dispatcher_with_broker(Box::new(snapshot_failure_broker));
+        let (account, _) = seed_account_and_vehicle(&mut dispatcher);
+        let account_id = account.id.to_string();
+        let quote = market_data_command_matches(&[
+            "quote",
+            "--account",
+            &account_id,
+            "--symbol",
+            "AAPL",
+            "--format",
+            "json",
+        ]);
+        let error = dispatcher
+            .dispatch_market_data(&quote)
+            .expect_err("snapshot failure should fail quote handler");
+        assert!(error.to_string().contains("market_data_snapshot_failed"));
+
+        let mut stream_failure_broker = StubBroker::quote_trade_fixture();
+        stream_failure_broker.fail_stream = true;
+        let mut dispatcher = test_dispatcher_with_broker(Box::new(stream_failure_broker));
+        let (account, _) = seed_account_and_vehicle(&mut dispatcher);
+        let account_id = account.id.to_string();
+        let stream = market_data_command_matches(&[
+            "stream",
+            "--account",
+            &account_id,
+            "--symbols",
+            "AAPL",
+            "--channels",
+            "quotes",
+            "--max-events",
+            "1",
+            "--timeout-seconds",
+            "1",
+            "--format",
+            "json",
+        ]);
+        let error = dispatcher
+            .dispatch_market_data(&stream)
+            .expect_err("stream broker failure should fail");
+        assert!(error.to_string().contains("market_data_stream_failed"));
+
+        let mut bars_failure_broker = StubBroker::quote_trade_fixture();
+        bars_failure_broker.fail_bars = true;
+        let mut dispatcher = test_dispatcher_with_broker(Box::new(bars_failure_broker));
+        let (account, _) = seed_account_and_vehicle(&mut dispatcher);
+        let account_id = account.id.to_string();
+        let bars = market_data_command_matches(&[
+            "bars",
+            "--account",
+            &account_id,
+            "--symbol",
+            "AAPL",
+            "--timeframe",
+            "1m",
+            "--start",
+            "2026-02-24T09:00:00Z",
+            "--end",
+            "2026-02-24T11:00:00Z",
+            "--format",
+            "json",
+        ]);
+        let error = dispatcher
+            .dispatch_market_data(&bars)
+            .expect_err("bars broker failure should fail");
+        assert!(error.to_string().contains("market_data_bars_failed"));
+
+        let mut long_bars_broker = StubBroker::quote_trade_fixture();
+        let start = Utc
+            .with_ymd_and_hms(2026, 2, 24, 9, 0, 0)
+            .single()
+            .expect("valid fixture timestamp");
+        long_bars_broker.bars = (0_u32..11)
+            .map(|offset| MarketBar {
+                time: start + chrono::Duration::minutes(i64::from(offset)),
+                open: dec!(200),
+                high: dec!(202),
+                low: dec!(199),
+                close: dec!(201),
+                volume: 1_000 + u64::from(offset),
+            })
+            .collect();
+        let mut dispatcher = test_dispatcher_with_broker(Box::new(long_bars_broker));
+        let (account, _) = seed_account_and_vehicle(&mut dispatcher);
+        let account_id = account.id.to_string();
+        let bars_text = market_data_command_matches(&[
+            "bars",
+            "--account",
+            &account_id,
+            "--symbol",
+            "AAPL",
+            "--timeframe",
+            "1m",
+            "--start",
+            "2026-02-24T09:00:00Z",
+            "--end",
+            "2026-02-24T11:00:00Z",
+        ]);
+        dispatcher
+            .dispatch_market_data(&bars_text)
+            .expect("long text bars should be truncated after preview");
     }
 
     #[test]
@@ -8693,6 +10751,15 @@ mod tests {
         .expect("u32 update should work");
         assert_eq!(rules.upgrade_consecutive_wins, 4);
 
+        ArgDispatcher::apply_level_rule_update(
+            &mut rules,
+            "min_trades_at_level_for_upgrade",
+            "9",
+            ReportOutputFormat::Json,
+        )
+        .expect("minimum trade count update should work");
+        assert_eq!(rules.min_trades_at_level_for_upgrade, 9);
+
         let invalid_key = ArgDispatcher::apply_level_rule_update(
             &mut rules,
             "not-a-real-key",
@@ -8755,6 +10822,324 @@ mod tests {
     }
 
     #[test]
+    fn test_level_dispatch_text_success_paths_cover_read_and_mutation_handlers() {
+        let _guard = env_guard();
+        std::env::set_var("TRUST_DISABLE_KEYCHAIN", "1");
+        std::env::set_var("TRUST_PROTECTED_KEYWORD_EXPECTED", "secret");
+        crate::protected_keyword::delete().expect("reset protected keyword");
+
+        let mut dispatcher = test_dispatcher();
+        let account = dispatcher
+            .trust
+            .create_account(
+                "level-text",
+                "level text account",
+                Environment::Paper,
+                dec!(20),
+                dec!(10),
+            )
+            .expect("create account");
+        let account_id = account.id.to_string();
+
+        let triggers = LevelCommandBuilder::new()
+            .triggers()
+            .build()
+            .get_matches_from(["level", "triggers"]);
+        dispatcher
+            .dispatch_level(&triggers)
+            .expect("triggers text should succeed");
+
+        let status = LevelCommandBuilder::new()
+            .status()
+            .build()
+            .get_matches_from(["level", "status", "--account", &account_id]);
+        dispatcher
+            .dispatch_level(&status)
+            .expect("status text should succeed");
+
+        let rules_show = LevelCommandBuilder::new()
+            .rules()
+            .build()
+            .get_matches_from(["level", "rules", "show", "--account", &account_id]);
+        dispatcher
+            .dispatch_level(&rules_show)
+            .expect("rules show text should succeed");
+
+        let rules_set = LevelCommandBuilder::new()
+            .rules()
+            .build()
+            .get_matches_from([
+                "level",
+                "rules",
+                "set",
+                "--account",
+                &account_id,
+                "--rule",
+                "max_changes_in_30_days",
+                "--value",
+                "4",
+                "--confirm-protected",
+                "secret",
+            ]);
+        dispatcher
+            .dispatch_level(&rules_set)
+            .expect("rules set text should succeed");
+        let updated_rules = dispatcher
+            .trust
+            .level_adjustment_rules_for_account(account.id)
+            .expect("updated rules should load");
+        assert_eq!(updated_rules.max_changes_in_30_days, 4);
+
+        let change = LevelCommandBuilder::new()
+            .change()
+            .build()
+            .get_matches_from([
+                "level",
+                "change",
+                "--account",
+                &account_id,
+                "--to",
+                "2",
+                "--reason",
+                "manual test change",
+                "--trigger",
+                "manual_review",
+                "--confirm-protected",
+                "secret",
+            ]);
+        dispatcher
+            .dispatch_level(&change)
+            .expect("level change text should succeed");
+
+        let evaluate = LevelCommandBuilder::new()
+            .evaluate()
+            .build()
+            .get_matches_from([
+                "level",
+                "evaluate",
+                "--account",
+                &account_id,
+                "--profitable-trades",
+                "8",
+                "--win-rate",
+                "80",
+                "--monthly-loss",
+                "0",
+                "--largest-loss",
+                "0",
+                "--consecutive-wins",
+                "4",
+                "--apply",
+                "--confirm-protected",
+                "secret",
+            ]);
+        dispatcher
+            .dispatch_level(&evaluate)
+            .expect("level evaluate text should succeed");
+
+        let progress = LevelCommandBuilder::new()
+            .progress()
+            .build()
+            .get_matches_from([
+                "level",
+                "progress",
+                "--account",
+                &account_id,
+                "--profitable-trades",
+                "2",
+                "--win-rate",
+                "50",
+                "--monthly-loss",
+                "1",
+                "--largest-loss",
+                "1",
+                "--consecutive-wins",
+                "1",
+            ]);
+        dispatcher
+            .dispatch_level(&progress)
+            .expect("level progress text should succeed");
+
+        crate::protected_keyword::delete().expect("cleanup protected keyword");
+        std::env::remove_var("TRUST_PROTECTED_KEYWORD_EXPECTED");
+        std::env::remove_var("TRUST_DISABLE_KEYCHAIN");
+    }
+
+    #[test]
+    fn test_level_handlers_surface_core_errors_and_required_field_validation() {
+        let _guard = env_guard();
+        std::env::set_var("TRUST_DISABLE_KEYCHAIN", "1");
+        std::env::set_var("TRUST_PROTECTED_KEYWORD_EXPECTED", "secret");
+        crate::protected_keyword::delete().expect("reset protected keyword");
+
+        let mut dispatcher = test_dispatcher();
+        let account = dispatcher
+            .trust
+            .create_account(
+                "level-errors",
+                "level error account",
+                Environment::Paper,
+                dec!(20),
+                dec!(10),
+            )
+            .expect("create account");
+        let account_id = account.id.to_string();
+        let missing_account_id = Uuid::new_v4().to_string();
+
+        let status = LevelCommandBuilder::new()
+            .status()
+            .build()
+            .get_matches_from(["level", "status", "--account", &missing_account_id]);
+        let error = dispatcher
+            .dispatch_level(&status)
+            .expect_err("unknown account level status should fail");
+        assert!(error.to_string().contains("level_status_failed"));
+
+        let rules_show = LevelCommandBuilder::new()
+            .rules()
+            .build()
+            .get_matches_from(["level", "rules", "show", "--account", &missing_account_id]);
+        let error = dispatcher
+            .dispatch_level(&rules_show)
+            .expect_err("unknown account rules show should fail");
+        assert!(error.to_string().contains("level_rules_show_failed"));
+
+        let rules_set = LevelCommandBuilder::new()
+            .rules()
+            .build()
+            .get_matches_from([
+                "level",
+                "rules",
+                "set",
+                "--account",
+                &missing_account_id,
+                "--rule",
+                "monthly_loss_downgrade_pct",
+                "--value",
+                "8",
+                "--confirm-protected",
+                "secret",
+            ]);
+        let error = dispatcher
+            .dispatch_level(&rules_set)
+            .expect_err("unknown account rules set should fail while reading current rules");
+        assert!(error.to_string().contains("level_rules_read_failed"));
+
+        let progress = LevelCommandBuilder::new()
+            .progress()
+            .build()
+            .get_matches_from([
+                "level",
+                "progress",
+                "--account",
+                &missing_account_id,
+                "--profitable-trades",
+                "1",
+                "--win-rate",
+                "50",
+                "--monthly-loss",
+                "0",
+                "--largest-loss",
+                "0",
+            ]);
+        let error = dispatcher
+            .dispatch_level(&progress)
+            .expect_err("unknown account progress should fail");
+        assert!(error.to_string().contains("level_progress_failed"));
+
+        let evaluate = LevelCommandBuilder::new()
+            .evaluate()
+            .build()
+            .get_matches_from([
+                "level",
+                "evaluate",
+                "--account",
+                &missing_account_id,
+                "--profitable-trades",
+                "1",
+                "--win-rate",
+                "50",
+                "--monthly-loss",
+                "0",
+                "--largest-loss",
+                "0",
+            ]);
+        let error = dispatcher
+            .dispatch_level(&evaluate)
+            .expect_err("unknown account evaluate should fail");
+        assert!(error.to_string().contains("level_evaluation_failed"));
+
+        let level_change_matches = |args: &[&str]| {
+            let mut argv = vec!["level-change"];
+            argv.extend_from_slice(args);
+            Command::new("level-change")
+                .arg(Arg::new("account").long("account"))
+                .arg(
+                    Arg::new("to")
+                        .long("to")
+                        .value_parser(clap::value_parser!(u8)),
+                )
+                .arg(Arg::new("reason").long("reason"))
+                .arg(Arg::new("trigger").long("trigger"))
+                .arg(Arg::new("confirm-protected").long("confirm-protected"))
+                .get_matches_from(argv)
+        };
+
+        let missing_target = level_change_matches(&[
+            "--account",
+            &account_id,
+            "--reason",
+            "missing target",
+            "--trigger",
+            "manual_review",
+            "--confirm-protected",
+            "secret",
+        ]);
+        let error = dispatcher
+            .level_change(&missing_target, ReportOutputFormat::Json)
+            .expect_err("missing target level should fail");
+        assert!(error.to_string().contains("missing_level"));
+
+        let invalid_trigger = level_change_matches(&[
+            "--account",
+            &account_id,
+            "--to",
+            "2",
+            "--reason",
+            "blank trigger",
+            "--trigger",
+            "   ",
+            "--confirm-protected",
+            "secret",
+        ]);
+        let error = dispatcher
+            .level_change(&invalid_trigger, ReportOutputFormat::Json)
+            .expect_err("blank trigger should fail");
+        assert!(error.to_string().contains("invalid_trigger"));
+
+        let invalid_level = level_change_matches(&[
+            "--account",
+            &account_id,
+            "--to",
+            "9",
+            "--reason",
+            "bad target",
+            "--trigger",
+            "manual_review",
+            "--confirm-protected",
+            "secret",
+        ]);
+        let error = dispatcher
+            .level_change(&invalid_level, ReportOutputFormat::Json)
+            .expect_err("out of range target should fail in core");
+        assert!(error.to_string().contains("level_change_failed"));
+
+        crate::protected_keyword::delete().expect("cleanup protected keyword");
+        std::env::remove_var("TRUST_PROTECTED_KEYWORD_EXPECTED");
+        std::env::remove_var("TRUST_DISABLE_KEYCHAIN");
+    }
+
+    #[test]
     fn test_create_trading_vehicle_from_broker_validates_required_args_and_account_lookup() {
         let mut dispatcher = test_dispatcher();
         let missing_account = Command::new("test")
@@ -8787,6 +11172,1853 @@ mod tests {
         assert!(error
             .to_string()
             .contains("broker_import_account_not_found"));
+
+        let account = dispatcher
+            .trust
+            .create_account(
+                "broker-import-account",
+                "broker import",
+                Environment::Paper,
+                dec!(20),
+                dec!(10),
+            )
+            .expect("create account");
+        let invalid_category = Command::new("test")
+            .arg(Arg::new("account").long("account"))
+            .arg(Arg::new("symbol").long("symbol"))
+            .arg(Arg::new("category").long("category"))
+            .get_matches_from([
+                "test",
+                "--account",
+                &account.name,
+                "--symbol",
+                "AAPL",
+                "--category",
+                "option",
+            ]);
+        let error = dispatcher
+            .create_trading_vehicle_from_broker(&invalid_category, BrokerKind::Alpaca)
+            .expect_err("invalid category hint should fail before broker import");
+        assert!(error
+            .to_string()
+            .contains("invalid_trading_vehicle_category"));
+    }
+
+    #[test]
+    fn test_create_trading_vehicle_dispatch_covers_interactive_and_invalid_broker_paths() {
+        let _guard = env_guard();
+        std::env::set_var("TRUST_PROTECTED_KEYWORD_EXPECTED", "secret");
+        crate::dialogs::scripted_reset();
+        let mut dispatcher = test_dispatcher();
+
+        let create_matches = |args: &[&str]| {
+            let mut argv = vec!["trading-vehicle-create"];
+            argv.extend_from_slice(args);
+            Command::new("trading-vehicle-create")
+                .arg(Arg::new("confirm-protected").long("confirm-protected"))
+                .arg(
+                    Arg::new("from-alpaca")
+                        .long("from-alpaca")
+                        .action(clap::ArgAction::SetTrue),
+                )
+                .arg(Arg::new("from-broker").long("from-broker"))
+                .arg(Arg::new("account").long("account"))
+                .arg(Arg::new("symbol").long("symbol"))
+                .arg(Arg::new("category").long("category"))
+                .get_matches_from(argv)
+        };
+
+        let invalid_broker =
+            create_matches(&["--from-broker", "bad", "--confirm-protected", "secret"]);
+        let error = dispatcher
+            .create_trading_vehicle(&invalid_broker)
+            .expect_err("unsupported broker import should fail");
+        assert!(error.to_string().contains("invalid_broker_kind"));
+
+        crate::dialogs::scripted_push_select(Ok(Some(0)));
+        crate::dialogs::scripted_push_input(Ok("DTVI".to_string()));
+        crate::dialogs::scripted_push_input(Ok("paper-broker".to_string()));
+        crate::dialogs::scripted_push_input(Ok("US0000000001".to_string()));
+        let interactive = create_matches(&["--confirm-protected", "secret"]);
+        dispatcher
+            .create_trading_vehicle(&interactive)
+            .expect("scripted interactive trading vehicle creation should succeed");
+        let created = dispatcher
+            .trust
+            .search_trading_vehicles()
+            .expect("created vehicle should be searchable");
+        assert!(created.iter().any(|vehicle| vehicle.symbol == "DTVI"));
+
+        crate::dialogs::scripted_reset();
+        std::env::remove_var("TRUST_PROTECTED_KEYWORD_EXPECTED");
+    }
+
+    #[test]
+    fn test_parse_fixed_income_terms_accepts_bond_metadata_only_for_bonds() {
+        let cmd = TradingVehicleCommandBuilder::new()
+            .create_trading_vehicle()
+            .build();
+        let matches = cmd
+            .try_get_matches_from([
+                "trading-vehicle",
+                "create",
+                "--from-broker",
+                "ibkr",
+                "--account",
+                "paper-main",
+                "--symbol",
+                "9128285M8",
+                "--category",
+                "bond",
+                "--face-value",
+                "1000",
+                "--coupon-rate",
+                "4.625",
+                "--maturity-date",
+                "2034-05-15",
+                "--coupon-frequency",
+                "2",
+            ])
+            .unwrap();
+        let create = matches.subcommand_matches("create").unwrap();
+
+        let terms =
+            ArgDispatcher::parse_fixed_income_terms(create, TradingVehicleCategory::Bond).unwrap();
+        let terms = terms.unwrap();
+        assert_eq!(terms.face_value, Some(dec!(1000)));
+        assert_eq!(terms.annual_coupon_rate_pct, Some(dec!(4.625)));
+        assert_eq!(
+            terms.maturity_date,
+            Some(NaiveDate::from_ymd_opt(2034, 5, 15).unwrap())
+        );
+        assert_eq!(terms.coupon_frequency_per_year, Some(2));
+
+        let error = ArgDispatcher::parse_fixed_income_terms(create, TradingVehicleCategory::Etf)
+            .unwrap_err();
+        assert!(error.to_string().contains("invalid_fixed_income_terms"));
+    }
+
+    #[test]
+    fn test_store_imported_trading_vehicle_applies_bond_terms_and_surfaces_store_errors() {
+        let mut dispatcher = test_dispatcher();
+        let cmd = TradingVehicleCommandBuilder::new()
+            .create_trading_vehicle()
+            .build();
+        let matches = cmd
+            .try_get_matches_from([
+                "trading-vehicle",
+                "create",
+                "--from-broker",
+                "ibkr",
+                "--account",
+                "paper-main",
+                "--symbol",
+                "9128285M8",
+                "--category",
+                "bond",
+                "--face-value",
+                "1000",
+                "--coupon-rate",
+                "4.625",
+                "--maturity-date",
+                "2034-05-15",
+                "--coupon-frequency",
+                "2",
+            ])
+            .expect("broker import matches should parse");
+        let create = matches.subcommand_matches("create").unwrap();
+
+        let imported = crate::trading_vehicle_import::ImportedTradingVehicle {
+            upsert: TradingVehicleUpsert {
+                symbol: "9128285M8".to_string(),
+                isin: None,
+                category: TradingVehicleCategory::Bond,
+                broker: "ibkr".to_string(),
+                broker_asset_id: Some("bond-1".to_string()),
+                exchange: Some("SMART".to_string()),
+                broker_asset_class: Some("bond".to_string()),
+                broker_asset_status: None,
+                tradable: None,
+                marginable: None,
+                shortable: None,
+                easy_to_borrow: None,
+                fractionable: None,
+                fixed_income: None,
+            },
+            summary: "Imported from test".to_string(),
+        };
+
+        dispatcher
+            .store_imported_trading_vehicle(create, imported)
+            .expect("imported bond should be stored");
+        let stored = dispatcher
+            .trust
+            .search_trading_vehicles()
+            .expect("stored vehicle should be searchable")
+            .into_iter()
+            .find(|vehicle| vehicle.symbol == "9128285M8")
+            .expect("stored imported bond should exist");
+        let terms = stored.fixed_income.expect("bond terms should be attached");
+        assert_eq!(terms.face_value, Some(dec!(1000)));
+        assert_eq!(terms.annual_coupon_rate_pct, Some(dec!(4.625)));
+
+        let mut failing_dispatcher = test_dispatcher_with_read_failures(
+            crate::test_support::ReadFailureFactory::trading_vehicle_write(),
+        );
+        let failing_import = crate::trading_vehicle_import::ImportedTradingVehicle {
+            upsert: TradingVehicleUpsert {
+                symbol: "FAILBOND".to_string(),
+                isin: None,
+                category: TradingVehicleCategory::Bond,
+                broker: "ibkr".to_string(),
+                broker_asset_id: Some("fail-bond".to_string()),
+                exchange: Some("SMART".to_string()),
+                broker_asset_class: Some("bond".to_string()),
+                broker_asset_status: None,
+                tradable: None,
+                marginable: None,
+                shortable: None,
+                easy_to_borrow: None,
+                fractionable: None,
+                fixed_income: None,
+            },
+            summary: "Imported from failing writer".to_string(),
+        };
+        let error = failing_dispatcher
+            .store_imported_trading_vehicle(create, failing_import)
+            .expect_err("writer failure should surface as broker import store failure");
+        assert_eq!(error.code, "broker_import_store_failed");
+    }
+
+    #[test]
+    fn test_parse_fixed_income_terms_rejects_invalid_bond_metadata_inputs() {
+        let parse_create = |args: &[&str]| {
+            let mut argv = vec!["trading-vehicle", "create", "--category", "bond"];
+            argv.extend_from_slice(args);
+            TradingVehicleCommandBuilder::new()
+                .create_trading_vehicle()
+                .build()
+                .try_get_matches_from(argv)
+                .expect("bond metadata args should parse")
+        };
+
+        let invalid_decimal = parse_create(&["--coupon-rate", "not-a-decimal"]);
+        let error = ArgDispatcher::parse_fixed_income_terms(
+            invalid_decimal.subcommand_matches("create").unwrap(),
+            TradingVehicleCategory::Bond,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("invalid_decimal"));
+        assert!(error.to_string().contains("--coupon-rate"));
+
+        let invalid_face_value = parse_create(&["--face-value", "not-a-decimal"]);
+        let error = ArgDispatcher::parse_fixed_income_terms(
+            invalid_face_value.subcommand_matches("create").unwrap(),
+            TradingVehicleCategory::Bond,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("invalid_decimal"));
+        assert!(error.to_string().contains("--face-value"));
+
+        let invalid_maturity = parse_create(&["--maturity-date", "05/15/2034"]);
+        let error = ArgDispatcher::parse_fixed_income_terms(
+            invalid_maturity.subcommand_matches("create").unwrap(),
+            TradingVehicleCategory::Bond,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("invalid_maturity_date"));
+
+        let zero_frequency = parse_create(&["--coupon-frequency", "0"]);
+        let error = ArgDispatcher::parse_fixed_income_terms(
+            zero_frequency.subcommand_matches("create").unwrap(),
+            TradingVehicleCategory::Bond,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("invalid_coupon_frequency"));
+
+        let no_terms = parse_create(&[]);
+        let parsed = ArgDispatcher::parse_fixed_income_terms(
+            no_terms.subcommand_matches("create").unwrap(),
+            TradingVehicleCategory::Bond,
+        )
+        .unwrap();
+        assert!(parsed.is_none());
+    }
+
+    #[test]
+    fn test_parse_trading_vehicle_category_rejects_unknown_values() {
+        assert_eq!(
+            ArgDispatcher::parse_trading_vehicle_category("bond").unwrap(),
+            TradingVehicleCategory::Bond
+        );
+        let error = ArgDispatcher::parse_trading_vehicle_category("option").unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("invalid_trading_vehicle_category"));
+    }
+
+    #[test]
+    fn test_update_bond_terms_preserves_existing_metadata_and_terms() {
+        let _guard = env_guard();
+        std::env::set_var("TRUST_PROTECTED_KEYWORD_EXPECTED", "secret");
+        let mut dispatcher = test_dispatcher();
+        dispatcher
+            .trust
+            .upsert_trading_vehicle(TradingVehicleUpsert {
+                symbol: "9128285M8".to_string(),
+                isin: Some("US9128285M81".to_string()),
+                category: TradingVehicleCategory::Bond,
+                broker: "ibkr".to_string(),
+                broker_asset_id: Some("123456".to_string()),
+                exchange: Some("SMART".to_string()),
+                broker_asset_class: Some("bond".to_string()),
+                broker_asset_status: Some("active".to_string()),
+                tradable: Some(true),
+                marginable: None,
+                shortable: None,
+                easy_to_borrow: None,
+                fractionable: None,
+                fixed_income: Some(FixedIncomeTerms {
+                    face_value: Some(dec!(1000)),
+                    annual_coupon_rate_pct: Some(dec!(4.0)),
+                    maturity_date: Some(NaiveDate::from_ymd_opt(2034, 5, 15).unwrap()),
+                    coupon_frequency_per_year: Some(2),
+                }),
+            })
+            .unwrap();
+
+        let matches = TradingVehicleCommandBuilder::new()
+            .update_bond_terms()
+            .build()
+            .get_matches_from([
+                "trading-vehicle",
+                "update-bond-terms",
+                "--symbol",
+                "9128285M8",
+                "--broker",
+                "ibkr",
+                "--coupon-rate",
+                "4.625",
+                "--confirm-protected",
+                "secret",
+            ]);
+        let update = matches.subcommand_matches("update-bond-terms").unwrap();
+        dispatcher.update_bond_terms(update).unwrap();
+
+        let updated = dispatcher
+            .trust
+            .search_trading_vehicles()
+            .unwrap()
+            .into_iter()
+            .find(|vehicle| vehicle.symbol == "9128285M8")
+            .unwrap();
+        let terms = updated.fixed_income.unwrap();
+        assert_eq!(updated.broker_asset_id.as_deref(), Some("123456"));
+        assert_eq!(terms.face_value, Some(dec!(1000)));
+        assert_eq!(terms.annual_coupon_rate_pct, Some(dec!(4.625)));
+        assert_eq!(
+            terms.maturity_date,
+            Some(NaiveDate::from_ymd_opt(2034, 5, 15).unwrap())
+        );
+        assert_eq!(terms.coupon_frequency_per_year, Some(2));
+        std::env::remove_var("TRUST_PROTECTED_KEYWORD_EXPECTED");
+    }
+
+    #[test]
+    fn test_update_bond_terms_validates_missing_not_found_and_wrong_category() {
+        let _guard = env_guard();
+        std::env::set_var("TRUST_PROTECTED_KEYWORD_EXPECTED", "secret");
+        let mut dispatcher = test_dispatcher();
+        dispatcher
+            .trust
+            .upsert_trading_vehicle(TradingVehicleUpsert {
+                symbol: "AAPL".to_string(),
+                isin: Some("US0378331005".to_string()),
+                category: TradingVehicleCategory::Stock,
+                broker: "alpaca".to_string(),
+                broker_asset_id: None,
+                exchange: Some("NASDAQ".to_string()),
+                broker_asset_class: Some("us_equity".to_string()),
+                broker_asset_status: Some("active".to_string()),
+                tradable: Some(true),
+                marginable: Some(true),
+                shortable: Some(true),
+                easy_to_borrow: Some(true),
+                fractionable: Some(true),
+                fixed_income: None,
+            })
+            .expect("stock vehicle");
+
+        let missing_terms = TradingVehicleCommandBuilder::new()
+            .update_bond_terms()
+            .build()
+            .get_matches_from([
+                "trading-vehicle",
+                "update-bond-terms",
+                "--symbol",
+                "AAPL",
+                "--broker",
+                "alpaca",
+                "--confirm-protected",
+                "secret",
+            ]);
+        let error = dispatcher
+            .update_bond_terms(
+                missing_terms
+                    .subcommand_matches("update-bond-terms")
+                    .unwrap(),
+            )
+            .expect_err("missing terms should fail");
+        assert!(error.to_string().contains("missing_bond_terms"));
+
+        let missing_symbol = Command::new("update-bond-terms")
+            .arg(Arg::new("symbol").long("symbol"))
+            .arg(Arg::new("broker").long("broker"))
+            .arg(Arg::new("face-value").long("face-value"))
+            .arg(Arg::new("confirm-protected").long("confirm-protected"))
+            .get_matches_from([
+                "update-bond-terms",
+                "--broker",
+                "alpaca",
+                "--face-value",
+                "1000",
+                "--confirm-protected",
+                "secret",
+            ]);
+        let error = dispatcher
+            .update_bond_terms(&missing_symbol)
+            .expect_err("missing symbol should fail");
+        assert!(error.to_string().contains("missing_argument"));
+
+        let not_found = TradingVehicleCommandBuilder::new()
+            .update_bond_terms()
+            .build()
+            .get_matches_from([
+                "trading-vehicle",
+                "update-bond-terms",
+                "--symbol",
+                "MISSING",
+                "--broker",
+                "alpaca",
+                "--face-value",
+                "1000",
+                "--confirm-protected",
+                "secret",
+            ]);
+        let error = dispatcher
+            .update_bond_terms(not_found.subcommand_matches("update-bond-terms").unwrap())
+            .expect_err("missing vehicle should fail");
+        assert!(error.to_string().contains("trading_vehicle_not_found"));
+
+        let wrong_category = TradingVehicleCommandBuilder::new()
+            .update_bond_terms()
+            .build()
+            .get_matches_from([
+                "trading-vehicle",
+                "update-bond-terms",
+                "--symbol",
+                "AAPL",
+                "--broker",
+                "alpaca",
+                "--face-value",
+                "1000",
+                "--confirm-protected",
+                "secret",
+            ]);
+        let error = dispatcher
+            .update_bond_terms(
+                wrong_category
+                    .subcommand_matches("update-bond-terms")
+                    .unwrap(),
+            )
+            .expect_err("stock vehicle should fail bond update");
+        assert!(error.to_string().contains("bond_vehicle_wrong_category"));
+
+        std::env::remove_var("TRUST_PROTECTED_KEYWORD_EXPECTED");
+    }
+
+    #[test]
+    fn test_trading_vehicle_search_filters_find_incomplete_bonds() {
+        let vehicles = vec![
+            model::TradingVehicle {
+                symbol: "AAPL".to_string(),
+                broker: "ibkr".to_string(),
+                category: TradingVehicleCategory::Stock,
+                ..Default::default()
+            },
+            model::TradingVehicle {
+                symbol: "9128285M8".to_string(),
+                broker: "ibkr".to_string(),
+                isin: Some("US9128285M81".to_string()),
+                category: TradingVehicleCategory::Bond,
+                fixed_income: Some(FixedIncomeTerms {
+                    face_value: Some(dec!(1000)),
+                    annual_coupon_rate_pct: None,
+                    maturity_date: Some(NaiveDate::from_ymd_opt(2034, 5, 15).unwrap()),
+                    coupon_frequency_per_year: Some(2),
+                }),
+                ..Default::default()
+            },
+            model::TradingVehicle {
+                symbol: "912810TL2".to_string(),
+                broker: "ibkr".to_string(),
+                category: TradingVehicleCategory::Bond,
+                fixed_income: Some(FixedIncomeTerms {
+                    face_value: Some(dec!(1000)),
+                    annual_coupon_rate_pct: Some(dec!(4.625)),
+                    maturity_date: Some(NaiveDate::from_ymd_opt(2034, 5, 15).unwrap()),
+                    coupon_frequency_per_year: Some(2),
+                }),
+                ..Default::default()
+            },
+        ];
+        let filters = TradingVehicleSearchFilters {
+            category: Some(TradingVehicleCategory::Bond),
+            broker: Some("ibkr".to_string()),
+            symbol: Some("912".to_string()),
+            isin: None,
+            missing_bond_terms: true,
+            list_all: false,
+            format: ReportOutputFormat::Text,
+        };
+
+        let filtered = ArgDispatcher::filter_trading_vehicles(vehicles, &filters);
+
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].symbol, "9128285M8");
+    }
+
+    #[test]
+    fn test_trading_vehicle_search_filters_cover_all_predicates() {
+        let base_filters = TradingVehicleSearchFilters {
+            category: None,
+            broker: None,
+            symbol: None,
+            isin: None,
+            missing_bond_terms: false,
+            list_all: false,
+            format: ReportOutputFormat::Text,
+        };
+        assert!(!base_filters.has_non_interactive_filters());
+
+        let mut list_all = base_filters.clone();
+        list_all.list_all = true;
+        assert!(list_all.has_non_interactive_filters());
+
+        let mut by_category = base_filters.clone();
+        by_category.category = Some(TradingVehicleCategory::Stock);
+        assert!(by_category.has_non_interactive_filters());
+
+        let mut by_broker = base_filters.clone();
+        by_broker.broker = Some("ibkr".to_string());
+        assert!(by_broker.has_non_interactive_filters());
+
+        let mut by_symbol = base_filters.clone();
+        by_symbol.symbol = Some("AAPL".to_string());
+        assert!(by_symbol.has_non_interactive_filters());
+
+        let mut by_isin = base_filters.clone();
+        by_isin.isin = Some("US0378331005".to_string());
+        assert!(by_isin.has_non_interactive_filters());
+
+        let mut missing_terms = base_filters.clone();
+        missing_terms.missing_bond_terms = true;
+        assert!(missing_terms.has_non_interactive_filters());
+
+        let mut json = base_filters.clone();
+        json.format = ReportOutputFormat::Json;
+        assert!(json.has_non_interactive_filters());
+
+        let stock = model::TradingVehicle {
+            symbol: "AAPL".to_string(),
+            broker: "ibkr".to_string(),
+            isin: Some("US0378331005".to_string()),
+            category: TradingVehicleCategory::Stock,
+            ..Default::default()
+        };
+
+        assert!(ArgDispatcher::trading_vehicle_matches_filters(
+            &stock,
+            &by_category
+        ));
+        assert!(ArgDispatcher::trading_vehicle_matches_filters(
+            &stock, &by_broker
+        ));
+
+        let mut wrong_broker = base_filters.clone();
+        wrong_broker.broker = Some("alpaca".to_string());
+        assert!(!ArgDispatcher::trading_vehicle_matches_filters(
+            &stock,
+            &wrong_broker
+        ));
+
+        let mut wrong_symbol = base_filters.clone();
+        wrong_symbol.symbol = Some("MSFT".to_string());
+        assert!(!ArgDispatcher::trading_vehicle_matches_filters(
+            &stock,
+            &wrong_symbol
+        ));
+
+        let mut wrong_isin = base_filters.clone();
+        wrong_isin.isin = Some("US999".to_string());
+        assert!(!ArgDispatcher::trading_vehicle_matches_filters(
+            &stock,
+            &wrong_isin
+        ));
+
+        let stock_without_isin = model::TradingVehicle {
+            isin: None,
+            ..stock.clone()
+        };
+        assert!(!ArgDispatcher::trading_vehicle_matches_filters(
+            &stock_without_isin,
+            &wrong_isin
+        ));
+
+        assert!(!ArgDispatcher::trading_vehicle_matches_filters(
+            &stock,
+            &missing_terms
+        ));
+
+        let incomplete_bond = model::TradingVehicle {
+            symbol: "9128285M8".to_string(),
+            broker: "ibkr".to_string(),
+            category: TradingVehicleCategory::Bond,
+            fixed_income: None,
+            ..Default::default()
+        };
+        assert!(ArgDispatcher::trading_vehicle_matches_filters(
+            &incomplete_bond,
+            &missing_terms
+        ));
+    }
+
+    #[test]
+    fn test_trading_vehicle_search_json_payload_includes_fixed_income_terms() {
+        let vehicle = model::TradingVehicle {
+            symbol: "912810TL2".to_string(),
+            broker: "ibkr".to_string(),
+            category: TradingVehicleCategory::Bond,
+            fixed_income: Some(FixedIncomeTerms {
+                face_value: Some(dec!(1000)),
+                annual_coupon_rate_pct: Some(dec!(4.625)),
+                maturity_date: Some(NaiveDate::from_ymd_opt(2034, 5, 15).unwrap()),
+                coupon_frequency_per_year: Some(2),
+            }),
+            ..Default::default()
+        };
+        let filters = TradingVehicleSearchFilters {
+            category: Some(TradingVehicleCategory::Bond),
+            broker: None,
+            symbol: None,
+            isin: None,
+            missing_bond_terms: false,
+            list_all: true,
+            format: ReportOutputFormat::Json,
+        };
+
+        let payload = ArgDispatcher::trading_vehicle_search_payload(&[vehicle], &filters);
+
+        assert_eq!(payload["report"], "trading_vehicle_search");
+        assert_eq!(payload["count"], 1);
+        assert_eq!(payload["data"][0]["category"], "bond");
+        assert_eq!(
+            payload["data"][0]["fixed_income"]["annual_coupon_rate_pct"],
+            "4.625"
+        );
+        assert_eq!(
+            payload["data"][0]["fixed_income"]["coupon_frequency_per_year"],
+            2
+        );
+    }
+
+    #[test]
+    fn test_trading_vehicle_search_dispatch_covers_interactive_text_json_and_invalid_filters() {
+        let mut dispatcher = test_dispatcher();
+        dispatcher
+            .trust
+            .create_trading_vehicle("AAPL", None, &TradingVehicleCategory::Stock, "alpaca")
+            .expect("seed stock");
+        dispatcher
+            .trust
+            .upsert_trading_vehicle(TradingVehicleUpsert {
+                symbol: "912810TL2".to_string(),
+                isin: Some("US912810TL26".to_string()),
+                category: TradingVehicleCategory::Bond,
+                broker: "ibkr".to_string(),
+                broker_asset_id: None,
+                exchange: None,
+                broker_asset_class: None,
+                broker_asset_status: None,
+                tradable: None,
+                marginable: None,
+                shortable: None,
+                easy_to_borrow: None,
+                fractionable: None,
+                fixed_income: Some(FixedIncomeTerms {
+                    face_value: Some(dec!(1000)),
+                    annual_coupon_rate_pct: Some(dec!(4.625)),
+                    maturity_date: Some(NaiveDate::from_ymd_opt(2034, 5, 15).unwrap()),
+                    coupon_frequency_per_year: Some(2),
+                }),
+            })
+            .expect("seed first bond");
+        dispatcher
+            .trust
+            .upsert_trading_vehicle(TradingVehicleUpsert {
+                symbol: "912810TL2".to_string(),
+                isin: Some("US912810TL27".to_string()),
+                category: TradingVehicleCategory::Bond,
+                broker: "alpaca".to_string(),
+                broker_asset_id: None,
+                exchange: None,
+                broker_asset_class: None,
+                broker_asset_status: None,
+                tradable: None,
+                marginable: None,
+                shortable: None,
+                easy_to_borrow: None,
+                fractionable: None,
+                fixed_income: Some(FixedIncomeTerms {
+                    face_value: Some(dec!(1000)),
+                    annual_coupon_rate_pct: Some(dec!(4.75)),
+                    maturity_date: Some(NaiveDate::from_ymd_opt(2035, 5, 15).unwrap()),
+                    coupon_frequency_per_year: Some(2),
+                }),
+            })
+            .expect("seed duplicate-symbol bond");
+
+        crate::dialogs::scripted_reset();
+        crate::dialogs::scripted_push_select(Ok(Some(0)));
+        let interactive = TradingVehicleCommandBuilder::new()
+            .search_trading_vehicle()
+            .build()
+            .get_matches_from(["trading-vehicle", "search"]);
+        dispatcher
+            .search_trading_vehicle(interactive.subcommand_matches("search").unwrap())
+            .expect("interactive search should display selected vehicle");
+
+        let text_all = TradingVehicleCommandBuilder::new()
+            .search_trading_vehicle()
+            .build()
+            .get_matches_from(["trading-vehicle", "search", "--all"]);
+        dispatcher
+            .search_trading_vehicle(text_all.subcommand_matches("search").unwrap())
+            .expect("text search should display filtered vehicles");
+
+        let no_matches = TradingVehicleCommandBuilder::new()
+            .search_trading_vehicle()
+            .build()
+            .get_matches_from(["trading-vehicle", "search", "--symbol", "MISSING"]);
+        dispatcher
+            .search_trading_vehicle(no_matches.subcommand_matches("search").unwrap())
+            .expect("empty text search should render no-match message");
+
+        let json_filtered = TradingVehicleCommandBuilder::new()
+            .search_trading_vehicle()
+            .build()
+            .get_matches_from([
+                "trading-vehicle",
+                "search",
+                "--category",
+                "bond",
+                "--broker",
+                " IBKR ",
+                "--symbol",
+                " 912 ",
+                "--isin",
+                " us912 ",
+                "--format",
+                "json",
+            ]);
+        dispatcher
+            .search_trading_vehicle(json_filtered.subcommand_matches("search").unwrap())
+            .expect("json search should render filtered payload");
+
+        let invalid_category = TradingVehicleCommandBuilder::new()
+            .search_trading_vehicle()
+            .build()
+            .get_matches_from(["trading-vehicle", "search", "--category", "option"]);
+        let error = dispatcher
+            .search_trading_vehicle(invalid_category.subcommand_matches("search").unwrap())
+            .expect_err("invalid category should fail");
+        assert!(error
+            .to_string()
+            .contains("invalid_trading_vehicle_category"));
+
+        crate::dialogs::scripted_reset();
+    }
+
+    #[test]
+    fn test_trading_vehicle_inventory_stats_summarize_bonds_and_brokers() {
+        let vehicles = vec![
+            model::TradingVehicle {
+                symbol: "AAPL".to_string(),
+                broker: "alpaca".to_string(),
+                category: TradingVehicleCategory::Stock,
+                ..Default::default()
+            },
+            model::TradingVehicle {
+                symbol: "SPY".to_string(),
+                broker: "ibkr".to_string(),
+                category: TradingVehicleCategory::Etf,
+                ..Default::default()
+            },
+            model::TradingVehicle {
+                symbol: "912810TL2".to_string(),
+                broker: "ibkr".to_string(),
+                category: TradingVehicleCategory::Bond,
+                fixed_income: Some(FixedIncomeTerms {
+                    face_value: Some(dec!(1000)),
+                    annual_coupon_rate_pct: Some(dec!(4)),
+                    maturity_date: Some(NaiveDate::from_ymd_opt(2030, 1, 15).unwrap()),
+                    coupon_frequency_per_year: Some(2),
+                }),
+                ..Default::default()
+            },
+            model::TradingVehicle {
+                symbol: "9128285M8".to_string(),
+                broker: "ibkr".to_string(),
+                category: TradingVehicleCategory::Bond,
+                fixed_income: Some(FixedIncomeTerms {
+                    face_value: Some(dec!(1000)),
+                    annual_coupon_rate_pct: Some(dec!(6)),
+                    maturity_date: None,
+                    coupon_frequency_per_year: Some(2),
+                }),
+                ..Default::default()
+            },
+            model::TradingVehicle {
+                symbol: "912810TM0".to_string(),
+                broker: "ibkr".to_string(),
+                category: TradingVehicleCategory::Bond,
+                fixed_income: Some(FixedIncomeTerms {
+                    face_value: Some(dec!(1000)),
+                    annual_coupon_rate_pct: Some(dec!(8)),
+                    maturity_date: Some(NaiveDate::from_ymd_opt(2040, 1, 15).unwrap()),
+                    coupon_frequency_per_year: Some(2),
+                }),
+                ..Default::default()
+            },
+        ];
+
+        let stats = ArgDispatcher::calculate_trading_vehicle_inventory_stats(&vehicles)
+            .expect("inventory stats");
+        let payload = ArgDispatcher::trading_vehicle_stats_payload(&stats);
+
+        assert_eq!(stats.total, 5);
+        assert_eq!(stats.by_category.get("stock"), Some(&1));
+        assert_eq!(stats.by_category.get("etf"), Some(&1));
+        assert_eq!(stats.by_category.get("bond"), Some(&3));
+        assert_eq!(stats.by_broker.get("ibkr"), Some(&4));
+        assert_eq!(stats.bonds.total, 3);
+        assert_eq!(stats.bonds.complete_terms, 2);
+        assert_eq!(stats.bonds.missing_terms, 1);
+        assert_eq!(stats.bonds.average_coupon_rate_pct, Some(dec!(6)));
+        assert_eq!(
+            ArgDispatcher::bond_maturity_range_text(&stats.bonds),
+            "2030-01-15..2040-01-15"
+        );
+        assert_eq!(payload["bonds"]["earliest_maturity"], "2030-01-15");
+        assert_eq!(payload["bonds"]["latest_maturity"], "2040-01-15");
+        assert_eq!(payload["bonds"]["average_coupon_rate_pct"], "6");
+        ArgDispatcher::print_trading_vehicle_stats(&stats);
+
+        let empty_stats =
+            ArgDispatcher::calculate_trading_vehicle_inventory_stats(&[]).expect("empty stats");
+        assert_eq!(
+            ArgDispatcher::bond_maturity_range_text(&empty_stats.bonds),
+            "n/a"
+        );
+        ArgDispatcher::print_trading_vehicle_stats(&empty_stats);
+    }
+
+    #[test]
+    fn test_trading_vehicle_inventory_stats_report_overflow_edges() {
+        let coupon_bond = model::TradingVehicle {
+            symbol: "BIGCOUPON".to_string(),
+            broker: "ibkr".to_string(),
+            category: TradingVehicleCategory::Bond,
+            fixed_income: Some(FixedIncomeTerms {
+                face_value: Some(dec!(1000)),
+                annual_coupon_rate_pct: Some(dec!(1)),
+                maturity_date: None,
+                coupon_frequency_per_year: Some(2),
+            }),
+            ..Default::default()
+        };
+
+        let mut stats = BondInventoryStats {
+            total: 0,
+            complete_terms: 0,
+            missing_terms: 0,
+            coupon_rate_count: 0,
+            average_coupon_rate_pct: None,
+            earliest_maturity: None,
+            latest_maturity: None,
+        };
+        let mut coupon_rate_sum = Decimal::MAX;
+        let mut coupon_rate_divisor = Decimal::ZERO;
+        let error = ArgDispatcher::add_bond_inventory_stats(
+            &mut stats,
+            &coupon_bond,
+            &mut coupon_rate_sum,
+            &mut coupon_rate_divisor,
+        )
+        .expect_err("coupon sum overflow should be reported");
+        assert!(error.to_string().contains("coupon sum overflow"));
+
+        let mut stats = BondInventoryStats {
+            total: 0,
+            complete_terms: 0,
+            missing_terms: 0,
+            coupon_rate_count: 0,
+            average_coupon_rate_pct: None,
+            earliest_maturity: None,
+            latest_maturity: None,
+        };
+        let mut coupon_rate_sum = Decimal::ZERO;
+        let mut coupon_rate_divisor = Decimal::MAX;
+        let error = ArgDispatcher::add_bond_inventory_stats(
+            &mut stats,
+            &coupon_bond,
+            &mut coupon_rate_sum,
+            &mut coupon_rate_divisor,
+        )
+        .expect_err("coupon count overflow should be reported");
+        assert!(error.to_string().contains("coupon count overflow"));
+
+        let error = ArgDispatcher::checked_increment_usize(usize::MAX)
+            .expect_err("usize increment overflow should be reported");
+        assert!(error.to_string().contains("count overflow"));
+
+        let mut counts = std::collections::BTreeMap::from([("bond".to_string(), usize::MAX)]);
+        let error = ArgDispatcher::increment_count(&mut counts, "bond".to_string())
+            .expect_err("map count overflow should be reported");
+        assert!(error.to_string().contains("count overflow"));
+    }
+
+    #[test]
+    fn test_trading_vehicle_stats_dispatch_supports_text_and_json() {
+        let mut dispatcher = test_dispatcher();
+        dispatcher
+            .trust
+            .create_trading_vehicle("AAPL", None, &TradingVehicleCategory::Stock, "alpaca")
+            .expect("seed stock vehicle");
+        dispatcher
+            .trust
+            .upsert_trading_vehicle(TradingVehicleUpsert {
+                symbol: "912810TL2".to_string(),
+                isin: Some("US912810TL26".to_string()),
+                category: TradingVehicleCategory::Bond,
+                broker: "ibkr".to_string(),
+                broker_asset_id: Some("123456".to_string()),
+                exchange: Some("SMART".to_string()),
+                broker_asset_class: Some("bond".to_string()),
+                broker_asset_status: Some("active".to_string()),
+                tradable: Some(true),
+                marginable: None,
+                shortable: None,
+                easy_to_borrow: None,
+                fractionable: None,
+                fixed_income: Some(FixedIncomeTerms {
+                    face_value: Some(dec!(1000)),
+                    annual_coupon_rate_pct: Some(dec!(4.25)),
+                    maturity_date: Some(NaiveDate::from_ymd_opt(2031, 2, 15).unwrap()),
+                    coupon_frequency_per_year: Some(2),
+                }),
+            })
+            .expect("seed bond vehicle");
+
+        let text = TradingVehicleCommandBuilder::new()
+            .stats()
+            .build()
+            .get_matches_from(["trading-vehicle", "stats"]);
+        dispatcher
+            .trading_vehicle_stats(text.subcommand_matches("stats").unwrap())
+            .expect("text stats should render");
+
+        let json = TradingVehicleCommandBuilder::new()
+            .stats()
+            .build()
+            .get_matches_from(["trading-vehicle", "stats", "--format", "json"]);
+        dispatcher
+            .trading_vehicle_stats(json.subcommand_matches("stats").unwrap())
+            .expect("json stats should render");
+    }
+
+    #[test]
+    fn test_parse_bond_analytics_input_loads_stored_fixed_income_terms() {
+        let mut dispatcher = test_dispatcher();
+        dispatcher
+            .trust
+            .upsert_trading_vehicle(TradingVehicleUpsert {
+                symbol: "9128285M8".to_string(),
+                isin: None,
+                category: TradingVehicleCategory::Bond,
+                broker: "ibkr".to_string(),
+                broker_asset_id: Some("123456".to_string()),
+                exchange: Some("SMART".to_string()),
+                broker_asset_class: Some("bond".to_string()),
+                broker_asset_status: None,
+                tradable: None,
+                marginable: None,
+                shortable: None,
+                easy_to_borrow: None,
+                fractionable: None,
+                fixed_income: Some(FixedIncomeTerms {
+                    face_value: Some(dec!(1000)),
+                    annual_coupon_rate_pct: Some(dec!(4.625)),
+                    maturity_date: Some(NaiveDate::from_ymd_opt(2034, 5, 15).unwrap()),
+                    coupon_frequency_per_year: Some(2),
+                }),
+            })
+            .unwrap();
+
+        let matches = MetricsCommandBuilder::new()
+            .bond()
+            .build()
+            .get_matches_from([
+                "metrics",
+                "bond",
+                "--symbol",
+                "9128285M8",
+                "--broker",
+                "ibkr",
+                "--market-price",
+                "997.50",
+                "--quantity",
+                "5",
+                "--years-to-maturity",
+                "7",
+            ]);
+        let bond = matches.subcommand_matches("bond").unwrap();
+        let input = dispatcher
+            .parse_bond_analytics_input(bond, ReportOutputFormat::Text)
+            .unwrap();
+
+        assert_eq!(input.face_value, dec!(1000));
+        assert_eq!(input.annual_coupon_rate_pct, dec!(4.625));
+        assert_eq!(input.market_price, dec!(997.50));
+        assert_eq!(input.quantity, 5);
+        assert_eq!(input.years_to_maturity, dec!(7));
+        assert_eq!(input.accrued_interest, None);
+    }
+
+    #[test]
+    fn test_parse_bond_analytics_input_builds_accrued_interest_from_stored_frequency() {
+        let mut dispatcher = test_dispatcher();
+        dispatcher
+            .trust
+            .upsert_trading_vehicle(TradingVehicleUpsert {
+                symbol: "9128285M8".to_string(),
+                isin: None,
+                category: TradingVehicleCategory::Bond,
+                broker: "ibkr".to_string(),
+                broker_asset_id: Some("123456".to_string()),
+                exchange: Some("SMART".to_string()),
+                broker_asset_class: Some("bond".to_string()),
+                broker_asset_status: None,
+                tradable: None,
+                marginable: None,
+                shortable: None,
+                easy_to_borrow: None,
+                fractionable: None,
+                fixed_income: Some(FixedIncomeTerms {
+                    face_value: Some(dec!(1000)),
+                    annual_coupon_rate_pct: Some(dec!(6)),
+                    maturity_date: Some(NaiveDate::from_ymd_opt(2034, 5, 15).unwrap()),
+                    coupon_frequency_per_year: Some(2),
+                }),
+            })
+            .unwrap();
+
+        let matches = MetricsCommandBuilder::new()
+            .bond()
+            .build()
+            .get_matches_from([
+                "metrics",
+                "bond",
+                "--symbol",
+                "9128285M8",
+                "--broker",
+                "ibkr",
+                "--market-price",
+                "1000",
+                "--quantity",
+                "10",
+                "--years-to-maturity",
+                "5",
+                "--settlement-date",
+                "2026-04-01",
+                "--last-coupon-date",
+                "2026-01-01",
+                "--next-coupon-date",
+                "2026-07-01",
+                "--day-count",
+                "actual-360",
+            ]);
+        let bond = matches.subcommand_matches("bond").unwrap();
+        let input = dispatcher
+            .parse_bond_analytics_input(bond, ReportOutputFormat::Text)
+            .unwrap();
+        let accrued = input.accrued_interest.unwrap();
+
+        assert_eq!(
+            accrued.settlement_date,
+            NaiveDate::from_ymd_opt(2026, 4, 1).unwrap()
+        );
+        assert_eq!(accrued.coupon_frequency_per_year, 2);
+        assert_eq!(
+            accrued.day_count_basis,
+            core::calculators_fixed_income::DayCountBasis::Actual360
+        );
+    }
+
+    #[test]
+    fn test_parse_bond_analytics_input_requires_frequency_for_manual_accrual() {
+        let mut dispatcher = test_dispatcher();
+        let matches = MetricsCommandBuilder::new()
+            .bond()
+            .build()
+            .get_matches_from([
+                "metrics",
+                "bond",
+                "--face-value",
+                "1000",
+                "--market-price",
+                "1000",
+                "--coupon-rate",
+                "6",
+                "--quantity",
+                "10",
+                "--years-to-maturity",
+                "5",
+                "--settlement-date",
+                "2026-04-01",
+                "--last-coupon-date",
+                "2026-01-01",
+                "--next-coupon-date",
+                "2026-07-01",
+            ]);
+        let bond = matches.subcommand_matches("bond").unwrap();
+        let error = dispatcher
+            .parse_bond_analytics_input(bond, ReportOutputFormat::Text)
+            .unwrap_err();
+
+        assert!(error.to_string().contains("missing_argument"));
+    }
+
+    #[test]
+    fn test_bond_metrics_cover_error_wrapping_and_stored_term_edges() {
+        let mut dispatcher = test_dispatcher();
+        let upsert_bond =
+            |dispatcher: &mut ArgDispatcher, symbol: &str, fixed_income: FixedIncomeTerms| {
+                dispatcher
+                    .trust
+                    .upsert_trading_vehicle(TradingVehicleUpsert {
+                        symbol: symbol.to_string(),
+                        isin: None,
+                        category: TradingVehicleCategory::Bond,
+                        broker: "ibkr".to_string(),
+                        broker_asset_id: Some(format!("asset-{symbol}")),
+                        exchange: Some("SMART".to_string()),
+                        broker_asset_class: Some("bond".to_string()),
+                        broker_asset_status: None,
+                        tradable: None,
+                        marginable: None,
+                        shortable: None,
+                        easy_to_borrow: None,
+                        fractionable: None,
+                        fixed_income: Some(fixed_income),
+                    })
+                    .expect("seed bond vehicle");
+            };
+
+        upsert_bond(
+            &mut dispatcher,
+            "OVERRIDE",
+            FixedIncomeTerms {
+                face_value: Some(dec!(1000)),
+                annual_coupon_rate_pct: Some(dec!(4.25)),
+                maturity_date: Some(NaiveDate::from_ymd_opt(2034, 5, 15).unwrap()),
+                coupon_frequency_per_year: Some(2),
+            },
+        );
+        let override_matches = MetricsCommandBuilder::new()
+            .bond()
+            .build()
+            .get_matches_from([
+                "metrics",
+                "bond",
+                "--symbol",
+                "OVERRIDE",
+                "--broker",
+                "ibkr",
+                "--face-value",
+                "1001",
+                "--market-price",
+                "995.25",
+                "--coupon-rate",
+                "4.5",
+                "--quantity",
+                "3",
+            ]);
+        let input = dispatcher
+            .parse_bond_analytics_input(
+                override_matches
+                    .subcommand_matches("bond")
+                    .expect("bond subcommand"),
+                ReportOutputFormat::Text,
+            )
+            .expect("stored bond should accept manual overrides");
+        assert_eq!(input.face_value, dec!(1001));
+        assert_eq!(input.annual_coupon_rate_pct, dec!(4.5));
+        assert!(input.years_to_maturity > Decimal::ZERO);
+
+        upsert_bond(
+            &mut dispatcher,
+            "MATURED",
+            FixedIncomeTerms {
+                face_value: Some(dec!(1000)),
+                annual_coupon_rate_pct: Some(dec!(3.75)),
+                maturity_date: Some(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap()),
+                coupon_frequency_per_year: Some(2),
+            },
+        );
+        let matured_matches = MetricsCommandBuilder::new()
+            .bond()
+            .build()
+            .get_matches_from([
+                "metrics",
+                "bond",
+                "--symbol",
+                "MATURED",
+                "--broker",
+                "ibkr",
+                "--market-price",
+                "1000",
+                "--quantity",
+                "1",
+            ]);
+        let matured = dispatcher
+            .parse_bond_analytics_input(
+                matured_matches
+                    .subcommand_matches("bond")
+                    .expect("bond subcommand"),
+                ReportOutputFormat::Text,
+            )
+            .expect("past stored maturity should clamp to zero years");
+        assert_eq!(matured.years_to_maturity, Decimal::ZERO);
+
+        upsert_bond(
+            &mut dispatcher,
+            "NOCOUPON",
+            FixedIncomeTerms {
+                face_value: Some(dec!(1000)),
+                annual_coupon_rate_pct: None,
+                maturity_date: Some(NaiveDate::from_ymd_opt(2030, 1, 1).unwrap()),
+                coupon_frequency_per_year: Some(2),
+            },
+        );
+        let no_coupon = MetricsCommandBuilder::new()
+            .bond()
+            .build()
+            .get_matches_from([
+                "metrics",
+                "bond",
+                "--symbol",
+                "NOCOUPON",
+                "--broker",
+                "ibkr",
+                "--market-price",
+                "1000",
+                "--quantity",
+                "1",
+                "--years-to-maturity",
+                "1",
+            ]);
+        let error = dispatcher
+            .parse_bond_analytics_input(
+                no_coupon
+                    .subcommand_matches("bond")
+                    .expect("bond subcommand"),
+                ReportOutputFormat::Json,
+            )
+            .expect_err("missing stored coupon rate should fail");
+        assert!(error.to_string().contains("bond_terms_missing"));
+
+        upsert_bond(
+            &mut dispatcher,
+            "NOFREQ",
+            FixedIncomeTerms {
+                face_value: Some(dec!(1000)),
+                annual_coupon_rate_pct: Some(dec!(5)),
+                maturity_date: Some(NaiveDate::from_ymd_opt(2030, 1, 1).unwrap()),
+                coupon_frequency_per_year: None,
+            },
+        );
+        let no_frequency = MetricsCommandBuilder::new()
+            .bond()
+            .build()
+            .get_matches_from([
+                "metrics",
+                "bond",
+                "--symbol",
+                "NOFREQ",
+                "--broker",
+                "ibkr",
+                "--market-price",
+                "1000",
+                "--quantity",
+                "1",
+                "--years-to-maturity",
+                "1",
+                "--settlement-date",
+                "2026-04-01",
+                "--last-coupon-date",
+                "2026-01-01",
+                "--next-coupon-date",
+                "2026-07-01",
+            ]);
+        let error = dispatcher
+            .parse_bond_analytics_input(
+                no_frequency
+                    .subcommand_matches("bond")
+                    .expect("bond subcommand"),
+                ReportOutputFormat::Json,
+            )
+            .expect_err("missing stored coupon frequency should fail for accrual");
+        assert!(error.to_string().contains("missing_argument"));
+
+        let invalid_calculation = MetricsCommandBuilder::new()
+            .bond()
+            .build()
+            .get_matches_from([
+                "metrics",
+                "bond",
+                "--face-value",
+                "1000",
+                "--market-price",
+                "1000",
+                "--coupon-rate",
+                "5",
+                "--quantity",
+                "0",
+                "--years-to-maturity",
+                "1",
+            ]);
+        let error = dispatcher
+            .metrics_bond(
+                invalid_calculation
+                    .subcommand_matches("bond")
+                    .expect("bond subcommand"),
+            )
+            .expect_err("invalid quantity should be wrapped as bond analytics failure");
+        assert!(error.to_string().contains("bond_analytics_failed"));
+    }
+
+    #[test]
+    fn test_parse_bond_analytics_input_reaches_lax_accrual_validation_edges() {
+        fn lax_bond_matches(args: &[&str]) -> clap::ArgMatches {
+            let mut argv = vec!["bond"];
+            argv.extend_from_slice(args);
+            Command::new("bond")
+                .arg(Arg::new("symbol").long("symbol"))
+                .arg(Arg::new("broker").long("broker"))
+                .arg(Arg::new("face-value").long("face-value"))
+                .arg(Arg::new("market-price").long("market-price"))
+                .arg(Arg::new("coupon-rate").long("coupon-rate"))
+                .arg(
+                    Arg::new("quantity")
+                        .long("quantity")
+                        .value_parser(clap::value_parser!(i64)),
+                )
+                .arg(Arg::new("years-to-maturity").long("years-to-maturity"))
+                .arg(
+                    Arg::new("coupon-frequency")
+                        .long("coupon-frequency")
+                        .value_parser(clap::value_parser!(u16)),
+                )
+                .arg(Arg::new("settlement-date").long("settlement-date"))
+                .arg(Arg::new("last-coupon-date").long("last-coupon-date"))
+                .arg(Arg::new("next-coupon-date").long("next-coupon-date"))
+                .arg(Arg::new("day-count").long("day-count"))
+                .get_matches_from(argv)
+        }
+
+        let mut dispatcher = test_dispatcher();
+        let missing_quantity = lax_bond_matches(&[
+            "--face-value",
+            "1000",
+            "--market-price",
+            "1000",
+            "--coupon-rate",
+            "5",
+            "--years-to-maturity",
+            "1",
+        ]);
+        let error = dispatcher
+            .parse_bond_analytics_input(&missing_quantity, ReportOutputFormat::Json)
+            .expect_err("missing quantity should be reported by dispatcher");
+        assert!(error.to_string().contains("missing_argument"));
+
+        for args in [
+            vec![
+                "--face-value",
+                "1000",
+                "--market-price",
+                "1000",
+                "--quantity",
+                "1",
+                "--years-to-maturity",
+                "1",
+            ],
+            vec![
+                "--face-value",
+                "1000",
+                "--market-price",
+                "1000",
+                "--coupon-rate",
+                "5",
+                "--quantity",
+                "1",
+            ],
+        ] {
+            let matches = lax_bond_matches(&args);
+            let error = dispatcher
+                .parse_bond_analytics_input(&matches, ReportOutputFormat::Json)
+                .expect_err("missing manual bond analytics argument should fail");
+            assert!(error.to_string().contains("missing_argument"));
+        }
+
+        let invalid_day_count = lax_bond_matches(&[
+            "--face-value",
+            "1000",
+            "--market-price",
+            "1000",
+            "--coupon-rate",
+            "5",
+            "--quantity",
+            "1",
+            "--years-to-maturity",
+            "1",
+            "--coupon-frequency",
+            "2",
+            "--settlement-date",
+            "2026-04-01",
+            "--last-coupon-date",
+            "2026-01-01",
+            "--next-coupon-date",
+            "2026-07-01",
+            "--day-count",
+            "30-360",
+        ]);
+        let error = dispatcher
+            .parse_bond_analytics_input(&invalid_day_count, ReportOutputFormat::Json)
+            .expect_err("invalid day-count should be reported by dispatcher");
+        assert!(error.to_string().contains("invalid_day_count"));
+
+        for (args, expected) in [
+            (
+                vec![
+                    "--face-value",
+                    "1000",
+                    "--market-price",
+                    "1000",
+                    "--coupon-rate",
+                    "5",
+                    "--quantity",
+                    "1",
+                    "--years-to-maturity",
+                    "1",
+                    "--coupon-frequency",
+                    "2",
+                    "--settlement-date",
+                    "2026-04-01",
+                    "--last-coupon-date",
+                    "bad-date",
+                    "--next-coupon-date",
+                    "2026-07-01",
+                ],
+                "invalid_date",
+            ),
+            (
+                vec![
+                    "--face-value",
+                    "1000",
+                    "--market-price",
+                    "1000",
+                    "--coupon-rate",
+                    "5",
+                    "--quantity",
+                    "1",
+                    "--years-to-maturity",
+                    "1",
+                    "--coupon-frequency",
+                    "2",
+                    "--settlement-date",
+                    "2026-04-01",
+                    "--last-coupon-date",
+                    "2026-01-01",
+                    "--next-coupon-date",
+                    "bad-date",
+                ],
+                "invalid_date",
+            ),
+        ] {
+            let matches = lax_bond_matches(&args);
+            let error = dispatcher
+                .parse_bond_analytics_input(&matches, ReportOutputFormat::Json)
+                .expect_err("invalid coupon date should be reported by dispatcher");
+            assert!(error.to_string().contains(expected));
+        }
+    }
+
+    #[test]
+    fn test_metrics_bond_executes_text_and_validates_lookup_and_accrual_edges() {
+        let mut dispatcher = test_dispatcher();
+        let upsert_vehicle = |dispatcher: &mut ArgDispatcher,
+                              symbol: &str,
+                              category: TradingVehicleCategory,
+                              fixed_income: Option<FixedIncomeTerms>| {
+            dispatcher
+                .trust
+                .upsert_trading_vehicle(TradingVehicleUpsert {
+                    symbol: symbol.to_string(),
+                    isin: None,
+                    category,
+                    broker: "ibkr".to_string(),
+                    broker_asset_id: Some(format!("asset-{symbol}")),
+                    exchange: Some("SMART".to_string()),
+                    broker_asset_class: Some("bond".to_string()),
+                    broker_asset_status: None,
+                    tradable: None,
+                    marginable: None,
+                    shortable: None,
+                    easy_to_borrow: None,
+                    fractionable: None,
+                    fixed_income,
+                })
+                .expect("upsert vehicle");
+        };
+
+        let text = MetricsCommandBuilder::new()
+            .bond()
+            .build()
+            .get_matches_from([
+                "metrics",
+                "bond",
+                "--face-value",
+                "1000",
+                "--market-price",
+                "980",
+                "--coupon-rate",
+                "5",
+                "--quantity",
+                "2",
+                "--years-to-maturity",
+                "4",
+                "--coupon-frequency",
+                "2",
+                "--settlement-date",
+                "2026-04-01",
+                "--last-coupon-date",
+                "2026-01-01",
+                "--next-coupon-date",
+                "2026-07-01",
+                "--day-count",
+                "actual-365",
+            ]);
+        dispatcher
+            .metrics_bond(text.subcommand_matches("bond").expect("bond subcommand"))
+            .expect("bond metrics text output should render");
+
+        for args in [
+            vec![
+                "metrics",
+                "bond",
+                "--symbol",
+                "BOND1",
+                "--market-price",
+                "1000",
+                "--quantity",
+                "1",
+                "--years-to-maturity",
+                "1",
+            ],
+            vec![
+                "metrics",
+                "bond",
+                "--broker",
+                "ibkr",
+                "--market-price",
+                "1000",
+                "--quantity",
+                "1",
+                "--years-to-maturity",
+                "1",
+            ],
+            vec![
+                "metrics",
+                "bond",
+                "--symbol",
+                "MISSING",
+                "--broker",
+                "ibkr",
+                "--market-price",
+                "1000",
+                "--quantity",
+                "1",
+                "--years-to-maturity",
+                "1",
+            ],
+        ] {
+            let matches = MetricsCommandBuilder::new()
+                .bond()
+                .build()
+                .get_matches_from(args);
+            let error = dispatcher
+                .parse_bond_analytics_input(
+                    matches.subcommand_matches("bond").expect("bond subcommand"),
+                    ReportOutputFormat::Json,
+                )
+                .expect_err("invalid lookup shape should fail");
+            assert!(
+                error.to_string().contains("missing_argument")
+                    || error.to_string().contains("bond_vehicle_not_found")
+            );
+        }
+
+        upsert_vehicle(&mut dispatcher, "ETF1", TradingVehicleCategory::Etf, None);
+        let wrong_category = MetricsCommandBuilder::new()
+            .bond()
+            .build()
+            .get_matches_from([
+                "metrics",
+                "bond",
+                "--symbol",
+                "ETF1",
+                "--broker",
+                "ibkr",
+                "--market-price",
+                "1000",
+                "--quantity",
+                "1",
+                "--years-to-maturity",
+                "1",
+            ]);
+        let error = dispatcher
+            .parse_bond_analytics_input(
+                wrong_category
+                    .subcommand_matches("bond")
+                    .expect("bond subcommand"),
+                ReportOutputFormat::Json,
+            )
+            .expect_err("non-bond vehicle should fail");
+        assert!(error.to_string().contains("bond_vehicle_wrong_category"));
+
+        upsert_vehicle(
+            &mut dispatcher,
+            "NOTERMS",
+            TradingVehicleCategory::Bond,
+            None,
+        );
+        let no_terms = MetricsCommandBuilder::new()
+            .bond()
+            .build()
+            .get_matches_from([
+                "metrics",
+                "bond",
+                "--symbol",
+                "NOTERMS",
+                "--broker",
+                "ibkr",
+                "--market-price",
+                "1000",
+                "--quantity",
+                "1",
+                "--years-to-maturity",
+                "1",
+            ]);
+        let error = dispatcher
+            .parse_bond_analytics_input(
+                no_terms
+                    .subcommand_matches("bond")
+                    .expect("bond subcommand"),
+                ReportOutputFormat::Json,
+            )
+            .expect_err("bond without fixed-income terms should fail");
+        assert!(error.to_string().contains("bond_terms_missing"));
+
+        upsert_vehicle(
+            &mut dispatcher,
+            "NOFACE",
+            TradingVehicleCategory::Bond,
+            Some(FixedIncomeTerms {
+                face_value: None,
+                annual_coupon_rate_pct: Some(dec!(5)),
+                maturity_date: Some(NaiveDate::from_ymd_opt(2030, 1, 1).unwrap()),
+                coupon_frequency_per_year: Some(2),
+            }),
+        );
+        let no_face = MetricsCommandBuilder::new()
+            .bond()
+            .build()
+            .get_matches_from([
+                "metrics",
+                "bond",
+                "--symbol",
+                "NOFACE",
+                "--broker",
+                "ibkr",
+                "--market-price",
+                "1000",
+                "--quantity",
+                "1",
+                "--years-to-maturity",
+                "1",
+            ]);
+        let error = dispatcher
+            .parse_bond_analytics_input(
+                no_face.subcommand_matches("bond").expect("bond subcommand"),
+                ReportOutputFormat::Json,
+            )
+            .expect_err("missing stored face value should fail");
+        assert!(error.to_string().contains("bond_terms_missing"));
+
+        upsert_vehicle(
+            &mut dispatcher,
+            "NOMATURITY",
+            TradingVehicleCategory::Bond,
+            Some(FixedIncomeTerms {
+                face_value: Some(dec!(1000)),
+                annual_coupon_rate_pct: Some(dec!(5)),
+                maturity_date: None,
+                coupon_frequency_per_year: Some(2),
+            }),
+        );
+        let no_maturity = MetricsCommandBuilder::new()
+            .bond()
+            .build()
+            .get_matches_from([
+                "metrics",
+                "bond",
+                "--symbol",
+                "NOMATURITY",
+                "--broker",
+                "ibkr",
+                "--market-price",
+                "1000",
+                "--quantity",
+                "1",
+            ]);
+        let error = dispatcher
+            .parse_bond_analytics_input(
+                no_maturity
+                    .subcommand_matches("bond")
+                    .expect("bond subcommand"),
+                ReportOutputFormat::Json,
+            )
+            .expect_err("missing maturity should require explicit years");
+        assert!(error.to_string().contains("bond_terms_missing"));
+
+        for (args, expected) in [
+            (
+                vec![
+                    "metrics",
+                    "bond",
+                    "--face-value",
+                    "1000",
+                    "--market-price",
+                    "1000",
+                    "--coupon-rate",
+                    "5",
+                    "--quantity",
+                    "1",
+                    "--years-to-maturity",
+                    "1",
+                    "--coupon-frequency",
+                    "0",
+                    "--settlement-date",
+                    "2026-04-01",
+                    "--last-coupon-date",
+                    "2026-01-01",
+                    "--next-coupon-date",
+                    "2026-07-01",
+                ],
+                "invalid_coupon_frequency",
+            ),
+            (
+                vec![
+                    "metrics",
+                    "bond",
+                    "--face-value",
+                    "1000",
+                    "--market-price",
+                    "1000",
+                    "--coupon-rate",
+                    "5",
+                    "--quantity",
+                    "1",
+                    "--years-to-maturity",
+                    "1",
+                    "--coupon-frequency",
+                    "2",
+                    "--last-coupon-date",
+                    "2026-01-01",
+                    "--next-coupon-date",
+                    "2026-07-01",
+                ],
+                "missing_argument",
+            ),
+            (
+                vec![
+                    "metrics",
+                    "bond",
+                    "--face-value",
+                    "1000",
+                    "--market-price",
+                    "1000",
+                    "--coupon-rate",
+                    "5",
+                    "--quantity",
+                    "1",
+                    "--years-to-maturity",
+                    "1",
+                    "--coupon-frequency",
+                    "2",
+                    "--settlement-date",
+                    "bad-date",
+                    "--last-coupon-date",
+                    "2026-01-01",
+                    "--next-coupon-date",
+                    "2026-07-01",
+                ],
+                "invalid_date",
+            ),
+        ] {
+            let matches = MetricsCommandBuilder::new()
+                .bond()
+                .build()
+                .get_matches_from(args);
+            let error = dispatcher
+                .parse_bond_analytics_input(
+                    matches.subcommand_matches("bond").expect("bond subcommand"),
+                    ReportOutputFormat::Json,
+                )
+                .expect_err("invalid accrued-interest inputs should fail");
+            assert!(error.to_string().contains(expected));
+        }
+    }
+
+    #[test]
+    fn test_years_to_maturity_uses_decimal_day_count() {
+        let maturity = NaiveDate::from_ymd_opt(2027, 1, 1).unwrap();
+        let as_of = NaiveDate::from_ymd_opt(2026, 1, 1).unwrap();
+        let years =
+            ArgDispatcher::years_to_maturity(maturity, as_of, ReportOutputFormat::Text).unwrap();
+        assert_eq!(years, dec!(1));
     }
 
     #[test]
@@ -8822,6 +13054,50 @@ mod tests {
             .trade_size_preview(&invalid_currency, ReportOutputFormat::Json)
             .expect_err("unsupported currency should fail");
         assert!(error.to_string().contains("invalid_currency"));
+
+        let mut empty_dispatcher = test_dispatcher();
+        let account = empty_dispatcher
+            .trust
+            .create_account(
+                "size-no-balance",
+                "test",
+                Environment::Paper,
+                dec!(20),
+                dec!(10),
+            )
+            .expect("account without balance");
+        let no_balance = size_preview_matches(&[
+            "--account",
+            &account.id.to_string(),
+            "--entry",
+            "0",
+            "--stop",
+            "147.5",
+            "--currency",
+            "usd",
+        ]);
+        let error = empty_dispatcher
+            .trade_size_preview(&no_balance, ReportOutputFormat::Json)
+            .expect_err("size preview should surface calculation failures");
+        assert!(error.to_string().contains("size_preview_failed"));
+
+        let mut level_failure_dispatcher = test_dispatcher_with_read_failures(
+            crate::test_support::ReadFailureFactory::level_fails_after_quantity(),
+        );
+        let level_failure = size_preview_matches(&[
+            "--account",
+            &Uuid::new_v4().to_string(),
+            "--entry",
+            "150",
+            "--stop",
+            "147.5",
+            "--currency",
+            "usd",
+        ]);
+        let error = level_failure_dispatcher
+            .trade_size_preview(&level_failure, ReportOutputFormat::Json)
+            .expect_err("size preview should surface post-calculation level load failures");
+        assert_eq!(error.code, "size_preview_level_load_failed");
     }
 
     #[test]
@@ -8865,6 +13141,25 @@ mod tests {
             .trade_hypothesis(&invalid_quantity, ReportOutputFormat::Json)
             .expect_err("invalid quantity should fail");
         assert!(quantity_error.to_string().contains("invalid_quantity"));
+
+        let missing_quantity = hypothesis_matches(&[
+            "--account",
+            &account.id.to_string(),
+            "--entry",
+            "150",
+            "--stop",
+            "147.5",
+            "--target",
+            "160",
+            "--currency",
+            "usd",
+        ]);
+        let missing_quantity_error = dispatcher
+            .trade_hypothesis(&missing_quantity, ReportOutputFormat::Json)
+            .expect_err("missing quantity should fail");
+        assert!(missing_quantity_error
+            .to_string()
+            .contains("missing_argument"));
 
         let zero_quantity = hypothesis_matches(&[
             "--account",
@@ -9089,6 +13384,108 @@ mod tests {
     }
 
     #[test]
+    fn test_attribution_benchmark_and_timeline_reports_execute_text_and_json_paths() {
+        let mut dispatcher =
+            test_dispatcher_with_broker(Box::new(StubBroker::submitted_fill_fixture()));
+        let (account, _closed) = seed_closed_target_trade(&mut dispatcher);
+        let account_id = account.id.to_string();
+
+        let attribution = ReportCommandBuilder::new()
+            .attribution()
+            .build()
+            .get_matches_from([
+                "report",
+                "attribution",
+                "--account",
+                &account_id,
+                "--by",
+                "symbol",
+                "--from",
+                "2020-01-01",
+                "--to",
+                "2030-01-01",
+            ]);
+        let attribution_matches = attribution.subcommand_matches("attribution").unwrap();
+        dispatcher
+            .attribution_report(attribution_matches, ReportOutputFormat::Text)
+            .expect("attribution text report should succeed");
+        dispatcher
+            .attribution_report(attribution_matches, ReportOutputFormat::Json)
+            .expect("attribution json report should succeed");
+        for (grouping, format) in [
+            ("sector", ReportOutputFormat::Text),
+            ("asset-class", ReportOutputFormat::Json),
+        ] {
+            let grouped = ReportCommandBuilder::new()
+                .attribution()
+                .build()
+                .get_matches_from([
+                    "report",
+                    "attribution",
+                    "--account",
+                    &account_id,
+                    "--by",
+                    grouping,
+                    "--from",
+                    "2020-01-01",
+                    "--to",
+                    "2030-01-01",
+                ]);
+            dispatcher
+                .attribution_report(grouped.subcommand_matches("attribution").unwrap(), format)
+                .expect("grouped attribution report should succeed");
+        }
+
+        let benchmark = ReportCommandBuilder::new()
+            .benchmark()
+            .build()
+            .get_matches_from([
+                "report",
+                "benchmark",
+                "--account",
+                &account_id,
+                "--benchmark",
+                "SPY",
+                "--from",
+                "2020-01-01",
+                "--to",
+                "2030-01-01",
+            ]);
+        let benchmark_matches = benchmark.subcommand_matches("benchmark").unwrap();
+        dispatcher
+            .benchmark_report(benchmark_matches, ReportOutputFormat::Text)
+            .expect("benchmark text report should succeed");
+        dispatcher
+            .benchmark_report(benchmark_matches, ReportOutputFormat::Json)
+            .expect("benchmark json report should succeed");
+
+        for (granularity, format) in [
+            ("day", ReportOutputFormat::Text),
+            ("week", ReportOutputFormat::Json),
+            ("month", ReportOutputFormat::Text),
+        ] {
+            let timeline = ReportCommandBuilder::new()
+                .timeline()
+                .build()
+                .get_matches_from([
+                    "report",
+                    "timeline",
+                    "--account",
+                    &account_id,
+                    "--granularity",
+                    granularity,
+                    "--from",
+                    "2020-01-01",
+                    "--to",
+                    "2030-01-01",
+                ]);
+            dispatcher
+                .timeline_report(timeline.subcommand_matches("timeline").unwrap(), format)
+                .expect("timeline report should succeed");
+        }
+    }
+
+    #[test]
     fn test_advisor_commands_validate_inputs_and_history_defaults() {
         let _guard = env_guard();
         std::env::set_var("TRUST_PROTECTED_KEYWORD_EXPECTED", "secret");
@@ -9154,6 +13551,68 @@ mod tests {
         dispatcher
             .advisor_history(&history_default_days)
             .expect("history should support default days when no entries exist");
+
+        std::env::remove_var("TRUST_PROTECTED_KEYWORD_EXPECTED");
+    }
+
+    #[test]
+    fn test_advisor_success_paths_emit_warnings_status_and_history() {
+        let _guard = env_guard();
+        std::env::set_var("TRUST_PROTECTED_KEYWORD_EXPECTED", "secret");
+        let mut dispatcher =
+            test_dispatcher_with_broker(Box::new(StubBroker::submitted_fill_fixture()));
+        let (account, _) = seed_filled_trade(&mut dispatcher);
+        let account_id = account.id.to_string();
+
+        let configure = advisor_configure_matches(&[
+            "--confirm-protected",
+            "secret",
+            "--account",
+            &account_id,
+            "--sector-limit",
+            "50",
+            "--asset-class-limit",
+            "50",
+            "--single-position-limit",
+            "50",
+        ]);
+        dispatcher
+            .advisor_configure(&configure)
+            .expect("advisor thresholds should configure");
+
+        let check = advisor_check_matches(&[
+            "--account",
+            &account_id,
+            "--symbol",
+            "MSFT",
+            "--entry",
+            "100",
+            "--quantity",
+            "2",
+            "--sector",
+            "technology",
+            "--asset-class",
+            "equity",
+        ]);
+        dispatcher
+            .advisor_check(&check)
+            .expect("concentrated proposal should produce advisory output");
+
+        let history = dispatcher
+            .trust
+            .advisory_history_for_account(account.id, 30);
+        assert_eq!(history.len(), 1);
+        assert!(history[0].summary.contains("sector concentration"));
+
+        let status = advisor_check_matches(&["--account", &account_id]);
+        dispatcher
+            .advisor_status(&status)
+            .expect("filled concentrated portfolio should render status warnings");
+
+        let history_matches = advisor_history_matches(&["--account", &account_id, "--days", "30"]);
+        dispatcher
+            .advisor_history(&history_matches)
+            .expect("non-empty advisor history should render entries");
 
         std::env::remove_var("TRUST_PROTECTED_KEYWORD_EXPECTED");
     }
@@ -9413,6 +13872,14 @@ mod tests {
         assert_eq!(
             super::category_to_str(model::TradingVehicleCategory::Stock),
             "stock"
+        );
+        assert_eq!(
+            super::category_to_str(model::TradingVehicleCategory::Etf),
+            "etf"
+        );
+        assert_eq!(
+            super::category_to_str(model::TradingVehicleCategory::Bond),
+            "bond"
         );
     }
 
@@ -9679,6 +14146,28 @@ mod tests {
     }
 
     #[test]
+    fn test_reports_surface_missing_account_data_for_valid_unknown_account_id() {
+        let missing_account = Uuid::new_v4().to_string();
+        let matches = report_args_matches(&["--account", &missing_account]);
+
+        let mut dispatcher = test_dispatcher();
+        let risk_error = dispatcher
+            .risk_report(&matches, ReportOutputFormat::Json)
+            .expect_err("missing account balance should fail risk report");
+        assert!(risk_error
+            .to_string()
+            .contains("account_balance_unavailable"));
+
+        let mut dispatcher = test_dispatcher();
+        let summary_error = dispatcher
+            .summary_report(&matches, ReportOutputFormat::Json)
+            .expect_err("missing account should fail summary report");
+        assert!(summary_error
+            .to_string()
+            .contains("summary_generation_failed"));
+    }
+
+    #[test]
     fn test_non_interactive_arg_detection_helpers() {
         let empty_accounts = account_matches(&[]);
         assert!(!ArgDispatcher::has_non_interactive_account_args(
@@ -9728,6 +14217,23 @@ mod tests {
             .expect("valid keyword should authorize");
 
         crate::protected_keyword::delete().expect("clear protected keyword state");
+    }
+
+    #[test]
+    fn test_ensure_protected_keyword_reports_not_configured() {
+        let _guard = env_guard();
+        std::env::remove_var("TRUST_PROTECTED_KEYWORD_EXPECTED");
+        crate::protected_keyword::delete().expect("reset protected keyword state");
+
+        let mut dispatcher = test_dispatcher();
+        let matches = account_matches(&["--confirm-protected", "secret"]);
+        let error = dispatcher
+            .ensure_protected_keyword(&matches, ReportOutputFormat::Json, "op")
+            .expect_err("missing configured keyword should fail first");
+
+        assert!(error
+            .to_string()
+            .contains("protected_keyword_not_configured"));
     }
 
     #[test]
@@ -9781,6 +14287,11 @@ mod tests {
             .to_string()
             .contains("account_not_found"));
 
+        let missing_uuid_error = dispatcher
+            .resolve_account_arg(&Uuid::new_v4().to_string(), ReportOutputFormat::Json)
+            .expect_err("unknown account uuid should fail");
+        assert!(missing_uuid_error.to_string().contains("account_not_found"));
+
         let missing_id_error = dispatcher
             .account_by_id(Uuid::new_v4(), ReportOutputFormat::Json)
             .expect_err("unknown account id should fail");
@@ -9794,6 +14305,108 @@ mod tests {
             )
             .expect_err("missing trade should fail");
         assert!(missing_trade_error.to_string().contains("trade_not_found"));
+    }
+
+    #[test]
+    fn test_resolution_helpers_surface_account_read_failures() {
+        let mut dispatcher =
+            test_dispatcher_with_read_failures(crate::test_support::ReadFailureFactory::accounts());
+        let account_id = Uuid::new_v4();
+
+        let account_arg_error = dispatcher
+            .resolve_account_arg(&account_id.to_string(), ReportOutputFormat::Json)
+            .expect_err("account list failure should fail UUID lookup");
+        assert_eq!(account_arg_error.code, "accounts_unavailable");
+
+        let account_by_id_error = dispatcher
+            .account_by_id(account_id, ReportOutputFormat::Json)
+            .expect_err("account list failure should fail account_by_id");
+        assert_eq!(account_by_id_error.code, "accounts_unavailable");
+
+        let trade_lookup_error = dispatcher
+            .find_trade_by_id(Uuid::new_v4(), &[Status::New], ReportOutputFormat::Json)
+            .expect_err("account list failure should fail trade lookup");
+        assert_eq!(trade_lookup_error.code, "accounts_unavailable");
+
+        let no_account_matches = Command::new("level")
+            .arg(Arg::new("account").long("account"))
+            .get_matches_from(["level"]);
+        let level_account_error = dispatcher
+            .resolve_level_account_id(&no_account_matches, ReportOutputFormat::Json)
+            .expect_err("account list failure should fail implicit level account resolution");
+        assert_eq!(level_account_error.code, "accounts_unavailable");
+    }
+
+    #[test]
+    fn test_level_dispatchers_surface_level_store_failures() {
+        let _guard = env_guard();
+        std::env::set_var("TRUST_DISABLE_KEYCHAIN", "1");
+        std::env::set_var("TRUST_PROTECTED_KEYWORD_EXPECTED", "secret");
+        crate::protected_keyword::delete().expect("reset protected keyword");
+
+        let account_id = Uuid::new_v4().to_string();
+        let mut dispatcher =
+            test_dispatcher_with_read_failures(crate::test_support::ReadFailureFactory::levels());
+
+        let status = LevelCommandBuilder::new()
+            .status()
+            .build()
+            .get_matches_from(["level", "status", "--account", &account_id]);
+        let status_error = dispatcher
+            .dispatch_level(&status)
+            .expect_err("level status read failure should surface");
+        assert_eq!(status_error.code, "level_status_failed");
+
+        let history = LevelCommandBuilder::new()
+            .history()
+            .build()
+            .get_matches_from(["level", "history", "--account", &account_id]);
+        let history_error = dispatcher
+            .dispatch_level(&history)
+            .expect_err("level history read failure should surface");
+        assert_eq!(history_error.code, "level_history_failed");
+
+        let rules_show = LevelCommandBuilder::new()
+            .rules()
+            .build()
+            .get_matches_from(["level", "rules", "show", "--account", &account_id]);
+        let rules_show_error = dispatcher
+            .dispatch_level(&rules_show)
+            .expect_err("level rules read failure should surface");
+        assert_eq!(rules_show_error.code, "level_rules_show_failed");
+
+        let rules_set = LevelCommandBuilder::new()
+            .rules()
+            .build()
+            .get_matches_from([
+                "level",
+                "rules",
+                "set",
+                "--account",
+                &account_id,
+                "--rule",
+                "monthly_loss_downgrade_pct",
+                "--value",
+                "8",
+                "--confirm-protected",
+                "secret",
+            ]);
+        let rules_set_read_error = dispatcher
+            .dispatch_level(&rules_set)
+            .expect_err("level rules read failure should surface before update");
+        assert_eq!(rules_set_read_error.code, "level_rules_read_failed");
+
+        let mut dispatcher = test_dispatcher_with_read_failures(
+            crate::test_support::ReadFailureFactory::level_write_after_read(),
+        );
+        let rules_set_write_error = dispatcher
+            .dispatch_level(&rules_set)
+            .expect_err("level rules write failure should surface");
+        assert_eq!(rules_set_write_error.code, "level_rules_set_failed");
+
+        crate::protected_keyword::delete().expect("cleanup protected keyword");
+        std::env::remove_var("TRUST_PROTECTED_KEYWORD_EXPECTED");
+        std::env::remove_var("TRUST_DISABLE_KEYCHAIN");
     }
 
     #[test]
@@ -9811,6 +14424,22 @@ mod tests {
             .set_protected_keyword(&missing_value)
             .expect_err("missing value should fail");
         assert!(missing_error.to_string().contains("missing_value"));
+        dispatcher.show_protected_keyword();
+
+        let blank_initial = KeysCommandBuilder::new()
+            .protected_set()
+            .build()
+            .get_matches_from(["keys", "protected-set", "--value", "   "]);
+        let blank_initial_error = dispatcher
+            .set_protected_keyword(
+                blank_initial
+                    .subcommand_matches("protected-set")
+                    .expect("protected-set matches"),
+            )
+            .expect_err("blank initial keyword should fail in storage");
+        assert!(blank_initial_error
+            .to_string()
+            .contains("protected_keyword_store_failed"));
 
         let initial_set = KeysCommandBuilder::new()
             .protected_set()
@@ -9827,6 +14456,7 @@ mod tests {
             crate::protected_keyword::read_expected().expect("keyword should be stored"),
             "first-secret"
         );
+        dispatcher.show_protected_keyword();
 
         let rotate_missing_confirm = KeysCommandBuilder::new()
             .protected_set()
@@ -9864,6 +14494,32 @@ mod tests {
         assert!(rotate_wrong_error
             .to_string()
             .contains("protected_keyword_invalid"));
+
+        let rotate_blank_value = KeysCommandBuilder::new()
+            .protected_set()
+            .build()
+            .get_matches_from([
+                "keys",
+                "protected-set",
+                "--value",
+                "   ",
+                "--confirm-protected",
+                "first-secret",
+            ]);
+        let rotate_blank_error = dispatcher
+            .set_protected_keyword(
+                rotate_blank_value
+                    .subcommand_matches("protected-set")
+                    .expect("protected-set matches"),
+            )
+            .expect_err("blank rotation keyword should fail in storage");
+        assert!(rotate_blank_error
+            .to_string()
+            .contains("protected_keyword_store_failed"));
+        assert_eq!(
+            crate::protected_keyword::read_expected().expect("keyword after failed blank rotation"),
+            "first-secret"
+        );
 
         let rotate_valid = KeysCommandBuilder::new()
             .protected_set()
@@ -9923,6 +14579,25 @@ mod tests {
             crate::protected_keyword::read_expected().is_err(),
             "keyword should be deleted"
         );
+
+        std::env::set_var("TRUST_PROTECTED_KEYWORD_EXPECTED", "secret");
+        std::env::set_var("TRUST_DISABLE_KEYCHAIN", "0");
+        let delete_store_failure = KeysCommandBuilder::new()
+            .protected_delete()
+            .build()
+            .get_matches_from(["keys", "protected-delete", "--confirm-protected", "secret"]);
+        let delete_store_error = dispatcher
+            .delete_protected_keyword(
+                delete_store_failure
+                    .subcommand_matches("protected-delete")
+                    .expect("protected-delete matches"),
+            )
+            .expect_err("keychain deletion failures should surface");
+        assert!(delete_store_error
+            .to_string()
+            .contains("protected_keyword_delete_failed"));
+        std::env::remove_var("TRUST_PROTECTED_KEYWORD_EXPECTED");
+        std::env::set_var("TRUST_DISABLE_KEYCHAIN", "1");
 
         crate::protected_keyword::delete().expect("cleanup protected keyword");
         std::env::remove_var("TRUST_DISABLE_KEYCHAIN");
@@ -10083,6 +14758,48 @@ mod tests {
         assert!(invalid_decimal_error
             .to_string()
             .contains("invalid_decimal"));
+
+        let invalid_monthly_loss = level_eval_matches(&[
+            "--profitable-trades",
+            "2",
+            "--win-rate",
+            "60",
+            "--monthly-loss",
+            "bad",
+            "--largest-loss",
+            "1",
+            "--consecutive-wins",
+            "2",
+        ]);
+        let invalid_monthly_loss_error = ArgDispatcher::level_snapshot_from_args(
+            &invalid_monthly_loss,
+            ReportOutputFormat::Json,
+        )
+        .expect_err("invalid monthly loss should fail");
+        assert!(invalid_monthly_loss_error
+            .to_string()
+            .contains("invalid_decimal"));
+
+        let invalid_largest_loss = level_eval_matches(&[
+            "--profitable-trades",
+            "2",
+            "--win-rate",
+            "60",
+            "--monthly-loss",
+            "2",
+            "--largest-loss",
+            "bad",
+            "--consecutive-wins",
+            "2",
+        ]);
+        let invalid_largest_loss_error = ArgDispatcher::level_snapshot_from_args(
+            &invalid_largest_loss,
+            ReportOutputFormat::Json,
+        )
+        .expect_err("invalid largest loss should fail");
+        assert!(invalid_largest_loss_error
+            .to_string()
+            .contains("invalid_decimal"));
     }
 
     #[test]
@@ -10189,6 +14906,20 @@ mod tests {
     }
 
     #[test]
+    fn test_print_level_path_text_handles_missing_target_level() {
+        let path = LevelPathProgress {
+            path: "upper-bound",
+            trigger_type: LevelTrigger::PerformanceUpgrade,
+            direction: LevelDirection::Upgrade,
+            target_level: None,
+            all_met: true,
+            criteria: vec![],
+        };
+
+        ArgDispatcher::print_level_path_text("Upgrade", &path);
+    }
+
+    #[test]
     fn test_create_account_non_interactive_missing_required_fields() {
         let _guard = env_guard();
         std::env::set_var("TRUST_PROTECTED_KEYWORD_EXPECTED", "secret");
@@ -10199,6 +14930,108 @@ mod tests {
             .create_account(&matches)
             .expect_err("missing name should fail");
         assert!(error.to_string().contains("missing_name"));
+
+        std::env::remove_var("TRUST_PROTECTED_KEYWORD_EXPECTED");
+    }
+
+    #[test]
+    fn test_create_account_non_interactive_validates_remaining_required_and_enum_fields() {
+        let _guard = env_guard();
+        std::env::set_var("TRUST_PROTECTED_KEYWORD_EXPECTED", "secret");
+
+        let assert_error = |args: &[&str], expected_code: &str| {
+            let mut dispatcher = test_dispatcher();
+            let matches = account_matches(args);
+            let error = dispatcher
+                .create_account(&matches)
+                .expect_err("invalid account args should fail");
+            assert!(
+                error.to_string().contains(expected_code),
+                "expected `{expected_code}` in `{error}`"
+            );
+        };
+
+        assert_error(
+            &["--confirm-protected", "secret", "--name", "missing-desc"],
+            "missing_description",
+        );
+        assert_error(
+            &[
+                "--confirm-protected",
+                "secret",
+                "--name",
+                "missing-env",
+                "--description",
+                "missing env",
+            ],
+            "missing_environment",
+        );
+        assert_error(
+            &[
+                "--confirm-protected",
+                "secret",
+                "--name",
+                "missing-taxes",
+                "--description",
+                "missing taxes",
+                "--environment",
+                "paper",
+            ],
+            "missing_taxes",
+        );
+        assert_error(
+            &[
+                "--confirm-protected",
+                "secret",
+                "--name",
+                "missing-earnings",
+                "--description",
+                "missing earnings",
+                "--environment",
+                "paper",
+                "--taxes",
+                "20",
+            ],
+            "missing_earnings",
+        );
+        assert_error(
+            &[
+                "--confirm-protected",
+                "secret",
+                "--name",
+                "bad-type",
+                "--description",
+                "bad type",
+                "--environment",
+                "paper",
+                "--taxes",
+                "20",
+                "--earnings",
+                "10",
+                "--type",
+                "margin",
+            ],
+            "invalid_account_type",
+        );
+        assert_error(
+            &[
+                "--confirm-protected",
+                "secret",
+                "--name",
+                "bad-broker",
+                "--description",
+                "bad broker",
+                "--environment",
+                "paper",
+                "--taxes",
+                "20",
+                "--earnings",
+                "10",
+                "--broker",
+                "manual",
+            ],
+            "invalid_broker",
+        );
 
         std::env::remove_var("TRUST_PROTECTED_KEYWORD_EXPECTED");
     }
@@ -10264,6 +15097,145 @@ mod tests {
     }
 
     #[test]
+    fn test_create_account_non_interactive_validates_environment_and_decimals() {
+        let _guard = env_guard();
+        std::env::set_var("TRUST_PROTECTED_KEYWORD_EXPECTED", "secret");
+
+        let invalid_environment = account_matches(&[
+            "--confirm-protected",
+            "secret",
+            "--name",
+            "bad-env",
+            "--description",
+            "bad env",
+            "--environment",
+            "demo",
+            "--taxes",
+            "20",
+            "--earnings",
+            "10",
+        ]);
+        let mut dispatcher = test_dispatcher();
+        let env_error = dispatcher
+            .create_account(&invalid_environment)
+            .expect_err("invalid environment should fail");
+        assert!(env_error.to_string().contains("invalid_environment"));
+
+        let invalid_taxes = account_matches(&[
+            "--confirm-protected",
+            "secret",
+            "--name",
+            "bad-tax",
+            "--description",
+            "bad tax",
+            "--environment",
+            "paper",
+            "--taxes",
+            "abc",
+            "--earnings",
+            "10",
+        ]);
+        let mut dispatcher = test_dispatcher();
+        let tax_error = dispatcher
+            .create_account(&invalid_taxes)
+            .expect_err("invalid taxes should fail");
+        assert!(tax_error.to_string().contains("invalid_decimal"));
+
+        let invalid_earnings = account_matches(&[
+            "--confirm-protected",
+            "secret",
+            "--name",
+            "bad-earnings",
+            "--description",
+            "bad earnings",
+            "--environment",
+            "paper",
+            "--taxes",
+            "20",
+            "--earnings",
+            "abc",
+        ]);
+        let mut dispatcher = test_dispatcher();
+        let earnings_error = dispatcher
+            .create_account(&invalid_earnings)
+            .expect_err("invalid earnings should fail");
+        assert!(earnings_error.to_string().contains("invalid_decimal"));
+
+        std::env::remove_var("TRUST_PROTECTED_KEYWORD_EXPECTED");
+    }
+
+    #[test]
+    fn test_create_account_non_interactive_success_with_broker_profiles() {
+        let _guard = env_guard();
+        std::env::set_var("TRUST_PROTECTED_KEYWORD_EXPECTED", "secret");
+        let mut dispatcher = test_dispatcher();
+
+        let ibkr_primary = account_matches(&[
+            "--confirm-protected",
+            "secret",
+            "--name",
+            "ibkr-profile",
+            "--description",
+            "ibkr primary",
+            "--environment",
+            "paper",
+            "--taxes",
+            "20",
+            "--earnings",
+            "10",
+            "--broker",
+            "ibkr",
+            "--broker-account-id",
+            "U1234567",
+        ]);
+        dispatcher
+            .create_account(&ibkr_primary)
+            .expect("ibkr primary account should be created");
+        let created = dispatcher
+            .trust
+            .search_account("ibkr-profile")
+            .expect("created ibkr account should be searchable");
+        assert_eq!(created.account_type, AccountType::Primary);
+        assert_eq!(created.broker_kind, BrokerKind::Ibkr);
+        assert_eq!(created.broker_account_id.as_deref(), Some("U1234567"));
+
+        let parent_id = created.id.to_string();
+        let earnings = account_matches(&[
+            "--confirm-protected",
+            "secret",
+            "--name",
+            "ibkr-earnings",
+            "--description",
+            "ibkr earnings",
+            "--environment",
+            "paper",
+            "--taxes",
+            "20",
+            "--earnings",
+            "10",
+            "--type",
+            "earnings",
+            "--broker",
+            "ibkr",
+            "--parent",
+            &parent_id,
+        ]);
+        dispatcher
+            .create_account(&earnings)
+            .expect("non-primary ibkr account with parent does not require broker account id");
+        let earnings = dispatcher
+            .trust
+            .search_account("ibkr-earnings")
+            .expect("created earnings account should be searchable");
+        assert_eq!(earnings.account_type, AccountType::Earnings);
+        assert_eq!(earnings.broker_kind, BrokerKind::Ibkr);
+        assert!(earnings.broker_account_id.is_none());
+        assert_eq!(earnings.parent_account_id, Some(created.id));
+
+        std::env::remove_var("TRUST_PROTECTED_KEYWORD_EXPECTED");
+    }
+
+    #[test]
     fn test_create_account_non_interactive_success_with_hierarchy() {
         let _guard = env_guard();
         std::env::set_var("TRUST_PROTECTED_KEYWORD_EXPECTED", "secret");
@@ -10307,6 +15279,483 @@ mod tests {
         assert_eq!(created.environment, Environment::Paper);
 
         std::env::remove_var("TRUST_PROTECTED_KEYWORD_EXPECTED");
+    }
+
+    #[test]
+    fn test_create_account_non_interactive_surfaces_core_create_errors() {
+        let _guard = env_guard();
+        std::env::set_var("TRUST_PROTECTED_KEYWORD_EXPECTED", "secret");
+        let mut dispatcher = test_dispatcher();
+
+        let args = [
+            "--confirm-protected",
+            "secret",
+            "--name",
+            "duplicate-account",
+            "--description",
+            "original",
+            "--environment",
+            "paper",
+            "--taxes",
+            "20",
+            "--earnings",
+            "10",
+        ];
+
+        let first = account_matches(&args);
+        dispatcher
+            .create_account(&first)
+            .expect("first account creation should succeed");
+
+        let duplicate = account_matches(&args);
+        let error = dispatcher
+            .create_account(&duplicate)
+            .expect_err("duplicate account creation should fail");
+        assert!(error.to_string().contains("create_account_failed"));
+
+        std::env::remove_var("TRUST_PROTECTED_KEYWORD_EXPECTED");
+    }
+
+    #[test]
+    fn test_create_trade_interactive_dispatch_builds_trade_from_scripted_dialog() {
+        let mut dispatcher = test_dispatcher();
+        let (account, _vehicle) = seed_account_and_vehicle(&mut dispatcher);
+
+        crate::dialogs::scripted_reset();
+        crate::dialogs::scripted_push_select(Ok(Some(0))); // account
+        crate::dialogs::scripted_push_select(Ok(Some(0))); // trading vehicle
+        crate::dialogs::scripted_push_select(Ok(Some(0))); // long category
+        crate::dialogs::scripted_push_input(Ok("100".to_string()));
+        crate::dialogs::scripted_push_input(Ok("95".to_string()));
+        crate::dialogs::scripted_push_select(Ok(Some(0))); // USD balance
+        crate::dialogs::scripted_push_input(Ok("2".to_string()));
+        crate::dialogs::scripted_push_input(Ok("110".to_string()));
+        crate::dialogs::scripted_push_input(Ok("scripted breakout".to_string()));
+        crate::dialogs::scripted_push_input(Ok("technology".to_string()));
+        crate::dialogs::scripted_push_input(Ok("equity".to_string()));
+        crate::dialogs::scripted_push_input(Ok("daily setup".to_string()));
+
+        let matches = trade_matches(&[]);
+        dispatcher
+            .create_trade(&matches)
+            .expect("scripted interactive trade creation should succeed");
+
+        let created = dispatcher
+            .trust
+            .search_trades(account.id, Status::New)
+            .expect("new trades should load");
+        assert_eq!(created.len(), 1);
+        assert_eq!(created[0].trading_vehicle.symbol, "AAPL");
+        assert_eq!(created[0].entry.quantity, 2);
+        assert_eq!(created[0].thesis.as_deref(), Some("scripted breakout"));
+
+        crate::dialogs::scripted_reset();
+    }
+
+    #[test]
+    fn test_trade_interactive_dispatch_funds_submits_and_syncs_selected_trade() {
+        let mut dispatcher =
+            test_dispatcher_with_broker(Box::new(StubBroker::submitted_fill_fixture()));
+        let (account, _trade) = seed_new_trade(&mut dispatcher);
+        dispatcher
+            .trust
+            .configure_advisory_thresholds(
+                account.id,
+                core::services::AdvisoryThresholds {
+                    sector_limit_pct: dec!(100),
+                    asset_class_limit_pct: dec!(100),
+                    single_position_limit_pct: dec!(100),
+                },
+            )
+            .expect("configure permissive advisory thresholds");
+
+        crate::dialogs::scripted_reset();
+        crate::dialogs::scripted_push_select(Ok(Some(0)));
+        crate::dialogs::scripted_push_select(Ok(Some(0)));
+        crate::dialogs::scripted_push_confirm(Ok(true));
+        let fund_matches = TradeCommandBuilder::new()
+            .fund_trade()
+            .build()
+            .get_matches_from(["trade", "fund"]);
+        dispatcher
+            .create_funding(fund_matches.subcommand_matches("fund").unwrap())
+            .expect("scripted interactive funding should succeed");
+        let funded = dispatcher
+            .trust
+            .search_trades(account.id, Status::Funded)
+            .expect("funded trades should load");
+        assert_eq!(funded.len(), 1);
+
+        crate::dialogs::scripted_push_select(Ok(Some(0)));
+        crate::dialogs::scripted_push_select(Ok(Some(0)));
+        let submit_matches = TradeCommandBuilder::new()
+            .submit_trade()
+            .build()
+            .get_matches_from(["trade", "submit"]);
+        dispatcher
+            .create_submit(submit_matches.subcommand_matches("submit").unwrap())
+            .expect("scripted interactive submit should succeed");
+        let submitted = dispatcher
+            .trust
+            .search_trades(account.id, Status::Submitted)
+            .expect("submitted trades should load");
+        assert_eq!(submitted.len(), 1);
+
+        crate::dialogs::scripted_push_select(Ok(Some(0)));
+        crate::dialogs::scripted_push_select(Ok(Some(0)));
+        let sync_matches = TradeCommandBuilder::new()
+            .sync_trade()
+            .build()
+            .get_matches_from(["trade", "sync"]);
+        dispatcher
+            .create_sync(sync_matches.subcommand_matches("sync").unwrap())
+            .expect("scripted interactive sync should succeed");
+        let filled = dispatcher
+            .trust
+            .search_trades(account.id, Status::Filled)
+            .expect("filled trades should load");
+        assert_eq!(filled.len(), 1);
+
+        crate::dialogs::scripted_reset();
+    }
+
+    #[test]
+    fn test_trade_interactive_dispatch_cancels_selected_funded_trade() {
+        let mut dispatcher = test_dispatcher();
+        let (account, trade) = seed_new_trade(&mut dispatcher);
+        dispatcher.trust.fund_trade(&trade).expect("fund trade");
+
+        crate::dialogs::scripted_reset();
+        crate::dialogs::scripted_push_select(Ok(Some(0)));
+        crate::dialogs::scripted_push_select(Ok(Some(0)));
+        let cancel_matches = TradeCommandBuilder::new()
+            .cancel_trade()
+            .build()
+            .get_matches_from(["trade", "cancel"]);
+        dispatcher
+            .create_cancel(cancel_matches.subcommand_matches("cancel").unwrap())
+            .expect("scripted interactive cancel should succeed");
+
+        let canceled = dispatcher
+            .trust
+            .search_trades(account.id, Status::Canceled)
+            .expect("canceled trades should load");
+        assert_eq!(canceled.len(), 1);
+
+        crate::dialogs::scripted_reset();
+    }
+
+    #[test]
+    fn test_trade_interactive_dispatch_manual_fill_error_and_manual_exit_paths() {
+        let mut fill_dispatcher =
+            test_dispatcher_with_broker(Box::new(StubBroker::submitted_fill_fixture()));
+        let (fill_account, fill_trade) = seed_new_trade(&mut fill_dispatcher);
+        let (funded, _, _, _) = fill_dispatcher
+            .trust
+            .fund_trade(&fill_trade)
+            .expect("fund trade before manual fill");
+        fill_dispatcher
+            .trust
+            .submit_trade(&funded)
+            .expect("submit trade before manual fill");
+
+        crate::dialogs::scripted_reset();
+        crate::dialogs::scripted_push_select(Ok(Some(0)));
+        crate::dialogs::scripted_push_select(Ok(Some(0)));
+        crate::dialogs::scripted_push_input(Ok("1.25".to_string()));
+        fill_dispatcher.create_fill();
+        let filled_after_manual_fill_attempt = fill_dispatcher
+            .trust
+            .search_trades(fill_account.id, Status::Filled)
+            .expect("filled trades should load after manual fill attempt");
+        assert!(
+            filled_after_manual_fill_attempt.is_empty(),
+            "manual fill without a broker-reported average fill price should not mutate status"
+        );
+        let still_submitted = fill_dispatcher
+            .trust
+            .search_trades(fill_account.id, Status::Submitted)
+            .expect("submitted trades should remain loadable");
+        assert_eq!(still_submitted.len(), 1);
+
+        let mut stop_dispatcher =
+            test_dispatcher_with_broker(Box::new(StubBroker::submitted_fill_fixture()));
+        let (stop_account, _filled_trade) = seed_filled_trade(&mut stop_dispatcher);
+        crate::dialogs::scripted_push_select(Ok(Some(0)));
+        crate::dialogs::scripted_push_select(Ok(Some(0)));
+        crate::dialogs::scripted_push_input(Ok("2.00".to_string()));
+        stop_dispatcher.create_stop();
+        let stopped = stop_dispatcher
+            .trust
+            .search_trades(stop_account.id, Status::ClosedStopLoss)
+            .expect("stopped trades should load");
+        assert!(
+            stopped.is_empty(),
+            "manual stop without a broker-reported stop fill price should not mutate status"
+        );
+        let still_filled_after_stop_attempt = stop_dispatcher
+            .trust
+            .search_trades(stop_account.id, Status::Filled)
+            .expect("filled trades should remain loadable after manual stop attempt");
+        assert_eq!(still_filled_after_stop_attempt.len(), 1);
+
+        let mut target_dispatcher =
+            test_dispatcher_with_broker(Box::new(StubBroker::submitted_fill_fixture()));
+        let (target_account, _filled_trade) = seed_filled_trade(&mut target_dispatcher);
+        crate::dialogs::scripted_push_select(Ok(Some(0)));
+        crate::dialogs::scripted_push_select(Ok(Some(0)));
+        crate::dialogs::scripted_push_input(Ok("2.50".to_string()));
+        target_dispatcher.create_target();
+        let targeted = target_dispatcher
+            .trust
+            .search_trades(target_account.id, Status::ClosedTarget)
+            .expect("target-closed trades should load");
+        assert!(
+            targeted.is_empty(),
+            "manual target without a broker-reported target fill price should not mutate status"
+        );
+        let still_filled_after_target_attempt = target_dispatcher
+            .trust
+            .search_trades(target_account.id, Status::Filled)
+            .expect("filled trades should remain loadable after manual target attempt");
+        assert_eq!(still_filled_after_target_attempt.len(), 1);
+
+        crate::dialogs::scripted_reset();
+    }
+
+    #[test]
+    fn test_trade_non_interactive_fund_submit_sync_and_cancel_success_paths() {
+        let mut dispatcher =
+            test_dispatcher_with_broker(Box::new(StubBroker::submitted_fill_fixture()));
+        let (account, trade) = seed_new_trade(&mut dispatcher);
+        let trade_id = trade.id.to_string();
+
+        let fund_matches = TradeCommandBuilder::new()
+            .fund_trade()
+            .build()
+            .get_matches_from(["trade", "fund", "--trade-id", &trade_id]);
+        dispatcher
+            .create_funding(fund_matches.subcommand_matches("fund").unwrap())
+            .expect("non-interactive funding should succeed");
+        let funded = dispatcher
+            .trust
+            .search_trades(account.id, Status::Funded)
+            .expect("funded trade should load");
+        assert_eq!(funded.len(), 1);
+        let funded_id = funded[0].id.to_string();
+
+        let submit_matches = TradeCommandBuilder::new()
+            .submit_trade()
+            .build()
+            .get_matches_from(["trade", "submit", "--trade-id", &funded_id]);
+        dispatcher
+            .create_submit(submit_matches.subcommand_matches("submit").unwrap())
+            .expect("non-interactive submit should succeed");
+        let submitted = dispatcher
+            .trust
+            .search_trades(account.id, Status::Submitted)
+            .expect("submitted trade should load");
+        assert_eq!(submitted.len(), 1);
+        let submitted_id = submitted[0].id.to_string();
+
+        let sync_matches = TradeCommandBuilder::new()
+            .sync_trade()
+            .build()
+            .get_matches_from(["trade", "sync", "--trade-id", &submitted_id]);
+        dispatcher
+            .create_sync(sync_matches.subcommand_matches("sync").unwrap())
+            .expect("non-interactive sync should succeed");
+        let filled = dispatcher
+            .trust
+            .search_trades(account.id, Status::Filled)
+            .expect("filled trade should load");
+        assert_eq!(filled.len(), 1);
+
+        let mut cancel_dispatcher = test_dispatcher();
+        let (cancel_account, cancel_trade) = seed_new_trade(&mut cancel_dispatcher);
+        let (funded_cancel, _, _, _) = cancel_dispatcher
+            .trust
+            .fund_trade(&cancel_trade)
+            .expect("fund trade before cancel");
+        let funded_cancel_id = funded_cancel.id.to_string();
+        let cancel_matches = TradeCommandBuilder::new()
+            .cancel_trade()
+            .build()
+            .get_matches_from(["trade", "cancel", "--trade-id", &funded_cancel_id]);
+        cancel_dispatcher
+            .create_cancel(cancel_matches.subcommand_matches("cancel").unwrap())
+            .expect("non-interactive cancel should succeed");
+        let canceled = cancel_dispatcher
+            .trust
+            .search_trades(cancel_account.id, Status::Canceled)
+            .expect("canceled trade should load");
+        assert_eq!(canceled.len(), 1);
+    }
+
+    #[test]
+    fn test_trade_non_interactive_handlers_surface_core_and_broker_failures() {
+        let trade_id_matches = |trade_id: &str| {
+            Command::new("test")
+                .arg(Arg::new("trade-id").long("trade-id"))
+                .get_matches_from(["test", "--trade-id", trade_id])
+        };
+
+        let mut funding_dispatcher = test_dispatcher();
+        let account = funding_dispatcher
+            .trust
+            .create_account(
+                "no-cash-fund",
+                "test",
+                Environment::Paper,
+                dec!(20),
+                dec!(10),
+            )
+            .expect("account");
+        let vehicle = funding_dispatcher
+            .trust
+            .create_trading_vehicle("NOCASH", None, &TradingVehicleCategory::Stock, "alpaca")
+            .expect("vehicle");
+        let trade = funding_dispatcher
+            .trust
+            .create_trade(
+                model::DraftTrade {
+                    account,
+                    trading_vehicle: vehicle,
+                    quantity: 1,
+                    category: model::TradeCategory::Long,
+                    currency: Currency::USD,
+                    thesis: None,
+                    sector: None,
+                    asset_class: None,
+                    context: None,
+                },
+                dec!(95),
+                dec!(100),
+                dec!(110),
+            )
+            .expect("trade can be drafted without cash");
+        let error = funding_dispatcher
+            .create_funding(&trade_id_matches(&trade.id.to_string()))
+            .expect_err("funding without available cash should fail");
+        assert!(error.to_string().contains("trade_fund_failed"));
+
+        let trade_create_matches = trade_matches(&[
+            "--account",
+            "readable-account",
+            "--symbol",
+            "AAPL",
+            "--category",
+            "long",
+            "--entry",
+            "100",
+            "--stop",
+            "95",
+            "--target",
+            "110",
+            "--quantity",
+            "1",
+        ]);
+        let mut vehicle_lookup_dispatcher = test_dispatcher_with_read_failures(
+            crate::test_support::ReadFailureFactory::trading_vehicles_after_account(),
+        );
+        let error = vehicle_lookup_dispatcher
+            .create_trade(&trade_create_matches)
+            .expect_err("trading vehicle read failure should surface during trade creation");
+        assert!(error.to_string().contains("trading_vehicle_lookup_failed"));
+
+        let mut order_write_dispatcher = test_dispatcher_with_read_failures(
+            crate::test_support::ReadFailureFactory::order_write_after_reads(),
+        );
+        let error = order_write_dispatcher
+            .create_trade(&trade_create_matches)
+            .expect_err("order write failure should surface during trade creation");
+        assert!(error.to_string().contains("trade_create_failed"));
+
+        let mut submitted_cancel_broker = StubBroker::quote_trade_fixture();
+        submitted_cancel_broker.submit_succeeds = true;
+        let mut cancel_dispatcher = test_dispatcher_with_broker(Box::new(submitted_cancel_broker));
+        let (_account, trade) = seed_new_trade(&mut cancel_dispatcher);
+        let (funded, _, _, _) = cancel_dispatcher
+            .trust
+            .fund_trade(&trade)
+            .expect("fund trade");
+        let (submitted, _) = cancel_dispatcher
+            .trust
+            .submit_trade(&funded)
+            .expect("submit trade");
+        let error = cancel_dispatcher
+            .create_cancel(&trade_id_matches(&submitted.id.to_string()))
+            .expect_err("submitted cancel broker failure should surface");
+        assert!(error.to_string().contains("trade_cancel_failed"));
+
+        let mut sync_broker = StubBroker::quote_trade_fixture();
+        sync_broker.submit_succeeds = true;
+        sync_broker.sync_fills_entry = false;
+        let mut sync_dispatcher = test_dispatcher_with_broker(Box::new(sync_broker));
+        let (_account, trade) = seed_new_trade(&mut sync_dispatcher);
+        let (funded, _, _, _) = sync_dispatcher
+            .trust
+            .fund_trade(&trade)
+            .expect("fund trade");
+        let (submitted, _) = sync_dispatcher
+            .trust
+            .submit_trade(&funded)
+            .expect("submit trade");
+        let error = sync_dispatcher
+            .create_sync(&trade_id_matches(&submitted.id.to_string()))
+            .expect_err("sync broker failure should surface");
+        assert!(error.to_string().contains("trade_sync_failed"));
+    }
+
+    #[test]
+    fn test_trade_non_interactive_sync_reports_empty_order_updates() {
+        let mut dispatcher =
+            test_dispatcher_with_broker(Box::new(StubBroker::submitted_empty_sync_fixture()));
+        let (_account, trade) = seed_new_trade(&mut dispatcher);
+        let (funded, _, _, _) = dispatcher.trust.fund_trade(&trade).expect("fund trade");
+        let (submitted, _) = dispatcher
+            .trust
+            .submit_trade(&funded)
+            .expect("submit trade");
+        let matches = Command::new("test")
+            .arg(Arg::new("trade-id").long("trade-id"))
+            .get_matches_from(["test", "--trade-id", &submitted.id.to_string()]);
+
+        dispatcher
+            .create_sync(&matches)
+            .expect("empty broker order update sync should still succeed");
+    }
+
+    #[test]
+    fn test_trade_watch_dispatch_handles_no_open_trades_for_search_and_latest() {
+        let mut dispatcher = test_dispatcher();
+        dispatcher
+            .trust
+            .create_account(
+                "watch-empty",
+                "watch",
+                Environment::Paper,
+                dec!(20),
+                dec!(10),
+            )
+            .expect("create watch account");
+
+        crate::dialogs::scripted_reset();
+        crate::dialogs::scripted_push_select(Ok(Some(0)));
+        let search_watch = TradeCommandBuilder::new()
+            .watch_trade()
+            .build()
+            .get_matches_from(["trade", "watch"]);
+        dispatcher.create_watch(search_watch.subcommand_matches("watch").unwrap());
+
+        crate::dialogs::scripted_push_select(Ok(Some(0)));
+        let latest_watch = TradeCommandBuilder::new()
+            .watch_trade()
+            .build()
+            .get_matches_from(["trade", "watch", "--latest"]);
+        dispatcher.create_watch(latest_watch.subcommand_matches("watch").unwrap());
+
+        crate::dialogs::scripted_reset();
     }
 
     #[test]
@@ -10366,6 +15815,93 @@ mod tests {
     }
 
     #[test]
+    fn test_create_trade_non_interactive_validates_required_symbol_category_and_vehicle() {
+        let mut dispatcher = test_dispatcher();
+        let (account, _vehicle) = seed_account_and_vehicle(&mut dispatcher);
+
+        let missing_symbol = trade_matches(&[
+            "--account",
+            &account.name,
+            "--category",
+            "long",
+            "--quantity",
+            "1",
+        ]);
+        let error = dispatcher
+            .create_trade(&missing_symbol)
+            .expect_err("missing symbol should fail");
+        assert!(error.to_string().contains("missing_argument"));
+
+        let missing_category = trade_matches(&[
+            "--account",
+            &account.name,
+            "--symbol",
+            "AAPL",
+            "--quantity",
+            "1",
+        ]);
+        let error = dispatcher
+            .create_trade(&missing_category)
+            .expect_err("missing category should fail");
+        assert!(error.to_string().contains("missing_argument"));
+
+        let missing_quantity = trade_matches(&[
+            "--account",
+            &account.name,
+            "--symbol",
+            "AAPL",
+            "--category",
+            "long",
+        ]);
+        let error = dispatcher
+            .create_trade(&missing_quantity)
+            .expect_err("missing quantity should fail");
+        assert!(error.to_string().contains("missing_argument"));
+
+        let unknown_vehicle = trade_matches(&[
+            "--account",
+            &account.name,
+            "--symbol",
+            "MSFT",
+            "--category",
+            "long",
+            "--entry",
+            "100",
+            "--stop",
+            "95",
+            "--target",
+            "110",
+            "--quantity",
+            "1",
+        ]);
+        let error = dispatcher
+            .create_trade(&unknown_vehicle)
+            .expect_err("unknown trading vehicle should fail");
+        assert!(error.to_string().contains("trading_vehicle_not_found"));
+
+        let invalid_entry = trade_matches(&[
+            "--account",
+            &account.name,
+            "--symbol",
+            "AAPL",
+            "--category",
+            "long",
+            "--entry",
+            "not-a-decimal",
+            "--stop",
+            "95",
+            "--target",
+            "110",
+            "--quantity",
+            "1",
+        ]);
+        let error = dispatcher
+            .create_trade(&invalid_entry)
+            .expect_err("invalid entry decimal should fail");
+        assert!(error.to_string().contains("invalid_decimal"));
+    }
+
+    #[test]
     fn test_create_trade_non_interactive_validates_category_and_currency() {
         let mut dispatcher = test_dispatcher();
         let (account, _vehicle) = seed_account_and_vehicle(&mut dispatcher);
@@ -10415,6 +15951,424 @@ mod tests {
             .create_trade(&invalid_currency)
             .expect_err("invalid currency should fail");
         assert!(currency_error.to_string().contains("invalid_currency"));
+    }
+
+    #[test]
+    fn test_create_trade_non_interactive_surfaces_fund_and_submit_failures() {
+        let mut unfunded_dispatcher = test_dispatcher();
+        let unfunded_account = unfunded_dispatcher
+            .trust
+            .create_account(
+                "no-cash-for-auto-fund",
+                "test",
+                Environment::Paper,
+                dec!(20),
+                dec!(10),
+            )
+            .expect("account");
+        unfunded_dispatcher
+            .trust
+            .create_trading_vehicle("MSFT", None, &TradingVehicleCategory::Stock, "alpaca")
+            .expect("vehicle");
+        let auto_fund_without_cash = trade_matches(&[
+            "--account",
+            &unfunded_account.name,
+            "--symbol",
+            "MSFT",
+            "--category",
+            "long",
+            "--entry",
+            "100",
+            "--stop",
+            "95",
+            "--target",
+            "110",
+            "--quantity",
+            "1",
+            "--auto-fund",
+        ]);
+        let error = unfunded_dispatcher
+            .create_trade(&auto_fund_without_cash)
+            .expect_err("auto-fund without available cash should fail");
+        assert!(error.to_string().contains("trade_fund_failed"));
+
+        let mut submit_failure_dispatcher =
+            test_dispatcher_with_broker(Box::new(StubBroker::quote_trade_fixture()));
+        let (submit_failure_account, _vehicle) =
+            seed_account_and_vehicle(&mut submit_failure_dispatcher);
+        let auto_submit_with_broker_error = trade_matches(&[
+            "--account",
+            &submit_failure_account.name,
+            "--symbol",
+            "AAPL",
+            "--category",
+            "long",
+            "--entry",
+            "100",
+            "--stop",
+            "95",
+            "--target",
+            "110",
+            "--quantity",
+            "1",
+            "--auto-submit",
+        ]);
+        let error = submit_failure_dispatcher
+            .create_trade(&auto_submit_with_broker_error)
+            .expect_err("broker submit failure should surface");
+        assert!(error.to_string().contains("trade_submit_failed"));
+    }
+
+    #[test]
+    fn test_create_trade_non_interactive_success_can_auto_fund() {
+        let mut dispatcher = test_dispatcher();
+        let (account, _vehicle) = seed_account_and_vehicle(&mut dispatcher);
+
+        let matches = trade_matches(&[
+            "--account",
+            &account.name,
+            "--symbol",
+            "aapl",
+            "--category",
+            "long",
+            "--entry",
+            "100",
+            "--stop",
+            "95",
+            "--target",
+            "110",
+            "--quantity",
+            "2",
+            "--currency",
+            "usd",
+            "--thesis",
+            "breakout",
+            "--sector",
+            "technology",
+            "--asset-class",
+            "equity",
+            "--context",
+            "daily setup",
+            "--auto-fund",
+        ]);
+
+        dispatcher
+            .create_trade(&matches)
+            .expect("valid non-interactive trade should be created and funded");
+
+        let funded = dispatcher
+            .trust
+            .search_trades(account.id, Status::Funded)
+            .expect("funded trades should load");
+        assert_eq!(funded.len(), 1);
+        assert_eq!(funded[0].trading_vehicle.symbol, "AAPL");
+        assert_eq!(funded[0].entry.quantity, 2);
+        assert_eq!(funded[0].thesis.as_deref(), Some("breakout"));
+    }
+
+    #[test]
+    fn test_create_trade_non_interactive_auto_submit_uses_broker_success_path() {
+        let mut dispatcher =
+            test_dispatcher_with_broker(Box::new(StubBroker::submitted_fill_fixture()));
+        let (account, _vehicle) = seed_account_and_vehicle(&mut dispatcher);
+
+        let matches = trade_matches(&[
+            "--account",
+            &account.name,
+            "--symbol",
+            "aapl",
+            "--category",
+            "long",
+            "--entry",
+            "100",
+            "--stop",
+            "95",
+            "--target",
+            "110",
+            "--quantity",
+            "2",
+            "--currency",
+            "usd",
+            "--auto-submit",
+        ]);
+
+        dispatcher
+            .create_trade(&matches)
+            .expect("auto-submit should fund and submit through the stub broker");
+
+        let submitted = dispatcher
+            .trust
+            .search_trades(account.id, Status::Submitted)
+            .expect("submitted trades should load");
+        assert_eq!(submitted.len(), 1);
+        assert_eq!(submitted[0].trading_vehicle.symbol, "AAPL");
+        assert!(submitted[0]
+            .entry
+            .broker_order_id
+            .as_deref()
+            .expect("entry broker id should be persisted")
+            .starts_with("entry-"));
+    }
+
+    #[test]
+    fn test_trade_search_list_open_and_reconcile_non_interactive_success_paths() {
+        let mut dispatcher =
+            test_dispatcher_with_broker(Box::new(StubBroker::submitted_fill_fixture()));
+        let (account, trade) = seed_filled_trade(&mut dispatcher);
+        let account_id = account.id.to_string();
+        let trade_id = trade.id.to_string();
+
+        let search_matches = |args: &[&str]| {
+            let mut argv = vec!["trade", "search"];
+            argv.extend_from_slice(args);
+            TradeCommandBuilder::new()
+                .search_trade()
+                .build()
+                .get_matches_from(argv)
+        };
+        let list_open_matches = |args: &[&str]| {
+            let mut argv = vec!["trade", "list-open"];
+            argv.extend_from_slice(args);
+            TradeCommandBuilder::new()
+                .list_open()
+                .build()
+                .get_matches_from(argv)
+        };
+        let reconcile_matches = |args: &[&str]| {
+            let mut argv = vec!["trade", "reconcile"];
+            argv.extend_from_slice(args);
+            TradeCommandBuilder::new()
+                .reconcile()
+                .build()
+                .get_matches_from(argv)
+        };
+
+        let filtered_text = search_matches(&[
+            "--account",
+            &account_id,
+            "--status",
+            "filled",
+            "--symbol",
+            "aapl",
+            "--from",
+            "2000-01-01",
+            "--to",
+            "2999-12-31",
+        ]);
+        dispatcher
+            .search_trade(filtered_text.subcommand_matches("search").unwrap())
+            .expect("filtered text search should succeed");
+
+        let aggregate_json = search_matches(&["--symbol", "AAPL", "--format", "json"]);
+        dispatcher
+            .search_trade(aggregate_json.subcommand_matches("search").unwrap())
+            .expect("aggregate json search should succeed");
+
+        let status_only = search_matches(&["--status", "filled"]);
+        dispatcher
+            .search_trade(status_only.subcommand_matches("search").unwrap())
+            .expect("status-only search should scan all accounts");
+
+        let list_text = list_open_matches(&["--account", &account_id]);
+        dispatcher
+            .list_open_trades(list_text.subcommand_matches("list-open").unwrap())
+            .expect("account-scoped list-open should succeed");
+
+        let list_json = list_open_matches(&["--format", "json"]);
+        dispatcher
+            .list_open_trades(list_json.subcommand_matches("list-open").unwrap())
+            .expect("aggregate list-open json should succeed");
+
+        let reconcile_all_json = reconcile_matches(&["--format", "json"]);
+        dispatcher
+            .reconcile_trades(reconcile_all_json.subcommand_matches("reconcile").unwrap())
+            .expect("aggregate reconcile should scan open trades");
+
+        let reconcile_text = reconcile_matches(&["--account", &account_id]);
+        dispatcher
+            .reconcile_trades(reconcile_text.subcommand_matches("reconcile").unwrap())
+            .expect("account-scoped reconcile should collect broker failures");
+
+        let reconcile_json = reconcile_matches(&["--trade-id", &trade_id, "--format", "json"]);
+        dispatcher
+            .reconcile_trades(reconcile_json.subcommand_matches("reconcile").unwrap())
+            .expect("trade-id reconcile should collect broker failure as json");
+
+        let mut many_dispatcher = test_dispatcher();
+        let (many_account, many_vehicle) = seed_account_and_vehicle(&mut many_dispatcher);
+        for index in 0..51 {
+            many_dispatcher
+                .trust
+                .create_trade(
+                    model::DraftTrade {
+                        account: many_account.clone(),
+                        trading_vehicle: many_vehicle.clone(),
+                        quantity: 1,
+                        category: model::TradeCategory::Long,
+                        currency: Currency::USD,
+                        thesis: Some(format!("setup-{index}")),
+                        sector: Some("technology".to_string()),
+                        asset_class: Some("equity".to_string()),
+                        context: None,
+                    },
+                    dec!(95),
+                    dec!(100),
+                    dec!(110),
+                )
+                .expect("bulk trade should be created");
+        }
+        let many_search = search_matches(&["--account", &many_account.id.to_string()]);
+        many_dispatcher
+            .search_trade(many_search.subcommand_matches("search").unwrap())
+            .expect("large text search should print truncation notice");
+
+        let mut broker = StubBroker::quote_trade_fixture();
+        broker.submit_succeeds = true;
+        let mut failing_sync_dispatcher = test_dispatcher_with_broker(Box::new(broker));
+        let (sync_account, sync_trade) = seed_new_trade(&mut failing_sync_dispatcher);
+        let (funded, _, _, _) = failing_sync_dispatcher
+            .trust
+            .fund_trade(&sync_trade)
+            .expect("fund trade");
+        failing_sync_dispatcher
+            .trust
+            .submit_trade(&funded)
+            .expect("submit trade");
+        let failing_reconcile = reconcile_matches(&["--account", &sync_account.id.to_string()]);
+        failing_sync_dispatcher
+            .reconcile_trades(failing_reconcile.subcommand_matches("reconcile").unwrap())
+            .expect("reconcile should print broker sync failures in text mode");
+        let submitted_trade = failing_sync_dispatcher
+            .trust
+            .search_trades(sync_account.id, Status::Submitted)
+            .expect("submitted trade should load")
+            .into_iter()
+            .find(|candidate| candidate.id == sync_trade.id)
+            .expect("submitted trade should be persisted");
+        let failing_trade_id_reconcile =
+            reconcile_matches(&["--trade-id", &submitted_trade.id.to_string()]);
+        failing_sync_dispatcher
+            .reconcile_trades(
+                failing_trade_id_reconcile
+                    .subcommand_matches("reconcile")
+                    .unwrap(),
+            )
+            .expect("trade-id reconcile should print broker sync failure");
+
+        let missing_account_reconcile =
+            reconcile_matches(&["--trade-id", &Uuid::nil().to_string(), "--format", "json"]);
+        let mut missing_account_dispatcher = test_dispatcher_with_read_failures(
+            crate::test_support::ReadFailureFactory::submitted_trade_missing_account(),
+        );
+        missing_account_dispatcher
+            .reconcile_trades(
+                missing_account_reconcile
+                    .subcommand_matches("reconcile")
+                    .unwrap(),
+            )
+            .expect("reconcile should collect account lookup failures");
+    }
+
+    #[test]
+    fn test_trade_search_validates_date_filters_before_querying() {
+        let mut dispatcher = test_dispatcher();
+        let search_matches = |args: &[&str]| {
+            let mut argv = vec!["trade", "search"];
+            argv.extend_from_slice(args);
+            TradeCommandBuilder::new()
+                .search_trade()
+                .build()
+                .get_matches_from(argv)
+        };
+
+        let invalid_from = search_matches(&["--symbol", "AAPL", "--from", "not-a-date"]);
+        let error = dispatcher
+            .search_trade(invalid_from.subcommand_matches("search").unwrap())
+            .expect_err("invalid --from should fail");
+        assert!(error.to_string().contains("invalid_date"));
+
+        let invalid_to = search_matches(&["--symbol", "AAPL", "--to", "not-a-date"]);
+        let error = dispatcher
+            .search_trade(invalid_to.subcommand_matches("search").unwrap())
+            .expect_err("invalid --to should fail");
+        assert!(error.to_string().contains("invalid_date"));
+
+        let reversed = search_matches(&[
+            "--symbol",
+            "AAPL",
+            "--from",
+            "2026-02-02",
+            "--to",
+            "2026-02-01",
+        ]);
+        let error = dispatcher
+            .search_trade(reversed.subcommand_matches("search").unwrap())
+            .expect_err("reversed date window should fail");
+        assert!(error.to_string().contains("invalid_date_range"));
+    }
+
+    #[test]
+    fn test_trade_non_interactive_lifecycle_handlers_persist_expected_statuses() {
+        let trade_id_matches = |trade_id: &str| {
+            Command::new("test")
+                .arg(Arg::new("trade-id").long("trade-id"))
+                .get_matches_from(["test", "--trade-id", trade_id])
+        };
+
+        let mut cancel_dispatcher = test_dispatcher();
+        let (cancel_account, cancel_trade) = seed_new_trade(&mut cancel_dispatcher);
+        cancel_dispatcher
+            .create_funding(&trade_id_matches(&cancel_trade.id.to_string()))
+            .expect("funding handler should fund a new trade");
+        let funded_for_cancel = cancel_dispatcher
+            .trust
+            .search_trades(cancel_account.id, Status::Funded)
+            .expect("funded trades should load")
+            .into_iter()
+            .find(|candidate| candidate.id == cancel_trade.id)
+            .expect("funded trade should exist");
+        cancel_dispatcher
+            .create_cancel(&trade_id_matches(&funded_for_cancel.id.to_string()))
+            .expect("cancel handler should cancel funded trade");
+        let canceled = cancel_dispatcher
+            .trust
+            .search_trades(cancel_account.id, Status::Canceled)
+            .expect("canceled trades should load");
+        assert!(canceled
+            .iter()
+            .any(|candidate| candidate.id == funded_for_cancel.id));
+
+        let mut sync_dispatcher =
+            test_dispatcher_with_broker(Box::new(StubBroker::submitted_fill_fixture()));
+        let (sync_account, sync_trade) = seed_new_trade(&mut sync_dispatcher);
+        sync_dispatcher
+            .create_funding(&trade_id_matches(&sync_trade.id.to_string()))
+            .expect("funding handler should fund before submit");
+        let funded_for_submit = sync_dispatcher
+            .trust
+            .search_trades(sync_account.id, Status::Funded)
+            .expect("funded trades should load")
+            .into_iter()
+            .find(|candidate| candidate.id == sync_trade.id)
+            .expect("funded trade should exist");
+        sync_dispatcher
+            .create_submit(&trade_id_matches(&funded_for_submit.id.to_string()))
+            .expect("submit handler should submit funded trade");
+        let submitted = sync_dispatcher
+            .trust
+            .search_trades(sync_account.id, Status::Submitted)
+            .expect("submitted trades should load")
+            .into_iter()
+            .find(|candidate| candidate.id == funded_for_submit.id)
+            .expect("submitted trade should exist");
+        sync_dispatcher
+            .create_sync(&trade_id_matches(&submitted.id.to_string()))
+            .expect("sync handler should apply filled broker payload");
+        let filled = sync_dispatcher
+            .trust
+            .search_trades(sync_account.id, Status::Filled)
+            .expect("filled trades should load");
+        assert!(filled.iter().any(|candidate| candidate.id == submitted.id));
     }
 
     #[test]
@@ -10567,6 +16521,97 @@ mod tests {
             .to_string()
             .contains("missing_argument"));
 
+        let missing_currency = TransactionCommandBuilder::new()
+            .deposit()
+            .build()
+            .get_matches_from([
+                "transaction",
+                "deposit",
+                "--account",
+                &account.name,
+                "--amount",
+                "1",
+                "--confirm-protected",
+                "secret",
+            ]);
+        let missing_currency_error = dispatcher
+            .dispatch_transactions(&missing_currency)
+            .expect_err("missing currency should fail");
+        assert!(missing_currency_error
+            .to_string()
+            .contains("missing_argument"));
+
+        let missing_amount = TransactionCommandBuilder::new()
+            .deposit()
+            .build()
+            .get_matches_from([
+                "transaction",
+                "deposit",
+                "--account",
+                &account.name,
+                "--currency",
+                "USD",
+                "--confirm-protected",
+                "secret",
+            ]);
+        let missing_amount_error = dispatcher
+            .dispatch_transactions(&missing_amount)
+            .expect_err("missing amount should fail");
+        assert!(missing_amount_error
+            .to_string()
+            .contains("missing_argument"));
+
+        std::env::remove_var("TRUST_PROTECTED_KEYWORD_EXPECTED");
+    }
+
+    #[test]
+    fn test_dispatch_transactions_interactive_deposit_and_withdraw_use_scripted_dialog_io() {
+        let _guard = env_guard();
+        std::env::set_var("TRUST_PROTECTED_KEYWORD_EXPECTED", "secret");
+        crate::dialogs::scripted_reset();
+        let mut dispatcher = test_dispatcher();
+
+        let account = dispatcher
+            .trust
+            .create_account(
+                "interactive-tx",
+                "tx",
+                Environment::Paper,
+                dec!(20),
+                dec!(10),
+            )
+            .expect("create account");
+
+        crate::dialogs::scripted_push_select(Ok(Some(0)));
+        crate::dialogs::scripted_push_select(Ok(Some(0)));
+        crate::dialogs::scripted_push_input(Ok("125".to_string()));
+        let deposit = TransactionCommandBuilder::new()
+            .deposit()
+            .build()
+            .get_matches_from(["transaction", "deposit", "--confirm-protected", "secret"]);
+        dispatcher
+            .dispatch_transactions(&deposit)
+            .expect("scripted interactive deposit should dispatch");
+
+        crate::dialogs::scripted_push_select(Ok(Some(0)));
+        crate::dialogs::scripted_push_select(Ok(Some(0)));
+        crate::dialogs::scripted_push_input(Ok("25".to_string()));
+        let withdraw = TransactionCommandBuilder::new()
+            .withdraw()
+            .build()
+            .get_matches_from(["transaction", "withdraw", "--confirm-protected", "secret"]);
+        dispatcher
+            .dispatch_transactions(&withdraw)
+            .expect("scripted interactive withdrawal should dispatch");
+
+        let balance = dispatcher
+            .trust
+            .search_balance(account.id, &Currency::USD)
+            .expect("balance after scripted transactions");
+        assert_eq!(balance.total_balance, dec!(100));
+        assert_eq!(balance.total_available, dec!(100));
+
+        crate::dialogs::scripted_reset();
         std::env::remove_var("TRUST_PROTECTED_KEYWORD_EXPECTED");
     }
 
@@ -10638,6 +16683,209 @@ mod tests {
                 .all(|balance| balance.total_balance >= Decimal::ZERO),
             "child balances should remain non-negative after transfer"
         );
+    }
+
+    #[test]
+    fn test_accounts_dispatch_covers_search_hierarchy_and_detailed_balance_paths() {
+        let mut dispatcher = test_dispatcher();
+
+        let search = AccountCommandBuilder::new()
+            .read_account()
+            .build()
+            .get_matches_from(["accounts", "search"]);
+        assert!(
+            dispatcher.dispatch_accounts(&search).is_ok(),
+            "empty account search should report through dialog display without failing dispatch"
+        );
+
+        let parent = dispatcher
+            .trust
+            .create_account("hier-parent", "root", Environment::Paper, dec!(10), dec!(5))
+            .expect("create parent account");
+        let child = dispatcher
+            .trust
+            .create_account_with_hierarchy(
+                "hier-child",
+                "child",
+                Environment::Paper,
+                dec!(10),
+                dec!(5),
+                AccountType::Earnings,
+                Some(parent.id),
+            )
+            .expect("create child account");
+        dispatcher
+            .trust
+            .create_account("aaa-root", "root", Environment::Paper, dec!(10), dec!(5))
+            .expect("create second root account");
+        dispatcher
+            .trust
+            .create_account_with_hierarchy(
+                "aaa-child",
+                "child",
+                Environment::Paper,
+                dec!(10),
+                dec!(5),
+                AccountType::TaxReserve,
+                Some(parent.id),
+            )
+            .expect("create second child account");
+        dispatcher
+            .trust
+            .create_transaction(
+                &parent,
+                &model::TransactionCategory::Deposit,
+                dec!(100),
+                &Currency::USD,
+            )
+            .expect("seed parent balance");
+        dispatcher
+            .trust
+            .create_transaction(
+                &child,
+                &model::TransactionCategory::Deposit,
+                dec!(25),
+                &Currency::USD,
+            )
+            .expect("seed child balance");
+
+        let list_hierarchy = AccountCommandBuilder::new()
+            .list_accounts()
+            .build()
+            .get_matches_from(["accounts", "list", "--hierarchy"]);
+        assert!(dispatcher.dispatch_accounts(&list_hierarchy).is_ok());
+
+        let balance_detailed = AccountCommandBuilder::new()
+            .balance_accounts()
+            .build()
+            .get_matches_from(["accounts", "balance", "--detailed"]);
+        assert!(dispatcher.dispatch_accounts(&balance_detailed).is_ok());
+    }
+
+    #[test]
+    fn test_account_create_dispatch_interactive_path_uses_scripted_dialog_io() {
+        let _guard = env_guard();
+        std::env::set_var("TRUST_PROTECTED_KEYWORD_EXPECTED", "secret");
+        crate::dialogs::scripted_reset();
+        crate::dialogs::scripted_push_input(Ok("interactive-account".to_string()));
+        crate::dialogs::scripted_push_input(Ok("created from scripted dialog".to_string()));
+        crate::dialogs::scripted_push_select(Ok(Some(0)));
+        crate::dialogs::scripted_push_input(Ok("0.2".to_string()));
+        crate::dialogs::scripted_push_input(Ok("0.1".to_string()));
+        let mut dispatcher = test_dispatcher();
+
+        let create_interactive = AccountCommandBuilder::new()
+            .create_account()
+            .build()
+            .get_matches_from(["accounts", "create", "--confirm-protected", "secret"]);
+        assert!(
+            dispatcher.dispatch_accounts(&create_interactive).is_ok(),
+            "scripted interactive account creation should dispatch successfully"
+        );
+
+        let account = dispatcher
+            .trust
+            .search_account("interactive-account")
+            .expect("scripted account should be created");
+        assert_eq!(account.environment, Environment::Paper);
+        assert_eq!(account.taxes_percentage, dec!(0.2));
+        assert_eq!(account.earnings_percentage, dec!(0.1));
+
+        crate::dialogs::scripted_reset();
+        std::env::remove_var("TRUST_PROTECTED_KEYWORD_EXPECTED");
+    }
+
+    #[test]
+    fn test_rule_remove_dispatch_validates_protected_keyword_before_dialogs() {
+        let _guard = env_guard();
+        std::env::set_var("TRUST_PROTECTED_KEYWORD_EXPECTED", "secret");
+        let mut dispatcher = test_dispatcher();
+
+        let remove_rule = RuleCommandBuilder::new()
+            .remove_rule()
+            .build()
+            .arg(Arg::new("format").long("format"))
+            .get_matches_from(["rule", "remove", "--confirm-protected", "wrong"]);
+        let error = dispatcher
+            .dispatch_rules(&remove_rule)
+            .expect_err("wrong protected keyword should fail before rule removal dialog");
+
+        assert!(error.to_string().contains("protected_keyword_invalid"));
+        std::env::remove_var("TRUST_PROTECTED_KEYWORD_EXPECTED");
+    }
+
+    #[test]
+    fn test_rule_dispatch_interactive_create_and_remove_use_scripted_dialog_io() {
+        let _guard = env_guard();
+        std::env::set_var("TRUST_PROTECTED_KEYWORD_EXPECTED", "secret");
+        crate::dialogs::scripted_reset();
+        let mut dispatcher = test_dispatcher();
+        let account = dispatcher
+            .trust
+            .create_account(
+                "interactive-rule",
+                "rules",
+                Environment::Paper,
+                dec!(20),
+                dec!(10),
+            )
+            .expect("create account");
+
+        crate::dialogs::scripted_push_select(Ok(Some(0)));
+        crate::dialogs::scripted_push_select(Ok(Some(0)));
+        crate::dialogs::scripted_push_input(Ok("2.5".to_string()));
+        crate::dialogs::scripted_push_input(Ok("scripted risk rule".to_string()));
+        crate::dialogs::scripted_push_select(Ok(Some(0)));
+        let create_rule = RuleCommandBuilder::new()
+            .create_rule()
+            .build()
+            .arg(Arg::new("format").long("format"))
+            .get_matches_from(["rule", "create", "--confirm-protected", "secret"]);
+        dispatcher
+            .dispatch_rules(&create_rule)
+            .expect("scripted rule creation should dispatch");
+
+        let rules = dispatcher
+            .trust
+            .search_all_rules(account.id)
+            .expect("created rule should be readable");
+        assert_eq!(rules.len(), 1);
+        assert!(rules[0].active);
+
+        crate::dialogs::scripted_push_select(Ok(Some(0)));
+        crate::dialogs::scripted_push_select(Ok(Some(0)));
+        let remove_rule = RuleCommandBuilder::new()
+            .remove_rule()
+            .build()
+            .arg(Arg::new("format").long("format"))
+            .get_matches_from(["rule", "remove", "--confirm-protected", "secret"]);
+        dispatcher
+            .dispatch_rules(&remove_rule)
+            .expect("scripted rule removal should dispatch");
+
+        let active_rules = dispatcher
+            .trust
+            .search_all_rules(account.id)
+            .expect("rules should remain readable");
+        assert!(active_rules.is_empty());
+
+        crate::dialogs::scripted_reset();
+        std::env::remove_var("TRUST_PROTECTED_KEYWORD_EXPECTED");
+    }
+
+    #[test]
+    fn test_distribution_dispatch_supports_legacy_rules_route() {
+        let mut dispatcher = test_dispatcher();
+        let legacy_rules = DistributionCommandBuilder::new()
+            .show_rules()
+            .build()
+            .get_matches_from(["distribution", "rules", "--account-id", "not-a-uuid"]);
+
+        let error = dispatcher
+            .dispatch_distribution(&legacy_rules)
+            .expect_err("legacy rules route should validate account id");
+
+        assert!(error.to_string().contains("invalid_uuid"));
     }
 
     #[test]
@@ -10721,6 +16969,107 @@ mod tests {
     }
 
     #[test]
+    fn test_distribution_success_paths_execute_history_and_rules_output() {
+        let mut dispatcher = test_dispatcher();
+        let source = dispatcher
+            .trust
+            .create_account(
+                "dist-source",
+                "source",
+                Environment::Paper,
+                dec!(10),
+                dec!(5),
+            )
+            .expect("create source account");
+        dispatcher
+            .trust
+            .create_account_with_hierarchy(
+                "dist-earnings",
+                "earnings",
+                Environment::Paper,
+                dec!(10),
+                dec!(5),
+                AccountType::Earnings,
+                Some(source.id),
+            )
+            .expect("create earnings account");
+        dispatcher
+            .trust
+            .create_account_with_hierarchy(
+                "dist-tax",
+                "tax",
+                Environment::Paper,
+                dec!(10),
+                dec!(5),
+                AccountType::TaxReserve,
+                Some(source.id),
+            )
+            .expect("create tax account");
+        dispatcher
+            .trust
+            .create_account_with_hierarchy(
+                "dist-reinvestment",
+                "reinvestment",
+                Environment::Paper,
+                dec!(10),
+                dec!(5),
+                AccountType::Reinvestment,
+                Some(source.id),
+            )
+            .expect("create reinvestment account");
+        dispatcher
+            .trust
+            .create_transaction(
+                &source,
+                &TransactionCategory::Deposit,
+                dec!(1000),
+                &Currency::USD,
+            )
+            .expect("seed distributable balance");
+
+        let configure = distribution_config_matches(&[
+            "--account-id",
+            &source.id.to_string(),
+            "--earnings",
+            "40",
+            "--tax",
+            "30",
+            "--reinvestment",
+            "30",
+            "--threshold",
+            "0",
+            "--password",
+            "strong-password",
+        ]);
+        dispatcher
+            .configure_distribution(&configure)
+            .expect("distribution configuration should succeed");
+
+        for amount in ["100", "50"] {
+            let execute = distribution_execute_matches(&[
+                "--account-id",
+                &source.id.to_string(),
+                "--amount",
+                amount,
+            ]);
+            dispatcher
+                .execute_distribution(&execute)
+                .expect("distribution execution should succeed");
+        }
+
+        let history =
+            distribution_history_matches(&["--account-id", &source.id.to_string(), "--limit", "1"]);
+        dispatcher
+            .distribution_history(&history)
+            .expect("distribution history should render the truncated latest entry");
+
+        let rules = distribution_rules_matches(&["--account-id", &source.id.to_string()]);
+        dispatcher
+            .distribution_rules(&rules)
+            .expect("distribution rules should render configured values");
+    }
+
+    #[test]
     fn test_dispatchers_require_nested_subcommands() {
         let mut dispatcher = test_dispatcher();
         use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -10751,6 +17100,97 @@ mod tests {
         check_panics_without_subcommand(ArgDispatcher::dispatch_onboarding, "onboarding");
         check_panics_without_subcommand(ArgDispatcher::dispatch_metrics, "metrics");
         check_panics_without_subcommand(ArgDispatcher::dispatch_advisor, "advisor");
+    }
+
+    #[test]
+    fn test_public_dispatch_routes_top_level_subcommands() {
+        let _guard = env_guard();
+        std::env::set_var("TRUST_DISABLE_KEYCHAIN", "1");
+        std::env::set_var("TRUST_PROTECTED_KEYWORD_EXPECTED", "secret");
+
+        let dispatch = |argv: &[&str]| {
+            let matches = root_command().get_matches_from(argv);
+            test_dispatcher().dispatch(matches)
+        };
+
+        assert!(dispatch(&[
+            "trust",
+            "db",
+            "import",
+            "--input",
+            "/tmp/missing-trust.json"
+        ])
+        .is_err());
+        assert!(dispatch(&["trust", "keys", "protected-show"]).is_ok());
+        assert!(dispatch(&["trust", "accounts", "list"]).is_ok());
+        assert!(dispatch(&["trust", "transaction", "deposit"]).is_err());
+        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = dispatch(&["trust", "rule", "create"]);
+        }))
+        .is_err());
+        assert!(dispatch(&[
+            "trust",
+            "trading-vehicle",
+            "create",
+            "--from-alpaca",
+            "--symbol",
+            "AAPL",
+        ])
+        .is_err());
+        assert!(dispatch(&["trust", "trade", "fund", "--trade-id", "not-a-uuid"]).is_err());
+        assert!(dispatch(&[
+            "trust",
+            "distribution",
+            "history",
+            "--account-id",
+            "not-a-uuid"
+        ])
+        .is_err());
+        assert!(dispatch(&[
+            "trust",
+            "report",
+            "--format",
+            "json",
+            "performance",
+            "--account",
+            "bad",
+        ])
+        .is_err());
+        assert!(dispatch(&[
+            "trust",
+            "market-data",
+            "quote",
+            "--account",
+            "bad",
+            "--symbol",
+            "AAPL",
+        ])
+        .is_err());
+        assert!(dispatch(&["trust", "grade", "show", "not-a-uuid"]).is_err());
+        assert!(dispatch(&["trust", "level", "status", "--account", "bad"]).is_err());
+        assert!(dispatch(&["trust", "onboarding", "status", "--format", "json"]).is_ok());
+        assert!(dispatch(&["trust", "policy", "--format", "json"]).is_ok());
+        assert!(dispatch(&[
+            "trust",
+            "metrics",
+            "bond",
+            "--face-value",
+            "1000",
+            "--market-price",
+            "950",
+            "--coupon-rate",
+            "4",
+            "--quantity",
+            "3",
+            "--years-to-maturity",
+            "5",
+        ])
+        .is_ok());
+        assert!(dispatch(&["trust", "advisor", "status", "--account", "bad"]).is_err());
+        assert!(dispatch(&["trust", "external-plugin", "arg1", "arg2"]).is_ok());
+
+        std::env::remove_var("TRUST_PROTECTED_KEYWORD_EXPECTED");
+        std::env::remove_var("TRUST_DISABLE_KEYCHAIN");
     }
 
     #[test]
@@ -11027,6 +17467,26 @@ mod tests {
                 "json",
             ]);
         assert!(dispatcher.dispatch_metrics(&metrics).is_ok());
+        let metrics_bond = MetricsCommandBuilder::new()
+            .bond()
+            .build()
+            .get_matches_from([
+                "metrics",
+                "bond",
+                "--face-value",
+                "1000",
+                "--market-price",
+                "950",
+                "--coupon-rate",
+                "4",
+                "--quantity",
+                "3",
+                "--years-to-maturity",
+                "5",
+                "--format",
+                "json",
+            ]);
+        assert!(dispatcher.dispatch_metrics(&metrics_bond).is_ok());
         let advisor = AdvisorCommandBuilder::new()
             .configure()
             .build()
@@ -11184,6 +17644,543 @@ mod tests {
     }
 
     #[test]
+    fn test_report_handlers_surface_read_failures() {
+        let account_id = Uuid::new_v4().to_string();
+        let account_matches = report_args_matches(&["--account", &account_id]);
+        let no_account_matches = report_args_matches(&[]);
+
+        let mut dispatcher = test_dispatcher_with_read_failures(
+            crate::test_support::ReadFailureFactory::transactions(),
+        );
+        let error = dispatcher
+            .drawdown_report(&account_matches, ReportOutputFormat::Json)
+            .expect_err("drawdown should surface account transaction read failures");
+        assert_eq!(error.code, "transaction_data_unavailable");
+
+        let mut dispatcher =
+            test_dispatcher_with_read_failures(crate::test_support::ReadFailureFactory::accounts());
+        let error = dispatcher
+            .drawdown_report(&no_account_matches, ReportOutputFormat::Json)
+            .expect_err("drawdown should surface account list failures");
+        assert_eq!(error.code, "transaction_data_unavailable");
+
+        let mut dispatcher = test_dispatcher_with_read_failures(
+            crate::test_support::ReadFailureFactory::drawdown_equity_overflow(),
+        );
+        let error = dispatcher
+            .drawdown_report(&account_matches, ReportOutputFormat::Json)
+            .expect_err("drawdown should surface equity curve calculation failures");
+        assert_eq!(error.code, "drawdown_equity_curve_failed");
+
+        let mut dispatcher = test_dispatcher_with_read_failures(
+            crate::test_support::ReadFailureFactory::drawdown_metrics_overflow(),
+        );
+        let error = dispatcher
+            .drawdown_report(&account_matches, ReportOutputFormat::Json)
+            .expect_err("drawdown should surface drawdown metric calculation failures");
+        assert_eq!(error.code, "drawdown_calculation_failed");
+
+        let mut dispatcher =
+            test_dispatcher_with_read_failures(crate::test_support::ReadFailureFactory::accounts());
+        let error = dispatcher
+            .performance_report(&no_account_matches, ReportOutputFormat::Json)
+            .expect_err("performance should surface account list failures");
+        assert_eq!(error.code, "trading_data_unavailable");
+
+        let mut dispatcher =
+            test_dispatcher_with_read_failures(crate::test_support::ReadFailureFactory::accounts());
+        let error = dispatcher
+            .summary_report(&no_account_matches, ReportOutputFormat::Json)
+            .expect_err("summary should surface account list failures");
+        assert_eq!(error.code, "summary_generation_failed");
+
+        let mut dispatcher =
+            test_dispatcher_with_read_failures(crate::test_support::ReadFailureFactory::accounts());
+        let error = dispatcher
+            .metrics_report(&no_account_matches, ReportOutputFormat::Json)
+            .expect_err("metrics should surface account list failures");
+        assert_eq!(error.code, "trading_data_unavailable");
+
+        let mut dispatcher =
+            test_dispatcher_with_read_failures(crate::test_support::ReadFailureFactory::accounts());
+        let error = dispatcher
+            .risk_report(&no_account_matches, ReportOutputFormat::Json)
+            .expect_err("risk should surface open-position read failures");
+        assert_eq!(error.code, "open_positions_failed");
+
+        let mut dispatcher =
+            test_dispatcher_with_read_failures(crate::test_support::ReadFailureFactory::accounts());
+        let error = dispatcher
+            .concentration_report(&no_account_matches, ReportOutputFormat::Json)
+            .expect_err("concentration should surface account list failures");
+        assert_eq!(error.code, "accounts_fetch_failed");
+        let open_trades = ArgDispatcher::open_trades_for_scope(&mut dispatcher.trust, None);
+        assert!(open_trades.is_empty());
+
+        let mut dispatcher = test_dispatcher();
+        let account = dispatcher
+            .trust
+            .create_account(
+                "missing-balance",
+                "test",
+                Environment::Paper,
+                dec!(20),
+                dec!(10),
+            )
+            .expect("account without balance");
+        let account_matches = report_args_matches(&["--account", &account.id.to_string()]);
+        let error = dispatcher
+            .risk_report(&account_matches, ReportOutputFormat::Json)
+            .expect_err("risk should surface missing account balance");
+        assert_eq!(error.code, "account_balance_unavailable");
+
+        let mut dispatcher = test_dispatcher_with_read_failures(
+            crate::test_support::ReadFailureFactory::capital_at_risk_overflow(),
+        );
+        let error = dispatcher
+            .risk_report(&account_matches, ReportOutputFormat::Json)
+            .expect_err("risk should surface capital-at-risk overflow");
+        assert_eq!(error.code, "capital_at_risk_failed");
+
+        let mut dispatcher = test_dispatcher_with_read_failures(
+            crate::test_support::ReadFailureFactory::open_positions_then_accounts_fail(),
+        );
+        dispatcher
+            .risk_report(&no_account_matches, ReportOutputFormat::Json)
+            .expect("aggregate risk should fall back to zero equity when account totals fail");
+
+        let grade_summary = GradeCommandBuilder::new()
+            .summary()
+            .build()
+            .get_matches_from(["grade", "summary"]);
+        let mut dispatcher =
+            test_dispatcher_with_read_failures(crate::test_support::ReadFailureFactory::accounts());
+        let error = dispatcher
+            .grade_summary(
+                grade_summary
+                    .subcommand_matches("summary")
+                    .expect("summary subcommand"),
+                ReportOutputFormat::Json,
+            )
+            .expect_err("grade summary should surface closed-trade read failures");
+        assert_eq!(error.code, "trading_data_unavailable");
+
+        let grade_show = GradeCommandBuilder::new().show().build().get_matches_from([
+            "grade",
+            "show",
+            &Uuid::new_v4().to_string(),
+        ]);
+        let mut dispatcher = test_dispatcher_with_read_failures(
+            crate::test_support::ReadFailureFactory::trade_grades(),
+        );
+        let error = dispatcher
+            .grade_show(
+                grade_show
+                    .subcommand_matches("show")
+                    .expect("show subcommand"),
+                ReportOutputFormat::Json,
+            )
+            .expect_err("grade show should surface grade read failures");
+        assert_eq!(error.code, "grade_read_failed");
+
+        let mut dispatcher = test_dispatcher_with_read_failures(
+            crate::test_support::ReadFailureFactory::trades_after_account(),
+        );
+        let error = dispatcher
+            .find_trade_by_id(
+                Uuid::new_v4(),
+                &[Status::Submitted],
+                ReportOutputFormat::Json,
+            )
+            .expect_err("trade lookup should continue after per-status read failures");
+        assert_eq!(error.code, "trade_not_found");
+
+        let advanced = MetricsCommandBuilder::new()
+            .advanced()
+            .build()
+            .get_matches_from(["metrics", "advanced"]);
+        let mut dispatcher =
+            test_dispatcher_with_read_failures(crate::test_support::ReadFailureFactory::accounts());
+        dispatcher.metrics_advanced(
+            advanced
+                .subcommand_matches("advanced")
+                .expect("advanced subcommand"),
+        );
+
+        let compare = MetricsCommandBuilder::new()
+            .compare()
+            .build()
+            .get_matches_from([
+                "metrics",
+                "compare",
+                "--period1",
+                "all",
+                "--period2",
+                "last-7-days",
+            ]);
+        let mut dispatcher =
+            test_dispatcher_with_read_failures(crate::test_support::ReadFailureFactory::accounts());
+        dispatcher.metrics_compare(
+            compare
+                .subcommand_matches("compare")
+                .expect("compare subcommand"),
+        );
+
+        let bond = MetricsCommandBuilder::new()
+            .bond()
+            .build()
+            .get_matches_from([
+                "metrics",
+                "bond",
+                "--symbol",
+                "BOND",
+                "--broker",
+                "ibkr",
+                "--market-price",
+                "95",
+                "--quantity",
+                "1",
+            ]);
+        let mut dispatcher = test_dispatcher_with_read_failures(
+            crate::test_support::ReadFailureFactory::trading_vehicles(),
+        );
+        let error = dispatcher
+            .metrics_bond(bond.subcommand_matches("bond").expect("bond subcommand"))
+            .expect_err("bond lookup should surface trading-vehicle read failures");
+        assert_eq!(error.code, "bond_vehicle_lookup_failed");
+    }
+
+    #[test]
+    fn test_report_handlers_cover_non_empty_and_zero_branches() {
+        let mut dispatcher =
+            test_dispatcher_with_broker(Box::new(StubBroker::submitted_fill_fixture()));
+        let (account, trade) = seed_new_trade(&mut dispatcher);
+        let (funded, _, _, _) = dispatcher.trust.fund_trade(&trade).expect("fund trade");
+        let (submitted, _) = dispatcher
+            .trust
+            .submit_trade(&funded)
+            .expect("submit trade");
+        let mut fill_ready = submitted.clone();
+        fill_ready.entry.status = model::OrderStatus::Filled;
+        fill_ready.entry.filled_quantity = fill_ready.entry.quantity;
+        fill_ready.entry.average_filled_price = Some(fill_ready.entry.unit_price);
+        fill_ready.entry.filled_at = Some(Utc::now().naive_utc());
+        let (filled, _) = dispatcher
+            .trust
+            .fill_trade(&fill_ready, dec!(1.25))
+            .expect("fill trade with opening fee");
+        let mut target_ready = filled.clone();
+        target_ready.target.status = model::OrderStatus::Filled;
+        target_ready.target.filled_quantity = target_ready.target.quantity;
+        target_ready.target.average_filled_price = Some(dec!(110));
+        target_ready.target.filled_at = Some(Utc::now().naive_utc());
+        dispatcher
+            .trust
+            .target_acquired(&target_ready, dec!(0.75))
+            .expect("target close with closing fee");
+        let loss_trade = dispatcher
+            .trust
+            .create_trade(
+                model::DraftTrade {
+                    account: account.clone(),
+                    trading_vehicle: trade.trading_vehicle.clone(),
+                    quantity: 1,
+                    category: model::TradeCategory::Long,
+                    currency: Currency::USD,
+                    thesis: Some("loss sample".to_string()),
+                    sector: Some("technology".to_string()),
+                    asset_class: Some("equity".to_string()),
+                    context: None,
+                },
+                dec!(95),
+                dec!(100),
+                dec!(110),
+            )
+            .expect("loss sample trade should be created");
+        let (loss_funded, _, _, _) = dispatcher
+            .trust
+            .fund_trade(&loss_trade)
+            .expect("loss sample trade should be funded");
+        let (loss_submitted, _) = dispatcher
+            .trust
+            .submit_trade(&loss_funded)
+            .expect("loss sample trade should be submitted");
+        let mut loss_fill_ready = loss_submitted.clone();
+        loss_fill_ready.entry.status = model::OrderStatus::Filled;
+        loss_fill_ready.entry.filled_quantity = loss_fill_ready.entry.quantity;
+        loss_fill_ready.entry.average_filled_price = Some(loss_fill_ready.entry.unit_price);
+        loss_fill_ready.entry.filled_at = Some(Utc::now().naive_utc());
+        let (loss_filled, _) = dispatcher
+            .trust
+            .fill_trade(&loss_fill_ready, Decimal::ZERO)
+            .expect("loss sample trade should be filled");
+        let mut stop_ready = loss_filled.clone();
+        stop_ready.safety_stop.status = model::OrderStatus::Filled;
+        stop_ready.safety_stop.filled_quantity = stop_ready.safety_stop.quantity;
+        stop_ready.safety_stop.average_filled_price = Some(stop_ready.safety_stop.unit_price);
+        stop_ready.safety_stop.filled_at = Some(Utc::now().naive_utc());
+        dispatcher
+            .trust
+            .stop_trade(&stop_ready, Decimal::ZERO)
+            .expect("loss sample trade should close at stop");
+        let report_matches =
+            report_args_matches(&["--account", &account.id.to_string(), "--days", "365"]);
+
+        dispatcher
+            .performance_report(&report_matches, ReportOutputFormat::Json)
+            .expect("non-empty performance json should render");
+        dispatcher
+            .summary_report(&report_matches, ReportOutputFormat::Json)
+            .expect("fee-aware summary json should render");
+        dispatcher
+            .metrics_report(&report_matches, ReportOutputFormat::Json)
+            .expect("fee-aware metrics json should render");
+        dispatcher
+            .concentration_report(
+                &report_args_matches(&["--account", &account.id.to_string(), "--open-only"]),
+                ReportOutputFormat::Text,
+            )
+            .expect("open-only concentration should handle portfolios with only closed trades");
+        let open_trade = dispatcher
+            .trust
+            .create_trade(
+                model::DraftTrade {
+                    account: account.clone(),
+                    trading_vehicle: trade.trading_vehicle.clone(),
+                    quantity: 1,
+                    category: model::TradeCategory::Long,
+                    currency: Currency::USD,
+                    thesis: Some("open concentration".to_string()),
+                    sector: Some("technology".to_string()),
+                    asset_class: Some("equity".to_string()),
+                    context: None,
+                },
+                dec!(95),
+                dec!(100),
+                dec!(110),
+            )
+            .expect("open risk trade should be created");
+        dispatcher
+            .trust
+            .fund_trade(&open_trade)
+            .expect("open risk trade should be funded");
+        let open_trade = dispatcher
+            .trust
+            .search_trades(account.id, Status::Funded)
+            .expect("funded open risk trade should load")
+            .into_iter()
+            .find(|candidate| candidate.id == open_trade.id)
+            .expect("funded open risk trade should be persisted");
+        let (open_submitted, _) = dispatcher
+            .trust
+            .submit_trade(&open_trade)
+            .expect("open risk trade should be submitted");
+        let mut open_fill_ready = open_submitted.clone();
+        open_fill_ready.entry.status = model::OrderStatus::Filled;
+        open_fill_ready.entry.filled_quantity = open_fill_ready.entry.quantity;
+        open_fill_ready.entry.average_filled_price = Some(open_fill_ready.entry.unit_price);
+        open_fill_ready.entry.filled_at = Some(Utc::now().naive_utc());
+        dispatcher
+            .trust
+            .fill_trade(&open_fill_ready, Decimal::ZERO)
+            .expect("open risk trade should be filled");
+        dispatcher
+            .summary_report(&report_matches, ReportOutputFormat::Json)
+            .expect("summary json should render open concentration percentage");
+
+        let mut zero_pnl_dispatcher =
+            test_dispatcher_with_broker(Box::new(StubBroker::submitted_fill_fixture()));
+        let (zero_account, filled) = seed_filled_trade(&mut zero_pnl_dispatcher);
+        let mut target_ready = filled.clone();
+        target_ready.target.status = model::OrderStatus::Filled;
+        target_ready.target.filled_quantity = target_ready.target.quantity;
+        target_ready.target.average_filled_price = Some(target_ready.entry.unit_price);
+        target_ready.target.filled_at = Some(Utc::now().naive_utc());
+        zero_pnl_dispatcher
+            .trust
+            .target_acquired(&target_ready, Decimal::ZERO)
+            .expect("zero pnl target close should be persisted");
+        let attribution = ReportCommandBuilder::new()
+            .attribution()
+            .build()
+            .get_matches_from([
+                "report",
+                "attribution",
+                "--account",
+                &zero_account.id.to_string(),
+                "--by",
+                "symbol",
+                "--from",
+                "2020-01-01",
+                "--to",
+                "2030-01-01",
+            ]);
+        let attribution_matches = attribution.subcommand_matches("attribution").unwrap();
+        zero_pnl_dispatcher
+            .attribution_report(attribution_matches, ReportOutputFormat::Text)
+            .expect("zero pnl attribution text should render");
+        zero_pnl_dispatcher
+            .attribution_report(attribution_matches, ReportOutputFormat::Json)
+            .expect("zero pnl attribution json should render");
+
+        let mut empty_dispatcher = test_dispatcher();
+        empty_dispatcher
+            .risk_report(&report_args_matches(&[]), ReportOutputFormat::Json)
+            .expect("empty aggregate risk json should render with zero equity");
+        let empty_account = empty_dispatcher
+            .trust
+            .create_account(
+                "zero-equity",
+                "test",
+                Environment::Paper,
+                dec!(20),
+                dec!(10),
+            )
+            .expect("empty account");
+        empty_dispatcher
+            .summary_report(
+                &report_args_matches(&["--account", &empty_account.id.to_string()]),
+                ReportOutputFormat::Json,
+            )
+            .expect("zero-equity summary json should render");
+
+        let mut empty_bars = StubBroker::quote_trade_fixture();
+        empty_bars.bars.clear();
+        let mut dispatcher = test_dispatcher_with_broker(Box::new(empty_bars));
+        let (account, _) = seed_account_and_vehicle(&mut dispatcher);
+        let benchmark = ReportCommandBuilder::new()
+            .benchmark()
+            .build()
+            .get_matches_from([
+                "report",
+                "benchmark",
+                "--account",
+                &account.id.to_string(),
+                "--benchmark",
+                "SPY",
+                "--from",
+                "2020-01-01",
+                "--to",
+                "2030-01-01",
+            ]);
+        dispatcher
+            .benchmark_report(
+                benchmark
+                    .subcommand_matches("benchmark")
+                    .expect("benchmark subcommand"),
+                ReportOutputFormat::Json,
+            )
+            .expect("benchmark report should render with no benchmark bars");
+
+        let mut zero_open_bars = StubBroker::quote_trade_fixture();
+        if let Some(first_bar) = zero_open_bars.bars.first_mut() {
+            first_bar.open = Decimal::ZERO;
+        }
+        let mut dispatcher = test_dispatcher_with_broker(Box::new(zero_open_bars));
+        let (account, _) = seed_account_and_vehicle(&mut dispatcher);
+        let benchmark = ReportCommandBuilder::new()
+            .benchmark()
+            .build()
+            .get_matches_from([
+                "report",
+                "benchmark",
+                "--account",
+                &account.id.to_string(),
+                "--benchmark",
+                "SPY",
+                "--from",
+                "2020-01-01",
+                "--to",
+                "2030-01-01",
+            ]);
+        dispatcher
+            .benchmark_report(
+                benchmark
+                    .subcommand_matches("benchmark")
+                    .expect("benchmark subcommand"),
+                ReportOutputFormat::Text,
+            )
+            .expect("benchmark report should render when first benchmark open is zero");
+
+        let timeline_missing_granularity = Command::new("timeline")
+            .arg(Arg::new("account").long("account"))
+            .arg(Arg::new("granularity").long("granularity"))
+            .arg(Arg::new("from").long("from"))
+            .arg(Arg::new("to").long("to"))
+            .get_matches_from([
+                "timeline",
+                "--account",
+                &account.id.to_string(),
+                "--from",
+                "2020-01-01",
+                "--to",
+                "2030-01-01",
+            ]);
+        let error = dispatcher
+            .timeline_report(&timeline_missing_granularity, ReportOutputFormat::Json)
+            .expect_err("timeline should require granularity");
+        assert_eq!(error.code, "missing_argument");
+    }
+
+    #[test]
+    fn test_onboarding_init_and_status_cover_missing_and_success_paths() {
+        let _guard = env_guard();
+        std::env::remove_var("TRUST_PROTECTED_KEYWORD_EXPECTED");
+        std::env::set_var("TRUST_DISABLE_KEYCHAIN", "1");
+        crate::protected_keyword::delete().expect("reset protected keyword");
+        let mut dispatcher = test_dispatcher();
+
+        dispatcher
+            .onboarding_status(ReportOutputFormat::Text)
+            .expect("missing protected keyword status should render text");
+        dispatcher
+            .onboarding_status(ReportOutputFormat::Json)
+            .expect("missing protected keyword status should render json");
+
+        let missing_keyword = Command::new("onboarding")
+            .arg(Arg::new("protected-keyword").long("protected-keyword"))
+            .get_matches_from(["onboarding"]);
+        let error = dispatcher
+            .onboarding_init(&missing_keyword, ReportOutputFormat::Json)
+            .expect_err("missing onboarding keyword should fail");
+        assert_eq!(error.code, "missing_keyword");
+
+        let blank_keyword = Command::new("onboarding")
+            .arg(Arg::new("protected-keyword").long("protected-keyword"))
+            .get_matches_from(["onboarding", "--protected-keyword", "   "]);
+        let error = dispatcher
+            .onboarding_init(&blank_keyword, ReportOutputFormat::Json)
+            .expect_err("blank onboarding keyword should fail");
+        assert_eq!(error.code, "onboarding_store_failed");
+
+        let text_matches = Command::new("onboarding")
+            .arg(Arg::new("protected-keyword").long("protected-keyword"))
+            .get_matches_from(["onboarding", "--protected-keyword", "first-secret"]);
+        dispatcher
+            .onboarding_init(&text_matches, ReportOutputFormat::Text)
+            .expect("onboarding text init should store keyword");
+        assert_eq!(
+            crate::protected_keyword::read_expected().expect("keyword should be stored"),
+            "first-secret"
+        );
+
+        crate::protected_keyword::delete().expect("clear protected keyword before json init");
+        let json_matches = Command::new("onboarding")
+            .arg(Arg::new("protected-keyword").long("protected-keyword"))
+            .get_matches_from(["onboarding", "--protected-keyword", "second-secret"]);
+        dispatcher
+            .onboarding_init(&json_matches, ReportOutputFormat::Json)
+            .expect("onboarding json init should store keyword");
+        assert_eq!(
+            crate::protected_keyword::read_expected().expect("keyword should be stored"),
+            "second-secret"
+        );
+
+        crate::protected_keyword::delete().expect("cleanup protected keyword");
+        std::env::remove_var("TRUST_DISABLE_KEYCHAIN");
+    }
+
+    #[test]
     fn test_dispatch_trade_interactive_variants_are_reachable() {
         use std::panic::{catch_unwind, AssertUnwindSafe};
 
@@ -11193,6 +18190,7 @@ mod tests {
             vec!["trade", "manually-stop"],
             vec!["trade", "manually-target"],
             vec!["trade", "manually-close"],
+            vec!["trade", "manually-close", "--auto-distribute"],
             vec!["trade", "watch"],
             vec!["trade", "search"],
             vec!["trade", "modify-stop"],
@@ -11384,6 +18382,37 @@ mod tests {
     }
 
     #[test]
+    fn test_create_dir_if_necessary_creates_trust_directory() {
+        let _guard = env_guard();
+        let original_home = std::env::var_os("HOME");
+        let home = std::env::temp_dir().join(format!("trust-home-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&home).expect("temp home should be created");
+        std::env::set_var("HOME", &home);
+
+        let trust_dir = home.join(".trust");
+        assert!(!trust_dir.exists());
+        super::create_dir_if_necessary();
+        assert!(trust_dir.exists());
+        super::create_dir_if_necessary();
+
+        std::env::remove_var("HOME");
+        let _ = std::fs::remove_dir_all(home);
+
+        let home = std::env::temp_dir().join(format!("trust-home-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&home).expect("temp home should be created");
+        std::env::set_var("HOME", &home);
+
+        super::create_dir_if_necessary();
+
+        std::env::remove_var("HOME");
+        let _ = std::fs::remove_dir_all(home);
+
+        if let Some(original_home) = original_home {
+            std::env::set_var("HOME", original_home);
+        }
+    }
+
+    #[test]
     fn test_new_sqlite_dispatcher_initializes_with_custom_db_url() {
         let _guard = env_guard();
         let db_path = format!("/tmp/trust-cli-{}.db", Uuid::new_v4());
@@ -11397,6 +18426,56 @@ mod tests {
         );
         std::env::remove_var("TRUST_DB_URL");
         let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn test_db_export_import_success_and_export_error_paths() {
+        let _guard = env_guard();
+        std::env::set_var("TRUST_PROTECTED_KEYWORD_EXPECTED", "secret");
+        let db_path = format!("/tmp/trust-db-dispatch-{}.db", Uuid::new_v4());
+        let backup_path = format!("/tmp/trust-db-dispatch-{}.json", Uuid::new_v4());
+        std::env::set_var("TRUST_DB_URL", &db_path);
+        let mut dispatcher = test_dispatcher();
+
+        let export = DbCommandBuilder::new().export().build().get_matches_from([
+            "db",
+            "export",
+            "--output",
+            &backup_path,
+        ]);
+        dispatcher
+            .db_export(export.subcommand_matches("export").unwrap())
+            .expect("database export should write backup");
+        assert!(std::path::Path::new(&backup_path).exists());
+
+        let import = DbCommandBuilder::new().import().build().get_matches_from([
+            "db",
+            "import",
+            "--input",
+            &backup_path,
+            "--mode",
+            "replace",
+            "--dry-run",
+            "--confirm-protected",
+            "secret",
+        ]);
+        dispatcher
+            .db_import(import.subcommand_matches("import").unwrap())
+            .expect("database import dry run should validate backup");
+
+        let export_to_directory = DbCommandBuilder::new()
+            .export()
+            .build()
+            .get_matches_from(["db", "export", "--output", "/tmp"]);
+        let error = dispatcher
+            .db_export(export_to_directory.subcommand_matches("export").unwrap())
+            .expect_err("exporting to a directory should fail");
+        assert!(error.to_string().contains("db_export_failed"));
+
+        std::env::remove_var("TRUST_DB_URL");
+        std::env::remove_var("TRUST_PROTECTED_KEYWORD_EXPECTED");
+        let _ = std::fs::remove_file(&db_path);
+        let _ = std::fs::remove_file(&backup_path);
     }
 
     #[test]
@@ -11525,6 +18604,7 @@ mod tests {
                 ],
                 true,
             ),
+            (vec!["trust", "trade", "fund", "--unknown"], true),
             (vec!["trust", "external-cmd", "--foo", "bar"], false),
         ];
 
@@ -11697,6 +18777,39 @@ mod tests {
             .expect_err("advisor history with invalid account should fail");
         assert!(advisor_history_error.to_string().contains("invalid_uuid"));
 
+        let advisor_account = dispatcher
+            .trust
+            .create_account(
+                "advisor-warning-account",
+                "advisory warnings",
+                Environment::Paper,
+                dec!(20),
+                dec!(10),
+            )
+            .expect("advisor account should be created");
+        let advisor_check = AdvisorCommandBuilder::new()
+            .check()
+            .build()
+            .get_matches_from([
+                "advisor",
+                "check",
+                "--account",
+                &advisor_account.id.to_string(),
+                "--symbol",
+                "AAPL",
+                "--entry",
+                "100",
+                "--quantity",
+                "10",
+                "--sector",
+                "technology",
+                "--asset-class",
+                "equity",
+            ]);
+        dispatcher
+            .dispatch_advisor(&advisor_check)
+            .expect("advisor check should print warnings and recommendations");
+
         let keys_show = KeysCommandBuilder::new()
             .read_environment()
             .build()
@@ -11707,6 +18820,18 @@ mod tests {
         assert!(
             keys_show_outcome.is_err(),
             "keys show should reach dialog branch even when selection panics"
+        );
+
+        let keys_create = KeysCommandBuilder::new()
+            .create_keys()
+            .build()
+            .get_matches_from(["keys", "create", "--confirm-protected", "secret"]);
+        let keys_create_outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = dispatcher.dispatch_keys(&keys_create);
+        }));
+        assert!(
+            keys_create_outcome.is_err(),
+            "keys create should reach dialog branch even when account selection panics"
         );
 
         let keys_delete = KeysCommandBuilder::new()

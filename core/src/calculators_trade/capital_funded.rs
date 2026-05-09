@@ -99,4 +99,19 @@ mod tests {
         TradeCapitalFunded::calculate(Uuid::new_v4(), &mut database)
             .expect_err("TradeCapitalFunded: capital funded is negative: -100");
     }
+
+    #[test]
+    fn test_calculate_reports_addition_overflow() {
+        let mut database = MockDatabase::new();
+
+        database.set_transaction(TransactionCategory::FundTrade(Uuid::new_v4()), Decimal::MAX);
+        database.set_transaction(TransactionCategory::FundTrade(Uuid::new_v4()), Decimal::MAX);
+
+        let error = TradeCapitalFunded::calculate(Uuid::new_v4(), &mut database)
+            .expect_err("funded capital addition overflow should be explicit");
+
+        assert!(error
+            .to_string()
+            .contains("Arithmetic overflow in addition"));
+    }
 }

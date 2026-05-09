@@ -20,7 +20,7 @@ impl Default for ConnectionConfig {
     fn default() -> Self {
         Self {
             base_url: DEFAULT_GATEWAY_URL.to_string(),
-            allow_insecure_tls: true,
+            allow_insecure_tls: false,
         }
     }
 }
@@ -36,7 +36,13 @@ impl ConnectionConfig {
 
     /// Read persisted settings for an account.
     pub fn read(environment: &Environment, account: &Account) -> keyring::Result<Self> {
-        if let Some(config) = Self::from_env() {
+        if let Some(config) = Self::from_env().map_err(|_| {
+            keyring::Error::PlatformFailure(
+                "Failed to parse IBKR connection config from environment"
+                    .to_string()
+                    .into(),
+            )
+        })? {
             return Ok(config);
         }
 
@@ -74,13 +80,29 @@ impl ConnectionConfig {
         format!("{} {}", self.base_url, self.allow_insecure_tls)
     }
 
-    fn from_env() -> Option<Self> {
-        let base_url = std::env::var(ENV_URL).ok()?;
+    fn from_env() -> Result<Option<Self>, ConnectionConfigParseError> {
+        let Ok(base_url) = std::env::var(ENV_URL) else {
+            return Ok(None);
+        };
         let allow_insecure_tls = std::env::var(ENV_ALLOW_INSECURE_TLS)
             .ok()
             .map(|value| parse_bool_flag(&value))
-            .unwrap_or(true);
-        Some(Self::new(&base_url, allow_insecure_tls))
+            .unwrap_or(false);
+        Ok(Some(Self::from_parts(&base_url, allow_insecure_tls)?))
+    }
+
+    fn from_parts(
+        base_url: &str,
+        allow_insecure_tls: bool,
+    ) -> Result<Self, ConnectionConfigParseError> {
+        let normalized = normalize_base_url(base_url);
+        if !is_supported_gateway_url(&normalized) {
+            return Err(ConnectionConfigParseError);
+        }
+        Ok(Self {
+            base_url: normalized,
+            allow_insecure_tls,
+        })
     }
 }
 
@@ -112,8 +134,11 @@ impl FromStr for ConnectionConfig {
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         let mut parts = value.split_whitespace();
         let base_url = parts.next().ok_or(ConnectionConfigParseError)?;
-        let allow_insecure_tls = parts.next().map(parse_bool_flag).unwrap_or(true);
-        Ok(Self::new(base_url, allow_insecure_tls))
+        let allow_insecure_tls = parts.next().map(parse_bool_flag).unwrap_or(false);
+        if parts.next().is_some() {
+            return Err(ConnectionConfigParseError);
+        }
+        Self::from_parts(base_url, allow_insecure_tls)
     }
 }
 
@@ -128,6 +153,10 @@ fn normalize_base_url(base_url: &str) -> String {
     base_url.trim().trim_end_matches('/').to_string()
 }
 
+fn is_supported_gateway_url(base_url: &str) -> bool {
+    base_url.starts_with("https://") || base_url.starts_with("http://")
+}
+
 fn parse_bool_flag(value: &str) -> bool {
     matches!(
         value.trim().to_ascii_lowercase().as_str(),
@@ -137,14 +166,46 @@ fn parse_bool_flag(value: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{ConnectionConfig, ConnectionConfigParseError};
+    use super::{ConnectionConfig, ConnectionConfigParseError, ENV_ALLOW_INSECURE_TLS, ENV_URL};
+    use model::{Account, Environment};
     use std::str::FromStr;
+    use std::sync::Mutex;
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    struct EnvSnapshot {
+        url: Option<String>,
+        allow_insecure_tls: Option<String>,
+    }
+
+    impl EnvSnapshot {
+        fn capture() -> Self {
+            Self {
+                url: std::env::var(ENV_URL).ok(),
+                allow_insecure_tls: std::env::var(ENV_ALLOW_INSECURE_TLS).ok(),
+            }
+        }
+
+        fn restore_var(name: &str, value: &Option<String>) {
+            match value {
+                Some(value) => std::env::set_var(name, value),
+                None => std::env::remove_var(name),
+            }
+        }
+    }
+
+    impl Drop for EnvSnapshot {
+        fn drop(&mut self) {
+            Self::restore_var(ENV_URL, &self.url);
+            Self::restore_var(ENV_ALLOW_INSECURE_TLS, &self.allow_insecure_tls);
+        }
+    }
 
     #[test]
     fn config_default_matches_local_gateway_expectations() {
         let config = ConnectionConfig::default();
         assert_eq!(config.base_url, "https://localhost:5000/v1/api");
-        assert!(config.allow_insecure_tls);
+        assert!(!config.allow_insecure_tls);
     }
 
     #[test]
@@ -159,10 +220,98 @@ mod tests {
     }
 
     #[test]
+    fn config_new_normalizes_display_debug_and_keychain_storage_format() {
+        let config = ConnectionConfig::new(" https://ibkr.local/v1/api/// ", false);
+
+        assert_eq!(config.base_url, "https://ibkr.local/v1/api");
+        assert_eq!(
+            config.to_string(),
+            "https://ibkr.local/v1/api (allow_insecure_tls=false)"
+        );
+        assert_eq!(
+            config.to_keychain_string(),
+            "https://ibkr.local/v1/api false"
+        );
+
+        let debug = format!("{config:?}");
+        assert!(debug.contains("https://ibkr.local/v1/api"));
+        assert!(debug.contains("allow_insecure_tls"));
+    }
+
+    #[test]
     fn config_parser_rejects_missing_base_url() {
         assert_eq!(
             ConnectionConfig::from_str("").unwrap_err(),
             ConnectionConfigParseError
         );
+    }
+
+    #[test]
+    fn config_parser_rejects_extra_tokens_and_accepts_bool_aliases() {
+        assert_eq!(
+            ConnectionConfig::from_str("https://ibkr.local false trailing").unwrap_err(),
+            ConnectionConfigParseError
+        );
+        assert!(
+            ConnectionConfig::from_str("https://ibkr.local yes")
+                .unwrap()
+                .allow_insecure_tls
+        );
+        assert!(
+            ConnectionConfig::from_str("https://ibkr.local ON")
+                .unwrap()
+                .allow_insecure_tls
+        );
+        assert!(
+            !ConnectionConfig::from_str("https://ibkr.local off")
+                .unwrap()
+                .allow_insecure_tls
+        );
+        assert!(
+            !ConnectionConfig::from_str("https://ibkr.local")
+                .unwrap()
+                .allow_insecure_tls
+        );
+        assert_eq!(
+            ConnectionConfig::from_str("file:///etc/passwd false").unwrap_err(),
+            ConnectionConfigParseError
+        );
+    }
+
+    #[test]
+    fn config_read_prefers_environment_override_without_keychain() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let _snapshot = EnvSnapshot::capture();
+        std::env::set_var(ENV_URL, " https://env-ibkr.local/v1/api/// ");
+        std::env::set_var(ENV_ALLOW_INSECURE_TLS, "no");
+
+        let account = Account {
+            name: "ibkr-env-override".to_string(),
+            environment: Environment::Paper,
+            ..Account::default()
+        };
+        let config = ConnectionConfig::read(&Environment::Paper, &account)
+            .expect("environment override should not use keychain");
+
+        assert_eq!(config.base_url, "https://env-ibkr.local/v1/api");
+        assert!(!config.allow_insecure_tls);
+    }
+
+    #[test]
+    fn config_read_rejects_invalid_environment_url_without_keychain() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let _snapshot = EnvSnapshot::capture();
+        std::env::set_var(ENV_URL, "file:///etc/passwd");
+        std::env::remove_var(ENV_ALLOW_INSECURE_TLS);
+
+        let account = Account {
+            name: "ibkr-invalid-env".to_string(),
+            environment: Environment::Paper,
+            ..Account::default()
+        };
+        let error = ConnectionConfig::read(&Environment::Paper, &account)
+            .expect_err("invalid environment URL should fail before keychain");
+
+        assert!(error.to_string().contains("environment"));
     }
 }

@@ -494,3 +494,412 @@ pub fn transfer_to_account_from(
 
     Ok((transaction, account_balance, trade_balance))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use db_sqlite::SqliteDatabase;
+    use model::{Account, Environment, Order, Status, Trade};
+    use rust_decimal_macros::dec;
+
+    fn in_memory_database() -> SqliteDatabase {
+        SqliteDatabase::new_in_memory()
+    }
+
+    fn submitted_trade_with_entry_fill(average_price: Decimal) -> Trade {
+        Trade {
+            status: Status::Submitted,
+            entry: Order {
+                average_filled_price: Some(average_price),
+                ..Order::default()
+            },
+            balance: TradeBalance {
+                funding: dec!(1_000),
+                ..TradeBalance::default()
+            },
+            ..Trade::default()
+        }
+    }
+
+    fn filled_trade_with_target_fill(average_price: Decimal) -> Trade {
+        Trade {
+            status: Status::Filled,
+            target: Order {
+                average_filled_price: Some(average_price),
+                ..Order::default()
+            },
+            ..Trade::default()
+        }
+    }
+
+    fn filled_trade_with_stop_fill(average_price: Decimal) -> Trade {
+        Trade {
+            status: Status::Filled,
+            safety_stop: Order {
+                average_filled_price: Some(average_price),
+                ..Order::default()
+            },
+            ..Trade::default()
+        }
+    }
+
+    fn create_account_with_balance(database: &mut SqliteDatabase) -> Account {
+        let account = database
+            .account_write()
+            .create(
+                "fee-test-account",
+                "account with zero starting balance",
+                Environment::Paper,
+                dec!(0),
+                dec!(0),
+            )
+            .expect("account should be created");
+        database
+            .account_balance_write()
+            .create(&account, &Currency::USD)
+            .expect("account balance should be created");
+        account
+    }
+
+    fn create_account_without_balance(database: &mut SqliteDatabase) -> Account {
+        database
+            .account_write()
+            .create(
+                "transaction-test-account",
+                "account without starting balance",
+                Environment::Paper,
+                dec!(0),
+                dec!(0),
+            )
+            .expect("account should be created")
+    }
+
+    #[test]
+    fn create_deposit_creates_missing_overview_then_updates_existing_overview() {
+        let mut database = in_memory_database();
+        let account = create_account_without_balance(&mut database);
+
+        let (transaction, balance) = create(
+            &mut database,
+            &TransactionCategory::Deposit,
+            dec!(1_000),
+            &Currency::USD,
+            account.id,
+        )
+        .expect("first deposit should create balance overview");
+        assert_eq!(transaction.category, TransactionCategory::Deposit);
+        assert_eq!(balance.total_balance, dec!(1_000));
+        assert_eq!(balance.total_available, dec!(1_000));
+
+        let (_transaction, balance) = create(
+            &mut database,
+            &TransactionCategory::Deposit,
+            dec!(250),
+            &Currency::USD,
+            account.id,
+        )
+        .expect("second deposit should update existing balance overview");
+        assert_eq!(balance.total_balance, dec!(1_250));
+        assert_eq!(balance.total_available, dec!(1_250));
+    }
+
+    #[test]
+    fn create_withdrawal_variants_update_balances_and_reject_manual_trade_categories() {
+        let mut database = in_memory_database();
+        let account = create_account_without_balance(&mut database);
+        create(
+            &mut database,
+            &TransactionCategory::Deposit,
+            dec!(1_000),
+            &Currency::USD,
+            account.id,
+        )
+        .expect("deposit should seed balance");
+
+        let (_transaction, balance) = create(
+            &mut database,
+            &TransactionCategory::Withdrawal,
+            dec!(100),
+            &Currency::USD,
+            account.id,
+        )
+        .expect("plain withdrawal should succeed");
+        assert_eq!(balance.total_balance, dec!(900));
+        assert_eq!(balance.total_available, dec!(900));
+
+        let (_transaction, balance) = create(
+            &mut database,
+            &TransactionCategory::WithdrawalTax,
+            dec!(25),
+            &Currency::USD,
+            account.id,
+        )
+        .expect("tax withdrawal should succeed");
+        assert_eq!(balance.total_balance, dec!(875));
+        assert_eq!(balance.total_available, dec!(900));
+
+        let (_transaction, balance) = create(
+            &mut database,
+            &TransactionCategory::WithdrawalEarnings,
+            dec!(50),
+            &Currency::USD,
+            account.id,
+        )
+        .expect("earnings withdrawal should succeed");
+        assert_eq!(balance.total_balance, dec!(825));
+        assert_eq!(balance.total_available, dec!(850));
+
+        let error = create(
+            &mut database,
+            &TransactionCategory::OpenTrade(Uuid::new_v4()),
+            dec!(10),
+            &Currency::USD,
+            account.id,
+        )
+        .expect_err("manual trade lifecycle transaction should be rejected");
+        assert!(error
+            .to_string()
+            .contains("Manually creating transaction category"));
+    }
+
+    #[test]
+    fn transfer_to_fill_trade_requires_entry_average_filled_price() {
+        let mut database = in_memory_database();
+        let trade = Trade {
+            status: Status::Submitted,
+            entry: Order {
+                average_filled_price: None,
+                ..Order::default()
+            },
+            ..Trade::default()
+        };
+
+        let error = transfer_to_fill_trade(&trade, &mut database)
+            .expect_err("entry fills without average price must be rejected");
+
+        assert_eq!(error.to_string(), "Entry order has no average filled price");
+    }
+
+    #[test]
+    fn transfer_to_fill_trade_rejects_wrong_status_before_writing() {
+        let mut database = in_memory_database();
+        let trade = Trade {
+            status: Status::New,
+            ..submitted_trade_with_entry_fill(dec!(10))
+        };
+
+        let error = transfer_to_fill_trade(&trade, &mut database)
+            .expect_err("unfunded trades must not create fill transactions");
+
+        assert!(error.to_string().contains("Trade status is wrong"));
+    }
+
+    #[test]
+    fn transfer_to_fill_trade_rejects_zero_fill_total() {
+        let mut database = in_memory_database();
+        let trade = submitted_trade_with_entry_fill(dec!(0));
+
+        let error = transfer_to_fill_trade(&trade, &mut database)
+            .expect_err("zero value fills must be rejected");
+
+        assert!(error.to_string().contains("Filling must be positive"));
+    }
+
+    #[test]
+    fn transfer_to_fill_trade_rejects_fill_total_overflow() {
+        let mut database = in_memory_database();
+        let trade = submitted_trade_with_entry_fill(Decimal::MAX);
+
+        let error = transfer_to_fill_trade(&trade, &mut database)
+            .expect_err("overflowing fill totals must be rejected before writing");
+
+        assert!(error
+            .to_string()
+            .contains("Arithmetic overflow in multiplication"));
+    }
+
+    #[test]
+    fn transfer_to_fill_trade_rejects_planned_entry_total_overflow() {
+        let mut database = in_memory_database();
+        let trade = Trade {
+            entry: Order {
+                average_filled_price: Some(dec!(1)),
+                unit_price: Decimal::MAX,
+                ..Order::default()
+            },
+            balance: TradeBalance {
+                funding: dec!(1_000),
+                ..TradeBalance::default()
+            },
+            status: Status::Submitted,
+            ..Trade::default()
+        };
+
+        let error = transfer_to_fill_trade(&trade, &mut database)
+            .expect_err("overflowing planned entry totals must be rejected before writing");
+
+        assert!(error
+            .to_string()
+            .contains("Arithmetic overflow in multiplication"));
+    }
+
+    #[test]
+    fn transfer_to_fill_trade_rejects_slippage_difference_overflow() {
+        let mut database = in_memory_database();
+        let trade = Trade {
+            entry: Order {
+                average_filled_price: Some(Decimal::MAX),
+                unit_price: dec!(-1),
+                quantity: 1,
+                ..Order::default()
+            },
+            balance: TradeBalance {
+                funding: Decimal::MAX,
+                ..TradeBalance::default()
+            },
+            status: Status::Submitted,
+            ..Trade::default()
+        };
+
+        let error = transfer_to_fill_trade(&trade, &mut database)
+            .expect_err("overflowing slippage differences must be rejected before writing");
+
+        assert!(error
+            .to_string()
+            .contains("Arithmetic overflow in subtraction"));
+    }
+
+    #[test]
+    fn transfer_to_close_target_requires_target_average_filled_price() {
+        let mut database = in_memory_database();
+        let trade = Trade {
+            target: Order {
+                average_filled_price: None,
+                ..Order::default()
+            },
+            ..Trade::default()
+        };
+
+        let error = transfer_to_close_target(&trade, &mut database)
+            .expect_err("target closes without average price must be rejected");
+
+        assert_eq!(
+            error.to_string(),
+            "Target order has no average filled price"
+        );
+    }
+
+    #[test]
+    fn transfer_to_close_target_rejects_zero_close_total() {
+        let mut database = in_memory_database();
+        let trade = filled_trade_with_target_fill(dec!(0));
+
+        let error = transfer_to_close_target(&trade, &mut database)
+            .expect_err("zero target close value must be rejected");
+
+        assert!(error.to_string().contains("Closing must be positive"));
+    }
+
+    #[test]
+    fn transfer_to_close_target_rejects_close_total_overflow() {
+        let mut database = in_memory_database();
+        let trade = filled_trade_with_target_fill(Decimal::MAX);
+
+        let error = transfer_to_close_target(&trade, &mut database)
+            .expect_err("overflowing target close totals must be rejected before writing");
+
+        assert!(error
+            .to_string()
+            .contains("Arithmetic overflow in multiplication"));
+    }
+
+    #[test]
+    fn transfer_to_close_stop_requires_stop_average_filled_price() {
+        let mut database = in_memory_database();
+        let trade = Trade {
+            safety_stop: Order {
+                average_filled_price: None,
+                ..Order::default()
+            },
+            ..Trade::default()
+        };
+
+        let error = transfer_to_close_stop(&trade, &mut database)
+            .expect_err("stop closes without average price must be rejected");
+
+        assert_eq!(
+            error.to_string(),
+            "Safety stop order has no average filled price"
+        );
+    }
+
+    #[test]
+    fn transfer_to_close_stop_rejects_zero_close_total() {
+        let mut database = in_memory_database();
+        let trade = filled_trade_with_stop_fill(dec!(0));
+
+        let error = transfer_to_close_stop(&trade, &mut database)
+            .expect_err("zero stop close value must be rejected");
+
+        assert!(error.to_string().contains("Closing must be positive"));
+    }
+
+    #[test]
+    fn transfer_to_close_stop_rejects_close_total_overflow() {
+        let mut database = in_memory_database();
+        let trade = filled_trade_with_stop_fill(Decimal::MAX);
+
+        let error = transfer_to_close_stop(&trade, &mut database)
+            .expect_err("overflowing stop close totals must be rejected before writing");
+
+        assert!(error
+            .to_string()
+            .contains("Arithmetic overflow in multiplication"));
+    }
+
+    #[test]
+    fn transfer_to_close_stop_rejects_planned_stop_total_overflow() {
+        let mut database = in_memory_database();
+        let trade = Trade {
+            safety_stop: Order {
+                average_filled_price: Some(dec!(1)),
+                unit_price: Decimal::MAX,
+                ..Order::default()
+            },
+            ..Trade::default()
+        };
+
+        let error = transfer_to_close_stop(&trade, &mut database)
+            .expect_err("overflowing planned stop totals must be rejected before writing");
+
+        assert!(error
+            .to_string()
+            .contains("Arithmetic overflow in multiplication"));
+    }
+
+    #[test]
+    fn transfer_opening_fee_returns_balance_lookup_errors_before_writing() {
+        let mut database = in_memory_database();
+        let trade = Trade::default();
+
+        let error = transfer_opening_fee(dec!(1), &trade, &mut database)
+            .expect_err("fee transfer without an account balance must be rejected");
+
+        assert!(error.to_string().contains("Record not found"));
+    }
+
+    #[test]
+    fn transfer_closing_fee_rejects_non_positive_fee() {
+        let mut database = in_memory_database();
+        let account = create_account_with_balance(&mut database);
+        let trade = Trade {
+            account_id: account.id,
+            ..Trade::default()
+        };
+
+        let error = transfer_closing_fee(dec!(0), &trade, &mut database)
+            .expect_err("zero closing fees must be rejected");
+
+        assert!(error.to_string().contains("Fee must be positive"));
+    }
+}

@@ -68,4 +68,29 @@ mod tests {
 
         ExecutionView::display(&[exec]);
     }
+
+    #[test]
+    fn display_handles_executions_without_trade_or_order_links() {
+        let exec = Execution {
+            id: Uuid::new_v4(),
+            created_at: Utc::now().naive_utc(),
+            updated_at: Utc::now().naive_utc(),
+            deleted_at: None,
+            broker: "ibkr".to_string(),
+            source: ExecutionSource::AccountActivities,
+            account_id: Uuid::new_v4(),
+            trade_id: None,
+            order_id: None,
+            broker_execution_id: "exec-2".to_string(),
+            broker_order_id: None,
+            symbol: "MSFT".to_string(),
+            side: ExecutionSide::Sell,
+            qty: dec!(2),
+            price: dec!(199.75),
+            executed_at: Utc::now().naive_utc(),
+            raw_json: None,
+        };
+
+        ExecutionView::display(&[exec]);
+    }
 }

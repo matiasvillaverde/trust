@@ -278,6 +278,83 @@ fn test_level_evaluate_apply_json_changes_level() {
 }
 
 #[test]
+fn test_level_evaluate_text_contract_covers_apply_outcomes() {
+    let database_url = format!(
+        "file:test_level_eval_text_cli_{}.db",
+        Uuid::new_v4().simple()
+    );
+    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let downgrade_account_id = seed_account(&database_url, "level-evaluate-text-downgrade");
+    let stable_account_id = seed_account(&database_url, "level-evaluate-text-stable");
+
+    let downgrade = run_cli(
+        &database_url,
+        &[
+            "level",
+            "evaluate",
+            "--account",
+            &downgrade_account_id.to_string(),
+            "--profitable-trades",
+            "0",
+            "--win-rate",
+            "20",
+            "--monthly-loss=-6",
+            "--largest-loss=-2.5",
+            "--consecutive-wins",
+            "0",
+            "--apply",
+            "--confirm-protected",
+            PROTECTED_KEYWORD,
+        ],
+    );
+
+    assert!(
+        downgrade.status.success(),
+        "text downgrade evaluation should succeed"
+    );
+    let downgrade_stdout = stdout_text(&downgrade);
+    assert!(downgrade_stdout.contains("Level evaluation complete."));
+    assert!(downgrade_stdout.contains("Current: L3"));
+    assert!(downgrade_stdout.contains("Decision: Downgrade to L2"));
+    assert!(downgrade_stdout.contains("Applied: new level L2"));
+    assert!(downgrade_stdout.contains("Progress to adjacent levels:"));
+
+    let stable = run_cli(
+        &database_url,
+        &[
+            "level",
+            "evaluate",
+            "--account",
+            &stable_account_id.to_string(),
+            "--profitable-trades",
+            "3",
+            "--win-rate",
+            "55",
+            "--monthly-loss",
+            "0",
+            "--largest-loss",
+            "0",
+            "--consecutive-wins",
+            "1",
+            "--apply",
+            "--confirm-protected",
+            PROTECTED_KEYWORD,
+        ],
+    );
+
+    assert!(
+        stable.status.success(),
+        "text stable evaluation should succeed"
+    );
+    let stable_stdout = stdout_text(&stable);
+    assert!(stable_stdout.contains("Level evaluation complete."));
+    assert!(stable_stdout.contains("Current: L3"));
+    assert!(stable_stdout.contains("Decision: no change"));
+    assert!(stable_stdout.contains("Applied: no change"));
+    assert!(stable_stdout.contains("Progress to adjacent levels:"));
+}
+
+#[test]
 fn test_level_status_without_account_errors_when_multiple_accounts_exist() {
     let database_url = format!("file:test_level_scope_cli_{}.db", Uuid::new_v4().simple());
     let _cleanup = TestDatabaseCleanup::new(&database_url);
@@ -393,6 +470,25 @@ fn test_level_rules_show_json_contract() {
     let database_url = format!("file:test_level_rules_show_{}.db", Uuid::new_v4().simple());
     let _cleanup = TestDatabaseCleanup::new(&database_url);
     let account_id = seed_account(&database_url, "level-rules-show");
+
+    let text_output = run_cli(
+        &database_url,
+        &[
+            "level",
+            "rules",
+            "show",
+            "--account",
+            &account_id.to_string(),
+        ],
+    );
+    assert!(
+        text_output.status.success(),
+        "text rules show should succeed"
+    );
+    let stdout = String::from_utf8_lossy(&text_output.stdout);
+    assert!(stdout.contains("Level Adjustment Rules"));
+    assert!(stdout.contains("upgrade_profitable_trades: 10"));
+    assert!(stdout.contains("cooldown_profitable_trades: 20"));
 
     let output = run_cli(
         &database_url,

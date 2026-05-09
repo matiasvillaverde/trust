@@ -244,6 +244,7 @@ impl TradeHypothesisCalculator {
 mod tests {
     use super::*;
     use db_sqlite::SqliteDatabase;
+    use model::{Environment, TransactionCategory};
 
     #[test]
     fn test_calculate_trade_hypothesis_for_long_setup() {
@@ -523,6 +524,107 @@ mod tests {
         assert_eq!(
             error.to_string(),
             "trade hypothesis requires stop and target to imply a single trade side relative to entry_price 50; got stop_price 55 and target_price 60"
+        );
+    }
+
+    #[test]
+    fn test_calculate_rejects_non_positive_quantity_before_account_lookup() {
+        let mut database = SqliteDatabase::new_in_memory();
+
+        let error = TradeHypothesisCalculator::calculate(
+            Uuid::new_v4(),
+            dec!(40),
+            dec!(38),
+            dec!(48),
+            0,
+            &Currency::USD,
+            &mut database,
+        )
+        .expect_err("zero quantity should fail before account lookup");
+
+        assert_eq!(error.to_string(), "quantity must be greater than 0, got 0");
+    }
+
+    #[test]
+    fn test_calculate_uses_persisted_account_capital() {
+        let mut database = SqliteDatabase::new_in_memory();
+        let account = database
+            .account_write()
+            .create(
+                "hypothesis-account",
+                "hypothesis-account",
+                Environment::Paper,
+                dec!(0),
+                dec!(0),
+            )
+            .expect("account should be created");
+        database
+            .transaction_write()
+            .create_transaction(
+                &account,
+                dec!(2_500),
+                &Currency::USD,
+                TransactionCategory::Deposit,
+            )
+            .expect("deposit should be created");
+
+        let result = TradeHypothesisCalculator::calculate(
+            account.id,
+            dec!(50),
+            dec!(45),
+            dec!(65),
+            10,
+            &Currency::USD,
+            &mut database,
+        )
+        .expect("hypothesis should calculate");
+
+        assert_eq!(result.available_capital, dec!(2_500));
+        assert_eq!(result.capital_required, dec!(500));
+        assert_eq!(result.capital_required_pct_of_available, Some(dec!(20)));
+        assert_eq!(result.max_loss, dec!(50));
+        assert_eq!(result.max_loss_pct_of_available, Some(dec!(2)));
+        assert_eq!(result.max_gain, dec!(150));
+        assert_eq!(result.max_gain_pct_of_available, Some(dec!(6)));
+    }
+
+    #[test]
+    fn test_calculate_propagates_available_capital_errors() {
+        let mut database = SqliteDatabase::new_in_memory();
+        let account = database
+            .account_write()
+            .create(
+                "hypothesis-negative-capital",
+                "hypothesis-negative-capital",
+                Environment::Paper,
+                dec!(0),
+                dec!(0),
+            )
+            .expect("account should be created");
+        database
+            .transaction_write()
+            .create_transaction(
+                &account,
+                dec!(1),
+                &Currency::USD,
+                TransactionCategory::Withdrawal,
+            )
+            .expect("withdrawal should be created");
+
+        let error = TradeHypothesisCalculator::calculate(
+            account.id,
+            dec!(50),
+            dec!(45),
+            dec!(65),
+            10,
+            &Currency::USD,
+            &mut database,
+        )
+        .expect_err("negative available capital should fail");
+
+        assert_eq!(
+            error.to_string(),
+            "capital_available: total available is negative: -1"
         );
     }
 

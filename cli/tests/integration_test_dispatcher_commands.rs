@@ -1,7 +1,12 @@
+use chrono::NaiveDate;
 use core::TrustFacade;
 use db_sqlite::SqliteDatabase;
-use model::{Currency, DraftTrade, Environment, TradeCategory, TradingVehicleCategory};
+use model::{
+    database::TradingVehicleUpsert, Currency, DraftTrade, Environment, FixedIncomeTerms,
+    TradeCategory, TradingVehicleCategory,
+};
 use rust_decimal_macros::dec;
+use serde_json::Value;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -76,6 +81,15 @@ fn run_cli(database_url: &str, args: &[&str]) -> std::process::Output {
         .expect("run cli")
 }
 
+fn account_id_from_create_output(output: &std::process::Output) -> Uuid {
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    stdout
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("id: "))
+        .and_then(|raw| Uuid::parse_str(raw).ok())
+        .unwrap_or_else(|| panic!("created account id should be present in stdout: {stdout}"))
+}
+
 fn seed_account(database_url: &str, name: &str) -> Uuid {
     let database = SqliteDatabase::new(database_url);
     let mut trust = TrustFacade::new(Box::new(database), Box::new(alpaca_broker::AlpacaBroker));
@@ -128,6 +142,63 @@ fn seed_trade(database_url: &str, name: &str, symbol: &str, funded: bool) -> (Uu
     (account.id, trade.id)
 }
 
+fn seed_multi_asset_vehicle_inventory(database_url: &str) {
+    let database = SqliteDatabase::new(database_url);
+    let mut trust = TrustFacade::new(Box::new(database), Box::new(alpaca_broker::AlpacaBroker));
+    trust
+        .create_trading_vehicle("AAPL", None, &TradingVehicleCategory::Stock, "alpaca")
+        .expect("seed stock trading vehicle");
+    trust
+        .create_trading_vehicle("SPY", None, &TradingVehicleCategory::Etf, "ibkr")
+        .expect("seed ETF trading vehicle");
+    trust
+        .upsert_trading_vehicle(TradingVehicleUpsert {
+            symbol: "912810TL2".to_string(),
+            isin: Some("US912810TL26".to_string()),
+            category: TradingVehicleCategory::Bond,
+            broker: "ibkr".to_string(),
+            broker_asset_id: None,
+            exchange: Some("SMART".to_string()),
+            broker_asset_class: Some("bond".to_string()),
+            broker_asset_status: Some("active".to_string()),
+            tradable: Some(true),
+            marginable: None,
+            shortable: None,
+            easy_to_borrow: None,
+            fractionable: Some(false),
+            fixed_income: Some(FixedIncomeTerms {
+                face_value: Some(dec!(1000)),
+                annual_coupon_rate_pct: Some(dec!(4)),
+                maturity_date: Some(NaiveDate::from_ymd_opt(2030, 1, 15).unwrap()),
+                coupon_frequency_per_year: Some(2),
+            }),
+        })
+        .expect("seed complete bond trading vehicle");
+    trust
+        .upsert_trading_vehicle(TradingVehicleUpsert {
+            symbol: "9128285M8".to_string(),
+            isin: Some("US9128285M81".to_string()),
+            category: TradingVehicleCategory::Bond,
+            broker: "ibkr".to_string(),
+            broker_asset_id: None,
+            exchange: Some("SMART".to_string()),
+            broker_asset_class: Some("bond".to_string()),
+            broker_asset_status: Some("active".to_string()),
+            tradable: Some(true),
+            marginable: None,
+            shortable: None,
+            easy_to_borrow: None,
+            fractionable: Some(false),
+            fixed_income: Some(FixedIncomeTerms {
+                face_value: Some(dec!(1000)),
+                annual_coupon_rate_pct: Some(dec!(6)),
+                maturity_date: None,
+                coupon_frequency_per_year: Some(2),
+            }),
+        })
+        .expect("seed incomplete bond trading vehicle");
+}
+
 #[test]
 fn test_transaction_non_interactive_cli_round_trip() {
     let database_url = format!("file:test_tx_cli_{}.db", Uuid::new_v4().simple());
@@ -177,6 +248,185 @@ fn test_transaction_non_interactive_cli_round_trip() {
 }
 
 #[test]
+fn test_account_create_list_balance_and_transfer_cli_round_trip() {
+    let database_url = format!("file:test_accounts_cli_{}.db", Uuid::new_v4().simple());
+    let _cleanup = TestDatabaseCleanup::new(&database_url);
+
+    let empty_list = run_cli(&database_url, &["accounts", "list"]);
+    assert!(
+        empty_list.status.success(),
+        "empty account list should succeed"
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&empty_list.stdout).trim(),
+        "No accounts found."
+    );
+
+    let create_primary = run_cli(
+        &database_url,
+        &[
+            "accounts",
+            "create",
+            "--name",
+            "Primary Account",
+            "--description",
+            "Main trading account",
+            "--environment",
+            "paper",
+            "--taxes",
+            "25",
+            "--earnings",
+            "10",
+            "--type",
+            "primary",
+            "--broker",
+            "alpaca",
+            "--confirm-protected",
+            PROTECTED_KEYWORD,
+        ],
+    );
+    assert!(
+        create_primary.status.success(),
+        "primary account create should succeed: {}",
+        String::from_utf8_lossy(&create_primary.stderr)
+    );
+    let primary_id = account_id_from_create_output(&create_primary);
+
+    let create_tax_reserve = run_cli(
+        &database_url,
+        &[
+            "accounts",
+            "create",
+            "--name",
+            "Tax Reserve",
+            "--description",
+            "Reserved cash for taxes",
+            "--environment",
+            "paper",
+            "--taxes",
+            "0",
+            "--earnings",
+            "0",
+            "--type",
+            "tax-reserve",
+            "--broker",
+            "alpaca",
+            "--parent",
+            &primary_id.to_string(),
+            "--confirm-protected",
+            PROTECTED_KEYWORD,
+        ],
+    );
+    assert!(
+        create_tax_reserve.status.success(),
+        "tax reserve account create should succeed: {}",
+        String::from_utf8_lossy(&create_tax_reserve.stderr)
+    );
+    let tax_reserve_id = account_id_from_create_output(&create_tax_reserve);
+
+    let deposit = run_cli(
+        &database_url,
+        &[
+            "transaction",
+            "deposit",
+            "--account",
+            &primary_id.to_string(),
+            "--currency",
+            "USD",
+            "--amount",
+            "1000",
+            "--confirm-protected",
+            PROTECTED_KEYWORD,
+        ],
+    );
+    assert!(
+        deposit.status.success(),
+        "deposit should succeed: {}",
+        String::from_utf8_lossy(&deposit.stderr)
+    );
+
+    let flat_list = run_cli(&database_url, &["accounts", "list"]);
+    assert!(
+        flat_list.status.success(),
+        "flat account list should succeed"
+    );
+    let flat_stdout = String::from_utf8_lossy(&flat_list.stdout);
+    assert!(flat_stdout.contains("primary account"));
+    assert!(flat_stdout.contains("tax reserve"));
+
+    let hierarchy = run_cli(&database_url, &["accounts", "list", "--hierarchy"]);
+    assert!(
+        hierarchy.status.success(),
+        "hierarchy account list should succeed"
+    );
+    let hierarchy_stdout = String::from_utf8_lossy(&hierarchy.stdout);
+    assert!(hierarchy_stdout.contains("primary account"));
+    assert!(hierarchy_stdout.contains("  - tax reserve"));
+
+    let balance = run_cli(&database_url, &["accounts", "balance"]);
+    assert!(balance.status.success(), "account balance should succeed");
+    let balance_stdout = String::from_utf8_lossy(&balance.stdout);
+    assert!(balance_stdout.contains("primary account"));
+    assert!(balance_stdout.contains("total=1000"));
+
+    let transfer = run_cli(
+        &database_url,
+        &[
+            "accounts",
+            "transfer",
+            "--from",
+            &primary_id.to_string(),
+            "--to",
+            &tax_reserve_id.to_string(),
+            "--amount",
+            "250",
+            "--reason",
+            "quarterly-tax-reserve",
+        ],
+    );
+    assert!(
+        transfer.status.success(),
+        "account transfer should succeed: {}",
+        String::from_utf8_lossy(&transfer.stderr)
+    );
+    let transfer_stdout = String::from_utf8_lossy(&transfer.stdout);
+    assert!(transfer_stdout.contains("Transfer completed:"));
+    assert!(transfer_stdout.contains("reason: quarterly-tax-reserve"));
+
+    let tax_reserve_deposit = run_cli(
+        &database_url,
+        &[
+            "transaction",
+            "deposit",
+            "--account",
+            &tax_reserve_id.to_string(),
+            "--currency",
+            "USD",
+            "--amount",
+            "250",
+            "--confirm-protected",
+            PROTECTED_KEYWORD,
+        ],
+    );
+    assert!(
+        tax_reserve_deposit.status.success(),
+        "tax reserve deposit should succeed: {}",
+        String::from_utf8_lossy(&tax_reserve_deposit.stderr)
+    );
+
+    let detailed_balance = run_cli(&database_url, &["accounts", "balance", "--detailed"]);
+    assert!(
+        detailed_balance.status.success(),
+        "detailed account balance should succeed"
+    );
+    let detailed_stdout = String::from_utf8_lossy(&detailed_balance.stdout);
+    assert!(detailed_stdout.contains("primary account"));
+    assert!(detailed_stdout.contains("tax reserve"));
+    assert!(detailed_stdout.contains("USD total=1000"));
+    assert!(detailed_stdout.contains("USD total=250"));
+}
+
+#[test]
 fn test_db_export_and_import_error_paths_cli() {
     let database_url = format!("file:test_db_cli_{}.db", Uuid::new_v4().simple());
     let _cleanup = TestDatabaseCleanup::new(&database_url);
@@ -212,6 +462,183 @@ fn test_db_export_and_import_error_paths_cli() {
     );
 
     let _ = fs::remove_file(export_path);
+}
+
+#[test]
+fn test_bond_terms_update_and_metrics_cli_round_trip() {
+    let database_url = format!("file:test_bond_terms_cli_{}.db", Uuid::new_v4().simple());
+    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    {
+        let database = SqliteDatabase::new(&database_url);
+        let mut trust = TrustFacade::new(Box::new(database), Box::new(alpaca_broker::AlpacaBroker));
+        trust
+            .create_trading_vehicle("9128285M8", None, &TradingVehicleCategory::Bond, "ibkr")
+            .expect("seed bond trading vehicle");
+    }
+
+    let update = run_cli(
+        &database_url,
+        &[
+            "trading-vehicle",
+            "update-bond-terms",
+            "--symbol",
+            "9128285M8",
+            "--broker",
+            "ibkr",
+            "--face-value",
+            "1000",
+            "--coupon-rate",
+            "4.625",
+            "--maturity-date",
+            "2034-05-15",
+            "--coupon-frequency",
+            "2",
+            "--confirm-protected",
+            PROTECTED_KEYWORD,
+        ],
+    );
+    assert!(
+        update.status.success(),
+        "bond term update should succeed: {}",
+        String::from_utf8_lossy(&update.stderr)
+    );
+
+    let metrics = run_cli(
+        &database_url,
+        &[
+            "metrics",
+            "bond",
+            "--symbol",
+            "9128285M8",
+            "--broker",
+            "ibkr",
+            "--market-price",
+            "997.50",
+            "--quantity",
+            "5",
+            "--years-to-maturity",
+            "7",
+            "--settlement-date",
+            "2026-04-01",
+            "--last-coupon-date",
+            "2026-01-01",
+            "--next-coupon-date",
+            "2026-07-01",
+            "--day-count",
+            "actual-360",
+            "--format",
+            "json",
+        ],
+    );
+    assert!(
+        metrics.status.success(),
+        "stored bond metrics should succeed: {}",
+        String::from_utf8_lossy(&metrics.stderr)
+    );
+    let payload: Value =
+        serde_json::from_slice(&metrics.stdout).expect("metrics stdout should be json");
+    assert_eq!(payload["report"], "bond_metrics");
+    assert_eq!(payload["input"]["face_value"], "1000");
+    assert_eq!(payload["input"]["annual_coupon_rate_pct"], "4.625");
+    assert_eq!(
+        payload["input"]["accrued_interest"]["coupon_frequency_per_year"],
+        2
+    );
+    assert_eq!(
+        payload["input"]["accrued_interest"]["day_count_basis"],
+        "actual-360"
+    );
+    assert_eq!(payload["data"]["annual_coupon_income"], "231.25");
+    assert_eq!(payload["data"]["accrued_interest_per_unit"], "11.5625");
+    assert_eq!(payload["data"]["accrued_interest_total"], "57.8125");
+    assert_eq!(payload["data"]["dirty_price"], "1009.0625");
+    assert_eq!(payload["data"]["position_dirty_value"], "5045.3125");
+}
+
+#[test]
+fn test_trading_vehicle_stats_cli_reports_multi_asset_bond_inventory() {
+    let database_url = format!(
+        "file:test_trading_vehicle_stats_cli_{}.db",
+        Uuid::new_v4().simple()
+    );
+    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    seed_multi_asset_vehicle_inventory(&database_url);
+
+    let stats = run_cli(
+        &database_url,
+        &["trading-vehicle", "stats", "--format", "json"],
+    );
+    assert!(
+        stats.status.success(),
+        "trading vehicle stats should succeed: {}",
+        String::from_utf8_lossy(&stats.stderr)
+    );
+
+    let payload: Value =
+        serde_json::from_slice(&stats.stdout).expect("stats stdout should be json");
+    assert_eq!(payload["report"], "trading_vehicle_stats");
+    assert_eq!(payload["total"], 4);
+    assert_eq!(payload["by_category"]["stock"], 1);
+    assert_eq!(payload["by_category"]["etf"], 1);
+    assert_eq!(payload["by_category"]["bond"], 2);
+    assert_eq!(payload["by_broker"]["ibkr"], 3);
+    assert_eq!(payload["bonds"]["total"], 2);
+    assert_eq!(payload["bonds"]["complete_terms"], 1);
+    assert_eq!(payload["bonds"]["missing_terms"], 1);
+    assert_eq!(payload["bonds"]["coupon_rate_count"], 2);
+    assert_eq!(payload["bonds"]["average_coupon_rate_pct"], "5");
+    assert_eq!(payload["bonds"]["earliest_maturity"], "2030-01-15");
+}
+
+#[test]
+fn test_trading_vehicle_search_cli_filters_missing_bond_terms_json() {
+    let database_url = format!(
+        "file:test_trading_vehicle_search_cli_{}.db",
+        Uuid::new_v4().simple()
+    );
+    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    seed_multi_asset_vehicle_inventory(&database_url);
+
+    let search = run_cli(
+        &database_url,
+        &[
+            "trading-vehicle",
+            "search",
+            "--all",
+            "--category",
+            "bond",
+            "--broker",
+            "ibkr",
+            "--symbol",
+            "912",
+            "--missing-bond-terms",
+            "--format",
+            "json",
+        ],
+    );
+    assert!(
+        search.status.success(),
+        "trading vehicle search should succeed: {}",
+        String::from_utf8_lossy(&search.stderr)
+    );
+
+    let payload: Value =
+        serde_json::from_slice(&search.stdout).expect("search stdout should be json");
+    assert_eq!(payload["report"], "trading_vehicle_search");
+    assert_eq!(payload["filters"]["category"], "bond");
+    assert_eq!(payload["filters"]["missing_bond_terms"], true);
+    assert_eq!(payload["count"], 1);
+    assert_eq!(payload["data"][0]["symbol"], "9128285M8");
+    assert_eq!(payload["data"][0]["broker"], "ibkr");
+    assert_eq!(payload["data"][0]["category"], "bond");
+    assert_eq!(
+        payload["data"][0]["fixed_income"]["maturity_date"],
+        Value::Null
+    );
+    assert_eq!(
+        payload["data"][0]["fixed_income"]["annual_coupon_rate_pct"],
+        "6"
+    );
 }
 
 #[test]

@@ -330,18 +330,71 @@ mod tests {
         connection
     }
 
+    fn trading_vehicle(conn: &mut SqliteConnection) -> TradingVehicle {
+        let symbol = format!("T{}", Uuid::new_v4().simple());
+        WorkerTradingVehicle::create(
+            conn,
+            &symbol,
+            None,
+            &TradingVehicleCategory::Crypto,
+            "NASDAQ",
+        )
+        .unwrap()
+    }
+
+    fn create_order(conn: &mut SqliteConnection) -> Order {
+        let trading_vehicle = trading_vehicle(conn);
+        WorkerOrder::create(
+            conn,
+            dec!(150.00),
+            &Currency::USD,
+            100,
+            &OrderAction::Buy,
+            &OrderCategory::Limit,
+            &trading_vehicle,
+        )
+        .expect("Error creating order")
+    }
+
+    fn base_sqlite_order() -> OrderSQLite {
+        let now = Utc::now().naive_utc();
+        OrderSQLite {
+            id: Uuid::new_v4().to_string(),
+            broker_order_id: Some("broker-1".to_string()),
+            created_at: now,
+            updated_at: now,
+            deleted_at: None,
+            unit_price: "150.25".to_string(),
+            currency: Currency::USD.to_string(),
+            quantity: 100,
+            category: OrderCategory::Limit.to_string(),
+            trading_vehicle_id: Uuid::new_v4().to_string(),
+            action: OrderAction::Buy.to_string(),
+            status: OrderStatus::New.to_string(),
+            time_in_force: TimeInForce::UntilCanceled.to_string(),
+            trailing_percentage: Some("1.5".to_string()),
+            trailing_price: Some("2.5".to_string()),
+            filled_quantity: Some(10),
+            average_filled_price: Some("151.25".to_string()),
+            extended_hours: true,
+            submitted_at: Some(now),
+            filled_at: None,
+            expired_at: None,
+            cancelled_at: None,
+            closed_at: None,
+        }
+    }
+
+    fn assert_conversion_error(row: OrderSQLite, field: &str) {
+        let error = Order::try_from(row).expect_err("corrupt order row must fail conversion");
+        assert!(error.to_string().contains(field));
+    }
+
     #[test]
     fn test_create_order() {
         let mut conn = establish_connection();
 
-        let trading_vehicle = WorkerTradingVehicle::create(
-            &mut conn,
-            "AAPL",
-            Some("isin"),
-            &TradingVehicleCategory::Crypto,
-            "NASDAQ",
-        )
-        .unwrap();
+        let trading_vehicle = trading_vehicle(&mut conn);
 
         // Create a new order record
         let order = WorkerOrder::create(
@@ -364,5 +417,193 @@ mod tests {
         assert_eq!(order.closed_at, None);
         assert_eq!(order.created_at, order.updated_at);
         assert_eq!(order.deleted_at, None);
+    }
+
+    #[test]
+    fn create_and_read_report_missing_orders_table_errors() {
+        let mut conn = establish_connection();
+        let trading_vehicle = trading_vehicle(&mut conn);
+        diesel::sql_query("DROP TABLE orders")
+            .execute(&mut conn)
+            .expect("orders table should drop");
+
+        let create_error = WorkerOrder::create(
+            &mut conn,
+            dec!(150.00),
+            &Currency::USD,
+            100,
+            &OrderAction::Buy,
+            &OrderCategory::Limit,
+            &trading_vehicle,
+        )
+        .expect_err("missing table should fail order create");
+        assert!(create_error.to_string().contains("orders"));
+
+        let read_error = WorkerOrder::read(&mut conn, Uuid::new_v4())
+            .expect_err("missing table should fail order read");
+        assert!(read_error.to_string().contains("orders"));
+    }
+
+    fn assert_order_can_be_read(conn: &mut SqliteConnection, order: &Order) -> Order {
+        let read = WorkerOrder::read(conn, order.id).expect("created order should read");
+        assert_eq!(read.id, order.id);
+        assert_eq!(read.unit_price, dec!(150.00));
+        read
+    }
+
+    fn submit_order(conn: &mut SqliteConnection, order: &Order) -> Order {
+        let submitted = WorkerOrder::update_submitted_at(conn, order, "broker-entry-1".to_string())
+            .expect("submit timestamp should update");
+        assert_eq!(
+            submitted.broker_order_id,
+            Some("broker-entry-1".to_string())
+        );
+        assert!(submitted.submitted_at.is_some());
+        submitted
+    }
+
+    fn fill_order(conn: &mut SqliteConnection, order: &Order) -> Order {
+        let filled = WorkerOrder::update_filled_at(conn, order).expect("filled timestamp update");
+        assert!(filled.filled_at.is_some());
+        filled
+    }
+
+    fn persist_fill_details(conn: &mut SqliteConnection, filled: &Order) -> Order {
+        let mut filled_snapshot = filled.clone();
+        filled_snapshot.status = OrderStatus::Filled;
+        filled_snapshot.filled_quantity = 100;
+        filled_snapshot.average_filled_price = Some(dec!(151.25));
+        filled_snapshot.category = OrderCategory::Market;
+        let updated = WorkerOrder::update(conn, &filled_snapshot).expect("order update");
+        assert_eq!(updated.status, OrderStatus::Filled);
+        assert_eq!(updated.average_filled_price, Some(dec!(151.25)));
+        updated
+    }
+
+    fn reprice_order(conn: &mut SqliteConnection, order: &Order) -> Order {
+        let repriced =
+            WorkerOrder::update_price(conn, order, dec!(149.75), "broker-entry-2".to_string())
+                .expect("price update");
+        assert_eq!(repriced.unit_price, dec!(149.75));
+        assert_eq!(repriced.broker_order_id, Some("broker-entry-2".to_string()));
+        repriced
+    }
+
+    fn close_order(conn: &mut SqliteConnection, order: &Order) -> Order {
+        let closed = WorkerOrder::update_closed_at(conn, order).expect("closed timestamp update");
+        assert!(closed.closed_at.is_some());
+        closed
+    }
+
+    fn assert_persisted_fill_details(order: &Order) {
+        assert_eq!(order.status, OrderStatus::Filled);
+        assert_eq!(order.category, OrderCategory::Market);
+        assert_eq!(order.filled_quantity, 100);
+        assert_eq!(order.average_filled_price, Some(dec!(151.25)));
+    }
+
+    fn assert_persisted_broker_and_timestamps(order: &Order) {
+        assert_eq!(order.unit_price, dec!(149.75));
+        assert_eq!(order.broker_order_id, Some("broker-entry-2".to_string()));
+        assert!(order.submitted_at.is_some());
+        assert!(order.filled_at.is_some());
+        assert!(order.closed_at.is_some());
+    }
+
+    #[test]
+    fn read_update_price_and_lifecycle_timestamps_are_persisted() {
+        let mut conn = establish_connection();
+        let order = create_order(&mut conn);
+
+        let read = assert_order_can_be_read(&mut conn, &order);
+        let submitted = submit_order(&mut conn, &read);
+        let filled = fill_order(&mut conn, &submitted);
+        let updated = persist_fill_details(&mut conn, &filled);
+        let repriced = reprice_order(&mut conn, &updated);
+        close_order(&mut conn, &repriced);
+
+        let persisted = WorkerOrder::read(&mut conn, order.id).expect("updated order should read");
+        assert_persisted_fill_details(&persisted);
+        assert_persisted_broker_and_timestamps(&persisted);
+    }
+
+    #[test]
+    fn order_sqlite_conversion_clamps_negative_quantities_and_ignores_invalid_optional_prices() {
+        let row = OrderSQLite {
+            quantity: -10,
+            trailing_percentage: Some("not-a-decimal".to_string()),
+            trailing_price: Some("still-not-decimal".to_string()),
+            filled_quantity: Some(-5),
+            average_filled_price: Some("bad-price".to_string()),
+            ..base_sqlite_order()
+        };
+
+        let order = Order::try_from(row).expect("lossy optional values should not fail");
+
+        assert_eq!(order.quantity, 0);
+        assert_eq!(order.filled_quantity, 0);
+        assert_eq!(order.trailing_percent, None);
+        assert_eq!(order.trailing_price, None);
+        assert_eq!(order.average_filled_price, None);
+    }
+
+    #[test]
+    fn order_sqlite_conversion_reports_corrupt_required_fields() {
+        assert_conversion_error(
+            OrderSQLite {
+                id: "not-a-uuid".to_string(),
+                ..base_sqlite_order()
+            },
+            "id",
+        );
+        assert_conversion_error(
+            OrderSQLite {
+                unit_price: "not-a-price".to_string(),
+                ..base_sqlite_order()
+            },
+            "unit_price",
+        );
+        assert_conversion_error(
+            OrderSQLite {
+                currency: "XYZ".to_string(),
+                ..base_sqlite_order()
+            },
+            "currency",
+        );
+        assert_conversion_error(
+            OrderSQLite {
+                action: "hold".to_string(),
+                ..base_sqlite_order()
+            },
+            "action",
+        );
+        assert_conversion_error(
+            OrderSQLite {
+                category: "trailing".to_string(),
+                ..base_sqlite_order()
+            },
+            "category",
+        );
+        assert_conversion_error(
+            OrderSQLite {
+                status: "definitely_not_open".to_string(),
+                ..base_sqlite_order()
+            },
+            "status",
+        );
+        assert_conversion_error(
+            OrderSQLite {
+                trading_vehicle_id: "not-a-uuid".to_string(),
+                ..base_sqlite_order()
+            },
+            "trading_vehicle_id",
+        );
+        assert_conversion_error(
+            OrderSQLite {
+                time_in_force: "forever".to_string(),
+                ..base_sqlite_order()
+            },
+            "time_in_force",
+        );
     }
 }

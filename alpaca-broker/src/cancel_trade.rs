@@ -7,7 +7,7 @@ use tokio::runtime::Runtime;
 use uuid::Uuid;
 
 pub fn cancel(trade: &Trade, account: &Account) -> Result<(), Box<dyn Error>> {
-    assert!(trade.account_id == account.id); // Verify that the trade is for the account
+    crate::ensure_trade_account(trade, account)?;
 
     // Validate required input before touching keychain/network.
     let broker_order_id = trade
@@ -63,14 +63,34 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
-    fn cancel_panics_when_trade_account_mismatch() {
+    fn cancel_returns_error_when_entry_broker_order_id_is_invalid() {
+        let account = Account::default();
+        let trade = Trade {
+            account_id: account.id,
+            entry: model::Order {
+                broker_order_id: Some("not-a-uuid".to_string()),
+                ..Default::default()
+            },
+            ..Trade::default()
+        };
+
+        let err = cancel(&trade, &account).expect_err("invalid order id should fail");
+        assert!(err
+            .to_string()
+            .contains("Entry order ID is not a valid UUID"));
+    }
+
+    #[test]
+    fn cancel_returns_error_when_trade_account_mismatch() {
         let account = Account::default();
         let trade = Trade {
             account_id: Uuid::new_v4(),
             ..Trade::default()
         };
 
-        let _ = cancel(&trade, &account);
+        let err = cancel(&trade, &account).expect_err("account mismatch should fail");
+        assert!(err
+            .to_string()
+            .contains("Trade account does not match broker account"));
     }
 }

@@ -97,6 +97,10 @@ mod tests {
 
         database.set_transaction(TransactionCategory::FundTrade(Uuid::new_v4()), dec!(100));
         database.set_transaction(TransactionCategory::OpenTrade(Uuid::new_v4()), dec!(100));
+        database.set_transaction(
+            TransactionCategory::PaymentFromTrade(Uuid::new_v4()),
+            dec!(15),
+        );
         database.set_transaction(TransactionCategory::FeeOpen(Uuid::new_v4()), dec!(1));
         database.set_transaction(TransactionCategory::FeeClose(Uuid::new_v4()), dec!(1));
         database.set_transaction(TransactionCategory::CloseTarget(Uuid::new_v4()), dec!(380));
@@ -120,20 +124,21 @@ mod tests {
         );
 
         let result = TradeCapitalOutOfMarket::calculate(Uuid::new_v4(), &mut database);
-        assert_eq!(result.unwrap(), dec!(393));
+        assert_eq!(result.unwrap(), dec!(378));
     }
 
     #[test]
-    #[should_panic(
-        expected = "TradeCapitalOutOfMarket: does not know how to calculate transaction with category: withdrawal_tax"
-    )]
-    fn test_calculate_with_unknown_category() {
+    fn test_calculate_with_unknown_category_returns_error() {
         let mut database = MockDatabase::new();
 
-        // Transactions
         database.set_transaction(TransactionCategory::WithdrawalTax, dec!(100));
 
-        TradeCapitalOutOfMarket::calculate(Uuid::new_v4(), &mut database).unwrap();
+        let error = TradeCapitalOutOfMarket::calculate(Uuid::new_v4(), &mut database)
+            .expect_err("unknown category should be explicit");
+
+        assert!(error
+            .to_string()
+            .contains("does not know how to calculate transaction"));
     }
 
     #[test]
@@ -144,5 +149,107 @@ mod tests {
 
         let result = TradeCapitalOutOfMarket::calculate(Uuid::new_v4(), &mut database).unwrap();
         assert_eq!(result, dec!(-100));
+    }
+
+    #[test]
+    fn test_calculate_reports_fund_trade_addition_overflow() {
+        let mut database = MockDatabase::new();
+
+        database.set_transaction(TransactionCategory::FundTrade(Uuid::new_v4()), Decimal::MAX);
+        database.set_transaction(TransactionCategory::FundTrade(Uuid::new_v4()), Decimal::MAX);
+
+        let error = TradeCapitalOutOfMarket::calculate(Uuid::new_v4(), &mut database)
+            .expect_err("funding addition overflow should be explicit");
+
+        assert!(error
+            .to_string()
+            .contains("Arithmetic overflow in addition"));
+    }
+
+    #[test]
+    fn test_calculate_reports_payment_from_trade_subtraction_overflow() {
+        let mut database = MockDatabase::new();
+
+        database.set_transaction(TransactionCategory::FundTrade(Uuid::new_v4()), Decimal::MIN);
+        database.set_transaction(
+            TransactionCategory::PaymentFromTrade(Uuid::new_v4()),
+            Decimal::ONE,
+        );
+
+        let error = TradeCapitalOutOfMarket::calculate(Uuid::new_v4(), &mut database)
+            .expect_err("payment subtraction overflow should be explicit");
+
+        assert!(error
+            .to_string()
+            .contains("Arithmetic overflow in subtraction"));
+    }
+
+    #[test]
+    fn test_calculate_reports_open_trade_subtraction_overflow() {
+        let mut database = MockDatabase::new();
+
+        database.set_transaction(TransactionCategory::FundTrade(Uuid::new_v4()), Decimal::MIN);
+        database.set_transaction(TransactionCategory::OpenTrade(Uuid::new_v4()), Decimal::ONE);
+
+        let error = TradeCapitalOutOfMarket::calculate(Uuid::new_v4(), &mut database)
+            .expect_err("open trade subtraction overflow should be explicit");
+
+        assert!(error
+            .to_string()
+            .contains("Arithmetic overflow in subtraction"));
+    }
+
+    #[test]
+    fn test_calculate_reports_close_target_addition_overflow() {
+        let mut database = MockDatabase::new();
+
+        database.set_transaction(TransactionCategory::FundTrade(Uuid::new_v4()), Decimal::MAX);
+        database.set_transaction(
+            TransactionCategory::CloseTarget(Uuid::new_v4()),
+            Decimal::ONE,
+        );
+
+        let error = TradeCapitalOutOfMarket::calculate(Uuid::new_v4(), &mut database)
+            .expect_err("close target addition overflow should be explicit");
+
+        assert!(error
+            .to_string()
+            .contains("Arithmetic overflow in addition"));
+    }
+
+    #[test]
+    fn test_calculate_reports_close_safety_stop_addition_overflow() {
+        let mut database = MockDatabase::new();
+
+        database.set_transaction(TransactionCategory::FundTrade(Uuid::new_v4()), Decimal::MAX);
+        database.set_transaction(
+            TransactionCategory::CloseSafetyStop(Uuid::new_v4()),
+            Decimal::ONE,
+        );
+
+        let error = TradeCapitalOutOfMarket::calculate(Uuid::new_v4(), &mut database)
+            .expect_err("close stop addition overflow should be explicit");
+
+        assert!(error
+            .to_string()
+            .contains("Arithmetic overflow in addition"));
+    }
+
+    #[test]
+    fn test_calculate_reports_close_safety_stop_slippage_addition_overflow() {
+        let mut database = MockDatabase::new();
+
+        database.set_transaction(TransactionCategory::FundTrade(Uuid::new_v4()), Decimal::MAX);
+        database.set_transaction(
+            TransactionCategory::CloseSafetyStopSlippage(Uuid::new_v4()),
+            Decimal::ONE,
+        );
+
+        let error = TradeCapitalOutOfMarket::calculate(Uuid::new_v4(), &mut database)
+            .expect_err("close stop slippage addition overflow should be explicit");
+
+        assert!(error
+            .to_string()
+            .contains("Arithmetic overflow in addition"));
     }
 }

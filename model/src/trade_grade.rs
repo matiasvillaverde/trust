@@ -131,3 +131,64 @@ pub struct TradeGrade {
     /// Documentation weight in permille.
     pub documentation_weight_permille: u16,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{Grade, GradeParseError};
+
+    #[test]
+    fn grade_from_score_covers_all_boundaries() {
+        let cases = [
+            (100, Grade::APlus),
+            (97, Grade::APlus),
+            (96, Grade::A),
+            (93, Grade::A),
+            (92, Grade::AMinus),
+            (90, Grade::AMinus),
+            (89, Grade::BPlus),
+            (87, Grade::BPlus),
+            (86, Grade::B),
+            (83, Grade::B),
+            (82, Grade::BMinus),
+            (80, Grade::BMinus),
+            (79, Grade::CPlus),
+            (77, Grade::CPlus),
+            (76, Grade::C),
+            (73, Grade::C),
+            (72, Grade::CMinus),
+            (70, Grade::CMinus),
+            (69, Grade::D),
+            (60, Grade::D),
+            (59, Grade::F),
+            (0, Grade::F),
+        ];
+
+        for (score, grade) in cases {
+            assert_eq!(Grade::from_score(score), grade);
+        }
+    }
+
+    #[test]
+    fn grade_display_and_parse_roundtrip_all_variants() {
+        let cases = [
+            (Grade::APlus, "A+"),
+            (Grade::A, "A"),
+            (Grade::AMinus, "A-"),
+            (Grade::BPlus, "B+"),
+            (Grade::B, "B"),
+            (Grade::BMinus, "B-"),
+            (Grade::CPlus, "C+"),
+            (Grade::C, "C"),
+            (Grade::CMinus, "C-"),
+            (Grade::D, "D"),
+            (Grade::F, "F"),
+        ];
+
+        for (grade, text) in cases {
+            assert_eq!(grade.to_string(), text);
+            assert_eq!(text.parse::<Grade>(), Ok(grade));
+            assert_eq!(format!(" {text} ").parse::<Grade>(), Ok(grade));
+        }
+        assert_eq!("E".parse::<Grade>(), Err(GradeParseError));
+    }
+}

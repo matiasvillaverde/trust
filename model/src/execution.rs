@@ -167,18 +167,70 @@ impl Execution {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rust_decimal_macros::dec;
 
     #[test]
     fn test_execution_source_parse_roundtrip() {
         let src: ExecutionSource = "trade_updates".parse().unwrap();
         assert_eq!(src, ExecutionSource::TradeUpdates);
         assert_eq!(src.to_string(), "trade_updates");
+        let src: ExecutionSource = "account_activities".parse().unwrap();
+        assert_eq!(src, ExecutionSource::AccountActivities);
+        assert_eq!(src.to_string(), "account_activities");
+        assert_eq!(
+            "unknown".parse::<ExecutionSource>(),
+            Err(ExecutionSourceParseError)
+        );
     }
 
     #[test]
     fn test_execution_side_parse_roundtrip() {
+        let side: ExecutionSide = "buy".parse().unwrap();
+        assert_eq!(side, ExecutionSide::Buy);
+        assert_eq!(side.to_string(), "buy");
+        let side: ExecutionSide = "sell".parse().unwrap();
+        assert_eq!(side, ExecutionSide::Sell);
+        assert_eq!(side.to_string(), "sell");
         let side: ExecutionSide = "sell_short".parse().unwrap();
         assert_eq!(side, ExecutionSide::SellShort);
         assert_eq!(side.to_string(), "sell_short");
+        assert_eq!(
+            "unknown".parse::<ExecutionSide>(),
+            Err(ExecutionSideParseError)
+        );
+    }
+
+    #[test]
+    fn execution_new_sets_identity_fields_and_default_links() {
+        let account_id = Uuid::new_v4();
+        let executed_at = Utc::now().naive_utc();
+
+        let execution = Execution::new(
+            "alpaca".to_string(),
+            ExecutionSource::TradeUpdates,
+            account_id,
+            "exec-1".to_string(),
+            Some("order-1".to_string()),
+            "AAPL".to_string(),
+            ExecutionSide::Buy,
+            dec!(2.5),
+            dec!(123.45),
+            executed_at,
+        );
+
+        assert_eq!(execution.broker, "alpaca");
+        assert_eq!(execution.source, ExecutionSource::TradeUpdates);
+        assert_eq!(execution.account_id, account_id);
+        assert_eq!(execution.trade_id, None);
+        assert_eq!(execution.order_id, None);
+        assert_eq!(execution.broker_execution_id, "exec-1");
+        assert_eq!(execution.broker_order_id.as_deref(), Some("order-1"));
+        assert_eq!(execution.symbol, "AAPL");
+        assert_eq!(execution.side, ExecutionSide::Buy);
+        assert_eq!(execution.qty, dec!(2.5));
+        assert_eq!(execution.price, dec!(123.45));
+        assert_eq!(execution.executed_at, executed_at);
+        assert_eq!(execution.deleted_at, None);
+        assert_eq!(execution.raw_json, None);
     }
 }

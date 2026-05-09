@@ -313,6 +313,38 @@ mod tests {
     }
 
     #[test]
+    fn environment_display_parse_roundtrip_all_values() {
+        let cases = [(Environment::Paper, "paper"), (Environment::Live, "live")];
+
+        assert_eq!(
+            Environment::all(),
+            vec![Environment::Paper, Environment::Live]
+        );
+
+        for (environment, text) in cases {
+            assert_eq!(environment.to_string(), text);
+            assert_eq!(text.parse::<Environment>().ok(), Some(environment));
+        }
+
+        assert!(matches!(
+            "sandbox".parse::<Environment>(),
+            Err(EnvironmentParseError)
+        ));
+    }
+
+    #[test]
+    fn test_account_hierarchy_validation_no_parent_is_valid() {
+        let account = Account {
+            id: Uuid::new_v4(),
+            account_type: AccountType::Primary,
+            parent_account_id: None,
+            ..Account::default()
+        };
+
+        assert!(account.validate_hierarchy(&[]).is_ok());
+    }
+
+    #[test]
     fn test_account_hierarchy_validation_valid() {
         let parent = Account {
             id: Uuid::new_v4(),
@@ -351,6 +383,38 @@ mod tests {
         };
 
         assert!(account1.validate_hierarchy(&[&account2]).is_err());
+    }
+
+    #[test]
+    fn test_account_hierarchy_validation_indirect_parent_cycle() {
+        let child_parent_id = Uuid::new_v4();
+        let cycle_parent_id = Uuid::new_v4();
+
+        let child = Account {
+            id: Uuid::new_v4(),
+            account_type: AccountType::Earnings,
+            parent_account_id: Some(child_parent_id),
+            ..Account::default()
+        };
+
+        let child_parent = Account {
+            id: child_parent_id,
+            account_type: AccountType::Primary,
+            parent_account_id: Some(cycle_parent_id),
+            ..Account::default()
+        };
+
+        let cycle_parent = Account {
+            id: cycle_parent_id,
+            account_type: AccountType::Primary,
+            parent_account_id: Some(child_parent_id),
+            ..Account::default()
+        };
+
+        assert!(matches!(
+            child.validate_hierarchy(&[&child_parent, &cycle_parent]),
+            Err(AccountHierarchyError::CircularDependency)
+        ));
     }
 
     #[test]

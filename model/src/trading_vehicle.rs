@@ -1,8 +1,8 @@
-use chrono::NaiveDateTime;
-use chrono::Utc;
+use chrono::{NaiveDate, NaiveDateTime, Utc};
+use rust_decimal::Decimal;
 use uuid::Uuid;
 
-/// TradingVehicle entity. Like a Stock, Crypto, Fiat, Future, etc.
+/// TradingVehicle entity. Like a stock, ETF, bond, crypto, fiat, future, etc.
 #[derive(PartialEq, Debug, Clone)]
 pub struct TradingVehicle {
     /// Unique identifier for the trading vehicle
@@ -25,7 +25,7 @@ pub struct TradingVehicle {
     /// Note: some brokers (e.g., Alpaca assets endpoint) do not provide ISIN.
     pub isin: Option<String>,
 
-    /// The category of the trading vehicle - crypto, fiat, stock, future, etc.
+    /// The category of the trading vehicle - stock, ETF, bond, crypto, fiat, future, etc.
     pub category: TradingVehicleCategory,
 
     /// The broker that is used to trade the trading vehicle. For example: Coinbase, Binance, NASDAQ etc.
@@ -51,29 +51,63 @@ pub struct TradingVehicle {
     pub easy_to_borrow: Option<bool>,
     /// Whether fractional trading is supported.
     pub fractionable: Option<bool>,
+
+    /// Optional fixed-income terms for bonds and bond-like instruments.
+    pub fixed_income: Option<FixedIncomeTerms>,
 }
 
-/// TradingVehicleCategory enum - represents the type of the trading vehicle
-#[derive(PartialEq, Debug, Clone, Copy)]
+/// Fixed-income terms attached to a trading vehicle when the instrument is a bond.
+#[derive(PartialEq, Debug, Clone)]
+pub struct FixedIncomeTerms {
+    /// Face/par value per bond unit.
+    pub face_value: Option<Decimal>,
+    /// Annual coupon rate as a percentage, e.g. `4.5` for 4.5%.
+    pub annual_coupon_rate_pct: Option<Decimal>,
+    /// Bond maturity date when known.
+    pub maturity_date: Option<NaiveDate>,
+    /// Number of coupon payments per year when known.
+    pub coupon_frequency_per_year: Option<u16>,
+}
+
+impl FixedIncomeTerms {
+    /// Returns true when no fixed-income term is populated.
+    pub fn is_empty(&self) -> bool {
+        self.face_value.is_none()
+            && self.annual_coupon_rate_pct.is_none()
+            && self.maturity_date.is_none()
+            && self.coupon_frequency_per_year.is_none()
+    }
+}
+
+/// TradingVehicleCategory enum - represents the type of the trading vehicle.
+#[derive(PartialEq, Eq, Debug, Clone, Copy)]
 #[non_exhaustive] // This enum may be extended in the future
 pub enum TradingVehicleCategory {
+    /// Stock like AAPL, TSLA, etc.
+    Stock,
+
+    /// Exchange-traded fund like SPY, TLT, etc.
+    Etf,
+
+    /// Bond or fixed-income instrument.
+    Bond,
+
     /// Cryptocurrency like BTC, ETH, etc.
     Crypto,
 
     /// Fiat currency like USD, EUR, etc.
     Fiat,
-
-    /// Stock like AAPL, TSLA, etc.
-    Stock,
 }
 
 impl TradingVehicleCategory {
     /// Returns all available trading vehicle categories
     pub fn all() -> Vec<TradingVehicleCategory> {
         vec![
+            TradingVehicleCategory::Stock,
+            TradingVehicleCategory::Etf,
+            TradingVehicleCategory::Bond,
             TradingVehicleCategory::Crypto,
             TradingVehicleCategory::Fiat,
-            TradingVehicleCategory::Stock,
         ]
     }
 }
@@ -87,10 +121,12 @@ pub struct TradingVehicleCategoryParseError;
 impl std::str::FromStr for TradingVehicleCategory {
     type Err = TradingVehicleCategoryParseError;
     fn from_str(category: &str) -> Result<Self, Self::Err> {
-        match category {
+        match category.trim().to_lowercase().as_str() {
+            "stock" => Ok(TradingVehicleCategory::Stock),
+            "etf" => Ok(TradingVehicleCategory::Etf),
+            "bond" => Ok(TradingVehicleCategory::Bond),
             "crypto" => Ok(TradingVehicleCategory::Crypto),
             "fiat" => Ok(TradingVehicleCategory::Fiat),
-            "stock" => Ok(TradingVehicleCategory::Stock),
             _ => Err(TradingVehicleCategoryParseError),
         }
     }
@@ -99,9 +135,11 @@ impl std::str::FromStr for TradingVehicleCategory {
 impl std::fmt::Display for TradingVehicleCategory {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match *self {
+            TradingVehicleCategory::Stock => write!(f, "stock"),
+            TradingVehicleCategory::Etf => write!(f, "etf"),
+            TradingVehicleCategory::Bond => write!(f, "bond"),
             TradingVehicleCategory::Crypto => write!(f, "crypto"),
             TradingVehicleCategory::Fiat => write!(f, "fiat"),
-            TradingVehicleCategory::Stock => write!(f, "stock"),
         }
     }
 }
@@ -141,6 +179,7 @@ impl Default for TradingVehicle {
             shortable: None,
             easy_to_borrow: None,
             fractionable: None,
+            fixed_income: None,
         }
     }
 }
@@ -161,6 +200,12 @@ mod tests {
         let result = TradingVehicleCategory::from_str("stock")
             .expect("Failed to parse TradingVehicleCategory from string");
         assert_eq!(result, TradingVehicleCategory::Stock);
+        let result = TradingVehicleCategory::from_str("ETF")
+            .expect("Failed to parse TradingVehicleCategory from string");
+        assert_eq!(result, TradingVehicleCategory::Etf);
+        let result = TradingVehicleCategory::from_str(" bond ")
+            .expect("Failed to parse TradingVehicleCategory from string");
+        assert_eq!(result, TradingVehicleCategory::Bond);
     }
 
     #[test]

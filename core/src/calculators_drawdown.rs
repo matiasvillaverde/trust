@@ -364,6 +364,29 @@ mod tests {
     }
 
     #[test]
+    fn ignored_accounting_categories_do_not_emit_equity_points() {
+        let trade_id = Uuid::new_v4();
+        let transactions = vec![
+            create_transaction(TransactionCategory::PaymentTax(trade_id), dec!(100), 30),
+            create_transaction(
+                TransactionCategory::PaymentEarnings(trade_id),
+                dec!(200),
+                20,
+            ),
+            create_transaction(TransactionCategory::WithdrawalTax, dec!(50), 10),
+        ];
+
+        let curve = RealizedDrawdownCalculator::calculate_equity_curve(&transactions)
+            .expect("ignored categories should not fail equity calculation");
+
+        assert!(curve.points.is_empty());
+
+        let metrics = RealizedDrawdownCalculator::calculate_drawdown_metrics(&curve)
+            .expect("empty curve should produce empty metrics");
+        assert_eq!(metrics, RealizedDrawdownCalculator::empty_metrics());
+    }
+
+    #[test]
     fn test_deposit_and_withdrawal() {
         let transactions = vec![
             create_transaction(TransactionCategory::Deposit, dec!(10000), 30),
@@ -489,6 +512,35 @@ mod tests {
             .and_then(|n| n.checked_div(dec!(1200)))
             .unwrap();
         assert!((metrics.recovery_percentage - expected_recovery).abs() < dec!(0.01));
+    }
+
+    #[test]
+    fn test_drawdown_metrics_reports_recovery_overflow() {
+        let now = Utc::now().naive_utc();
+        let curve = RealizedEquityCurve {
+            points: vec![
+                EquityPoint {
+                    timestamp: now,
+                    balance: dec!(1),
+                },
+                EquityPoint {
+                    timestamp: now.checked_add_signed(Duration::days(1)).unwrap_or(now),
+                    balance: dec!(-1),
+                },
+                EquityPoint {
+                    timestamp: now.checked_add_signed(Duration::days(2)).unwrap_or(now),
+                    balance: Decimal::MAX,
+                },
+            ],
+        };
+
+        let error = RealizedDrawdownCalculator::calculate_drawdown_metrics(&curve)
+            .expect_err("recovery overflow should fail");
+
+        assert_eq!(
+            error.to_string(),
+            "Arithmetic overflow in recovery calculation"
+        );
     }
 
     #[test]

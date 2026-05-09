@@ -11,7 +11,7 @@ pub fn sync(
     trade: &Trade,
     account: &Account,
 ) -> Result<(Status, Vec<Order>, BrokerLog), Box<dyn Error>> {
-    assert!(trade.account_id == account.id); // Verify that the trade is for the account
+    crate::ensure_trade_account(trade, account)?;
 
     let api_info = keys::read_api_key(&account.environment, account)?;
     let client = Client::new(api_info);
@@ -20,11 +20,7 @@ pub fn sync(
         .map_err(|e| Box::new(e) as Box<dyn Error>)?
         .block_on(get_closed_orders(&client, trade))?;
 
-    let log = BrokerLog {
-        trade_id: trade.id,
-        log: serde_json::to_string(&orders)?,
-        ..Default::default()
-    };
+    let log = broker_log_from_orders(trade, &orders)?;
 
     let (status, updated_orders) = sync_trade(trade, orders)?;
     Ok((status, updated_orders, log))
@@ -52,17 +48,32 @@ async fn get_closed_orders(
     client: &Client,
     trade: &Trade,
 ) -> Result<Vec<AlpacaOrder>, Box<dyn Error>> {
-    let request: ListReq = ListReq {
-        symbols: vec![trade.trading_vehicle.symbol.to_string()],
-        status: AlpacaRequestStatus::Closed,
-        ..Default::default()
-    };
+    let request = closed_orders_request(trade);
 
     let orders = client
         .issue::<List>(&request)
         .await
         .map_err(|e| Box::new(e) as Box<dyn Error>)?;
     Ok(orders)
+}
+
+fn closed_orders_request(trade: &Trade) -> ListReq {
+    ListReq {
+        symbols: vec![trade.trading_vehicle.symbol.to_string()],
+        status: AlpacaRequestStatus::Closed,
+        ..Default::default()
+    }
+}
+
+fn broker_log_from_orders(
+    trade: &Trade,
+    orders: &[AlpacaOrder],
+) -> Result<BrokerLog, Box<dyn Error>> {
+    Ok(BrokerLog {
+        trade_id: trade.id,
+        log: serde_json::to_string(orders)?,
+        ..Default::default()
+    })
 }
 
 /// Find entry order from closed orders
@@ -498,6 +509,40 @@ mod tests {
                 .broker_order_id,
             Some(target_id.to_string())
         );
+    }
+
+    #[test]
+    fn closed_orders_request_filters_closed_orders_for_trade_symbol() {
+        let trade = Trade {
+            trading_vehicle: model::TradingVehicle {
+                symbol: "TSLA".to_string(),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let request = closed_orders_request(&trade);
+
+        assert_eq!(request.symbols, vec!["TSLA".to_string()]);
+        assert_eq!(request.status, AlpacaRequestStatus::Closed);
+    }
+
+    #[test]
+    fn broker_log_from_orders_serializes_alpaca_orders_for_trade() {
+        let trade = Trade::default();
+        let order = AlpacaOrder {
+            id: Id(Uuid::parse_str("904837e3-3b76-47ec-b432-046db621571b").unwrap()),
+            client_order_id: trade.entry.id.to_string(),
+            symbol: "AAPL".to_string(),
+            ..default()
+        };
+        let orders = vec![order];
+
+        let log = broker_log_from_orders(&trade, &orders).expect("orders serialize");
+
+        assert_eq!(log.trade_id, trade.id);
+        assert!(log.log.contains("904837e3-3b76-47ec-b432-046db621571b"));
+        assert!(log.log.contains("AAPL"));
     }
 
     #[test]

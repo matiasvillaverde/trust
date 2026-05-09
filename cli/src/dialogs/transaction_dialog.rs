@@ -182,6 +182,7 @@ mod tests {
     use std::io::{Error as IoError, ErrorKind};
     use uuid::Uuid;
 
+    #[derive(Default)]
     struct ScriptedIo {
         selects: VecDeque<Result<Option<usize>, IoError>>,
         inputs: VecDeque<Result<String, IoError>>,
@@ -388,6 +389,62 @@ mod tests {
     }
 
     #[test]
+    fn amount_with_io_for_withdrawal_reports_balance_and_keeps_amount_parsing_deterministic() {
+        let mut trust = test_trust();
+        let account = trust
+            .create_account(
+                "tx-withdraw-amount",
+                "desc",
+                Environment::Paper,
+                dec!(20),
+                dec!(10),
+            )
+            .expect("account should be created");
+        trust
+            .create_transaction(
+                &account,
+                &TransactionCategory::Deposit,
+                dec!(250),
+                &Currency::USD,
+            )
+            .expect("deposit should seed balance");
+
+        let mut io = ScriptedIo::with_inputs(vec![Ok("40".to_string())]);
+        let builder = TransactionDialogBuilder {
+            amount: None,
+            currency: Some(Currency::USD),
+            account: Some(account),
+            category: TransactionCategory::Withdrawal,
+            result: None,
+        }
+        .amount_with_io(&mut trust, &mut io);
+
+        assert_eq!(builder.amount, Some(dec!(40)));
+    }
+
+    #[test]
+    fn amount_with_io_for_withdrawal_continues_after_balance_lookup_error() {
+        let mut trust = test_trust();
+        let mut io = ScriptedIo::with_inputs(vec![Ok("5".to_string())]);
+        let missing_account = Account {
+            id: Uuid::new_v4(),
+            name: "missing".to_string(),
+            ..Account::default()
+        };
+
+        let builder = TransactionDialogBuilder {
+            amount: None,
+            currency: Some(Currency::USD),
+            account: Some(missing_account),
+            category: TransactionCategory::Withdrawal,
+            result: None,
+        }
+        .amount_with_io(&mut trust, &mut io);
+
+        assert_eq!(builder.amount, Some(dec!(5)));
+    }
+
+    #[test]
     fn currency_with_io_sets_selected_currency_and_handles_cancel() {
         let mut trust = test_trust();
         let account = trust
@@ -429,6 +486,117 @@ mod tests {
         }
         .currency_with_io(&mut trust, &mut cancel);
         assert!(canceled.currency.is_none());
+    }
+
+    #[test]
+    fn currency_with_io_handles_select_errors_and_out_of_range_choices() {
+        let mut trust = test_trust();
+        let account = Account {
+            id: Uuid::new_v4(),
+            name: "paper".to_string(),
+            ..Account::default()
+        };
+
+        let mut select_error =
+            ScriptedIo::with_selects(vec![Err(IoError::other("selection failed"))]);
+        let errored = TransactionDialogBuilder {
+            amount: Some(dec!(10)),
+            currency: None,
+            account: Some(account.clone()),
+            category: TransactionCategory::Deposit,
+            result: None,
+        }
+        .currency_with_io(&mut trust, &mut select_error);
+        assert!(errored.currency.is_none());
+
+        let mut out_of_range = ScriptedIo::with_selects(vec![Ok(Some(usize::MAX))]);
+        let skipped = TransactionDialogBuilder {
+            amount: Some(dec!(10)),
+            currency: None,
+            account: Some(account),
+            category: TransactionCategory::Deposit,
+            result: None,
+        }
+        .currency_with_io(&mut trust, &mut out_of_range);
+        assert!(skipped.currency.is_none());
+    }
+
+    #[test]
+    fn currency_with_io_for_withdrawal_continues_after_balance_list_error() {
+        let mut trust = test_trust();
+        let missing_account = Account {
+            id: Uuid::new_v4(),
+            name: "missing".to_string(),
+            ..Account::default()
+        };
+        let mut io = ScriptedIo::with_selects(vec![Ok(None)]);
+
+        let builder = TransactionDialogBuilder {
+            amount: Some(dec!(10)),
+            currency: None,
+            account: Some(missing_account),
+            category: TransactionCategory::Withdrawal,
+            result: None,
+        }
+        .currency_with_io(&mut trust, &mut io);
+
+        assert!(builder.currency.is_none());
+    }
+
+    #[test]
+    fn currency_with_io_for_withdrawal_surfaces_balance_read_error() {
+        let mut trust = TrustFacade::new(
+            Box::new(crate::test_support::ReadFailureFactory::balances()),
+            Box::<AlpacaBroker>::default(),
+        );
+        let mut io = ScriptedIo::with_selects(vec![Ok(None)]);
+
+        let builder = TransactionDialogBuilder {
+            amount: Some(dec!(10)),
+            currency: None,
+            account: Some(Account {
+                id: Uuid::new_v4(),
+                name: "paper".to_string(),
+                ..Account::default()
+            }),
+            category: TransactionCategory::Withdrawal,
+            result: None,
+        }
+        .currency_with_io(&mut trust, &mut io);
+
+        assert!(builder.currency.is_none());
+    }
+
+    #[test]
+    fn account_wrapper_preserves_none_when_search_fails() {
+        let mut trust = test_trust();
+        scripted_reset();
+
+        let builder =
+            TransactionDialogBuilder::new(TransactionCategory::Deposit).account(&mut trust);
+
+        assert!(builder.account.is_none());
+        scripted_reset();
+    }
+
+    #[test]
+    fn scripted_io_confirm_default_is_false() {
+        let mut io = ScriptedIo::default();
+
+        assert!(!io
+            .confirm("continue?", true)
+            .expect("confirm should return"));
+    }
+
+    #[test]
+    fn scripted_io_input_text_defaults_to_empty_string() {
+        let mut io = ScriptedIo::default();
+
+        assert_eq!(
+            crate::dialogs::DialogIo::input_text(&mut io, "Amount:", false)
+                .expect("default text input should return"),
+            ""
+        );
     }
 
     #[test]

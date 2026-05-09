@@ -1,8 +1,12 @@
+use core::TrustFacade;
+use db_sqlite::SqliteDatabase;
 use ibkr_broker::IbkrBroker;
 use model::{
-    Account, Broker, BrokerKind, Environment, TimeInForce, Trade, TradeCategory,
-    TradingVehicleCategory,
+    Account, AccountType, Broker, BrokerKind, Currency, DraftTrade, Environment, RuleLevel,
+    RuleName, Status, TimeInForce, Trade, TradeCategory, TradingVehicle, TradingVehicleCategory,
+    TransactionCategory,
 };
+use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -115,6 +119,7 @@ impl MockExpectation {
 #[derive(Debug)]
 struct MockState {
     expectations: Vec<MockExpectation>,
+    request_count: usize,
     stop_requested: bool,
 }
 
@@ -140,6 +145,7 @@ impl TestServer {
         );
         let state = Arc::new(Mutex::new(MockState {
             expectations: Vec::new(),
+            request_count: 0,
             stop_requested: false,
         }));
         let thread_state = Arc::clone(&state);
@@ -147,6 +153,9 @@ impl TestServer {
         let thread = thread::spawn(move || loop {
             match listener.accept() {
                 Ok((stream, _)) => {
+                    stream
+                        .set_nonblocking(false)
+                        .unwrap_or_else(|error| panic!("failed to set blocking stream: {error}"));
                     if let Err(error) = handle_connection(stream, &thread_state) {
                         panic!("test server request failed: {error}");
                     }
@@ -183,6 +192,13 @@ impl TestServer {
             state: Arc::clone(&self.state),
             expectation_id,
         }
+    }
+
+    fn request_count(&self) -> usize {
+        self.state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .request_count
     }
 }
 
@@ -237,6 +253,7 @@ fn handle_connection(
         let mut locked = state
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
+        locked.request_count = locked.request_count.saturating_add(1);
         if let Some(expectation) = locked
             .expectations
             .iter_mut()
@@ -384,24 +401,291 @@ fn mock_session(server: &TestServer) {
 }
 
 fn mock_contract_search(server: &TestServer) {
+    mock_contract_search_for(server, "AAPL", "STK", "265598");
+}
+
+fn mock_contract_search_for(server: &TestServer, symbol: &str, sec_type: &str, conid: &str) {
     server.expect(
         MockExpectation::json(
             "GET",
             "/v1/api/iserver/secdef/search",
             json!([
                 {
-                    "conid": "265598",
-                    "symbol": "AAPL",
-                    "companyName": "Apple Inc",
-                    "description": "NASDAQ",
+                    "conid": conid,
+                    "symbol": symbol,
+                    "secType": sec_type,
+                    "companyName": "Fixture Inc",
+                    "description": "SMART",
                     "exchange": "SMART",
                     "currency": "USD"
                 }
             ]),
         )
-        .query("symbol", "AAPL")
-        .query("secType", "STK"),
+        .query("symbol", symbol)
+        .query("secType", sec_type),
     );
+}
+
+fn mock_snapshot_for(server: &TestServer, conid: &str) -> MockHandle {
+    server.expect(
+        MockExpectation::json(
+            "GET",
+            "/v1/api/iserver/marketdata/snapshot",
+            json!([{ "conid": conid, "31": "100.00" }]),
+        )
+        .query("conids", conid),
+    )
+}
+
+fn e2e_trust() -> TrustFacade {
+    TrustFacade::new(
+        Box::new(SqliteDatabase::new_in_memory()),
+        Box::new(IbkrBroker),
+    )
+}
+
+fn create_ibkr_test_account(
+    trust: &mut TrustFacade,
+    name: &str,
+    deposit: Decimal,
+    risk_per_trade_pct: f32,
+) -> Account {
+    let account = trust
+        .create_account_with_profile(
+            name,
+            "ibkr e2e",
+            Environment::Paper,
+            dec!(20),
+            dec!(10),
+            AccountType::Primary,
+            None,
+            BrokerKind::Ibkr,
+            Some("U1234567"),
+        )
+        .unwrap();
+    trust
+        .create_transaction(
+            &account,
+            &TransactionCategory::Deposit,
+            deposit,
+            &Currency::USD,
+        )
+        .unwrap();
+    trust
+        .create_rule(
+            &account,
+            &RuleName::RiskPerMonth(100.0),
+            "e2e monthly risk cap",
+            &RuleLevel::Error,
+        )
+        .unwrap();
+    trust
+        .create_rule(
+            &account,
+            &RuleName::RiskPerTrade(risk_per_trade_pct),
+            "e2e trade risk cap",
+            &RuleLevel::Error,
+        )
+        .unwrap();
+    account
+}
+
+fn create_ibkr_test_vehicle(
+    trust: &mut TrustFacade,
+    symbol: &str,
+    category: TradingVehicleCategory,
+) -> TradingVehicle {
+    trust
+        .create_trading_vehicle(symbol, None, &category, "ibkr")
+        .unwrap()
+}
+
+fn create_ibkr_test_trade(
+    trust: &mut TrustFacade,
+    account: &Account,
+    symbol: &str,
+    category: TradingVehicleCategory,
+    quantity: i64,
+) -> Trade {
+    create_ibkr_test_trade_with_prices(
+        trust,
+        account,
+        symbol,
+        category,
+        quantity,
+        (dec!(95), dec!(100), dec!(110)),
+    )
+}
+
+fn create_ibkr_test_trade_with_prices(
+    trust: &mut TrustFacade,
+    account: &Account,
+    symbol: &str,
+    category: TradingVehicleCategory,
+    quantity: i64,
+    prices: (Decimal, Decimal, Decimal),
+) -> Trade {
+    let vehicle = create_ibkr_test_vehicle(trust, symbol, category);
+    let (stop_price, entry_price, target_price) = prices;
+    trust
+        .create_trade(
+            DraftTrade {
+                account: account.clone(),
+                trading_vehicle: vehicle,
+                quantity,
+                currency: Currency::USD,
+                category: TradeCategory::Long,
+                thesis: Some("IBKR risk e2e".to_string()),
+                sector: None,
+                asset_class: Some(category.to_string()),
+                context: None,
+            },
+            stop_price,
+            entry_price,
+            target_price,
+        )
+        .unwrap()
+}
+
+#[test]
+fn trust_facade_rejects_oversized_ibkr_multi_asset_trades_before_broker_io() {
+    for (symbol, category) in [
+        ("AAPL", TradingVehicleCategory::Stock),
+        ("SPY", TradingVehicleCategory::Etf),
+        ("9128285M8", TradingVehicleCategory::Bond),
+    ] {
+        let server = TestServer::start();
+        let mut trust = e2e_trust();
+        let account =
+            create_ibkr_test_account(&mut trust, &format!("risk-{}", category), dec!(100000), 1.0);
+        let trade = create_ibkr_test_trade(&mut trust, &account, symbol, category, 600);
+
+        let result = with_mock_gateway(&server, || trust.fund_trade(&trade));
+
+        let error = result.expect_err("oversized trade should fail risk validation");
+        assert!(
+            error.to_string().contains("Risk per trade exceeded"),
+            "unexpected error for {category}: {error}"
+        );
+        assert_eq!(
+            server.request_count(),
+            0,
+            "risk validation for {category} must reject before broker HTTP I/O"
+        );
+    }
+}
+
+#[test]
+fn trust_facade_rejects_invalid_ibkr_multi_asset_risk_geometry_before_broker_io() {
+    for (symbol, category) in [
+        ("AAPL", TradingVehicleCategory::Stock),
+        ("SPY", TradingVehicleCategory::Etf),
+        ("9128285M8", TradingVehicleCategory::Bond),
+    ] {
+        let server = TestServer::start();
+        let mut trust = e2e_trust();
+        let account = create_ibkr_test_account(
+            &mut trust,
+            &format!("invalid-risk-{}", category),
+            dec!(100000),
+            10.0,
+        );
+        let trade = create_ibkr_test_trade_with_prices(
+            &mut trust,
+            &account,
+            symbol,
+            category,
+            10,
+            (dec!(105), dec!(100), dec!(110)),
+        );
+
+        let result = with_mock_gateway(&server, || trust.fund_trade(&trade));
+
+        let error = result.expect_err("invalid stop/entry geometry should fail risk validation");
+        assert!(
+            error.to_string().contains("Invalid risk setup"),
+            "unexpected error for {category}: {error}"
+        );
+        assert_eq!(
+            server.request_count(),
+            0,
+            "invalid risk geometry for {category} must reject before broker HTTP I/O"
+        );
+    }
+}
+
+#[test]
+fn trust_facade_submits_valid_ibkr_stock_etf_and_bond_trades() {
+    for (symbol, category, sec_type, conid) in [
+        ("AAPL", TradingVehicleCategory::Stock, "STK", "265598"),
+        ("SPY", TradingVehicleCategory::Etf, "STK", "756733"),
+        ("9128285M8", TradingVehicleCategory::Bond, "BOND", "123456"),
+    ] {
+        let server = TestServer::start();
+        mock_session(&server);
+        mock_contract_search_for(&server, symbol, sec_type, conid);
+
+        let mut trust = e2e_trust();
+        let account = create_ibkr_test_account(
+            &mut trust,
+            &format!("submit-{}", category),
+            dec!(100000),
+            2.0,
+        );
+        let trade = create_ibkr_test_trade(&mut trust, &account, symbol, category, 10);
+        let (funded, _, _, _) = trust.fund_trade(&trade).unwrap();
+
+        let submit = server.expect(
+            MockExpectation::json(
+                "POST",
+                "/v1/api/iserver/account/U1234567/orders",
+                json!([
+                    {
+                        "order_id": "9001",
+                        "local_order_id": funded.entry.id.to_string(),
+                        "order_status": "Submitted"
+                    }
+                ]),
+            )
+            .body_contains(format!("\"secType\":\"{sec_type}\""))
+            .body_contains(format!("\"ticker\":\"{symbol}\""))
+            .body_contains(funded.entry.id.to_string())
+            .body_contains(funded.target.id.to_string())
+            .body_contains(funded.safety_stop.id.to_string()),
+        );
+
+        with_mock_gateway(&server, || {
+            let (submitted, _) = trust.submit_trade(&funded).unwrap();
+            assert_eq!(submitted.status, Status::Submitted);
+            assert_eq!(
+                submitted.entry.broker_order_id,
+                Some(funded.entry.id.to_string())
+            );
+            assert_eq!(
+                submitted.target.broker_order_id,
+                Some(funded.target.id.to_string())
+            );
+            assert_eq!(
+                submitted.safety_stop.broker_order_id,
+                Some(funded.safety_stop.id.to_string())
+            );
+        });
+
+        submit.assert();
+    }
+}
+
+#[test]
+fn preflight_gateway_checks_authentication_and_account_selection() {
+    let server = TestServer::start();
+    mock_session(&server);
+    let account = account();
+
+    with_mock_gateway(&server, || {
+        IbkrBroker::preflight_gateway(&account).expect("preflight should succeed");
+    });
+
+    assert_eq!(server.request_count(), 3);
 }
 
 #[test]
@@ -440,6 +724,110 @@ fn submit_trade_posts_bracket_orders_and_returns_local_order_refs() {
     });
 
     submit.assert();
+}
+
+#[test]
+fn submit_bond_trade_uses_ibkr_bond_security_type() {
+    let server = TestServer::start();
+    mock_session(&server);
+    mock_contract_search_for(&server, "9128285M8", "BOND", "123456");
+
+    let account = account();
+    let mut trade = trade();
+    trade.account_id = account.id;
+    trade.trading_vehicle.symbol = "9128285M8".to_string();
+    trade.trading_vehicle.category = TradingVehicleCategory::Bond;
+
+    let submit = server.expect(
+        MockExpectation::json(
+            "POST",
+            "/v1/api/iserver/account/U1234567/orders",
+            json!([
+                {
+                    "order_id": "9002",
+                    "local_order_id": trade.entry.id.to_string(),
+                    "order_status": "Submitted"
+                }
+            ]),
+        )
+        .body_contains("\"secType\":\"BOND\"")
+        .body_contains("\"ticker\":\"9128285M8\""),
+    );
+
+    with_mock_gateway(&server, || {
+        let broker = IbkrBroker;
+        let (_, ids) = broker.submit_trade(&trade, &account).unwrap();
+        assert_eq!(ids.entry, trade.entry.id.to_string());
+    });
+
+    submit.assert();
+}
+
+#[test]
+fn preview_trade_posts_snapshot_then_whatif_without_order_submission() {
+    let server = TestServer::start();
+    mock_session(&server);
+    mock_contract_search_for(&server, "SPY", "STK", "756733");
+    let snapshot = mock_snapshot_for(&server, "756733");
+
+    let account = account();
+    let mut trade = trade();
+    trade.account_id = account.id;
+    trade.trading_vehicle.symbol = "SPY".to_string();
+    trade.trading_vehicle.category = TradingVehicleCategory::Etf;
+
+    let whatif = server.expect(
+        MockExpectation::json(
+            "POST",
+            "/v1/api/iserver/account/U1234567/orders/whatif",
+            json!({
+                "amount": { "amount": "1000.00 USD", "commission": "1.00 USD", "total": "1001.00 USD" },
+                "warn": null,
+                "error": null
+            }),
+        )
+        .body_contains("\"orders\"")
+        .body_contains("\"secType\":\"STK\"")
+        .body_contains("\"ticker\":\"SPY\"")
+        .body_contains(trade.entry.id.to_string())
+        .body_contains(trade.target.id.to_string())
+        .body_contains(trade.safety_stop.id.to_string())
+        .body_contains("\"parentId\""),
+    );
+
+    with_mock_gateway(&server, || {
+        let preview = IbkrBroker::preview_trade(&account, &trade).unwrap();
+        assert!(preview.get("amount").is_some());
+        assert!(preview.get("error").is_some());
+    });
+
+    snapshot.assert();
+    whatif.assert();
+}
+
+#[test]
+fn preview_trade_surfaces_whatif_rejections() {
+    let server = TestServer::start();
+    mock_session(&server);
+    mock_contract_search(&server);
+    let snapshot = mock_snapshot_for(&server, "265598");
+    let whatif = server.expect(MockExpectation::json(
+        "POST",
+        "/v1/api/iserver/account/U1234567/orders/whatif",
+        json!({ "error": "insufficient margin for preview" }),
+    ));
+
+    let account = account();
+    let mut trade = trade();
+    trade.account_id = account.id;
+
+    with_mock_gateway(&server, || {
+        let error = IbkrBroker::preview_trade(&account, &trade).unwrap_err();
+        assert!(error.to_string().contains("what-if preview rejected"));
+    });
+
+    snapshot.assert();
+    whatif.assert();
 }
 
 #[test]

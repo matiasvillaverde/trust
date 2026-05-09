@@ -166,4 +166,32 @@ mod tests {
             AccountCapitalBalance::calculate(Uuid::new_v4(), &Currency::USD, &mut database);
         assert_eq!(result.unwrap(), dec!(860));
     }
+
+    #[test]
+    fn test_total_balance_reports_addition_overflow() {
+        let mut database = MockDatabase::new();
+        database.set_transaction(TransactionCategory::Deposit, Decimal::MAX);
+        database.set_transaction(TransactionCategory::Deposit, Decimal::MAX);
+
+        let error = AccountCapitalBalance::calculate(Uuid::new_v4(), &Currency::USD, &mut database)
+            .expect_err("overflow should fail");
+
+        assert!(error
+            .to_string()
+            .contains("Arithmetic overflow in addition"));
+    }
+
+    #[test]
+    fn test_total_balance_reports_subtraction_overflow() {
+        let mut database = MockDatabase::new();
+        database.set_transaction(TransactionCategory::Withdrawal, Decimal::MAX);
+        database.set_transaction(TransactionCategory::Withdrawal, Decimal::MAX);
+
+        let error = AccountCapitalBalance::calculate(Uuid::new_v4(), &Currency::USD, &mut database)
+            .expect_err("overflow should fail");
+
+        assert!(error
+            .to_string()
+            .contains("Arithmetic overflow in subtraction"));
+    }
 }

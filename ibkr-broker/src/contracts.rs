@@ -11,6 +11,10 @@ pub struct ContractMetadata {
     pub conid: String,
     /// Trading symbol.
     pub symbol: String,
+    /// Trust trading vehicle category used for lookup.
+    pub category: TradingVehicleCategory,
+    /// IBKR security type used for the contract.
+    pub sec_type: String,
     /// Optional company name from IBKR.
     pub company_name: Option<String>,
     /// Optional exchange/description field from IBKR.
@@ -24,20 +28,23 @@ pub struct ContractMetadata {
 pub(crate) fn fetch_contract_metadata_with_client(
     client: &IbkrClient,
     symbol: &str,
+    category: TradingVehicleCategory,
 ) -> Result<ContractMetadata, Box<dyn Error>> {
+    let sec_type = sec_type_for_category(category)?;
     let response = client.get_json_value(
         "/iserver/secdef/search",
         &[
             ("symbol", symbol.to_uppercase()),
-            ("secType", "STK".to_string()),
+            ("secType", sec_type.to_string()),
         ],
     )?;
-    parse_contract_metadata(&response, symbol)
+    parse_contract_metadata(&response, symbol, category)
 }
 
 pub(crate) fn parse_contract_metadata(
     response: &Value,
     symbol: &str,
+    category: TradingVehicleCategory,
 ) -> Result<ContractMetadata, Box<dyn Error>> {
     let matches = response
         .as_array()
@@ -50,13 +57,16 @@ pub(crate) fn parse_contract_metadata(
                 .map(|value| value.eq_ignore_ascii_case(&target_symbol))
                 .unwrap_or(false)
         })
-        .or_else(|| matches.first())
-        .ok_or_else(|| format!("IBKR contract search returned no matches for '{symbol}'"))?;
+        .ok_or_else(|| format!("IBKR contract search returned no exact match for '{symbol}'"))?;
 
     Ok(ContractMetadata {
         conid: string_field_optional(contract, "conid")
             .ok_or("IBKR contract match did not include conid")?,
         symbol: string_field_optional(contract, "symbol").unwrap_or_else(|| symbol.to_uppercase()),
+        category,
+        sec_type: string_field_optional(contract, "secType")
+            .or_else(|| string_field_optional(contract, "sectype"))
+            .unwrap_or_else(|| sec_type_for_category(category).unwrap_or("STK").to_string()),
         company_name: string_field_optional(contract, "companyName"),
         description: string_field_optional(contract, "description"),
         currency: string_field_optional(contract, "currency"),
@@ -75,28 +85,27 @@ pub(crate) fn resolve_conid(
     {
         return Ok(conid.to_string());
     }
-    match vehicle.category {
-        TradingVehicleCategory::Stock => {
-            Ok(fetch_contract_metadata_with_client(client, &vehicle.symbol)?.conid)
-        }
-        _ => Err(format!(
-            "IBKR broker currently supports stock contract lookup only, got '{}'",
-            vehicle.category
-        )
-        .into()),
-    }
+    Ok(fetch_contract_metadata_with_client(client, &vehicle.symbol, vehicle.category)?.conid)
 }
 
 pub(crate) fn sec_type_for_vehicle(
     vehicle: &TradingVehicle,
 ) -> Result<&'static str, Box<dyn Error>> {
-    match vehicle.category {
-        TradingVehicleCategory::Stock => Ok("STK"),
-        _ => Err(format!(
-            "IBKR broker currently supports stock orders only, got '{}'",
-            vehicle.category
+    sec_type_for_category(vehicle.category)
+}
+
+pub(crate) fn sec_type_for_category(
+    category: TradingVehicleCategory,
+) -> Result<&'static str, Box<dyn Error>> {
+    match category {
+        TradingVehicleCategory::Stock | TradingVehicleCategory::Etf => Ok("STK"),
+        TradingVehicleCategory::Bond => Ok("BOND"),
+        TradingVehicleCategory::Crypto | TradingVehicleCategory::Fiat => Err(format!(
+            "IBKR broker currently supports stock, ETF, and bond orders only, got '{}'",
+            category
         )
         .into()),
+        _ => Err("IBKR broker does not support this trading vehicle category".into()),
     }
 }
 
@@ -111,7 +120,8 @@ pub(crate) fn listing_exchange(vehicle: &TradingVehicle) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_contract_metadata;
+    use super::{listing_exchange, parse_contract_metadata, sec_type_for_category};
+    use model::{TradingVehicle, TradingVehicleCategory};
     use serde_json::json;
 
     #[test]
@@ -121,20 +131,55 @@ mod tests {
             { "conid": "2", "symbol": "AAPL", "exchange": "SMART" }
         ]);
 
-        let metadata = parse_contract_metadata(&payload, "aapl").expect("metadata");
+        let metadata = parse_contract_metadata(&payload, "aapl", TradingVehicleCategory::Stock)
+            .expect("metadata");
 
         assert_eq!(metadata.conid, "2");
         assert_eq!(metadata.symbol, "AAPL");
+        assert_eq!(metadata.category, TradingVehicleCategory::Stock);
+        assert_eq!(metadata.sec_type, "STK");
         assert_eq!(metadata.exchange.as_deref(), Some("SMART"));
     }
 
     #[test]
-    fn contract_search_falls_back_to_first_match() {
+    fn contract_search_rejects_symbol_mismatch() {
         let payload = json!([{ "conid": "1", "symbol": "MSFT", "exchange": "SMART" }]);
 
-        let metadata = parse_contract_metadata(&payload, "unknown").expect("metadata");
+        let error = parse_contract_metadata(&payload, "unknown", TradingVehicleCategory::Etf)
+            .expect_err("symbol mismatch");
 
-        assert_eq!(metadata.conid, "1");
-        assert_eq!(metadata.symbol, "MSFT");
+        assert!(error.to_string().contains("no exact match"));
+    }
+
+    #[test]
+    fn sec_type_mapping_covers_multi_asset_categories() {
+        assert_eq!(
+            sec_type_for_category(TradingVehicleCategory::Stock).expect("stock"),
+            "STK"
+        );
+        assert_eq!(
+            sec_type_for_category(TradingVehicleCategory::Etf).expect("etf"),
+            "STK"
+        );
+        assert_eq!(
+            sec_type_for_category(TradingVehicleCategory::Bond).expect("bond"),
+            "BOND"
+        );
+        assert!(sec_type_for_category(TradingVehicleCategory::Crypto).is_err());
+    }
+
+    #[test]
+    fn listing_exchange_defaults_to_smart_and_preserves_explicit_exchange() {
+        let default_exchange = TradingVehicle {
+            exchange: None,
+            ..TradingVehicle::default()
+        };
+        let explicit_exchange = TradingVehicle {
+            exchange: Some("ARCA".to_string()),
+            ..TradingVehicle::default()
+        };
+
+        assert_eq!(listing_exchange(&default_exchange), "SMART");
+        assert_eq!(listing_exchange(&explicit_exchange), "ARCA");
     }
 }

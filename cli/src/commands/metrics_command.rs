@@ -119,6 +119,119 @@ impl MetricsCommandBuilder {
         );
         self
     }
+
+    pub fn bond(mut self) -> Self {
+        let command =
+            Command::new("bond").about("Calculate fixed-income bond income and yield metrics");
+        let command = Self::with_bond_lookup_args(command);
+        let command = Self::with_bond_analytics_args(command);
+        let command = Self::with_bond_accrued_interest_args(command);
+        self.subcommands.push(Self::with_report_format_arg(command));
+        self
+    }
+
+    fn with_bond_lookup_args(command: Command) -> Command {
+        command
+            .arg(
+                Arg::new("symbol")
+                    .long("symbol")
+                    .value_name("SYMBOL")
+                    .help("Bond symbol to load stored fixed-income terms from"),
+            )
+            .arg(
+                Arg::new("broker")
+                    .long("broker")
+                    .value_name("BROKER")
+                    .help("Broker for --symbol lookup"),
+            )
+    }
+
+    fn with_bond_analytics_args(command: Command) -> Command {
+        command
+            .arg(
+                Arg::new("face-value")
+                    .long("face-value")
+                    .value_name("AMOUNT")
+                    .help("Bond face/par value per unit"),
+            )
+            .arg(
+                Arg::new("market-price")
+                    .long("market-price")
+                    .value_name("AMOUNT")
+                    .help("Current clean market price per unit")
+                    .required(true),
+            )
+            .arg(
+                Arg::new("coupon-rate")
+                    .long("coupon-rate")
+                    .value_name("PERCENT")
+                    .help("Annual coupon rate as a percentage, e.g. 4.5"),
+            )
+            .arg(
+                Arg::new("quantity")
+                    .long("quantity")
+                    .value_name("UNITS")
+                    .help("Number of bond units")
+                    .value_parser(clap::value_parser!(i64))
+                    .required(true),
+            )
+            .arg(
+                Arg::new("years-to-maturity")
+                    .long("years-to-maturity")
+                    .value_name("YEARS")
+                    .help(
+                        "Years remaining until maturity; optional when stored bond maturity is available",
+                    ),
+            )
+    }
+
+    fn with_bond_accrued_interest_args(command: Command) -> Command {
+        command
+            .arg(
+                Arg::new("coupon-frequency")
+                    .long("coupon-frequency")
+                    .value_name("PAYMENTS_PER_YEAR")
+                    .help("Coupon payments per year for accrued-interest calculations")
+                    .value_parser(clap::value_parser!(u16)),
+            )
+            .arg(
+                Arg::new("settlement-date")
+                    .long("settlement-date")
+                    .value_name("YYYY-MM-DD")
+                    .help("Settlement date for accrued-interest calculations"),
+            )
+            .arg(
+                Arg::new("last-coupon-date")
+                    .long("last-coupon-date")
+                    .value_name("YYYY-MM-DD")
+                    .help("Previous coupon date for accrued-interest calculations"),
+            )
+            .arg(
+                Arg::new("next-coupon-date")
+                    .long("next-coupon-date")
+                    .value_name("YYYY-MM-DD")
+                    .help("Next coupon date for accrued-interest calculations"),
+            )
+            .arg(
+                Arg::new("day-count")
+                    .long("day-count")
+                    .value_name("BASIS")
+                    .help("Day-count basis for accrued interest")
+                    .value_parser(["actual-actual", "actual-360", "actual-365"]),
+            )
+    }
+
+    fn with_report_format_arg(command: Command) -> Command {
+        command.arg(
+            Arg::new("format")
+                .long("format")
+                .value_name("FORMAT")
+                .help("Output format")
+                .value_parser(["text", "json"])
+                .default_value("text")
+                .required(false),
+        )
+    }
 }
 
 impl Default for MetricsCommandBuilder {
@@ -133,9 +246,14 @@ mod tests {
 
     #[test]
     fn metrics_builder_registers_subcommands() {
-        let cmd = MetricsCommandBuilder::new().advanced().compare().build();
+        let cmd = MetricsCommandBuilder::new()
+            .advanced()
+            .compare()
+            .bond()
+            .build();
         assert!(cmd.get_subcommands().any(|c| c.get_name() == "advanced"));
         assert!(cmd.get_subcommands().any(|c| c.get_name() == "compare"));
+        assert!(cmd.get_subcommands().any(|c| c.get_name() == "bond"));
     }
 
     #[test]
@@ -234,6 +352,83 @@ mod tests {
             compare.get_one::<String>("output").map(String::as_str),
             Some("compare.json")
         );
+    }
+
+    #[test]
+    fn metrics_bond_parses_required_inputs() {
+        let cmd = MetricsCommandBuilder::new().bond().build();
+        let matches = cmd
+            .try_get_matches_from([
+                "metrics",
+                "bond",
+                "--face-value",
+                "1000",
+                "--market-price",
+                "950",
+                "--coupon-rate",
+                "4",
+                "--quantity",
+                "3",
+                "--years-to-maturity",
+                "5",
+                "--coupon-frequency",
+                "2",
+                "--settlement-date",
+                "2026-04-01",
+                "--last-coupon-date",
+                "2026-01-01",
+                "--next-coupon-date",
+                "2026-07-01",
+                "--day-count",
+                "actual-360",
+                "--format",
+                "json",
+            ])
+            .expect("metrics bond should parse");
+        let bond = matches.subcommand_matches("bond").expect("bond subcommand");
+        assert_eq!(
+            bond.get_one::<String>("face-value").map(String::as_str),
+            Some("1000")
+        );
+        assert_eq!(bond.get_one::<i64>("quantity"), Some(&3));
+        assert_eq!(
+            bond.get_one::<String>("format").map(String::as_str),
+            Some("json")
+        );
+        assert_eq!(bond.get_one::<u16>("coupon-frequency"), Some(&2));
+        assert_eq!(
+            bond.get_one::<String>("day-count").map(String::as_str),
+            Some("actual-360")
+        );
+    }
+
+    #[test]
+    fn metrics_bond_parses_stored_vehicle_lookup_inputs() {
+        let cmd = MetricsCommandBuilder::new().bond().build();
+        let matches = cmd
+            .try_get_matches_from([
+                "metrics",
+                "bond",
+                "--symbol",
+                "9128285M8",
+                "--broker",
+                "ibkr",
+                "--market-price",
+                "997.50",
+                "--quantity",
+                "5",
+            ])
+            .expect("metrics bond should parse stored vehicle inputs");
+        let bond = matches.subcommand_matches("bond").expect("bond subcommand");
+        assert_eq!(
+            bond.get_one::<String>("symbol").map(String::as_str),
+            Some("9128285M8")
+        );
+        assert_eq!(
+            bond.get_one::<String>("broker").map(String::as_str),
+            Some("ibkr")
+        );
+        assert_eq!(bond.get_one::<i64>("quantity"), Some(&5));
     }
 
     #[test]

@@ -176,6 +176,7 @@ mod tests {
         }];
 
         RiskView::display(positions, dec!(1000), dec!(10000));
+        RiskView::display(Vec::new(), dec!(25), dec!(100));
         RiskView::display(Vec::new(), dec!(0), dec!(0));
     }
 }

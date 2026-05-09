@@ -81,4 +81,25 @@ mod tests {
         TradeCapitalTaxable::calculate(Uuid::new_v4(), &mut database)
             .expect_err("TradeCapitalTaxable: taxable is negative: -1");
     }
+
+    #[test]
+    fn test_calculate_reports_addition_overflow() {
+        let mut database = MockDatabase::new();
+
+        database.set_transaction(
+            TransactionCategory::PaymentTax(Uuid::new_v4()),
+            Decimal::MAX,
+        );
+        database.set_transaction(
+            TransactionCategory::PaymentTax(Uuid::new_v4()),
+            Decimal::MAX,
+        );
+
+        let error = TradeCapitalTaxable::calculate(Uuid::new_v4(), &mut database)
+            .expect_err("taxable capital addition overflow should be explicit");
+
+        assert!(error
+            .to_string()
+            .contains("Arithmetic overflow in addition"));
+    }
 }

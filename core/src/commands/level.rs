@@ -113,6 +113,7 @@ fn is_idempotent_retry(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use db_sqlite::SqliteDatabase;
     use model::{LevelDirection, LevelStatus};
     use rust_decimal_macros::dec;
 
@@ -177,6 +178,26 @@ mod tests {
     fn test_normalize_trigger_custom() {
         let trigger = normalize_trigger(LevelTrigger::Custom("  AbC  ".to_string())).unwrap();
         assert_eq!(trigger, LevelTrigger::Custom("abc".to_string()));
+    }
+
+    #[test]
+    fn test_normalize_trigger_rejects_empty_custom_value() {
+        let error = normalize_trigger(LevelTrigger::Custom(" \t ".to_string()))
+            .expect_err("empty custom triggers should be rejected");
+
+        assert_eq!(error.to_string(), "Level change trigger cannot be empty");
+    }
+
+    #[test]
+    fn test_with_savepoint_rolls_back_and_returns_operation_error() {
+        let mut database = SqliteDatabase::new_in_memory();
+
+        let error = with_savepoint(&mut database, "manual_level_change_test", |_db| {
+            Err::<(), Box<dyn Error>>("operation failed".into())
+        })
+        .expect_err("operation errors should be returned after rollback");
+
+        assert_eq!(error.to_string(), "operation failed");
     }
 
     #[test]

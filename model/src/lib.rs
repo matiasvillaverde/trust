@@ -100,5 +100,5 @@ pub use strategy::Strategy;
 pub use trade::ClosedTradePerformance;
 pub use trade::{Status, Trade, TradeBalance, TradeCategory};
 pub use trade_grade::{Grade, TradeGrade};
-pub use trading_vehicle::{TradingVehicle, TradingVehicleCategory};
+pub use trading_vehicle::{FixedIncomeTerms, TradingVehicle, TradingVehicleCategory};
 pub use transaction::{Transaction, TransactionCategory};

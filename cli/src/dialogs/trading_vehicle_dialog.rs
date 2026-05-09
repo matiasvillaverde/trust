@@ -123,6 +123,7 @@ impl TradingVehicleDialogBuilder {
 #[cfg(test)]
 mod tests {
     use super::{TradingVehicleDialogBuilder, TradingVehicleSearchDialogBuilder};
+    use crate::dialogs::io::{scripted_push_input, scripted_push_select, scripted_reset};
     use crate::dialogs::DialogIo;
     use alpaca_broker::AlpacaBroker;
     use core::TrustFacade;
@@ -164,7 +165,7 @@ mod tests {
         let mut io = ScriptedIo::default();
         io.selections.push_back(Ok(Some(0)));
         let dialog = TradingVehicleDialogBuilder::new().category_with_io(&mut io);
-        assert_eq!(dialog.category, Some(TradingVehicleCategory::Crypto));
+        assert_eq!(dialog.category, Some(TradingVehicleCategory::Stock));
     }
 
     #[test]
@@ -199,6 +200,27 @@ mod tests {
         assert_eq!(dialog.symbol, None);
     }
 
+    #[test]
+    fn optional_text_setters_preserve_state_on_input_errors() {
+        let mut io = ScriptedIo::default();
+        io.text_inputs.push_back(Err(IoError::other("isin failed")));
+        io.text_inputs
+            .push_back(Err(IoError::other("broker failed")));
+
+        let dialog = TradingVehicleDialogBuilder {
+            symbol: Some("AAPL".to_string()),
+            isin: Some("US0378331005".to_string()),
+            category: Some(TradingVehicleCategory::Stock),
+            broker: Some("alpaca".to_string()),
+            result: None,
+        }
+        .isin_with_io(&mut io)
+        .broker_with_io(&mut io);
+
+        assert_eq!(dialog.isin.as_deref(), Some("US0378331005"));
+        assert_eq!(dialog.broker.as_deref(), Some("alpaca"));
+    }
+
     fn test_trust() -> TrustFacade {
         let path = std::env::temp_dir().join(format!("trust-test-tv-{}.db", Uuid::new_v4()));
         let db = SqliteDatabase::new(path.to_str().expect("valid temp path"));
@@ -223,6 +245,27 @@ mod tests {
             .expect("creation should succeed");
         assert_eq!(tv.symbol, "AAPL");
         assert_eq!(tv.isin.as_deref(), Some("ALPACA:AAPL"));
+    }
+
+    #[test]
+    fn build_preserves_non_empty_isin() {
+        let mut trust = test_trust();
+        let builder = TradingVehicleDialogBuilder {
+            symbol: Some("BND".to_string()),
+            isin: Some("US9219378356".to_string()),
+            category: Some(TradingVehicleCategory::Etf),
+            broker: Some("ibkr".to_string()),
+            result: None,
+        };
+
+        let tv = builder
+            .build(&mut trust)
+            .result
+            .expect("result should exist")
+            .expect("creation should succeed");
+
+        assert_eq!(tv.symbol, "BND");
+        assert_eq!(tv.isin.as_deref(), Some("US9219378356"));
     }
 
     #[test]
@@ -281,6 +324,48 @@ mod tests {
     }
 
     #[test]
+    fn wrapper_methods_use_default_console_io_in_tests() {
+        scripted_reset();
+        scripted_push_select(Ok(Some(0)));
+        scripted_push_input(Ok("BND".to_string()));
+        scripted_push_input(Ok("US9219378356".to_string()));
+        scripted_push_input(Ok("ibkr".to_string()));
+
+        let dialog = TradingVehicleDialogBuilder::new()
+            .category()
+            .symbol()
+            .isin()
+            .broker();
+
+        assert_eq!(dialog.category, Some(TradingVehicleCategory::Stock));
+        assert_eq!(dialog.symbol.as_deref(), Some("BND"));
+        assert_eq!(dialog.isin.as_deref(), Some("US9219378356"));
+        assert_eq!(dialog.broker.as_deref(), Some("ibkr"));
+
+        scripted_reset();
+    }
+
+    #[test]
+    fn search_wrapper_uses_default_console_io_in_tests() {
+        let mut trust = test_trust();
+        let created = trust
+            .create_trading_vehicle("TLT", None, &TradingVehicleCategory::Etf, "ibkr")
+            .expect("vehicle should be created");
+
+        scripted_reset();
+        scripted_push_select(Ok(Some(0)));
+
+        let selected = TradingVehicleSearchDialogBuilder::new()
+            .search(&mut trust)
+            .build()
+            .expect("vehicle should be selected");
+
+        assert_eq!(selected.id, created.id);
+
+        scripted_reset();
+    }
+
+    #[test]
     fn search_builder_display_and_search_error_path_do_not_panic() {
         let mut trust = test_trust();
         let mut io = ScriptedIo::default();
@@ -289,6 +374,55 @@ mod tests {
         TradingVehicleSearchDialogBuilder::new()
             .search_with_io(&mut trust, &mut io)
             .display();
+    }
+
+    #[test]
+    fn search_builder_surfaces_trading_vehicle_read_errors() {
+        let mut trust = TrustFacade::new(
+            Box::new(crate::test_support::ReadFailureFactory::trading_vehicles()),
+            Box::<AlpacaBroker>::default(),
+        );
+        let mut io = ScriptedIo::default();
+
+        let err = TradingVehicleSearchDialogBuilder::new()
+            .search_with_io(&mut trust, &mut io)
+            .build()
+            .expect_err("read error should surface");
+
+        assert!(err.to_string().contains("trading vehicle read failed"));
+    }
+
+    #[test]
+    fn search_builder_display_handles_success_result() {
+        let mut trust = test_trust();
+        let created = trust
+            .create_trading_vehicle("IEF", None, &TradingVehicleCategory::Etf, "ibkr")
+            .expect("vehicle should be created");
+
+        TradingVehicleSearchDialogBuilder {
+            result: Some(Ok(created)),
+        }
+        .display();
+    }
+
+    #[test]
+    fn scripted_io_confirm_default_is_false() {
+        let mut io = ScriptedIo::default();
+
+        assert!(!io
+            .confirm("continue?", true)
+            .expect("confirm should return"));
+    }
+
+    #[test]
+    fn scripted_io_input_text_defaults_to_empty_string() {
+        let mut io = ScriptedIo::default();
+
+        assert_eq!(
+            io.input_text("Symbol:", false)
+                .expect("default text input should return"),
+            ""
+        );
     }
 }
 

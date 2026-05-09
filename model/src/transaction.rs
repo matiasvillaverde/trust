@@ -269,6 +269,7 @@ impl TransactionCategory {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rust_decimal_macros::dec;
 
     #[test]
     fn test_transaction_category_from_string_deposit() {
@@ -356,5 +357,156 @@ mod tests {
             .expect_err("Parsed a transaction output without a trade id");
         TransactionCategory::parse("InputTax", None)
             .expect_err("Parsed a transaction InputTax without a trade id");
+    }
+
+    #[test]
+    fn transaction_category_trade_id_and_key_cover_all_variants() {
+        let id = Uuid::new_v4();
+        let categories_without_trade_id = [
+            (TransactionCategory::Deposit, "deposit"),
+            (TransactionCategory::Withdrawal, "withdrawal"),
+            (
+                TransactionCategory::WithdrawalEarnings,
+                "withdrawal_earnings",
+            ),
+            (TransactionCategory::WithdrawalTax, "withdrawal_tax"),
+        ];
+        let categories_with_trade_id = [
+            (
+                TransactionCategory::PaymentFromTrade(id),
+                "payment_from_trade",
+            ),
+            (TransactionCategory::FundTrade(id), "fund_trade"),
+            (TransactionCategory::OpenTrade(id), "open_trade"),
+            (TransactionCategory::CloseTarget(id), "close_target"),
+            (
+                TransactionCategory::CloseSafetyStop(id),
+                "close_safety_stop",
+            ),
+            (
+                TransactionCategory::CloseSafetyStopSlippage(id),
+                "close_safety_stop_slippage",
+            ),
+            (TransactionCategory::FeeOpen(id), "fee_open"),
+            (TransactionCategory::FeeClose(id), "fee_close"),
+            (TransactionCategory::PaymentEarnings(id), "payment_earnings"),
+            (TransactionCategory::PaymentTax(id), "payment_tax"),
+        ];
+
+        for (category, key) in categories_without_trade_id {
+            assert_eq!(category.trade_id(), None);
+            assert_eq!(category.key(), key);
+        }
+        for (category, key) in categories_with_trade_id {
+            assert_eq!(category.trade_id(), Some(id));
+            assert_eq!(category.key(), key);
+        }
+    }
+
+    #[test]
+    fn transaction_category_display_matches_stable_storage_keys() {
+        let id = Uuid::new_v4();
+        let categories = [
+            (TransactionCategory::Deposit, "deposit"),
+            (TransactionCategory::Withdrawal, "withdrawal"),
+            (
+                TransactionCategory::PaymentFromTrade(id),
+                "payment_from_trade",
+            ),
+            (TransactionCategory::FundTrade(id), "fund_trade"),
+            (TransactionCategory::OpenTrade(id), "open_trade"),
+            (TransactionCategory::CloseTarget(id), "close_target"),
+            (
+                TransactionCategory::CloseSafetyStop(id),
+                "close_safety_stop",
+            ),
+            (
+                TransactionCategory::CloseSafetyStopSlippage(id),
+                "close_safety_stop_slippage",
+            ),
+            (TransactionCategory::FeeOpen(id), "fee_open"),
+            (TransactionCategory::FeeClose(id), "fee_close"),
+            (TransactionCategory::PaymentTax(id), "payment_tax"),
+            (TransactionCategory::WithdrawalTax, "withdrawal_tax"),
+            (TransactionCategory::PaymentEarnings(id), "payment_earnings"),
+            (
+                TransactionCategory::WithdrawalEarnings,
+                "withdrawal_earnings",
+            ),
+        ];
+
+        for (category, key) in categories {
+            assert_eq!(category.to_string(), key);
+            assert_eq!(category.key(), key);
+        }
+    }
+
+    #[test]
+    fn transaction_new_sets_identity_amount_currency_and_timestamps() {
+        let account_id = Uuid::new_v4();
+        let trade_id = Uuid::new_v4();
+        let before = Utc::now().naive_utc();
+
+        let transaction = Transaction::new(
+            account_id,
+            TransactionCategory::FundTrade(trade_id),
+            &Currency::USD,
+            dec!(1234.56),
+        );
+
+        let after = Utc::now().naive_utc();
+        assert_eq!(transaction.account_id, account_id);
+        assert_eq!(
+            transaction.category,
+            TransactionCategory::FundTrade(trade_id)
+        );
+        assert_eq!(transaction.category.trade_id(), Some(trade_id));
+        assert_eq!(transaction.currency, Currency::USD);
+        assert_eq!(transaction.amount, dec!(1234.56));
+        assert!(transaction.deleted_at.is_none());
+        assert_eq!(transaction.created_at, transaction.updated_at);
+        assert!(transaction.created_at >= before);
+        assert!(transaction.created_at <= after);
+    }
+
+    #[test]
+    fn parse_covers_remaining_trade_categories_and_missing_trade_ids() {
+        let id = Uuid::new_v4();
+        let parsed_with_trade_id = [
+            ("open_trade", TransactionCategory::OpenTrade(id)),
+            ("close_target", TransactionCategory::CloseTarget(id)),
+            (
+                "close_safety_stop",
+                TransactionCategory::CloseSafetyStop(id),
+            ),
+            (
+                "close_safety_stop_slippage",
+                TransactionCategory::CloseSafetyStopSlippage(id),
+            ),
+        ];
+        let trade_id_required_keys = [
+            "payment_tax",
+            "payment_from_trade",
+            "fund_trade",
+            "payment_earnings",
+            "open_trade",
+            "close_target",
+            "close_safety_stop",
+            "close_safety_stop_slippage",
+            "fee_open",
+            "fee_close",
+        ];
+
+        for (key, category) in parsed_with_trade_id {
+            assert_eq!(
+                TransactionCategory::parse(key, Some(id))
+                    .expect("category should parse with trade id"),
+                category
+            );
+        }
+        for key in trade_id_required_keys {
+            TransactionCategory::parse(key, None)
+                .expect_err("trade-scoped category should require a trade id");
+        }
     }
 }

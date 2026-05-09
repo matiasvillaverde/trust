@@ -130,6 +130,7 @@ impl SubmitDialogBuilder {
 #[cfg(test)]
 mod tests {
     use super::SubmitDialogBuilder;
+    use crate::dialogs::io::{scripted_push_select, scripted_reset};
     use alpaca_broker::AlpacaBroker;
     use core::TrustFacade;
     use db_sqlite::SqliteDatabase;
@@ -225,6 +226,19 @@ mod tests {
     }
 
     #[test]
+    fn build_calls_facade_when_trade_is_present() {
+        let mut trust = test_trust();
+        let builder = SubmitDialogBuilder {
+            account: None,
+            trade: Some(Trade::default()),
+            result: None,
+        }
+        .build(&mut trust);
+
+        assert!(builder.result.is_some());
+    }
+
+    #[test]
     fn display_handles_error_result() {
         let builder = SubmitDialogBuilder {
             account: None,
@@ -292,6 +306,96 @@ mod tests {
             .expect("result should be set")
             .expect_err("io should fail");
         assert!(err.to_string().contains("Trade selection was canceled"));
+    }
+
+    #[test]
+    fn search_with_io_stores_trade_read_errors() {
+        let mut trust = TrustFacade::new(
+            Box::new(crate::test_support::ReadFailureFactory::trades()),
+            Box::<AlpacaBroker>::default(),
+        );
+        let mut io = StubDialogIo {
+            select_result: Ok(None),
+        };
+
+        let builder = SubmitDialogBuilder {
+            account: Some(Account {
+                id: Uuid::new_v4(),
+                ..Account::default()
+            }),
+            trade: None,
+            result: None,
+        }
+        .search_with_io(&mut trust, &mut io);
+
+        let err = builder
+            .result
+            .expect("trade read error should set result")
+            .expect_err("trade read should fail");
+        assert!(err.to_string().contains("trade read failed"));
+    }
+
+    #[test]
+    fn search_with_io_selects_trade() {
+        let mut trust = test_trust();
+        let account = seed_funded_trade(&mut trust);
+        let funded = trust
+            .search_trades(account.id, model::Status::Funded)
+            .expect("funded trades")
+            .pop()
+            .expect("funded trade should exist");
+        let mut io = StubDialogIo {
+            select_result: Ok(Some(0)),
+        };
+
+        let builder = SubmitDialogBuilder {
+            account: Some(account),
+            trade: None,
+            result: None,
+        }
+        .search_with_io(&mut trust, &mut io);
+
+        assert!(builder.result.is_none());
+        assert_eq!(
+            builder.trade.expect("trade should be selected").id,
+            funded.id
+        );
+    }
+
+    #[test]
+    fn wrapper_methods_handle_default_console_paths() {
+        let mut trust = test_trust();
+        let account = seed_funded_trade(&mut trust);
+
+        let missing_account = SubmitDialogBuilder::new().account(&mut trust);
+        assert!(missing_account.account.is_none());
+
+        scripted_reset();
+        scripted_push_select(Ok(Some(0)));
+        let selected_account = SubmitDialogBuilder::new().account(&mut trust);
+        assert_eq!(
+            selected_account.account.as_ref().map(|a| a.id),
+            Some(account.id)
+        );
+
+        scripted_push_select(Ok(Some(0)));
+        let selected_trade = selected_account.search(&mut trust);
+        assert!(selected_trade.result.is_none());
+        assert!(selected_trade.trade.is_some());
+
+        scripted_reset();
+    }
+
+    #[test]
+    fn stub_dialog_io_confirm_default_is_false() {
+        let mut io = StubDialogIo {
+            select_result: Ok(None),
+        };
+
+        assert!(
+            !crate::dialogs::DialogIo::confirm(&mut io, "continue?", true)
+                .expect("confirm should return")
+        );
     }
 
     #[test]

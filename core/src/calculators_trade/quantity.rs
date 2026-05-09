@@ -31,7 +31,7 @@ impl QuantityCalculator {
 
         // Get rules by priority
         let mut rules = database.rule_read().read_all_rules(account_id)?;
-        rules.sort_by(|a, b| a.priority.cmp(&b.priority));
+        rules.sort_by_key(|rule| rule.priority);
 
         let mut risk_per_month = dec!(100.0); // Default to 100% of the available capital
 
@@ -175,6 +175,62 @@ impl QuantityCalculator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use db_sqlite::SqliteDatabase;
+    use model::{Account, AccountType, Environment, RuleLevel};
+
+    fn create_test_account(database: &mut SqliteDatabase, name: &str) -> Account {
+        database
+            .account_write()
+            .create_with_hierarchy(
+                name,
+                name,
+                Environment::Paper,
+                dec!(0),
+                dec!(0),
+                AccountType::Primary,
+                None,
+            )
+            .expect("account should be created")
+    }
+
+    fn create_test_transaction(
+        database: &mut SqliteDatabase,
+        account: &Account,
+        amount: Decimal,
+        category: model::TransactionCategory,
+    ) {
+        database
+            .transaction_write()
+            .create_transaction(account, amount, &Currency::USD, category)
+            .expect("transaction should be created");
+    }
+
+    fn create_test_deposit(database: &mut SqliteDatabase, account: &Account, amount: Decimal) {
+        create_test_transaction(
+            database,
+            account,
+            amount,
+            model::TransactionCategory::Deposit,
+        );
+    }
+
+    fn create_test_rule(
+        database: &mut SqliteDatabase,
+        account: &Account,
+        name: RuleName,
+        priority: u32,
+    ) {
+        database
+            .rule_write()
+            .create_rule(
+                account,
+                &name,
+                "quantity test rule",
+                priority,
+                &RuleLevel::Error,
+            )
+            .expect("rule should be created");
+    }
 
     #[test]
     fn test_max_quantity_per_trade_default() {
@@ -244,6 +300,67 @@ mod tests {
     }
 
     #[test]
+    fn test_max_quantity_per_trade_rejects_non_positive_inputs() {
+        assert_eq!(
+            QuantityCalculator::max_quantity_per_trade(dec!(0), dec!(100), dec!(90), 2.0),
+            0
+        );
+        assert_eq!(
+            QuantityCalculator::max_quantity_per_trade(dec!(10_000), dec!(100), dec!(100), 2.0),
+            0
+        );
+        assert_eq!(
+            QuantityCalculator::max_quantity_per_trade(dec!(10_000), dec!(100), dec!(90), 0.0),
+            0
+        );
+        assert_eq!(
+            QuantityCalculator::max_quantity_per_trade(dec!(10_000), dec!(100), dec!(90), -1.0),
+            0
+        );
+    }
+
+    #[test]
+    fn test_max_quantity_per_trade_uses_absolute_stop_distance() {
+        assert_eq!(
+            QuantityCalculator::max_quantity_per_trade(dec!(10_000), dec!(90), dec!(100), 2.0),
+            20
+        );
+    }
+
+    #[test]
+    fn test_max_quantity_per_trade_returns_zero_for_decimal_overflow_paths() {
+        assert_eq!(
+            QuantityCalculator::max_quantity_per_trade(Decimal::MAX, dec!(1), dec!(0), 2.0),
+            0
+        );
+        assert_eq!(
+            QuantityCalculator::max_quantity_per_trade(dec!(10_000), dec!(0), dec!(-1), 2.0),
+            0
+        );
+        assert_eq!(
+            QuantityCalculator::max_quantity_per_trade(
+                dec!(10_000),
+                Decimal::MAX,
+                Decimal::MIN,
+                2.0,
+            ),
+            0
+        );
+        assert_eq!(
+            QuantityCalculator::max_quantity_per_trade(Decimal::MAX, dec!(1), dec!(-1), 2.0),
+            0
+        );
+        assert_eq!(
+            QuantityCalculator::max_quantity_per_trade(Decimal::MAX, dec!(1), dec!(0), 200.0),
+            0
+        );
+        assert_eq!(
+            QuantityCalculator::max_quantity_per_trade(dec!(10_000), dec!(100), dec!(90), f32::NAN),
+            0
+        );
+    }
+
+    #[test]
     fn test_apply_multiplier_to_quantity_rounds_down() {
         assert_eq!(
             QuantityCalculator::apply_multiplier_to_quantity(101, dec!(0.5)),
@@ -252,6 +369,229 @@ mod tests {
         assert_eq!(
             QuantityCalculator::apply_multiplier_to_quantity(101, dec!(1.5)),
             151
+        );
+    }
+
+    #[test]
+    fn test_apply_multiplier_to_quantity_saturates_invalid_results_to_zero() {
+        assert_eq!(
+            QuantityCalculator::apply_multiplier_to_quantity(i64::MAX, Decimal::MAX),
+            0
+        );
+        assert_eq!(
+            QuantityCalculator::apply_multiplier_to_quantity(100, dec!(-1.5)),
+            0
+        );
+    }
+
+    #[test]
+    fn test_maximum_quantity_without_rules_uses_available_capital() {
+        let mut database = SqliteDatabase::new_in_memory();
+        let account = create_test_account(&mut database, "quantity-no-rules");
+        create_test_deposit(&mut database, &account, dec!(1_000));
+
+        let quantity = QuantityCalculator::maximum_quantity(
+            account.id,
+            dec!(250),
+            dec!(200),
+            &Currency::USD,
+            &mut database,
+        )
+        .expect("quantity should calculate");
+
+        assert_eq!(quantity, 4);
+    }
+
+    #[test]
+    fn test_maximum_quantity_without_rules_rejects_invalid_entry_price() {
+        let mut database = SqliteDatabase::new_in_memory();
+        let account = create_test_account(&mut database, "quantity-invalid-entry");
+
+        let error = QuantityCalculator::maximum_quantity(
+            account.id,
+            Decimal::ZERO,
+            dec!(200),
+            &Currency::USD,
+            &mut database,
+        )
+        .expect_err("invalid entry should fail");
+
+        assert_eq!(
+            error.to_string(),
+            "Invalid entry price 0 for quantity calculation (must be greater than 0)"
+        );
+    }
+
+    #[test]
+    fn test_maximum_quantity_without_rules_returns_zero_when_no_capital_is_available() {
+        let mut database = SqliteDatabase::new_in_memory();
+        let account = create_test_account(&mut database, "quantity-no-capital");
+
+        let quantity = QuantityCalculator::maximum_quantity(
+            account.id,
+            dec!(250),
+            dec!(200),
+            &Currency::USD,
+            &mut database,
+        )
+        .expect("quantity should calculate");
+
+        assert_eq!(quantity, 0);
+    }
+
+    #[test]
+    fn test_maximum_quantity_without_rules_reports_division_overflow() {
+        let mut database = SqliteDatabase::new_in_memory();
+        let account = create_test_account(&mut database, "quantity-division-overflow");
+        create_test_deposit(&mut database, &account, Decimal::MAX);
+
+        let error = QuantityCalculator::maximum_quantity(
+            account.id,
+            Decimal::new(1, 28),
+            Decimal::ZERO,
+            &Currency::USD,
+            &mut database,
+        )
+        .expect_err("overflowing division should fail");
+
+        assert!(error.to_string().contains("Division by zero or overflow"));
+    }
+
+    #[test]
+    fn test_maximum_quantity_without_rules_reports_i64_conversion_overflow() {
+        let mut database = SqliteDatabase::new_in_memory();
+        let account = create_test_account(&mut database, "quantity-i64-overflow");
+        create_test_deposit(&mut database, &account, Decimal::MAX);
+
+        let error = QuantityCalculator::maximum_quantity(
+            account.id,
+            dec!(1),
+            Decimal::ZERO,
+            &Currency::USD,
+            &mut database,
+        )
+        .expect_err("oversized quantity should fail");
+
+        assert!(error.to_string().contains("Cannot convert"));
+    }
+
+    #[test]
+    fn test_maximum_quantity_propagates_available_capital_errors() {
+        let mut database = SqliteDatabase::new_in_memory();
+        let account = create_test_account(&mut database, "quantity-negative-capital");
+        create_test_transaction(
+            &mut database,
+            &account,
+            dec!(1),
+            model::TransactionCategory::Withdrawal,
+        );
+
+        let error = QuantityCalculator::maximum_quantity(
+            account.id,
+            dec!(250),
+            dec!(200),
+            &Currency::USD,
+            &mut database,
+        )
+        .expect_err("negative available capital should fail");
+
+        assert_eq!(
+            error.to_string(),
+            "capital_available: total available is negative: -1"
+        );
+    }
+
+    #[test]
+    fn test_maximum_quantity_with_risk_per_trade_rule_limits_size() {
+        let mut database = SqliteDatabase::new_in_memory();
+        let account = create_test_account(&mut database, "quantity-risk-rule");
+        create_test_deposit(&mut database, &account, dec!(10_000));
+        create_test_rule(&mut database, &account, RuleName::RiskPerTrade(2.0), 1);
+
+        let quantity = QuantityCalculator::maximum_quantity(
+            account.id,
+            dec!(100),
+            dec!(90),
+            &Currency::USD,
+            &mut database,
+        )
+        .expect("quantity should calculate");
+
+        assert_eq!(quantity, 20);
+    }
+
+    #[test]
+    fn test_maximum_quantity_applies_risk_per_month_before_trade_risk() {
+        let mut database = SqliteDatabase::new_in_memory();
+        let account = create_test_account(&mut database, "quantity-month-risk-rule");
+        create_test_deposit(&mut database, &account, dec!(10_000));
+        create_test_rule(&mut database, &account, RuleName::RiskPerMonth(1.0), 1);
+        create_test_rule(&mut database, &account, RuleName::RiskPerTrade(2.0), 2);
+
+        let quantity = QuantityCalculator::maximum_quantity(
+            account.id,
+            dec!(100),
+            dec!(90),
+            &Currency::USD,
+            &mut database,
+        )
+        .expect("quantity should calculate");
+
+        assert_eq!(quantity, 0);
+    }
+
+    #[test]
+    fn test_maximum_quantity_returns_zero_when_trade_risk_exceeds_monthly_allowance() {
+        let mut database = SqliteDatabase::new_in_memory();
+        let account = create_test_account(&mut database, "quantity-monthly-allowance");
+        create_test_deposit(&mut database, &account, dec!(10_000));
+        create_test_rule(&mut database, &account, RuleName::RiskPerTrade(101.0), 1);
+
+        let quantity = QuantityCalculator::maximum_quantity(
+            account.id,
+            dec!(100),
+            dec!(90),
+            &Currency::USD,
+            &mut database,
+        )
+        .expect("quantity should calculate");
+
+        assert_eq!(quantity, 0);
+    }
+
+    #[test]
+    fn test_maximum_quantity_with_level_applies_persisted_multiplier() {
+        let mut database = SqliteDatabase::new_in_memory();
+        let account = create_test_account(&mut database, "quantity-level");
+        create_test_deposit(&mut database, &account, dec!(1_000));
+
+        let mut level = database
+            .level_write()
+            .create_default_level(&account)
+            .expect("level should be created");
+        level.current_level = 4;
+        level.risk_multiplier = dec!(1.50);
+        database
+            .level_write()
+            .update_level(&level)
+            .expect("level should be updated");
+
+        let quantity = QuantityCalculator::maximum_quantity_with_level(
+            account.id,
+            dec!(250),
+            dec!(200),
+            &Currency::USD,
+            &mut database,
+        )
+        .expect("level-adjusted quantity should calculate");
+
+        assert_eq!(
+            quantity,
+            LevelAdjustedQuantity {
+                base_quantity: 4,
+                level_multiplier: dec!(1.5),
+                final_quantity: 6,
+            }
         );
     }
 }

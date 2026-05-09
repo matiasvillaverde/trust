@@ -491,7 +491,9 @@ dependencies = [
  "argon2",
  "chrono",
  "db-sqlite",
+ "diesel",
  "password-hash",
+ "proptest",
  "rand_core 0.6.4",
  "rust_decimal",
  "rust_decimal_macros",
@@ -1186,6 +1188,8 @@ name = "ibkr-broker"
 version = "0.3.5"
 dependencies = [
  "chrono",
+ "core",
+ "db-sqlite",
  "keyring",
  "reqwest",
  "rust_decimal",

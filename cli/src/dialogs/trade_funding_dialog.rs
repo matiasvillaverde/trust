@@ -176,9 +176,10 @@ mod tests {
     use core::TrustFacade;
     use db_sqlite::SqliteDatabase;
     use model::{
-        Account, Currency, DraftTrade, Environment, Trade, TradeCategory, TradingVehicleCategory,
-        TransactionCategory,
+        Account, Broker, BrokerKind, BrokerLog, Currency, DraftTrade, Environment, Order, OrderIds,
+        Status, Trade, TradeCategory, TradingVehicleCategory, TransactionCategory,
     };
+    use rust_decimal::Decimal;
     use rust_decimal_macros::dec;
     use std::io::{Error as IoError, ErrorKind};
     use uuid::Uuid;
@@ -187,6 +188,139 @@ mod tests {
         let path = std::env::temp_dir().join(format!("trust-test-{}.db", Uuid::new_v4()));
         let db = SqliteDatabase::new(path.to_str().expect("valid temp db path"));
         TrustFacade::new(Box::new(db), Box::<AlpacaBroker>::default())
+    }
+
+    fn test_trust_with_broker(broker: Box<dyn Broker>) -> TrustFacade {
+        let path = std::env::temp_dir().join(format!("trust-test-{}.db", Uuid::new_v4()));
+        let db = SqliteDatabase::new(path.to_str().expect("valid temp db path"));
+        TrustFacade::new(Box::new(db), broker)
+    }
+
+    struct SubmitOkBroker;
+
+    impl Broker for SubmitOkBroker {
+        fn kind(&self) -> BrokerKind {
+            BrokerKind::Alpaca
+        }
+
+        fn submit_trade(
+            &self,
+            trade: &Trade,
+            _account: &Account,
+        ) -> Result<(BrokerLog, OrderIds), Box<dyn std::error::Error>> {
+            Ok((
+                BrokerLog {
+                    trade_id: trade.id,
+                    log: "submitted".to_string(),
+                    ..BrokerLog::default()
+                },
+                OrderIds {
+                    stop: "stop-id".to_string(),
+                    entry: "entry-id".to_string(),
+                    target: "target-id".to_string(),
+                },
+            ))
+        }
+
+        fn sync_trade(
+            &self,
+            trade: &Trade,
+            _account: &Account,
+        ) -> Result<(Status, Vec<Order>, BrokerLog), Box<dyn std::error::Error>> {
+            Ok((
+                Status::Submitted,
+                vec![],
+                BrokerLog {
+                    trade_id: trade.id,
+                    log: "synced".to_string(),
+                    ..BrokerLog::default()
+                },
+            ))
+        }
+
+        fn close_trade(
+            &self,
+            trade: &Trade,
+            _account: &Account,
+        ) -> Result<(Order, BrokerLog), Box<dyn std::error::Error>> {
+            Ok((
+                Order::default(),
+                BrokerLog {
+                    trade_id: trade.id,
+                    log: "closed".to_string(),
+                    ..BrokerLog::default()
+                },
+            ))
+        }
+
+        fn cancel_trade(
+            &self,
+            _trade: &Trade,
+            _account: &Account,
+        ) -> Result<(), Box<dyn std::error::Error>> {
+            Ok(())
+        }
+
+        fn modify_stop(
+            &self,
+            _trade: &Trade,
+            _account: &Account,
+            _new_stop_price: Decimal,
+        ) -> Result<String, Box<dyn std::error::Error>> {
+            Ok("stop-id".to_string())
+        }
+
+        fn modify_target(
+            &self,
+            _trade: &Trade,
+            _account: &Account,
+            _new_price: Decimal,
+        ) -> Result<String, Box<dyn std::error::Error>> {
+            Ok("target-id".to_string())
+        }
+    }
+
+    #[test]
+    fn submit_ok_broker_support_methods_return_deterministic_values() {
+        let broker = SubmitOkBroker;
+        let trade = Trade::default();
+        let account = Account::default();
+
+        assert_eq!(broker.kind(), BrokerKind::Alpaca);
+
+        let (submit_log, order_ids) = broker
+            .submit_trade(&trade, &account)
+            .expect("submit should succeed");
+        assert_eq!(submit_log.trade_id, trade.id);
+        assert_eq!(order_ids.entry, "entry-id");
+        assert_eq!(order_ids.stop, "stop-id");
+        assert_eq!(order_ids.target, "target-id");
+
+        let (status, orders, sync_log) = broker
+            .sync_trade(&trade, &account)
+            .expect("sync should succeed");
+        assert_eq!(status, Status::Submitted);
+        assert!(orders.is_empty());
+        assert_eq!(sync_log.log, "synced");
+
+        let (_order, close_log) = broker
+            .close_trade(&trade, &account)
+            .expect("close should succeed");
+        assert_eq!(close_log.log, "closed");
+
+        assert!(broker.cancel_trade(&trade, &account).is_ok());
+        assert_eq!(
+            broker
+                .modify_stop(&trade, &account, dec!(99))
+                .expect("modify stop"),
+            "stop-id"
+        );
+        assert_eq!(
+            broker
+                .modify_target(&trade, &account, dec!(101))
+                .expect("modify target"),
+            "target-id"
+        );
     }
 
     struct StubDialogIo {
@@ -241,6 +375,22 @@ mod tests {
         (account, trade)
     }
 
+    fn permissive_advisory_thresholds() -> core::services::AdvisoryThresholds {
+        core::services::AdvisoryThresholds {
+            sector_limit_pct: dec!(100),
+            asset_class_limit_pct: dec!(100),
+            single_position_limit_pct: dec!(100),
+        }
+    }
+
+    fn blocking_advisory_thresholds() -> core::services::AdvisoryThresholds {
+        core::services::AdvisoryThresholds {
+            sector_limit_pct: dec!(10),
+            asset_class_limit_pct: dec!(10),
+            single_position_limit_pct: dec!(10),
+        }
+    }
+
     #[test]
     fn new_starts_with_empty_state() {
         let builder = FundingDialogBuilder::new();
@@ -288,6 +438,253 @@ mod tests {
             .result
             .expect("result")
             .expect_err("unknown account should fail");
+    }
+
+    #[test]
+    fn build_surfaces_advisory_threshold_read_error() {
+        let mut trust = TrustFacade::new(
+            Box::new(crate::test_support::ReadFailureFactory::advisory()),
+            Box::<AlpacaBroker>::default(),
+        );
+        let mut io = StubDialogIo {
+            select_result: Ok(None),
+            confirm_result: Ok(true),
+        };
+
+        let builder = FundingDialogBuilder {
+            account: Some(Account::default()),
+            trade: Some(Trade::default()),
+            result: None,
+        }
+        .build_with_io(&mut trust, &mut io);
+
+        let err = builder
+            .result
+            .expect("result")
+            .expect_err("advisory read error should be surfaced");
+        assert_eq!(err.to_string(), "advisory read failed");
+    }
+
+    #[test]
+    fn build_cancels_when_advisory_warning_is_not_confirmed() {
+        let mut trust = test_trust();
+        let (account, trade) = seed_new_trade(&mut trust, "fund-warning");
+        trust
+            .configure_advisory_thresholds(account.id, permissive_advisory_thresholds())
+            .expect("thresholds");
+        let mut io = StubDialogIo {
+            select_result: Ok(None),
+            confirm_result: Ok(false),
+        };
+
+        let builder = FundingDialogBuilder {
+            account: Some(account),
+            trade: Some(trade),
+            result: None,
+        }
+        .build_with_io(&mut trust, &mut io);
+
+        let err = builder
+            .result
+            .expect("result")
+            .expect_err("warning should require confirmation");
+        assert!(err
+            .to_string()
+            .contains("Funding canceled by user after advisory"));
+    }
+
+    #[test]
+    fn build_blocks_trade_when_advisory_hard_limit_is_exceeded() {
+        let mut trust = test_trust();
+        let (account, trade) = seed_new_trade(&mut trust, "fund-block");
+        trust
+            .configure_advisory_thresholds(account.id, blocking_advisory_thresholds())
+            .expect("thresholds");
+        let mut io = StubDialogIo {
+            select_result: Ok(None),
+            confirm_result: Ok(true),
+        };
+
+        let builder = FundingDialogBuilder {
+            account: Some(account),
+            trade: Some(trade),
+            result: None,
+        }
+        .build_with_io(&mut trust, &mut io);
+
+        let err = builder
+            .result
+            .expect("result")
+            .expect_err("hard advisory limits should block funding");
+        assert!(err.to_string().contains("Trade blocked by advisory limits"));
+    }
+
+    #[test]
+    fn build_funds_trade_when_advisory_warning_is_confirmed_and_display_success() {
+        let mut trust = test_trust();
+        let (account, trade) = seed_new_trade(&mut trust, "fund-confirmed");
+        trust
+            .configure_advisory_thresholds(account.id, permissive_advisory_thresholds())
+            .expect("thresholds");
+        let mut io = StubDialogIo {
+            select_result: Ok(None),
+            confirm_result: Ok(true),
+        };
+
+        let builder = FundingDialogBuilder {
+            account: Some(account),
+            trade: Some(trade),
+            result: None,
+        }
+        .build_with_io(&mut trust, &mut io);
+
+        assert!(builder.result.as_ref().expect("result").as_ref().is_ok());
+        builder.display();
+    }
+
+    #[test]
+    fn build_reaches_ok_advisory_branch_before_funding_validation_error() {
+        let mut trust = test_trust();
+        let account = trust
+            .create_account(
+                "fund-ok-branch",
+                "test",
+                Environment::Paper,
+                dec!(20),
+                dec!(10),
+            )
+            .expect("account");
+        let vehicle = trust
+            .create_trading_vehicle("ZERO", None, &TradingVehicleCategory::Stock, "alpaca")
+            .expect("vehicle");
+        let trade = Trade {
+            account_id: account.id,
+            trading_vehicle: vehicle,
+            ..Trade::default()
+        };
+        let mut io = StubDialogIo {
+            select_result: Ok(None),
+            confirm_result: Ok(false),
+        };
+
+        let builder = FundingDialogBuilder {
+            account: Some(account),
+            trade: Some(trade),
+            result: None,
+        }
+        .build_with_io(&mut trust, &mut io);
+
+        let _ = builder
+            .result
+            .expect("result")
+            .expect_err("invalid zero-notional trade should not fund");
+    }
+
+    #[test]
+    fn build_funds_trade_when_advisory_is_ok() {
+        let mut trust = test_trust_with_broker(Box::new(SubmitOkBroker));
+        let account = trust
+            .create_account(
+                "fund-ok-advisory",
+                "test",
+                Environment::Paper,
+                dec!(20),
+                dec!(10),
+            )
+            .expect("account");
+        trust
+            .create_transaction(
+                &account,
+                &TransactionCategory::Deposit,
+                dec!(50_000),
+                &Currency::USD,
+            )
+            .expect("deposit");
+
+        let hedge_vehicle = trust
+            .create_trading_vehicle("MSFT", None, &TradingVehicleCategory::Stock, "alpaca")
+            .expect("hedge vehicle");
+        let hedge = trust
+            .create_trade(
+                DraftTrade {
+                    account: account.clone(),
+                    trading_vehicle: hedge_vehicle,
+                    quantity: 100,
+                    currency: Currency::USD,
+                    category: TradeCategory::Long,
+                    thesis: None,
+                    sector: Some("Software".to_string()),
+                    asset_class: Some("Stocks".to_string()),
+                    context: None,
+                },
+                dec!(95),
+                dec!(100),
+                dec!(110),
+            )
+            .expect("hedge trade");
+        let (funded_hedge, _, _, _) = trust.fund_trade(&hedge).expect("hedge funding");
+        trust
+            .submit_trade(&funded_hedge)
+            .expect("hedge submission should create open exposure");
+
+        let proposal_vehicle = trust
+            .create_trading_vehicle("AAPL", None, &TradingVehicleCategory::Stock, "alpaca")
+            .expect("proposal vehicle");
+        let proposal = trust
+            .create_trade(
+                DraftTrade {
+                    account: account.clone(),
+                    trading_vehicle: proposal_vehicle,
+                    quantity: 10,
+                    currency: Currency::USD,
+                    category: TradeCategory::Long,
+                    thesis: None,
+                    sector: Some("Healthcare".to_string()),
+                    asset_class: Some("Alternatives".to_string()),
+                    context: None,
+                },
+                dec!(95),
+                dec!(100),
+                dec!(110),
+            )
+            .expect("proposal trade");
+        let mut io = StubDialogIo {
+            select_result: Ok(None),
+            confirm_result: Ok(false),
+        };
+
+        let builder = FundingDialogBuilder {
+            account: Some(account),
+            trade: Some(proposal),
+            result: None,
+        }
+        .build_with_io(&mut trust, &mut io);
+
+        assert!(builder.result.expect("result").is_ok());
+    }
+
+    #[test]
+    fn account_wrapper_handles_search_error_and_stub_confirm_returns_default_false() {
+        let mut trust = test_trust();
+        scripted_reset();
+
+        let builder = FundingDialogBuilder::new().account(&mut trust);
+        assert!(builder.account.is_none());
+
+        let mut io = StubDialogIo {
+            select_result: Ok(None),
+            confirm_result: Ok(true),
+        };
+        assert!(
+            crate::dialogs::DialogIo::confirm(&mut io, "continue?", false)
+                .expect("confirm should return")
+        );
+        assert!(
+            !crate::dialogs::DialogIo::confirm(&mut io, "continue?", true)
+                .expect("confirm should fall back")
+        );
+
+        scripted_reset();
     }
 
     #[test]
@@ -342,6 +739,34 @@ mod tests {
             .expect_err("io should fail")
             .to_string()
             .contains("Trade selection was canceled"));
+    }
+
+    #[test]
+    fn search_with_io_stores_trade_read_errors() {
+        let mut trust = TrustFacade::new(
+            Box::new(crate::test_support::ReadFailureFactory::trades()),
+            Box::<AlpacaBroker>::default(),
+        );
+        let mut io = StubDialogIo {
+            select_result: Ok(None),
+            confirm_result: Ok(true),
+        };
+
+        let builder = FundingDialogBuilder {
+            account: Some(Account {
+                id: Uuid::new_v4(),
+                ..Account::default()
+            }),
+            trade: None,
+            result: None,
+        }
+        .search_with_io(&mut trust, &mut io);
+
+        let err = builder
+            .result
+            .expect("trade read error should set result")
+            .expect_err("trade read should fail");
+        assert!(err.to_string().contains("trade read failed"));
     }
 
     #[test]

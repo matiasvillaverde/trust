@@ -39,6 +39,7 @@ use argon2::{
     Argon2,
 };
 use broker_registry::BrokerRegistry;
+use calculators_fixed_income::{BondAnalytics, BondAnalyticsInput, FixedIncomeCalculator};
 use calculators_trade::{
     LevelAdjustedQuantity, QuantityCalculator, TradeHypothesis, TradeHypothesisCalculator,
 };
@@ -701,6 +702,14 @@ impl TrustFacade {
             currency,
             &mut *self.factory,
         )
+    }
+
+    /// Calculate fixed-income analytics for a plain-vanilla bond position.
+    pub fn calculate_bond_analytics(
+        &self,
+        input: BondAnalyticsInput,
+    ) -> Result<BondAnalytics, calculators_fixed_income::FixedIncomeError> {
+        FixedIncomeCalculator::analyze_bond(input)
     }
 
     /// Create a new trade with entry, stop, and target orders.
@@ -1986,11 +1995,614 @@ fn hash_distribution_password_legacy_sha256(
     Ok(format!("{digest:x}"))
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::{Duration, TimeZone, Utc};
+    use model::OrderIds;
+
+    struct NoopBroker;
+
+    impl Broker for NoopBroker {
+        fn kind(&self) -> BrokerKind {
+            BrokerKind::Alpaca
+        }
+
+        fn submit_trade(
+            &self,
+            _trade: &Trade,
+            _account: &Account,
+        ) -> Result<(BrokerLog, OrderIds), Box<dyn StdError>> {
+            Err("submit not used in facade wrapper tests".into())
+        }
+
+        fn sync_trade(
+            &self,
+            _trade: &Trade,
+            _account: &Account,
+        ) -> Result<(Status, Vec<Order>, BrokerLog), Box<dyn StdError>> {
+            Err("sync not used in facade wrapper tests".into())
+        }
+
+        fn close_trade(
+            &self,
+            _trade: &Trade,
+            _account: &Account,
+        ) -> Result<(Order, BrokerLog), Box<dyn StdError>> {
+            Err("close not used in facade wrapper tests".into())
+        }
+
+        fn cancel_trade(
+            &self,
+            _trade: &Trade,
+            _account: &Account,
+        ) -> Result<(), Box<dyn StdError>> {
+            Err("cancel not used in facade wrapper tests".into())
+        }
+
+        fn modify_stop(
+            &self,
+            _trade: &Trade,
+            _account: &Account,
+            _new_stop_price: Decimal,
+        ) -> Result<String, Box<dyn StdError>> {
+            Err("modify stop not used in facade wrapper tests".into())
+        }
+
+        fn modify_target(
+            &self,
+            _trade: &Trade,
+            _account: &Account,
+            _new_price: Decimal,
+        ) -> Result<String, Box<dyn StdError>> {
+            Err("modify target not used in facade wrapper tests".into())
+        }
+
+        fn get_latest_quote(
+            &self,
+            symbol: &str,
+            _account: &Account,
+        ) -> Result<model::MarketQuote, Box<dyn StdError>> {
+            Ok(model::MarketQuote {
+                symbol: symbol.to_string(),
+                as_of: Utc.with_ymd_and_hms(2024, 1, 1, 9, 30, 0).unwrap(),
+                bid_price: dec!(102),
+                bid_size: 10,
+                ask_price: dec!(99),
+                ask_size: 12,
+            })
+        }
+
+        fn get_latest_trade(
+            &self,
+            symbol: &str,
+            _account: &Account,
+        ) -> Result<model::MarketTradeTick, Box<dyn StdError>> {
+            Ok(model::MarketTradeTick {
+                symbol: symbol.to_string(),
+                as_of: Utc.with_ymd_and_hms(2024, 1, 1, 9, 31, 0).unwrap(),
+                price: dec!(100),
+                size: 7,
+            })
+        }
+    }
+
+    fn new_test_facade() -> TrustFacade {
+        TrustFacade::new(
+            Box::new(db_sqlite::SqliteDatabase::new_in_memory()),
+            Box::new(NoopBroker),
+        )
+    }
+
+    fn persist_closed_trade_through_facade(trust: &mut TrustFacade) -> (Account, Trade) {
+        let account = trust
+            .create_account(
+                "facade-grade-account",
+                "facade grade",
+                Environment::Paper,
+                dec!(20),
+                dec!(10),
+            )
+            .expect("account should be created");
+        trust
+            .create_transaction(
+                &account,
+                &TransactionCategory::Deposit,
+                dec!(50000),
+                &Currency::USD,
+            )
+            .expect("deposit should fund account");
+        let vehicle = trust
+            .create_trading_vehicle(
+                "FACGRADE",
+                Some("US0000000001"),
+                &TradingVehicleCategory::Stock,
+                "alpaca",
+            )
+            .expect("vehicle should be created");
+        let trade = trust
+            .create_trade(
+                DraftTrade {
+                    account: account.clone(),
+                    trading_vehicle: vehicle,
+                    quantity: 10,
+                    currency: Currency::USD,
+                    category: model::TradeCategory::Long,
+                    thesis: Some("Breakout after consolidation".to_string()),
+                    sector: Some("Technology".to_string()),
+                    asset_class: Some("Stock".to_string()),
+                    context: Some("Daily range expansion".to_string()),
+                },
+                dec!(95),
+                dec!(100),
+                dec!(115),
+            )
+            .expect("trade should be created");
+        let (mut funded, _, _, _) = trust.fund_trade(&trade).expect("trade should fund");
+        funded.entry.average_filled_price = Some(funded.entry.unit_price);
+        funded.entry.filled_quantity = funded.entry.quantity;
+        trust
+            .factory
+            .order_write()
+            .update(&funded.entry)
+            .expect("entry average fill should be persisted");
+
+        let (mut filled, _) = trust
+            .fill_trade(&funded, Decimal::ZERO)
+            .expect("trade should fill");
+        filled.target.average_filled_price = Some(filled.target.unit_price);
+        filled.target.filled_quantity = filled.target.quantity;
+        trust
+            .factory
+            .order_write()
+            .update(&filled.target)
+            .expect("target average fill should be persisted");
+
+        trust
+            .target_acquired(&filled, Decimal::ZERO)
+            .expect("trade should close at target");
+        let mut closed = trust
+            .search_trades(account.id, Status::ClosedTarget)
+            .expect("closed target trades should be readable");
+        let trade = closed.pop().expect("closed trade should exist");
+
+        (account, trade)
+    }
+
+    fn create_distribution_child_accounts(trust: &mut TrustFacade, source: &Account) {
+        for (suffix, account_type) in [
+            ("earnings", AccountType::Earnings),
+            ("tax", AccountType::TaxReserve),
+            ("reinvestment", AccountType::Reinvestment),
+        ] {
+            trust
+                .create_account_with_profile(
+                    &format!("facade-distribution-{suffix}"),
+                    &format!("distribution {suffix}"),
+                    Environment::Paper,
+                    dec!(0),
+                    dec!(0),
+                    account_type,
+                    Some(source.id),
+                    BrokerKind::Alpaca,
+                    None,
+                )
+                .expect("distribution child account should be created");
+        }
+    }
+
+    #[test]
+    fn level_snapshot_cache_prunes_recomputes_and_tracks_ordered_wins() {
+        let base = Utc::now().naive_utc();
+        let outside_window_days =
+            LevelingService::<DefaultLevelTransitionPolicy>::EVALUATION_WINDOW_DAYS
+                .checked_add(1)
+                .unwrap();
+        let stale_loss = base
+            .checked_sub_signed(Duration::days(outside_window_days))
+            .unwrap();
+        let recent_win = base.checked_sub_signed(Duration::days(1)).unwrap();
+        let out_of_order_loss = recent_win.checked_sub_signed(Duration::hours(1)).unwrap();
+
+        let mut cache = LevelSnapshotCache::new();
+        cache.seed_from_points(vec![(stale_loss, dec!(-20)), (recent_win, dec!(10))]);
+
+        let seeded = cache.snapshot(dec!(1000));
+        assert_eq!(seeded.profitable_trades, 1);
+        assert_eq!(seeded.consecutive_wins, 1);
+        assert_eq!(seeded.monthly_loss_percentage, dec!(-1));
+        assert_eq!(seeded.largest_loss_percentage, dec!(-2));
+
+        cache.push_and_prune(base, dec!(15));
+        let pruned = cache.snapshot(dec!(1000));
+        assert_eq!(pruned.profitable_trades, 2);
+        assert_eq!(pruned.consecutive_wins, 2);
+        assert_eq!(pruned.monthly_loss_percentage, Decimal::ZERO);
+        assert_eq!(pruned.largest_loss_percentage, Decimal::ZERO);
+
+        cache.push_and_prune(out_of_order_loss, dec!(-5));
+        let recomputed = cache.snapshot(dec!(1000));
+        assert_eq!(recomputed.profitable_trades, 2);
+        assert_eq!(recomputed.consecutive_wins, 0);
+        assert_eq!(recomputed.monthly_loss_percentage, Decimal::ZERO);
+        assert_eq!(recomputed.largest_loss_percentage, dec!(-0.5));
+    }
+
+    #[test]
+    fn level_snapshot_cache_covers_empty_and_lazy_min_recompute_paths() {
+        let base = Utc::now().naive_utc();
+        let outside_window_days =
+            LevelingService::<DefaultLevelTransitionPolicy>::EVALUATION_WINDOW_DAYS
+                .checked_add(1)
+                .unwrap();
+        let stale = base
+            .checked_sub_signed(Duration::days(outside_window_days))
+            .unwrap();
+        let recent = base.checked_sub_signed(Duration::days(1)).unwrap();
+        let recent_later = recent.checked_add_signed(Duration::minutes(1)).unwrap();
+
+        let empty = LevelSnapshotCache::new().snapshot(dec!(1000));
+        assert_eq!(empty.profitable_trades, 0);
+        assert_eq!(empty.win_rate_percentage, Decimal::ZERO);
+        assert_eq!(empty.largest_loss_percentage, Decimal::ZERO);
+
+        let mut decreasing_min = LevelSnapshotCache::new();
+        decreasing_min.seed_from_points(vec![(recent, dec!(10)), (recent_later, dec!(-20))]);
+        assert_eq!(
+            decreasing_min.snapshot(dec!(1000)).largest_loss_percentage,
+            dec!(-2)
+        );
+
+        let mut stale_positive = LevelSnapshotCache::new();
+        stale_positive.seed_from_points(vec![(stale, dec!(20)), (recent, dec!(-10))]);
+        stale_positive.push_and_prune(base, dec!(5));
+        let pruned = stale_positive.snapshot(dec!(1000));
+        assert_eq!(pruned.profitable_trades, 1);
+        assert_eq!(pruned.largest_loss_percentage, dec!(-1));
+
+        let mut stale_min = LevelSnapshotCache::new();
+        stale_min.seed_from_points(vec![
+            (stale, dec!(-30)),
+            (recent, dec!(10)),
+            (recent_later, dec!(-5)),
+        ]);
+        stale_min.push_and_prune(base, dec!(1));
+        assert_eq!(
+            stale_min.snapshot(dec!(1000)).largest_loss_percentage,
+            dec!(-0.5)
+        );
+
+        let mut stale_min_with_larger_remaining_loss = LevelSnapshotCache::new();
+        stale_min_with_larger_remaining_loss.seed_from_points(vec![
+            (stale, dec!(-30)),
+            (recent, dec!(-10)),
+            (recent_later, dec!(-5)),
+        ]);
+        stale_min_with_larger_remaining_loss.push_and_prune(base, dec!(1));
+        assert_eq!(
+            stale_min_with_larger_remaining_loss
+                .snapshot(dec!(1000))
+                .largest_loss_percentage,
+            dec!(-1)
+        );
+    }
+
+    #[test]
+    fn distribution_password_hashes_verify_and_reject_weak_inputs() {
+        assert!(hash_distribution_password("short").is_err());
+        assert!(hash_distribution_password_legacy_sha256("short").is_err());
+
+        let password = "correct horse battery staple";
+        let argon_hash = hash_distribution_password(password).unwrap();
+        assert!(argon_hash.starts_with("$argon2"));
+        assert!(verify_distribution_password(password, &argon_hash).unwrap());
+        assert!(!verify_distribution_password("wrong password", &argon_hash).unwrap());
+
+        let legacy_hash = hash_distribution_password_legacy_sha256(password).unwrap();
+        assert!(verify_distribution_password(password, &legacy_hash).unwrap());
+        assert!(!verify_distribution_password("wrong password", &legacy_hash).unwrap());
+        assert!(!verify_distribution_password(password, "$argon2id$invalid").unwrap());
+    }
+
+    #[test]
+    fn facade_debug_and_rule_search_wrappers_are_stable() {
+        let mut trust = new_test_facade();
+        let debug = format!("{trust:?}");
+
+        assert!(debug.contains("TrustFacade"));
+        assert!(debug.contains("protected_mode"));
+
+        let account = trust
+            .create_account(
+                "facade-rule-account",
+                "rules",
+                Environment::Paper,
+                dec!(20),
+                dec!(10),
+            )
+            .expect("account should be created");
+        let rules = trust
+            .search_all_rules(account.id)
+            .expect("rule wrapper should read through facade");
+
+        assert!(rules.is_empty());
+    }
+
+    #[test]
+    fn noop_broker_stub_methods_fail_fast() {
+        let broker = NoopBroker;
+        let trade = Trade::default();
+        let account = Account::default();
+
+        assert_eq!(broker.kind(), BrokerKind::Alpaca);
+        assert!(broker.submit_trade(&trade, &account).is_err());
+        assert!(broker.sync_trade(&trade, &account).is_err());
+        assert!(broker.close_trade(&trade, &account).is_err());
+        assert!(broker.cancel_trade(&trade, &account).is_err());
+        assert!(broker.modify_stop(&trade, &account, dec!(99)).is_err());
+        assert!(broker.modify_target(&trade, &account, dec!(101)).is_err());
+    }
+
+    #[test]
+    fn facade_market_snapshot_v2_uses_quote_trade_extremes() {
+        let mut trust = new_test_facade();
+        let account = Account::default();
+        let snapshot = trust
+            .market_snapshot_v2(&account, "SPY", Utc::now())
+            .expect("quote/trade snapshot should succeed");
+
+        assert_eq!(snapshot.symbol, "SPY");
+        assert_eq!(snapshot.source, MarketSnapshotSource::QuoteTrade);
+        assert_eq!(snapshot.last_price, dec!(100));
+        assert_eq!(snapshot.volume, 7);
+        assert_eq!(snapshot.open, dec!(100));
+        assert_eq!(snapshot.high, dec!(100));
+        assert_eq!(snapshot.low, dec!(100));
+        assert_eq!(
+            snapshot.as_of,
+            Utc.with_ymd_and_hms(2024, 1, 1, 9, 31, 0).unwrap()
+        );
+        assert!(snapshot.quote.is_some());
+        assert!(snapshot.trade.is_some());
+    }
+
+    #[test]
+    fn facade_grade_wrappers_compute_persist_and_read_trade_grades() {
+        let mut trust = new_test_facade();
+        let (account, trade) = persist_closed_trade_through_facade(&mut trust);
+
+        assert!(trust
+            .latest_trade_grade(trade.id)
+            .expect("latest grade wrapper should read empty state")
+            .is_none());
+
+        let computed = trust
+            .compute_trade_grade(
+                trade.id,
+                services::grading::GradingWeightsPermille::default(),
+            )
+            .expect("closed trade should compute a grade");
+        assert_eq!(computed.trade_id, trade.id);
+        assert_eq!(computed.grade.trade_id, trade.id);
+
+        assert!(trust
+            .latest_trade_grade(trade.id)
+            .expect("compute wrapper should not persist")
+            .is_none());
+
+        let persisted = trust
+            .grade_trade(
+                trade.id,
+                services::grading::GradingWeightsPermille::default(),
+            )
+            .expect("grade wrapper should persist a grade");
+        let latest = trust
+            .latest_trade_grade(trade.id)
+            .expect("latest grade wrapper should read persisted grade")
+            .expect("persisted grade should exist");
+        let account_grades = trust
+            .trade_grades_for_account_days(account.id, 30)
+            .expect("account grade wrapper should read grade history");
+
+        assert_eq!(latest.id, persisted.grade.id);
+        assert_eq!(account_grades.len(), 1);
+        assert_eq!(
+            account_grades.first().expect("grade should exist").id,
+            latest.id
+        );
+    }
+
+    #[test]
+    fn facade_distribution_configuration_updates_and_auto_distributes_profit() {
+        let mut trust = new_test_facade();
+        let (source, closed_trade) = persist_closed_trade_through_facade(&mut trust);
+        create_distribution_child_accounts(&mut trust, &source);
+
+        trust
+            .configure_distribution(
+                source.id,
+                dec!(0.40),
+                dec!(0.30),
+                dec!(0.30),
+                dec!(100),
+                "distribution-pass",
+            )
+            .expect("initial distribution configuration should persist");
+
+        let wrong_password = trust
+            .configure_distribution(
+                source.id,
+                dec!(0.50),
+                dec!(0.25),
+                dec!(0.25),
+                dec!(100),
+                "wrong-password",
+            )
+            .expect_err("existing distribution rules should require the current password");
+        assert!(wrong_password.to_string().contains("Invalid distribution"));
+
+        trust
+            .configure_distribution(
+                source.id,
+                dec!(0.50),
+                dec!(0.25),
+                dec!(0.25),
+                dec!(50),
+                "distribution-pass",
+            )
+            .expect("distribution configuration should update with correct password");
+
+        let mut below_threshold_trade = closed_trade.clone();
+        below_threshold_trade.balance.total_performance = dec!(25);
+        assert!(trust
+            .try_auto_distribute_profit_for_trade(&below_threshold_trade)
+            .expect("below-threshold distribution check should succeed")
+            .is_none());
+
+        let mut eligible_trade = closed_trade;
+        eligible_trade.balance.total_performance = dec!(120);
+        trust.distribution_rules_cache.clear();
+        let result = trust
+            .try_auto_distribute_profit_for_trade(&eligible_trade)
+            .expect("eligible profit should auto-distribute")
+            .expect("distribution result should be present");
+
+        assert_eq!(result.source_account_id, source.id);
+        assert_eq!(result.transactions_created.len(), 3);
+    }
+
+    #[test]
+    fn facade_configure_advisory_thresholds_persists_custom_limits() {
+        let mut trust = new_test_facade();
+        let account = trust
+            .create_account(
+                "facade-advisory-config-account",
+                "advisory config",
+                Environment::Paper,
+                dec!(20),
+                dec!(10),
+            )
+            .expect("account should be created");
+        let thresholds = AdvisoryThresholds {
+            sector_limit_pct: dec!(45),
+            asset_class_limit_pct: dec!(55),
+            single_position_limit_pct: dec!(65),
+        };
+
+        trust
+            .configure_advisory_thresholds(account.id, thresholds.clone())
+            .expect("advisory thresholds should persist");
+
+        let persisted = trust
+            .advisory_thresholds_for_account(account.id)
+            .expect("advisory thresholds should read back");
+        assert_eq!(persisted.sector_limit_pct, thresholds.sector_limit_pct);
+        assert_eq!(
+            persisted.asset_class_limit_pct,
+            thresholds.asset_class_limit_pct
+        );
+        assert_eq!(
+            persisted.single_position_limit_pct,
+            thresholds.single_position_limit_pct
+        );
+    }
+
+    #[test]
+    fn facade_trading_summary_includes_performance_after_closed_trade() {
+        let mut trust = new_test_facade();
+        let (account, _trade) = persist_closed_trade_through_facade(&mut trust);
+
+        let summary = trust
+            .get_trading_summary(Some(account.id))
+            .expect("summary should be computed for account with closed trade");
+
+        let performance = summary
+            .performance
+            .expect("closed trade should be summarized");
+        assert_eq!(summary.account_id, Some(account.id));
+        assert_eq!(performance.total_trades, 1);
+        assert_eq!(performance.winning_trades, 1);
+        assert!(summary.equity > Decimal::ZERO);
+    }
+
+    #[test]
+    fn facade_advisory_status_reads_open_filled_trades() {
+        let mut trust = new_test_facade();
+        let account = trust
+            .create_account(
+                "facade-advisory-account",
+                "advisory",
+                Environment::Paper,
+                dec!(20),
+                dec!(10),
+            )
+            .expect("account should be created");
+        trust
+            .create_transaction(
+                &account,
+                &TransactionCategory::Deposit,
+                dec!(50000),
+                &Currency::USD,
+            )
+            .expect("deposit should fund account");
+        let vehicle = trust
+            .create_trading_vehicle(
+                "FACADV",
+                Some("US0000000002"),
+                &TradingVehicleCategory::Stock,
+                "alpaca",
+            )
+            .expect("vehicle should be created");
+        let trade = trust
+            .create_trade(
+                DraftTrade {
+                    account: account.clone(),
+                    trading_vehicle: vehicle,
+                    quantity: 10,
+                    currency: Currency::USD,
+                    category: model::TradeCategory::Long,
+                    thesis: None,
+                    sector: Some("Technology".to_string()),
+                    asset_class: Some("Stock".to_string()),
+                    context: None,
+                },
+                dec!(95),
+                dec!(100),
+                dec!(115),
+            )
+            .expect("trade should be created");
+        let (mut funded, _, _, _) = trust.fund_trade(&trade).expect("trade should fund");
+        funded.entry.average_filled_price = Some(funded.entry.unit_price);
+        funded.entry.filled_quantity = funded.entry.quantity;
+        trust
+            .factory
+            .order_write()
+            .update(&funded.entry)
+            .expect("entry average fill should be persisted");
+        let (filled, _) = trust
+            .fill_trade(&funded, Decimal::ZERO)
+            .expect("trade should fill");
+
+        assert_eq!(filled.status, Status::Filled);
+
+        let status = trust
+            .advisory_status_for_account(account.id)
+            .expect("advisory status should include open filled trades");
+
+        assert_eq!(status.top_sector_pct, dec!(100));
+        assert_eq!(status.top_asset_class_pct, dec!(100));
+        assert_eq!(status.top_position_pct, dec!(100));
+        assert_eq!(status.level, services::advisory::AdvisoryAlertLevel::Block);
+        assert!(!status.warnings.is_empty());
+    }
+}
+
 mod broker_registry;
 mod calculators_account;
 pub mod calculators_advanced_metrics;
 pub mod calculators_concentration;
 pub mod calculators_drawdown;
+pub mod calculators_fixed_income;
 pub mod calculators_performance;
 pub mod calculators_risk;
 mod calculators_trade;
@@ -1998,6 +2610,7 @@ mod commands;
 /// Domain events used by core workflows.
 pub mod events;
 mod mocks;
+mod security_tests;
 /// Core service layer modules.
 pub mod services;
 mod validators;

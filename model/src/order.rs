@@ -354,6 +354,7 @@ impl Default for Order {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rust_decimal_macros::dec;
 
     #[test]
     fn test_order_category_parse() {
@@ -368,6 +369,110 @@ mod tests {
         assert_eq!(format!("{}", OrderCategory::Market), "market");
         assert_eq!(format!("{}", OrderCategory::Limit), "limit");
         assert_eq!(format!("{}", OrderCategory::Stop), "stop");
+    }
+
+    #[test]
+    fn order_status_display_roundtrip_all_variants() {
+        let cases = [
+            (OrderStatus::New, "new"),
+            (OrderStatus::Replaced, "replaced"),
+            (OrderStatus::PartiallyFilled, "partially_filled"),
+            (OrderStatus::Filled, "filled"),
+            (OrderStatus::DoneForDay, "done_for_day"),
+            (OrderStatus::Canceled, "canceled"),
+            (OrderStatus::Expired, "expired"),
+            (OrderStatus::Accepted, "accepted"),
+            (OrderStatus::PendingNew, "pending_new"),
+            (OrderStatus::AcceptedForBidding, "accepted_for_bidding"),
+            (OrderStatus::PendingCancel, "pending_cancel"),
+            (OrderStatus::PendingReplace, "pending_replace"),
+            (OrderStatus::Stopped, "stopped"),
+            (OrderStatus::Rejected, "rejected"),
+            (OrderStatus::Suspended, "suspended"),
+            (OrderStatus::Calculated, "calculated"),
+            (OrderStatus::Held, "held"),
+            (OrderStatus::Unknown, "unknown"),
+        ];
+
+        for (status, text) in cases {
+            assert_eq!(status.to_string(), text);
+            assert_eq!(text.parse::<OrderStatus>(), Ok(status));
+        }
+    }
+
+    #[test]
+    fn time_in_force_display_parse_roundtrip_all_variants() {
+        let cases = [
+            (TimeInForce::Day, "day"),
+            (TimeInForce::UntilCanceled, "until_canceled"),
+            (TimeInForce::UntilMarketOpen, "until_market_open"),
+            (TimeInForce::UntilMarketClose, "until_market_close"),
+        ];
+
+        assert_eq!(TimeInForce::default(), TimeInForce::UntilCanceled);
+
+        for (time_in_force, text) in cases {
+            assert_eq!(time_in_force.to_string(), text);
+            assert_eq!(text.parse::<TimeInForce>(), Ok(time_in_force));
+        }
+
+        assert_eq!(
+            "immediate_or_cancel".parse::<TimeInForce>(),
+            Err(TimeInForceParseError)
+        );
+    }
+
+    #[test]
+    fn order_action_display_parse_roundtrip_all_variants() {
+        let cases = [
+            (OrderAction::Sell, "sell"),
+            (OrderAction::Buy, "buy"),
+            (OrderAction::Short, "short"),
+        ];
+
+        for (action, text) in cases {
+            assert_eq!(action.to_string(), text);
+            assert_eq!(text.parse::<OrderAction>(), Ok(action));
+        }
+
+        assert_eq!("cover".parse::<OrderAction>(), Err(OrderActionParseError));
+    }
+
+    #[test]
+    fn order_default_sets_safe_execution_state() {
+        let before = Utc::now().naive_utc();
+
+        let order = Order::default();
+
+        let after = Utc::now().naive_utc();
+        assert_eq!(order.unit_price, dec!(10.0));
+        assert_eq!(order.currency, Currency::default());
+        assert_eq!(order.quantity, 10);
+        assert_eq!(order.action, OrderAction::Buy);
+        assert_eq!(order.category, OrderCategory::Market);
+        assert_eq!(order.status, OrderStatus::New);
+        assert_eq!(order.time_in_force, TimeInForce::UntilCanceled);
+        assert!(!order.extended_hours);
+        assert_eq!(order.created_at, order.updated_at);
+        assert!(order.created_at >= before);
+        assert!(order.created_at <= after);
+    }
+
+    #[test]
+    fn order_default_has_no_external_or_lifecycle_state() {
+        let order = Order::default();
+
+        assert!(order.broker_order_id.is_none());
+        assert_eq!(order.filled_quantity, 0);
+        assert_eq!(order.average_filled_price, None);
+        assert!(order.deleted_at.is_none());
+        assert!(order.submitted_at.is_none());
+        assert!(order.filled_at.is_none());
+        assert!(order.expired_at.is_none());
+        assert!(order.cancelled_at.is_none());
+        assert!(order.closed_at.is_none());
+        assert!(order.trailing_percent.is_none());
+        assert!(order.trailing_price.is_none());
     }
 
     #[test]

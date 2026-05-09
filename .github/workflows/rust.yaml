@@ -202,9 +202,10 @@ jobs:
           --workspace \
           --all-features \
           --locked \
-          --fail-under-lines 1 \
-          --fail-under-functions 1 \
-          --fail-under-regions 1
+          --ignore-filename-regex '(^|/)test_support\.rs$' \
+          --fail-under-lines 94 \
+          --fail-under-functions 90 \
+          --fail-under-regions 93
 
   # Explicit regression coverage for the CLI integration use-cases suite.
   # This guarantees the large bug-hunt tests run in every PR CI cycle.
@@ -238,6 +239,37 @@ jobs:
 
     - name: Run CLI integration use-case suite
       run: cargo test --locked -p trust-cli --test integration_test_use_cases
+
+  trust-proof:
+    name: Multi-Asset Risk Proof
+    runs-on: ubuntu-latest
+    needs: quick-checks
+    timeout-minutes: 30
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libdbus-1-dev pkg-config libssl-dev build-essential
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@1.93.0
+
+    - name: Cache dependencies
+      uses: actions/cache@v5
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-trust-proof-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-trust-proof-
+          ${{ runner.os }}-cargo-
+
+    - name: Run focused multi-asset risk and IBKR proof suite
+      run: make trust-proof
 
   # Release build verification
   release-build:
@@ -288,7 +320,7 @@ jobs:
   ci-success:
     name: CI Success
     runs-on: ubuntu-latest
-    needs: [quick-checks, lint, build-and-test, snapshot-contracts, coverage, cli-integration-use-cases, release-build]
+    needs: [quick-checks, lint, build-and-test, snapshot-contracts, coverage, cli-integration-use-cases, trust-proof, release-build]
     steps:
     - name: CI Success
       run: echo "All CI checks passed successfully!"

@@ -13,9 +13,11 @@ use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
+use uuid::Uuid;
 
 const BACKUP_FORMAT: &str = "trust-backup";
 const BACKUP_VERSION_V1: u32 = 1;
+const MAX_BACKUP_BYTES: usize = 16 * 1024 * 1024;
 
 /// Errors returned by backup/export/import operations.
 #[derive(Debug, thiserror::Error)]
@@ -193,6 +195,14 @@ pub struct TradingVehicleRow {
     pub shortable: Option<bool>,
     pub easy_to_borrow: Option<bool>,
     pub fractionable: Option<bool>,
+    #[serde(default)]
+    pub fixed_income_face_value: Option<String>,
+    #[serde(default)]
+    pub fixed_income_coupon_rate_pct: Option<String>,
+    #[serde(default)]
+    pub fixed_income_maturity_date: Option<chrono::NaiveDate>,
+    #[serde(default)]
+    pub fixed_income_coupon_frequency_per_year: Option<i32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Queryable, Insertable)]
@@ -506,9 +516,20 @@ pub fn export_to_path(conn: &mut SqliteConnection, path: &Path) -> Result<(), Ba
 
 /// Load a backup envelope from a reader.
 pub fn read_backup_from_reader(mut reader: impl Read) -> Result<BackupEnvelopeV1, BackupError> {
+    let max_backup_bytes = u64::try_from(MAX_BACKUP_BYTES)
+        .map_err(|_| BackupError::Invalid("backup size limit is invalid".to_string()))?;
+    let read_limit = max_backup_bytes
+        .checked_add(1)
+        .ok_or_else(|| BackupError::Invalid("backup size limit is invalid".to_string()))?;
     let mut buf = String::new();
-    reader.read_to_string(&mut buf)?;
+    reader.by_ref().take(read_limit).read_to_string(&mut buf)?;
+    if buf.len() > MAX_BACKUP_BYTES {
+        return Err(BackupError::Invalid(format!(
+            "backup JSON exceeds maximum size of {MAX_BACKUP_BYTES} bytes"
+        )));
+    }
     let backup: BackupEnvelopeV1 = serde_json::from_str(&buf)?;
+    validate_backup_rows(&backup)?;
     Ok(backup)
 }
 
@@ -541,6 +562,84 @@ fn validate_backup_metadata(
             "migration mismatch: target={current:?} backup={:?}",
             backup.schema.diesel_migrations
         )));
+    }
+    validate_backup_rows(backup)?;
+    Ok(())
+}
+
+fn validate_uuid_field(table: &str, field: &str, value: &str) -> Result<(), BackupError> {
+    Uuid::parse_str(value)
+        .map(|_| ())
+        .map_err(|_| BackupError::Invalid(format!("invalid UUID in {table}.{field}: '{value}'")))
+}
+
+fn validate_optional_uuid_field(
+    table: &str,
+    field: &str,
+    value: Option<&str>,
+) -> Result<(), BackupError> {
+    if let Some(value) = value {
+        validate_uuid_field(table, field, value)?;
+    }
+    Ok(())
+}
+
+fn validate_backup_rows(backup: &BackupEnvelopeV1) -> Result<(), BackupError> {
+    for row in &backup.tables.accounts {
+        validate_uuid_field("accounts", "id", &row.id)?;
+        validate_optional_uuid_field(
+            "accounts",
+            "parent_account_id",
+            row.parent_account_id.as_deref(),
+        )?;
+    }
+    for row in &backup.tables.accounts_balances {
+        validate_uuid_field("accounts_balances", "id", &row.id)?;
+        validate_uuid_field("accounts_balances", "account_id", &row.account_id)?;
+    }
+    for row in &backup.tables.rules {
+        validate_uuid_field("rules", "id", &row.id)?;
+        validate_uuid_field("rules", "account_id", &row.account_id)?;
+    }
+    for row in &backup.tables.transactions {
+        validate_uuid_field("transactions", "id", &row.id)?;
+        validate_uuid_field("transactions", "account_id", &row.account_id)?;
+        validate_optional_uuid_field("transactions", "trade_id", row.trade_id.as_deref())?;
+    }
+    for row in &backup.tables.trading_vehicles {
+        validate_uuid_field("trading_vehicles", "id", &row.id)?;
+    }
+    for row in &backup.tables.orders {
+        validate_uuid_field("orders", "id", &row.id)?;
+        validate_uuid_field("orders", "trading_vehicle_id", &row.trading_vehicle_id)?;
+    }
+    for row in &backup.tables.trades_balances {
+        validate_uuid_field("trades_balances", "id", &row.id)?;
+    }
+    for row in &backup.tables.trades {
+        validate_uuid_field("trades", "id", &row.id)?;
+        validate_uuid_field("trades", "trading_vehicle_id", &row.trading_vehicle_id)?;
+        validate_uuid_field("trades", "safety_stop_id", &row.safety_stop_id)?;
+        validate_uuid_field("trades", "entry_id", &row.entry_id)?;
+        validate_uuid_field("trades", "target_id", &row.target_id)?;
+        validate_uuid_field("trades", "account_id", &row.account_id)?;
+        validate_uuid_field("trades", "balance_id", &row.balance_id)?;
+    }
+    for row in &backup.tables.logs {
+        validate_uuid_field("logs", "id", &row.id)?;
+        validate_uuid_field("logs", "trade_id", &row.trade_id)?;
+    }
+    for row in &backup.tables.levels {
+        validate_uuid_field("levels", "id", &row.id)?;
+        validate_uuid_field("levels", "account_id", &row.account_id)?;
+    }
+    for row in &backup.tables.level_changes {
+        validate_uuid_field("level_changes", "id", &row.id)?;
+        validate_uuid_field("level_changes", "account_id", &row.account_id)?;
+    }
+    for row in &backup.tables.trade_grades {
+        validate_uuid_field("trade_grades", "id", &row.id)?;
+        validate_uuid_field("trade_grades", "trade_id", &row.trade_id)?;
     }
     Ok(())
 }
@@ -608,6 +707,7 @@ pub fn import_backup(
 mod tests {
     use super::*;
     use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
+    use std::path::PathBuf;
 
     const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
 
@@ -618,6 +718,487 @@ mod tests {
             .execute(&mut conn)
             .unwrap();
         conn
+    }
+
+    fn fixed_dt() -> NaiveDateTime {
+        NaiveDate::from_ymd_opt(2020, 1, 1)
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap()
+    }
+
+    fn fixed_exported_at() -> DateTime<Utc> {
+        DateTime::<Utc>::from_naive_utc_and_offset(fixed_dt(), Utc)
+    }
+
+    fn uuid_text(n: u64) -> String {
+        format!("00000000-0000-0000-0000-{n:012}")
+    }
+
+    fn account_row(id: String, name: &str) -> AccountRow {
+        let dt = fixed_dt();
+        AccountRow {
+            id,
+            created_at: dt,
+            updated_at: dt,
+            deleted_at: None,
+            name: name.to_string(),
+            description: name.to_string(),
+            environment: "paper".to_string(),
+            taxes_percentage: "0".to_string(),
+            earnings_percentage: "0".to_string(),
+            account_type: "primary".to_string(),
+            parent_account_id: None,
+            broker_kind: "alpaca".to_string(),
+            broker_account_id: None,
+        }
+    }
+
+    fn insert_account(conn: &mut SqliteConnection, id: String, name: &str) {
+        diesel::insert_into(schema::accounts::table)
+            .values(account_row(id, name))
+            .execute(conn)
+            .expect("account row should insert");
+    }
+
+    fn empty_backup(conn: &mut SqliteConnection) -> BackupEnvelopeV1 {
+        read_backup_at(conn, fixed_exported_at()).expect("empty backup should read")
+    }
+
+    fn temp_backup_path() -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "trust-backup-test-{}-{}.json",
+            std::process::id(),
+            Uuid::new_v4()
+        ))
+    }
+
+    fn invalid_uuid() -> String {
+        "not-a-uuid".to_string()
+    }
+
+    fn first_row<T>(rows: &mut [T]) -> &mut T {
+        rows.first_mut()
+            .expect("validation fixture should include one row")
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn backup_with_all_uuid_fields() -> BackupEnvelopeV1 {
+        let date = NaiveDate::from_ymd_opt(2020, 1, 1).unwrap();
+        let dt = date.and_hms_opt(0, 0, 0).unwrap();
+        let account_id = uuid_text(701);
+        let parent_account_id = uuid_text(702);
+        let account_balance_id = uuid_text(703);
+        let rule_id = uuid_text(704);
+        let transaction_id = uuid_text(705);
+        let transaction_trade_id = uuid_text(706);
+        let trading_vehicle_id = uuid_text(707);
+        let order_id = uuid_text(708);
+        let trade_balance_id = uuid_text(709);
+        let trade_id = uuid_text(710);
+        let safety_stop_id = uuid_text(711);
+        let entry_id = uuid_text(712);
+        let target_id = uuid_text(713);
+        let log_id = uuid_text(714);
+        let level_id = uuid_text(715);
+        let level_change_id = uuid_text(716);
+        let trade_grade_id = uuid_text(717);
+
+        let mut account = account_row(account_id.clone(), "uuid-validation");
+        account.parent_account_id = Some(parent_account_id);
+
+        BackupEnvelopeV1 {
+            format: BACKUP_FORMAT.to_string(),
+            version: BACKUP_VERSION_V1,
+            exported_at: fixed_exported_at(),
+            schema: BackupSchema {
+                diesel_migrations: Vec::new(),
+            },
+            tables: BackupTablesV1 {
+                accounts: vec![account],
+                accounts_balances: vec![AccountBalanceRow {
+                    id: account_balance_id,
+                    created_at: dt,
+                    updated_at: dt,
+                    deleted_at: None,
+                    account_id: account_id.clone(),
+                    total_balance: "100".to_string(),
+                    total_in_trade: "0".to_string(),
+                    total_available: "100".to_string(),
+                    taxed: "0".to_string(),
+                    currency: "USD".to_string(),
+                    total_earnings: "0".to_string(),
+                }],
+                rules: vec![RuleRow {
+                    id: rule_id,
+                    created_at: dt,
+                    updated_at: dt,
+                    deleted_at: None,
+                    name: "risk_per_trade".to_string(),
+                    risk: 1,
+                    description: "risk rule".to_string(),
+                    priority: 1,
+                    level: "normal".to_string(),
+                    account_id: account_id.clone(),
+                    active: true,
+                }],
+                transactions: vec![TransactionRow {
+                    id: transaction_id,
+                    created_at: dt,
+                    updated_at: dt,
+                    deleted_at: None,
+                    currency: "USD".to_string(),
+                    category: "deposit".to_string(),
+                    amount: "100".to_string(),
+                    account_id: account_id.clone(),
+                    trade_id: Some(transaction_trade_id),
+                }],
+                trading_vehicles: vec![TradingVehicleRow {
+                    id: trading_vehicle_id.clone(),
+                    created_at: dt,
+                    updated_at: dt,
+                    deleted_at: None,
+                    symbol: "AAPL".to_string(),
+                    isin: None,
+                    category: "stock".to_string(),
+                    broker: "alpaca".to_string(),
+                    broker_asset_id: None,
+                    exchange: None,
+                    broker_asset_class: None,
+                    broker_asset_status: None,
+                    tradable: None,
+                    marginable: None,
+                    shortable: None,
+                    easy_to_borrow: None,
+                    fractionable: None,
+                    fixed_income_face_value: None,
+                    fixed_income_coupon_rate_pct: None,
+                    fixed_income_maturity_date: None,
+                    fixed_income_coupon_frequency_per_year: None,
+                }],
+                orders: vec![OrderRow {
+                    id: order_id,
+                    broker_order_id: None,
+                    created_at: dt,
+                    updated_at: dt,
+                    deleted_at: None,
+                    unit_price: "10".to_string(),
+                    currency: "USD".to_string(),
+                    quantity: 1,
+                    category: "limit".to_string(),
+                    trading_vehicle_id: trading_vehicle_id.clone(),
+                    action: "buy".to_string(),
+                    status: "new".to_string(),
+                    time_in_force: "day".to_string(),
+                    trailing_percentage: None,
+                    trailing_price: None,
+                    filled_quantity: None,
+                    average_filled_price: None,
+                    extended_hours: false,
+                    submitted_at: None,
+                    filled_at: None,
+                    expired_at: None,
+                    cancelled_at: None,
+                    closed_at: None,
+                }],
+                trades_balances: vec![TradeBalanceRow {
+                    id: trade_balance_id.clone(),
+                    created_at: dt,
+                    updated_at: dt,
+                    deleted_at: None,
+                    currency: "USD".to_string(),
+                    funding: "100".to_string(),
+                    capital_in_market: "0".to_string(),
+                    capital_out_market: "0".to_string(),
+                    taxed: "0".to_string(),
+                    total_performance: "0".to_string(),
+                }],
+                trades: vec![TradeRow {
+                    id: trade_id.clone(),
+                    created_at: dt,
+                    updated_at: dt,
+                    deleted_at: None,
+                    category: "long".to_string(),
+                    status: "new".to_string(),
+                    currency: "USD".to_string(),
+                    trading_vehicle_id,
+                    safety_stop_id,
+                    entry_id,
+                    target_id,
+                    account_id: account_id.clone(),
+                    balance_id: trade_balance_id,
+                    thesis: None,
+                    sector: None,
+                    asset_class: None,
+                    context: None,
+                }],
+                logs: vec![LogRow {
+                    id: log_id,
+                    created_at: dt,
+                    updated_at: dt,
+                    deleted_at: None,
+                    log: "created".to_string(),
+                    trade_id: trade_id.clone(),
+                }],
+                levels: vec![LevelRow {
+                    id: level_id,
+                    created_at: dt,
+                    updated_at: dt,
+                    deleted_at: None,
+                    account_id: account_id.clone(),
+                    current_level: 1,
+                    risk_multiplier: "1".to_string(),
+                    status: "active".to_string(),
+                    trades_at_level: 0,
+                    level_start_date: date,
+                }],
+                level_changes: vec![LevelChangeRow {
+                    id: level_change_id,
+                    created_at: dt,
+                    updated_at: dt,
+                    deleted_at: None,
+                    account_id,
+                    old_level: 1,
+                    new_level: 2,
+                    change_reason: "manual".to_string(),
+                    trigger_type: "manual_override".to_string(),
+                    changed_at: dt,
+                }],
+                trade_grades: vec![TradeGradeRow {
+                    id: trade_grade_id,
+                    created_at: dt,
+                    updated_at: dt,
+                    deleted_at: None,
+                    trade_id,
+                    overall_score: 75,
+                    overall_grade: "B".to_string(),
+                    process_score: 75,
+                    risk_score: 75,
+                    execution_score: 75,
+                    documentation_score: 75,
+                    recommendations: None,
+                    graded_at: dt,
+                    process_weight_permille: 400,
+                    risk_weight_permille: 300,
+                    execution_weight_permille: 200,
+                    documentation_weight_permille: 100,
+                }],
+            },
+        }
+    }
+
+    #[test]
+    fn import_options_and_legacy_account_defaults_are_stable() {
+        let options = ImportOptions::default();
+        assert_eq!(options.mode, ImportMode::Strict);
+        assert!(!options.dry_run);
+
+        let account: AccountRow = serde_json::from_value(serde_json::json!({
+            "id": uuid_text(801),
+            "created_at": "2026-01-01T00:00:00",
+            "updated_at": "2026-01-01T00:00:00",
+            "deleted_at": null,
+            "name": "legacy",
+            "description": "legacy account",
+            "environment": "paper",
+            "taxes_percentage": "0",
+            "earnings_percentage": "0"
+        }))
+        .expect("legacy account row should deserialize with schema defaults");
+
+        assert_eq!(account.account_type, default_account_type());
+        assert_eq!(account.parent_account_id, None);
+        assert_eq!(account.broker_kind, default_broker_kind());
+        assert_eq!(account.broker_account_id, None);
+    }
+
+    #[derive(Clone, Copy)]
+    struct UuidValidationCase {
+        table: &'static str,
+        field: &'static str,
+        mutate: fn(&mut BackupEnvelopeV1),
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn backup_row_validation_reports_invalid_uuid_fields() {
+        let cases = [
+            UuidValidationCase {
+                table: "accounts",
+                field: "id",
+                mutate: |backup| first_row(&mut backup.tables.accounts).id = invalid_uuid(),
+            },
+            UuidValidationCase {
+                table: "accounts",
+                field: "parent_account_id",
+                mutate: |backup| {
+                    first_row(&mut backup.tables.accounts).parent_account_id = Some(invalid_uuid());
+                },
+            },
+            UuidValidationCase {
+                table: "accounts_balances",
+                field: "id",
+                mutate: |backup| {
+                    first_row(&mut backup.tables.accounts_balances).id = invalid_uuid();
+                },
+            },
+            UuidValidationCase {
+                table: "accounts_balances",
+                field: "account_id",
+                mutate: |backup| {
+                    first_row(&mut backup.tables.accounts_balances).account_id = invalid_uuid();
+                },
+            },
+            UuidValidationCase {
+                table: "rules",
+                field: "id",
+                mutate: |backup| first_row(&mut backup.tables.rules).id = invalid_uuid(),
+            },
+            UuidValidationCase {
+                table: "rules",
+                field: "account_id",
+                mutate: |backup| first_row(&mut backup.tables.rules).account_id = invalid_uuid(),
+            },
+            UuidValidationCase {
+                table: "transactions",
+                field: "id",
+                mutate: |backup| first_row(&mut backup.tables.transactions).id = invalid_uuid(),
+            },
+            UuidValidationCase {
+                table: "transactions",
+                field: "account_id",
+                mutate: |backup| {
+                    first_row(&mut backup.tables.transactions).account_id = invalid_uuid();
+                },
+            },
+            UuidValidationCase {
+                table: "transactions",
+                field: "trade_id",
+                mutate: |backup| {
+                    first_row(&mut backup.tables.transactions).trade_id = Some(invalid_uuid());
+                },
+            },
+            UuidValidationCase {
+                table: "trading_vehicles",
+                field: "id",
+                mutate: |backup| {
+                    first_row(&mut backup.tables.trading_vehicles).id = invalid_uuid();
+                },
+            },
+            UuidValidationCase {
+                table: "orders",
+                field: "id",
+                mutate: |backup| first_row(&mut backup.tables.orders).id = invalid_uuid(),
+            },
+            UuidValidationCase {
+                table: "orders",
+                field: "trading_vehicle_id",
+                mutate: |backup| {
+                    first_row(&mut backup.tables.orders).trading_vehicle_id = invalid_uuid();
+                },
+            },
+            UuidValidationCase {
+                table: "trades_balances",
+                field: "id",
+                mutate: |backup| first_row(&mut backup.tables.trades_balances).id = invalid_uuid(),
+            },
+            UuidValidationCase {
+                table: "trades",
+                field: "id",
+                mutate: |backup| first_row(&mut backup.tables.trades).id = invalid_uuid(),
+            },
+            UuidValidationCase {
+                table: "trades",
+                field: "trading_vehicle_id",
+                mutate: |backup| {
+                    first_row(&mut backup.tables.trades).trading_vehicle_id = invalid_uuid();
+                },
+            },
+            UuidValidationCase {
+                table: "trades",
+                field: "safety_stop_id",
+                mutate: |backup| {
+                    first_row(&mut backup.tables.trades).safety_stop_id = invalid_uuid();
+                },
+            },
+            UuidValidationCase {
+                table: "trades",
+                field: "entry_id",
+                mutate: |backup| first_row(&mut backup.tables.trades).entry_id = invalid_uuid(),
+            },
+            UuidValidationCase {
+                table: "trades",
+                field: "target_id",
+                mutate: |backup| first_row(&mut backup.tables.trades).target_id = invalid_uuid(),
+            },
+            UuidValidationCase {
+                table: "trades",
+                field: "account_id",
+                mutate: |backup| first_row(&mut backup.tables.trades).account_id = invalid_uuid(),
+            },
+            UuidValidationCase {
+                table: "trades",
+                field: "balance_id",
+                mutate: |backup| first_row(&mut backup.tables.trades).balance_id = invalid_uuid(),
+            },
+            UuidValidationCase {
+                table: "logs",
+                field: "id",
+                mutate: |backup| first_row(&mut backup.tables.logs).id = invalid_uuid(),
+            },
+            UuidValidationCase {
+                table: "logs",
+                field: "trade_id",
+                mutate: |backup| first_row(&mut backup.tables.logs).trade_id = invalid_uuid(),
+            },
+            UuidValidationCase {
+                table: "levels",
+                field: "id",
+                mutate: |backup| first_row(&mut backup.tables.levels).id = invalid_uuid(),
+            },
+            UuidValidationCase {
+                table: "levels",
+                field: "account_id",
+                mutate: |backup| first_row(&mut backup.tables.levels).account_id = invalid_uuid(),
+            },
+            UuidValidationCase {
+                table: "level_changes",
+                field: "id",
+                mutate: |backup| first_row(&mut backup.tables.level_changes).id = invalid_uuid(),
+            },
+            UuidValidationCase {
+                table: "level_changes",
+                field: "account_id",
+                mutate: |backup| {
+                    first_row(&mut backup.tables.level_changes).account_id = invalid_uuid();
+                },
+            },
+            UuidValidationCase {
+                table: "trade_grades",
+                field: "id",
+                mutate: |backup| first_row(&mut backup.tables.trade_grades).id = invalid_uuid(),
+            },
+            UuidValidationCase {
+                table: "trade_grades",
+                field: "trade_id",
+                mutate: |backup| {
+                    first_row(&mut backup.tables.trade_grades).trade_id = invalid_uuid();
+                },
+            },
+        ];
+
+        for case in cases {
+            let mut backup = backup_with_all_uuid_fields();
+            (case.mutate)(&mut backup);
+
+            let error =
+                validate_backup_rows(&backup).expect_err("invalid backup UUID should be rejected");
+            let expected = format!("{}.{}", case.table, case.field);
+            assert!(
+                error.to_string().contains(&expected),
+                "expected error to mention {expected}, got {error}"
+            );
+        }
     }
 
     #[test]
@@ -681,6 +1262,10 @@ mod tests {
                 shortable: Some(false),
                 easy_to_borrow: Some(false),
                 fractionable: Some(true),
+                fixed_income_face_value: None,
+                fixed_income_coupon_rate_pct: None,
+                fixed_income_maturity_date: None,
+                fixed_income_coupon_frequency_per_year: None,
             })
             .execute(&mut conn1)
             .unwrap();
@@ -918,5 +1503,291 @@ mod tests {
         let mut conn = establish();
         let err = read_table_count(&mut conn, "accounts; DROP TABLE accounts").unwrap_err();
         assert!(err.to_string().contains("unknown or disallowed table name"));
+    }
+
+    // ---------------------------------------------------------------
+    // Security tests
+    // ---------------------------------------------------------------
+
+    /// Oversized backup files should be rejected with a size-limit error,
+    /// not read entirely into memory.
+    #[test]
+    fn backup_reader_should_enforce_size_limit() {
+        let big_payload = format!(
+            r#"{{"format":"trust-backup","version":1,"data":"{}"}}"#,
+            "x".repeat(MAX_BACKUP_BYTES + 1)
+        );
+        let reader = std::io::Cursor::new(big_payload.as_bytes());
+
+        let result = read_backup_from_reader(reader);
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("size") || err_msg.contains("limit") || err_msg.contains("too large"),
+            "Backup reader should reject oversized files with a size-limit error, got: {err_msg}"
+        );
+    }
+
+    /// Malformed UUIDs in backup JSON should be rejected during
+    /// deserialization.
+    #[test]
+    fn backup_should_reject_malformed_uuids() {
+        let malformed_backup = serde_json::json!({
+            "format": "trust-backup",
+            "version": 1,
+            "exported_at": "2026-01-01T00:00:00Z",
+            "schema": { "diesel_migrations": [] },
+            "tables": {
+                "accounts": [{
+                    "id": "NOT-A-VALID-UUID",
+                    "created_at": "2026-01-01T00:00:00",
+                    "updated_at": "2026-01-01T00:00:00",
+                    "deleted_at": null,
+                    "name": "evil",
+                    "description": "test",
+                    "environment": "paper",
+                    "taxes_percentage": "0",
+                    "earnings_percentage": "0",
+                    "account_type": "primary",
+                    "parent_account_id": null,
+                    "broker_kind": "alpaca",
+                    "broker_account_id": null
+                }],
+                "accounts_balances": [],
+                "logs": [],
+                "level_changes": [],
+                "levels": [],
+                "orders": [],
+                "rules": [],
+                "trade_grades": [],
+                "trades": [],
+                "trades_balances": [],
+                "trading_vehicles": [],
+                "transactions": []
+            }
+        });
+
+        let json_bytes = serde_json::to_vec(&malformed_backup).unwrap();
+        let reader = std::io::Cursor::new(json_bytes);
+        let error = read_backup_from_reader(reader).expect_err("should reject malformed UUID");
+        assert!(error.to_string().contains("accounts.id"));
+    }
+
+    #[test]
+    fn legacy_backup_json_applies_serde_defaults() {
+        let account_id = uuid_text(101);
+        let trading_vehicle_id = uuid_text(102);
+        let legacy_backup = serde_json::json!({
+            "format": "trust-backup",
+            "version": 1,
+            "exported_at": "2026-01-01T00:00:00Z",
+            "schema": { "diesel_migrations": [] },
+            "tables": {
+                "accounts": [{
+                    "id": account_id,
+                    "created_at": "2026-01-01T00:00:00",
+                    "updated_at": "2026-01-01T00:00:00",
+                    "deleted_at": null,
+                    "name": "legacy",
+                    "description": "legacy account",
+                    "environment": "paper",
+                    "taxes_percentage": "0",
+                    "earnings_percentage": "0"
+                }],
+                "accounts_balances": [],
+                "logs": [],
+                "level_changes": [],
+                "levels": [],
+                "orders": [],
+                "rules": [],
+                "trade_grades": [],
+                "trades": [],
+                "trades_balances": [],
+                "trading_vehicles": [{
+                    "id": trading_vehicle_id,
+                    "created_at": "2026-01-01T00:00:00",
+                    "updated_at": "2026-01-01T00:00:00",
+                    "deleted_at": null,
+                    "symbol": "AAPL",
+                    "isin": null,
+                    "category": "stock",
+                    "broker": "alpaca",
+                    "broker_asset_id": null,
+                    "exchange": null,
+                    "broker_asset_class": null,
+                    "broker_asset_status": null,
+                    "tradable": null,
+                    "marginable": null,
+                    "shortable": null,
+                    "easy_to_borrow": null,
+                    "fractionable": null
+                }],
+                "transactions": []
+            }
+        });
+
+        let backup = read_backup_from_reader(std::io::Cursor::new(
+            serde_json::to_vec(&legacy_backup).unwrap(),
+        ))
+        .expect("legacy backup should deserialize with defaults");
+
+        let account = backup.tables.accounts.first().expect("account row");
+        assert_eq!(account.account_type, "primary");
+        assert_eq!(account.parent_account_id, None);
+        assert_eq!(account.broker_kind, "alpaca");
+        assert_eq!(account.broker_account_id, None);
+
+        let vehicle = backup
+            .tables
+            .trading_vehicles
+            .first()
+            .expect("trading vehicle row");
+        assert_eq!(vehicle.fixed_income_face_value, None);
+        assert_eq!(vehicle.fixed_income_coupon_rate_pct, None);
+        assert_eq!(vehicle.fixed_income_maturity_date, None);
+        assert_eq!(vehicle.fixed_income_coupon_frequency_per_year, None);
+    }
+
+    #[test]
+    fn import_dry_run_validates_and_does_not_write() {
+        let mut source = establish();
+        insert_account(&mut source, uuid_text(201), "dry-run-source");
+        let backup = read_backup_at(&mut source, fixed_exported_at()).unwrap();
+
+        let mut target = establish();
+        let report = import_backup(
+            &mut target,
+            &backup,
+            ImportOptions {
+                mode: ImportMode::Strict,
+                dry_run: true,
+            },
+        )
+        .expect("dry-run import should validate");
+
+        assert_eq!(
+            report,
+            ImportReport {
+                inserted_rows: 0,
+                cleared_rows: 0
+            }
+        );
+        assert_eq!(read_table_count(&mut target, "accounts").unwrap(), 0);
+    }
+
+    #[test]
+    fn strict_import_rejects_non_empty_targets() {
+        let mut source = establish();
+        let backup = empty_backup(&mut source);
+
+        let mut target = establish();
+        insert_account(&mut target, uuid_text(301), "strict-existing");
+
+        let error = import_backup(&mut target, &backup, ImportOptions::default())
+            .expect_err("strict import should reject non-empty target");
+
+        assert!(error
+            .to_string()
+            .contains("strict import requires empty DB"));
+        assert!(error.to_string().contains("accounts"));
+    }
+
+    #[test]
+    fn replace_import_clears_existing_rows() {
+        let mut source = establish();
+        let backup = empty_backup(&mut source);
+
+        let mut target = establish();
+        insert_account(&mut target, uuid_text(401), "replace-existing");
+
+        let report = import_backup(
+            &mut target,
+            &backup,
+            ImportOptions {
+                mode: ImportMode::Replace,
+                dry_run: false,
+            },
+        )
+        .expect("replace import should clear existing rows");
+
+        assert_eq!(report.cleared_rows, 1);
+        assert_eq!(report.inserted_rows, 0);
+        assert_eq!(read_table_count(&mut target, "accounts").unwrap(), 0);
+    }
+
+    #[test]
+    fn import_rejects_format_version_and_migration_mismatch() {
+        let mut source = establish();
+        let backup = empty_backup(&mut source);
+        let mut target = establish();
+
+        let mut invalid = backup.clone();
+        invalid.format = "other-format".to_string();
+        let error = import_backup(&mut target, &invalid, ImportOptions::default())
+            .expect_err("format mismatch should fail");
+        assert!(error.to_string().contains("unsupported backup format"));
+
+        let mut invalid = backup.clone();
+        invalid.version = 999;
+        let error = import_backup(&mut target, &invalid, ImportOptions::default())
+            .expect_err("version mismatch should fail");
+        assert!(error.to_string().contains("unsupported backup version"));
+
+        let mut invalid = backup;
+        invalid
+            .schema
+            .diesel_migrations
+            .push("99999999999999_fake_migration".to_string());
+        let error = import_backup(&mut target, &invalid, ImportOptions::default())
+            .expect_err("migration mismatch should fail");
+        assert!(error.to_string().contains("migration mismatch"));
+    }
+
+    #[test]
+    fn import_rolls_back_when_foreign_key_check_fails() {
+        let mut source = establish();
+        let mut backup = empty_backup(&mut source);
+        let dt = fixed_dt();
+        backup.tables.transactions.push(TransactionRow {
+            id: uuid_text(501),
+            created_at: dt,
+            updated_at: dt,
+            deleted_at: None,
+            currency: "USD".to_string(),
+            category: "deposit".to_string(),
+            amount: "100".to_string(),
+            account_id: uuid_text(502),
+            trade_id: None,
+        });
+
+        let mut target = establish();
+        sql_query("PRAGMA foreign_keys=OFF;")
+            .execute(&mut target)
+            .unwrap();
+
+        let error = import_backup(&mut target, &backup, ImportOptions::default())
+            .expect_err("foreign key check should reject orphan rows");
+
+        assert!(error
+            .to_string()
+            .contains("foreign key violations detected"));
+        assert_eq!(read_table_count(&mut target, "transactions").unwrap(), 0);
+    }
+
+    #[test]
+    fn backup_path_roundtrip_uses_file_io() {
+        let mut conn = establish();
+        insert_account(&mut conn, uuid_text(601), "path-roundtrip");
+        let path = temp_backup_path();
+
+        export_to_path(&mut conn, &path).expect("backup export to path should succeed");
+        let backup = read_backup_from_path(&path).expect("backup should read from path");
+
+        assert_eq!(backup.tables.accounts.len(), 1);
+        assert_eq!(
+            backup.tables.accounts.first().expect("account row").name,
+            "path-roundtrip"
+        );
+
+        std::fs::remove_file(path).expect("temporary backup file should be removed");
     }
 }

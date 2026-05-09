@@ -176,6 +176,11 @@ fn test_backoff_duration() {
     // Test with default config (60 second cap)
     let config = broker_sync::BackoffConfig::default();
 
+    assert_eq!(
+        BrokerState::Disconnected.backoff_duration(),
+        Duration::from_secs(0)
+    );
+
     let state = BrokerState::ErrorRecovery {
         attempt: 1,
         next_retry: Instant::now(),

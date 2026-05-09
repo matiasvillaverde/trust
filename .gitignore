@@ -13,6 +13,9 @@ target/
 db-sqlite/*.db
 *.db
 
+# Diesel migrations are source files, even on machines with global *.sql ignores.
+!db-sqlite/migrations/**/*.sql
+
 # Ignore all environmental files
 .env
 

@@ -145,6 +145,7 @@ impl SyncTradeDialogBuilder {
 #[cfg(test)]
 mod tests {
     use super::SyncTradeDialogBuilder;
+    use crate::dialogs::io::{scripted_push_select, scripted_reset};
     use alpaca_broker::AlpacaBroker;
     use core::TrustFacade;
     use db_sqlite::SqliteDatabase;
@@ -268,6 +269,19 @@ mod tests {
     }
 
     #[test]
+    fn build_calls_facade_when_required_fields_are_present() {
+        let mut trust = test_trust();
+        let builder = SyncTradeDialogBuilder {
+            account: Some(Account::default()),
+            trade: Some(Trade::default()),
+            result: None,
+        }
+        .build(&mut trust);
+
+        assert!(builder.result.is_some());
+    }
+
+    #[test]
     fn search_with_io_requires_account_and_handles_empty_list() {
         let mut trust = test_trust();
         let mut io = StubDialogIo {
@@ -325,6 +339,69 @@ mod tests {
             .expect("result should be set")
             .expect_err("io error should fail");
         assert!(err.to_string().contains("Trade selection was canceled"));
+    }
+
+    #[test]
+    fn search_with_io_selects_trade() {
+        let mut trust = test_trust();
+        let account = seed_canceled_trade(&mut trust);
+        let canceled = trust
+            .search_trades(account.id, Status::Canceled)
+            .expect("canceled trades")
+            .pop()
+            .expect("canceled trade should exist");
+        let mut io = StubDialogIo {
+            select_result: Ok(Some(0)),
+        };
+
+        let builder = SyncTradeDialogBuilder {
+            account: Some(account),
+            trade: None,
+            result: None,
+        }
+        .search_with_io(&mut trust, &mut io);
+
+        assert!(builder.result.is_none());
+        assert_eq!(
+            builder.trade.expect("trade should be selected").id,
+            canceled.id
+        );
+    }
+
+    #[test]
+    fn wrapper_methods_handle_default_console_paths() {
+        let mut trust = test_trust();
+        let account = seed_canceled_trade(&mut trust);
+
+        let missing_account = SyncTradeDialogBuilder::new().account(&mut trust);
+        assert!(missing_account.account.is_none());
+
+        scripted_reset();
+        scripted_push_select(Ok(Some(0)));
+        let selected_account = SyncTradeDialogBuilder::new().account(&mut trust);
+        assert_eq!(
+            selected_account.account.as_ref().map(|a| a.id),
+            Some(account.id)
+        );
+
+        scripted_push_select(Ok(Some(0)));
+        let selected_trade = selected_account.search(&mut trust);
+        assert!(selected_trade.result.is_none());
+        assert!(selected_trade.trade.is_some());
+
+        scripted_reset();
+    }
+
+    #[test]
+    fn stub_dialog_io_confirm_default_is_false() {
+        let mut io = StubDialogIo {
+            select_result: Ok(None),
+        };
+
+        assert!(
+            !crate::dialogs::DialogIo::confirm(&mut io, "continue?", true)
+                .expect("confirm should return")
+        );
     }
 
     #[test]

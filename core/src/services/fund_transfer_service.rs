@@ -81,152 +81,9 @@ mod tests {
     use super::*;
     use chrono::Utc;
     use db_sqlite::SqliteDatabase;
-    use model::database::WriteAccountBalanceDB;
-    use model::{AccountType, DatabaseFactory, Environment};
+    use model::{AccountType, Environment};
     use rust_decimal_macros::dec;
     use uuid::Uuid;
-
-    // Mock database factory for testing
-    #[derive(Debug)]
-    struct MockDatabaseFactory {
-        #[allow(dead_code)]
-        transactions_created: Vec<(Uuid, TransactionCategory, Decimal)>,
-    }
-
-    impl MockDatabaseFactory {
-        fn new() -> Self {
-            Self {
-                transactions_created: Vec::new(),
-            }
-        }
-    }
-
-    // Implement required traits for mock - simplified for testing
-    impl DatabaseFactory for MockDatabaseFactory {
-        fn account_read(&self) -> Box<dyn model::AccountRead> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn account_write(&self) -> Box<dyn model::AccountWrite> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn account_balance_read(&self) -> Box<dyn model::AccountBalanceRead> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn account_balance_write(&self) -> Box<dyn model::AccountBalanceWrite> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn order_read(&self) -> Box<dyn model::OrderRead> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn order_write(&self) -> Box<dyn model::OrderWrite> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn transaction_read(&self) -> Box<dyn model::ReadTransactionDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn transaction_write(&self) -> Box<dyn model::WriteTransactionDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn trade_read(&self) -> Box<dyn model::ReadTradeDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn trade_write(&self) -> Box<dyn model::WriteTradeDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn trade_balance_write(&self) -> Box<dyn WriteAccountBalanceDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn rule_read(&self) -> Box<dyn model::ReadRuleDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn rule_write(&self) -> Box<dyn model::WriteRuleDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn trading_vehicle_read(&self) -> Box<dyn model::ReadTradingVehicleDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn trading_vehicle_write(&self) -> Box<dyn model::WriteTradingVehicleDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn log_read(&self) -> Box<dyn model::ReadBrokerLogsDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn log_write(&self) -> Box<dyn model::WriteBrokerLogsDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn distribution_read(&self) -> Box<dyn model::DistributionRead> {
-            #[allow(unused_imports)]
-            use model::database::DistributionRead;
-            todo!("Mock not needed for this test")
-        }
-
-        fn distribution_write(&self) -> Box<dyn model::DistributionWrite> {
-            #[allow(unused_imports)]
-            use model::database::DistributionWrite;
-            todo!("Mock not needed for this test")
-        }
-
-        fn advisory_read(&self) -> Box<dyn model::AdvisoryRead> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn advisory_write(&self) -> Box<dyn model::AdvisoryWrite> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn execution_read(&self) -> Box<dyn model::ReadExecutionDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn execution_write(&self) -> Box<dyn model::WriteExecutionDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn trade_grade_read(&self) -> Box<dyn model::ReadTradeGradeDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn trade_grade_write(&self) -> Box<dyn model::WriteTradeGradeDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn level_read(&self) -> Box<dyn model::ReadLevelDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn level_write(&self) -> Box<dyn model::WriteLevelDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn begin_savepoint(&mut self, _name: &str) -> Result<(), Box<dyn Error>> {
-            Ok(())
-        }
-
-        fn release_savepoint(&mut self, _name: &str) -> Result<(), Box<dyn Error>> {
-            Ok(())
-        }
-
-        fn rollback_to_savepoint(&mut self, _name: &str) -> Result<(), Box<dyn Error>> {
-            Ok(())
-        }
-    }
 
     fn create_test_account(account_type: AccountType, parent_id: Option<Uuid>) -> Account {
         Account {
@@ -244,6 +101,10 @@ mod tests {
             broker_kind: model::BrokerKind::Alpaca,
             broker_account_id: None,
         }
+    }
+
+    fn sqlite_service(database: &mut SqliteDatabase) -> FundTransferService<'_> {
+        FundTransferService::new(database)
     }
 
     #[test]
@@ -307,6 +168,20 @@ mod tests {
             .expect("child transactions should be readable");
         assert_eq!(source_transactions.len(), 1);
         assert_eq!(child_transactions.len(), 1);
+
+        let source_transaction = source_transactions
+            .first()
+            .expect("source transaction should exist");
+        assert_eq!(source_transaction.id, withdrawal_tx_id);
+        assert_eq!(source_transaction.category, TransactionCategory::Withdrawal);
+        assert_eq!(source_transaction.amount, dec!(-500));
+
+        let child_transaction = child_transactions
+            .first()
+            .expect("child transaction should exist");
+        assert_eq!(child_transaction.id, deposit_tx_id);
+        assert_eq!(child_transaction.category, TransactionCategory::Deposit);
+        assert_eq!(child_transaction.amount, dec!(500));
     }
 
     #[test]
@@ -377,8 +252,8 @@ mod tests {
     #[test]
     fn test_validate_transfer_valid_hierarchy() {
         // Given: A fund transfer service
-        let mut mock_db = MockDatabaseFactory::new();
-        let service = FundTransferService::new(&mut mock_db);
+        let mut database = SqliteDatabase::new_in_memory();
+        let service = sqlite_service(&mut database);
 
         // And: Valid parent-child account relationship
         let parent_account = create_test_account(AccountType::Primary, None);
@@ -398,10 +273,27 @@ mod tests {
     }
 
     #[test]
+    fn test_validate_transfer_allows_child_to_parent_and_sibling_transfers() {
+        let mut database = SqliteDatabase::new_in_memory();
+        let service = sqlite_service(&mut database);
+
+        let parent_account = create_test_account(AccountType::Primary, None);
+        let earnings_account = create_test_account(AccountType::Earnings, Some(parent_account.id));
+        let tax_account = create_test_account(AccountType::TaxReserve, Some(parent_account.id));
+
+        assert!(service
+            .validate_transfer(&earnings_account, &parent_account, dec!(25))
+            .is_ok());
+        assert!(service
+            .validate_transfer(&earnings_account, &tax_account, dec!(25))
+            .is_ok());
+    }
+
+    #[test]
     fn test_validate_transfer_invalid_amount() {
         // Given: A fund transfer service
-        let mut mock_db = MockDatabaseFactory::new();
-        let service = FundTransferService::new(&mut mock_db);
+        let mut database = SqliteDatabase::new_in_memory();
+        let service = sqlite_service(&mut database);
 
         // And: Valid accounts
         let from_account = create_test_account(AccountType::Primary, None);
@@ -425,8 +317,8 @@ mod tests {
     #[test]
     fn test_validate_transfer_no_hierarchy_relationship() {
         // Given: A fund transfer service
-        let mut mock_db = MockDatabaseFactory::new();
-        let service = FundTransferService::new(&mut mock_db);
+        let mut database = SqliteDatabase::new_in_memory();
+        let service = sqlite_service(&mut database);
 
         // And: Two unrelated accounts (no parent-child relationship)
         let account1 = create_test_account(AccountType::Primary, None);
@@ -449,12 +341,23 @@ mod tests {
 
     #[test]
     fn test_validate_transfer_same_account_rejected() {
-        let mut mock_db = MockDatabaseFactory::new();
-        let service = FundTransferService::new(&mut mock_db);
+        let mut database = SqliteDatabase::new_in_memory();
+        let service = sqlite_service(&mut database);
         let account = create_test_account(AccountType::Primary, None);
 
         let result = service.validate_transfer(&account, &account, dec!(100));
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("same account"));
+    }
+
+    #[test]
+    fn debug_representation_does_not_expose_database_internals() {
+        let mut database = SqliteDatabase::new_in_memory();
+        let service = sqlite_service(&mut database);
+
+        assert_eq!(
+            format!("{service:?}"),
+            "FundTransferService { database: \"&mut dyn DatabaseFactory\" }"
+        );
     }
 }

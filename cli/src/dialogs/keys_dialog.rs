@@ -366,6 +366,15 @@ mod tests {
         assert!(delete.environment.is_none());
         assert!(delete.account.is_none());
         assert!(delete.result.is_none());
+
+        let mut io = ScriptedIo::default();
+        assert!(!io.confirm("Continue?", true).expect("confirm default"));
+    }
+
+    #[test]
+    fn scripted_io_input_text_defaults_to_empty_string() {
+        let mut io = ScriptedIo::default();
+        assert_eq!(io.input_text("Value:", false).expect("input default"), "");
     }
 
     #[test]
@@ -527,6 +536,14 @@ mod tests {
         let write = KeysWriteDialogBuilder::new().account_with_io(&mut trust, &mut io);
         assert!(write.account.is_none(), "missing account should keep None");
 
+        let mut io = ScriptedIo::default();
+        let read = KeysReadDialogBuilder::new().account_with_io(&mut trust, &mut io);
+        assert!(read.account.is_none(), "missing account should keep None");
+
+        let mut io = ScriptedIo::default();
+        let delete = KeysDeleteDialogBuilder::new().account_with_io(&mut trust, &mut io);
+        assert!(delete.account.is_none(), "missing account should keep None");
+
         let _ = trust
             .create_account(
                 "keys-account",
@@ -541,6 +558,74 @@ mod tests {
         io.selections.push_back(Ok(Some(0)));
         let write = KeysWriteDialogBuilder::new().account_with_io(&mut trust, &mut io);
         assert!(write.account.is_some(), "account should be selected");
+
+        let mut io = ScriptedIo::default();
+        io.selections.push_back(Ok(Some(0)));
+        let read = KeysReadDialogBuilder::new().account_with_io(&mut trust, &mut io);
+        assert!(read.account.is_some(), "account should be selected");
+
+        let mut io = ScriptedIo::default();
+        io.selections.push_back(Ok(Some(0)));
+        let delete = KeysDeleteDialogBuilder::new().account_with_io(&mut trust, &mut io);
+        assert!(delete.account.is_some(), "account should be selected");
+    }
+
+    #[test]
+    fn keys_read_builds_ibkr_connection_from_env_override() {
+        let _guard = crate::protected_keyword::test_env_guard();
+        std::env::set_var("TRUST_IBKR_URL", "https://localhost:5000/v1/api");
+        std::env::set_var("TRUST_IBKR_ALLOW_INSECURE_TLS", "true");
+
+        let builder = KeysReadDialogBuilder {
+            environment: Some(Environment::Paper),
+            account: Some(Account {
+                name: "ibkr-env-account".to_string(),
+                broker_kind: BrokerKind::Ibkr,
+                ..Account::default()
+            }),
+            result: None,
+        }
+        .build();
+
+        let summary = builder
+            .result
+            .expect("build should set result")
+            .expect("env override should provide IBKR config")
+            .to_string();
+        assert!(summary.contains("https://localhost:5000/v1/api"));
+        assert!(summary.contains("allow_insecure_tls=true"));
+
+        std::env::remove_var("TRUST_IBKR_URL");
+        std::env::remove_var("TRUST_IBKR_ALLOW_INSECURE_TLS");
+    }
+
+    #[test]
+    fn keys_write_and_delete_build_reach_ibkr_connection_branches() {
+        let account = Account {
+            name: format!("ibkr-dialog-{}", uuid::Uuid::new_v4()),
+            broker_kind: BrokerKind::Ibkr,
+            ..Account::default()
+        };
+
+        let write = KeysWriteDialogBuilder {
+            url: "https://localhost:5000/v1/api".to_string(),
+            key_id: String::new(),
+            key_secret: String::new(),
+            allow_insecure_tls: true,
+            environment: Some(Environment::Paper),
+            account: Some(account.clone()),
+            result: None,
+        }
+        .build();
+        assert!(write.result.is_some());
+
+        let delete = KeysDeleteDialogBuilder {
+            environment: Some(Environment::Paper),
+            account: Some(account),
+            result: None,
+        }
+        .build();
+        assert!(delete.result.is_some());
     }
 
     #[test]

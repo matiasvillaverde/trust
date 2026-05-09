@@ -121,6 +121,7 @@ mod tests {
 
     #[test]
     fn display_functions_run_for_smoke_coverage() {
+        AccountView::display_account(Account::default());
         AccountView::display_accounts(vec![Account::default()]);
         AccountBalanceView::display_balances(vec![AccountBalance::default()], "primary");
     }

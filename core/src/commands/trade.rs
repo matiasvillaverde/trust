@@ -606,7 +606,7 @@ fn persist_executions_for_trade(
         }
         if must_reject_fractional_qty(trade) && !is_integer_decimal(exec.qty) {
             return Err(format!(
-                "fractional execution qty is not allowed for non-fractionable stock {}: {}",
+                "fractional execution qty is not allowed for non-fractionable security {}: {}",
                 trade.trading_vehicle.symbol, exec.qty
             )
             .into());
@@ -725,8 +725,10 @@ fn side_for_exit(category: TradeCategory) -> ExecutionSide {
 }
 
 fn must_reject_fractional_qty(trade: &Trade) -> bool {
-    trade.trading_vehicle.category == TradingVehicleCategory::Stock
-        && trade.trading_vehicle.fractionable != Some(true)
+    matches!(
+        trade.trading_vehicle.category,
+        TradingVehicleCategory::Stock | TradingVehicleCategory::Etf | TradingVehicleCategory::Bond
+    ) && trade.trading_vehicle.fractionable != Some(true)
 }
 
 fn is_integer_decimal(value: Decimal) -> bool {
@@ -1003,31 +1005,27 @@ fn reconcile_sibling_exit_orders(
     let mut order_write = database.order_write();
 
     match status {
-        Status::ClosedTarget => {
-            if !is_terminal_order_status(trade.safety_stop.status) {
-                let mut stop = trade.safety_stop.clone();
-                stop.status = OrderStatus::Canceled;
-                if stop.cancelled_at.is_none() {
-                    stop.cancelled_at = Some(now);
-                }
-                if stop.closed_at.is_none() {
-                    stop.closed_at = Some(now);
-                }
-                order_write.update(&stop)?;
+        Status::ClosedTarget if !is_terminal_order_status(trade.safety_stop.status) => {
+            let mut stop = trade.safety_stop.clone();
+            stop.status = OrderStatus::Canceled;
+            if stop.cancelled_at.is_none() {
+                stop.cancelled_at = Some(now);
             }
+            if stop.closed_at.is_none() {
+                stop.closed_at = Some(now);
+            }
+            order_write.update(&stop)?;
         }
-        Status::ClosedStopLoss => {
-            if !is_terminal_order_status(trade.target.status) {
-                let mut target = trade.target.clone();
-                target.status = OrderStatus::Canceled;
-                if target.cancelled_at.is_none() {
-                    target.cancelled_at = Some(now);
-                }
-                if target.closed_at.is_none() {
-                    target.closed_at = Some(now);
-                }
-                order_write.update(&target)?;
+        Status::ClosedStopLoss if !is_terminal_order_status(trade.target.status) => {
+            let mut target = trade.target.clone();
+            target.status = OrderStatus::Canceled;
+            if target.cancelled_at.is_none() {
+                target.cancelled_at = Some(now);
             }
+            if target.closed_at.is_none() {
+                target.closed_at = Some(now);
+            }
+            order_write.update(&target)?;
         }
         _ => {}
     }
@@ -1045,10 +1043,15 @@ fn is_terminal_order_status(status: OrderStatus) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        allocated_fee_totals_for_trade, derive_trade_update_executions, is_integer_decimal,
-        must_reject_fractional_qty,
+        allocated_fee_totals_for_trade, derive_trade_update_executions, ensure_order_filled,
+        is_integer_decimal, is_terminal_order_status, must_reject_fractional_qty,
+        resolve_orders_for_sync, should_persist_order_update, validate_sync_transition,
+        ResolvedSyncOrders,
     };
-    use model::{ExecutionSource, FeeActivity, Trade, TradeCategory, TradingVehicleCategory};
+    use model::{
+        ExecutionSource, FeeActivity, OrderCategory, OrderStatus, Status, Trade, TradeCategory,
+        TradingVehicleCategory,
+    };
     use rust_decimal_macros::dec;
     use uuid::Uuid;
 
@@ -1078,7 +1081,7 @@ mod tests {
     }
 
     #[test]
-    fn test_fractional_qty_policy_for_stock() {
+    fn test_fractional_qty_policy_for_security_categories() {
         let mut trade = Trade::default();
         trade.trading_vehicle.category = TradingVehicleCategory::Stock;
         trade.trading_vehicle.fractionable = Some(false);
@@ -1087,7 +1090,19 @@ mod tests {
         trade.trading_vehicle.fractionable = Some(true);
         assert!(!must_reject_fractional_qty(&trade));
 
+        trade.trading_vehicle.category = TradingVehicleCategory::Etf;
+        trade.trading_vehicle.fractionable = Some(false);
+        assert!(must_reject_fractional_qty(&trade));
+
+        trade.trading_vehicle.category = TradingVehicleCategory::Bond;
+        trade.trading_vehicle.fractionable = None;
+        assert!(must_reject_fractional_qty(&trade));
+
+        trade.trading_vehicle.fractionable = Some(true);
+        assert!(!must_reject_fractional_qty(&trade));
+
         trade.trading_vehicle.category = TradingVehicleCategory::Crypto;
+        trade.trading_vehicle.fractionable = Some(false);
         assert!(!must_reject_fractional_qty(&trade));
     }
 
@@ -1123,6 +1138,169 @@ mod tests {
     }
 
     #[test]
+    fn test_should_persist_order_update_detects_material_fields() {
+        let current = Trade::default().entry;
+        assert!(!should_persist_order_update(&current, &current));
+
+        let mut changed = current.clone();
+        changed.broker_order_id = Some("broker-entry".to_string());
+        assert!(should_persist_order_update(&current, &changed));
+
+        let mut changed = current.clone();
+        changed.status = OrderStatus::Filled;
+        assert!(should_persist_order_update(&current, &changed));
+
+        let mut changed = current.clone();
+        changed.filled_quantity = 1;
+        assert!(should_persist_order_update(&current, &changed));
+
+        let mut changed = current.clone();
+        changed.average_filled_price = Some(dec!(100));
+        assert!(should_persist_order_update(&current, &changed));
+
+        let now = chrono::Utc::now().naive_utc();
+        let mut changed = current.clone();
+        changed.submitted_at = Some(now);
+        assert!(should_persist_order_update(&current, &changed));
+
+        let mut changed = current.clone();
+        changed.filled_at = Some(now);
+        assert!(should_persist_order_update(&current, &changed));
+
+        let mut changed = current.clone();
+        changed.expired_at = Some(now);
+        assert!(should_persist_order_update(&current, &changed));
+
+        let mut changed = current.clone();
+        changed.cancelled_at = Some(now);
+        assert!(should_persist_order_update(&current, &changed));
+
+        let mut changed = current.clone();
+        changed.closed_at = Some(now);
+        assert!(should_persist_order_update(&current, &changed));
+
+        let mut changed = current.clone();
+        changed.category = OrderCategory::Stop;
+        assert!(should_persist_order_update(&current, &changed));
+    }
+
+    #[test]
+    fn test_terminal_order_statuses_are_classified() {
+        assert!([
+            OrderStatus::Filled,
+            OrderStatus::Canceled,
+            OrderStatus::Expired,
+            OrderStatus::Rejected,
+        ]
+        .into_iter()
+        .all(is_terminal_order_status));
+        assert!([OrderStatus::New, OrderStatus::PartiallyFilled]
+            .into_iter()
+            .all(|status| !is_terminal_order_status(status)));
+    }
+
+    #[test]
+    fn test_validate_sync_transition_allows_only_safe_state_progression() {
+        let mut trade = Trade {
+            status: Status::Submitted,
+            ..Trade::default()
+        };
+        assert!(validate_sync_transition(&trade, Status::Submitted).is_ok());
+        assert!(validate_sync_transition(&trade, Status::Filled).is_ok());
+        assert!(validate_sync_transition(&trade, Status::ClosedTarget).is_ok());
+        assert!(validate_sync_transition(&trade, Status::ClosedStopLoss).is_ok());
+
+        trade.status = Status::Filled;
+        assert!(validate_sync_transition(&trade, Status::Filled).is_ok());
+        assert!(validate_sync_transition(&trade, Status::ClosedTarget).is_ok());
+        assert!(validate_sync_transition(&trade, Status::ClosedStopLoss).is_ok());
+
+        trade.status = Status::Canceled;
+        assert!(validate_sync_transition(&trade, Status::ClosedTarget).is_ok());
+
+        trade.status = Status::New;
+        let error = validate_sync_transition(&trade, Status::Filled)
+            .expect_err("new trade must not sync directly to filled");
+        assert!(error.to_string().contains("invalid sync transition"));
+    }
+
+    #[test]
+    fn test_ensure_order_filled_requires_filled_status_and_average_price() {
+        let mut order = Trade::default().entry;
+
+        let error =
+            ensure_order_filled(&order, "entry").expect_err("non-filled order should be rejected");
+        assert!(error.to_string().contains("expected entry order"));
+
+        order.status = OrderStatus::Filled;
+        let error = ensure_order_filled(&order, "entry")
+            .expect_err("filled order without price should be rejected");
+        assert!(error.to_string().contains("has no average filled price"));
+
+        order.average_filled_price = Some(dec!(100));
+        assert!(ensure_order_filled(&order, "entry").is_ok());
+    }
+
+    #[test]
+    fn test_resolve_orders_for_sync_merges_known_orders_and_rejects_invalid_payloads() {
+        let trade = Trade::default();
+        let now = chrono::Utc::now().naive_utc();
+
+        let mut entry_update = trade.entry.clone();
+        entry_update.broker_order_id = Some("entry-broker".to_string());
+        entry_update.status = OrderStatus::Filled;
+        entry_update.filled_quantity = 10;
+        entry_update.average_filled_price = Some(dec!(100.25));
+        entry_update.submitted_at = Some(now);
+        entry_update.filled_at = Some(now);
+
+        let mut target_update = trade.target.clone();
+        target_update.broker_order_id = Some("target-broker".to_string());
+        target_update.status = OrderStatus::New;
+
+        let mut stop_update = trade.safety_stop.clone();
+        stop_update.broker_order_id = Some("stop-broker".to_string());
+        stop_update.status = OrderStatus::New;
+
+        let resolved = resolve_orders_for_sync(
+            &trade,
+            &[
+                entry_update.clone(),
+                target_update.clone(),
+                stop_update.clone(),
+            ],
+        )
+        .expect("known order updates should resolve");
+        assert_eq!(
+            resolved.entry.broker_order_id.as_deref(),
+            Some("entry-broker")
+        );
+        assert_eq!(resolved.entry.status, OrderStatus::Filled);
+        assert_eq!(resolved.entry.filled_quantity, 10);
+        assert_eq!(resolved.entry.average_filled_price, Some(dec!(100.25)));
+        assert_eq!(
+            resolved.target.broker_order_id.as_deref(),
+            Some("target-broker")
+        );
+        assert_eq!(
+            resolved.stop.broker_order_id.as_deref(),
+            Some("stop-broker")
+        );
+
+        let error = resolve_orders_for_sync(&trade, &[entry_update.clone(), entry_update])
+            .err()
+            .expect("duplicate order update should be rejected");
+        assert!(error.to_string().contains("duplicate order update"));
+
+        let mut unknown_update = trade.entry.clone();
+        unknown_update.id = Uuid::new_v4();
+        let error = resolve_orders_for_sync(&trade, &[unknown_update])
+            .err()
+            .expect("unknown order update should be rejected");
+        assert!(error.to_string().contains("not found in trade"));
+    }
+
+    #[test]
     #[allow(clippy::field_reassign_with_default)]
     fn test_derive_trade_update_executions_normalizes_entry_and_exit() {
         let mut previous = Trade {
@@ -1134,7 +1312,7 @@ mod tests {
         previous.entry.filled_quantity = 5;
         previous.entry.average_filled_price = Some(dec!(100.50));
 
-        let mut resolved = super::ResolvedSyncOrders {
+        let mut resolved = ResolvedSyncOrders {
             entry: previous.entry.clone(),
             target: previous.target.clone(),
             stop: previous.safety_stop.clone(),
@@ -1170,7 +1348,7 @@ mod tests {
     #[allow(clippy::field_reassign_with_default)]
     fn test_derive_trade_update_executions_skips_unfilled_orders() {
         let trade = Trade::default();
-        let resolved = super::ResolvedSyncOrders {
+        let resolved = ResolvedSyncOrders {
             entry: trade.entry.clone(),
             target: trade.target.clone(),
             stop: trade.safety_stop.clone(),

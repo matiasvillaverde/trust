@@ -13,4 +13,6 @@ reqwest = { version = "0.12.24", default-features = false, features = ["blocking
 keyring = { workspace = true }
 
 [dev-dependencies]
+core = { path = "../core", version = "0.3.2" }
+db-sqlite = { path = "../db-sqlite", version = "0.3.2" }
 rust_decimal_macros = { workspace = true }

@@ -366,6 +366,45 @@ mod tests {
     }
 
     #[test]
+    fn test_calculate_distribution_zero_earnings_allocation() {
+        let account_id = Uuid::new_v4();
+        let rules = DistributionRules::new(
+            account_id,
+            Decimal::ZERO,
+            Decimal::new(25, 2),
+            Decimal::new(75, 2),
+            Decimal::new(500, 0),
+        );
+
+        assert!(rules.validate().is_ok());
+
+        let result = rules
+            .calculate_distribution(Decimal::new(2000, 0))
+            .map(|distribution| {
+                (
+                    distribution.source_account_id,
+                    distribution.original_amount,
+                    distribution.earnings_amount,
+                    distribution.tax_amount,
+                    distribution.reinvestment_amount,
+                    distribution.transactions_created.is_empty(),
+                )
+            });
+
+        assert_eq!(
+            result,
+            Ok((
+                account_id,
+                Decimal::new(2000, 0),
+                None,
+                Some(Decimal::new(500, 0)),
+                Some(Decimal::new(1500, 0)),
+                true,
+            ))
+        );
+    }
+
+    #[test]
     fn test_calculate_distribution_below_threshold() {
         let rules = DistributionRules::new(
             Uuid::new_v4(),
@@ -425,5 +464,47 @@ mod tests {
         // Default percentages should sum to 100%
         let total = rules.earnings_percent + rules.tax_percent + rules.reinvestment_percent;
         assert_eq!(total, Decimal::ONE);
+    }
+
+    #[test]
+    fn distribution_error_display_covers_all_variants() {
+        let cases = [
+            (
+                DistributionError::InvalidPercentageSum,
+                "Distribution percentages must sum to 100% or less",
+            ),
+            (
+                DistributionError::InvalidPercentage,
+                "Individual percentage must be between 0% and 100%",
+            ),
+            (
+                DistributionError::BelowMinimumThreshold,
+                "Profit amount is below minimum threshold",
+            ),
+            (
+                DistributionError::InvalidProfitAmount,
+                "Profit amount must be positive",
+            ),
+        ];
+
+        for (error, message) in cases {
+            assert_eq!(error.to_string(), message);
+        }
+    }
+
+    #[test]
+    fn distribution_rules_password_hash_and_not_found_display_are_explicit() {
+        let account_id = Uuid::new_v4();
+        let rules = DistributionRules::default_for_account(account_id)
+            .with_password_hash("argon2id-hash".to_string());
+
+        assert_eq!(rules.configuration_password_hash, "argon2id-hash");
+
+        let error = DistributionRulesNotFound { account_id };
+
+        assert_eq!(
+            error.to_string(),
+            format!("No distribution rules configured for account {account_id}")
+        );
     }
 }

@@ -153,13 +153,7 @@ impl AdvancedMetricsView {
 
         // Value at Risk (95% confidence)
         if let Some(var) = AdvancedMetricsCalculator::calculate_value_at_risk(trades, dec!(0.95)) {
-            let var_rating = if var > dec!(-5.0) {
-                "Low Risk"
-            } else if var > dec!(-15.0) {
-                "Moderate Risk"
-            } else {
-                "High Risk"
-            };
+            let var_rating = Self::rate_value_at_risk(var);
             println!("├─ Value at Risk (95%): {var:.2}% ({var_rating})");
         } else {
             println!("├─ Value at Risk (95%): N/A (insufficient data)");
@@ -182,15 +176,7 @@ impl AdvancedMetricsView {
 
         // Ulcer Index
         if let Some(ulcer) = AdvancedMetricsCalculator::calculate_ulcer_index(trades) {
-            let ulcer_rating = if ulcer < dec!(5.0) {
-                "Excellent"
-            } else if ulcer < dec!(10.0) {
-                "Good"
-            } else if ulcer < dec!(20.0) {
-                "Acceptable"
-            } else {
-                "Poor"
-            };
+            let ulcer_rating = Self::rate_ulcer_index(ulcer);
             println!("└─ Ulcer Index: {ulcer:.2}% ({ulcer_rating})");
         } else {
             println!("└─ Ulcer Index: N/A (insufficient data)");
@@ -288,6 +274,28 @@ impl AdvancedMetricsView {
             "Negative (avoid)"
         }
     }
+
+    fn rate_value_at_risk(var: Decimal) -> &'static str {
+        if var > dec!(-5.0) {
+            "Low Risk"
+        } else if var > dec!(-15.0) {
+            "Moderate Risk"
+        } else {
+            "High Risk"
+        }
+    }
+
+    fn rate_ulcer_index(ulcer: Decimal) -> &'static str {
+        if ulcer < dec!(5.0) {
+            "Excellent"
+        } else if ulcer < dec!(10.0) {
+            "Good"
+        } else if ulcer < dec!(20.0) {
+            "Acceptable"
+        } else {
+            "Poor"
+        }
+    }
 }
 
 #[cfg(test)]
@@ -301,6 +309,9 @@ mod tests {
         trade.balance.total_performance = performance;
         trade.status = status;
         trade.category = TradeCategory::Long;
+        trade.entry.unit_price = dec!(100);
+        trade.entry.quantity = 10;
+        trade.safety_stop.unit_price = dec!(90);
         trade
     }
 
@@ -314,14 +325,14 @@ mod tests {
 
         let closed_trades = AdvancedMetricsView::filter_closed_trades(&trades);
         assert_eq!(closed_trades.len(), 2);
-        assert!(matches!(
-            closed_trades.first().unwrap().status,
-            Status::ClosedTarget
-        ));
-        assert!(matches!(
-            closed_trades.get(1).unwrap().status,
-            Status::ClosedStopLoss
-        ));
+        assert_eq!(
+            closed_trades.first().map(|trade| trade.status),
+            Some(Status::ClosedTarget)
+        );
+        assert_eq!(
+            closed_trades.get(1).map(|trade| trade.status),
+            Some(Status::ClosedStopLoss)
+        );
     }
 
     #[test]
@@ -443,6 +454,45 @@ mod tests {
             AdvancedMetricsView::rate_kelly_criterion(dec!(0.0)),
             "Negative (avoid)"
         );
+    }
+
+    #[test]
+    fn test_rate_value_at_risk_thresholds() {
+        assert_eq!(
+            AdvancedMetricsView::rate_value_at_risk(dec!(-4.99)),
+            "Low Risk"
+        );
+        assert_eq!(
+            AdvancedMetricsView::rate_value_at_risk(dec!(-5.0)),
+            "Moderate Risk"
+        );
+        assert_eq!(
+            AdvancedMetricsView::rate_value_at_risk(dec!(-14.99)),
+            "Moderate Risk"
+        );
+        assert_eq!(
+            AdvancedMetricsView::rate_value_at_risk(dec!(-15.0)),
+            "High Risk"
+        );
+    }
+
+    #[test]
+    fn test_rate_ulcer_index_thresholds() {
+        assert_eq!(
+            AdvancedMetricsView::rate_ulcer_index(dec!(4.99)),
+            "Excellent"
+        );
+        assert_eq!(AdvancedMetricsView::rate_ulcer_index(dec!(5.0)), "Good");
+        assert_eq!(AdvancedMetricsView::rate_ulcer_index(dec!(9.99)), "Good");
+        assert_eq!(
+            AdvancedMetricsView::rate_ulcer_index(dec!(10.0)),
+            "Acceptable"
+        );
+        assert_eq!(
+            AdvancedMetricsView::rate_ulcer_index(dec!(19.99)),
+            "Acceptable"
+        );
+        assert_eq!(AdvancedMetricsView::rate_ulcer_index(dec!(20.0)), "Poor");
     }
 
     #[test]

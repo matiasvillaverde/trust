@@ -54,6 +54,10 @@ mod tests {
 
     #[test]
     fn broker_kind_roundtrips() {
+        assert_eq!(
+            BrokerKind::all(),
+            vec![BrokerKind::Ibkr, BrokerKind::Alpaca]
+        );
         assert_eq!(BrokerKind::from_str("alpaca").unwrap(), BrokerKind::Alpaca);
         assert_eq!(BrokerKind::from_str("IBKR").unwrap(), BrokerKind::Ibkr);
         assert_eq!(BrokerKind::Alpaca.to_string(), "alpaca");

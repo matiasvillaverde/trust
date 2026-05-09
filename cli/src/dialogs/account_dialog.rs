@@ -220,7 +220,7 @@ mod tests {
     use alpaca_broker::AlpacaBroker;
     use core::TrustFacade;
     use db_sqlite::SqliteDatabase;
-    use model::Environment;
+    use model::{Currency, Environment, TransactionCategory};
     use rust_decimal_macros::dec;
     use std::collections::VecDeque;
     use std::io::{Error as IoError, ErrorKind};
@@ -255,6 +255,22 @@ mod tests {
             Box::new(SqliteDatabase::new_in_memory()),
             Box::<AlpacaBroker>::default(),
         )
+    }
+
+    #[test]
+    fn account_search_surfaces_account_read_errors() {
+        let mut trust = TrustFacade::new(
+            Box::new(crate::test_support::ReadFailureFactory::accounts()),
+            Box::<AlpacaBroker>::default(),
+        );
+        let mut io = ScriptedIo::default();
+
+        let dialog = AccountSearchDialog::new().search_with_io(&mut trust, &mut io);
+
+        let err = dialog
+            .build()
+            .expect_err("account read error should surface");
+        assert!(err.to_string().contains("account read failed"));
     }
 
     #[test]
@@ -305,6 +321,26 @@ mod tests {
             .expect("result should exist")
             .expect("account should be created");
         assert_eq!(account.name, "acc-a");
+    }
+
+    #[test]
+    fn account_dialog_display_handles_success_result() {
+        AccountDialogBuilder {
+            name: "display-a".to_string(),
+            description: "desc".to_string(),
+            environment: Some(Environment::Paper),
+            tax_percentage: Some(dec!(20)),
+            earnings_percentage: Some(dec!(10)),
+            result: Some(Ok(model::Account {
+                name: "display-a".to_string(),
+                description: "desc".to_string(),
+                environment: Environment::Paper,
+                taxes_percentage: dec!(20),
+                earnings_percentage: dec!(10),
+                ..model::Account::default()
+            })),
+        }
+        .display();
     }
 
     #[test]
@@ -393,6 +429,35 @@ mod tests {
     }
 
     #[test]
+    fn account_builder_with_io_setters_preserve_state_on_input_errors() {
+        let mut io = ScriptedIo::default();
+        io.inputs
+            .push_back(Err(IoError::new(ErrorKind::BrokenPipe, "name failed")));
+        io.inputs.push_back(Err(IoError::new(
+            ErrorKind::BrokenPipe,
+            "description failed",
+        )));
+        io.selections
+            .push_back(Err(IoError::other("selection failed")));
+        io.inputs
+            .push_back(Err(IoError::new(ErrorKind::BrokenPipe, "tax failed")));
+        io.inputs.push_back(Ok("bad".to_string()));
+
+        let builder = AccountDialogBuilder::new()
+            .name_with_io(&mut io)
+            .description_with_io(&mut io)
+            .environment_with_io(&mut io)
+            .tax_percentage_with_io(&mut io)
+            .earnings_percentage_with_io(&mut io);
+
+        assert_eq!(builder.name, "");
+        assert_eq!(builder.description, "");
+        assert!(builder.environment.is_none());
+        assert!(builder.tax_percentage.is_none());
+        assert!(builder.earnings_percentage.is_none());
+    }
+
+    #[test]
     fn account_builder_wrapper_methods_use_default_console_io_in_tests() {
         scripted_reset();
         scripted_push_input(Ok("wrapper-name".to_string()));
@@ -437,5 +502,77 @@ mod tests {
             .expect("search should select account");
         assert_eq!(selected.id, created.id);
         scripted_reset();
+    }
+
+    #[test]
+    fn account_search_display_handles_success_with_and_without_balances() {
+        let mut trust = test_trust();
+        let empty = trust
+            .create_account(
+                "display-empty",
+                "desc",
+                Environment::Paper,
+                dec!(20),
+                dec!(10),
+            )
+            .expect("empty account");
+        AccountSearchDialog {
+            result: Some(Ok(empty)),
+        }
+        .display(&mut trust);
+
+        let funded = trust
+            .create_account(
+                "display-funded",
+                "desc",
+                Environment::Paper,
+                dec!(20),
+                dec!(10),
+            )
+            .expect("funded account");
+        trust
+            .create_transaction(
+                &funded,
+                &TransactionCategory::Deposit,
+                dec!(100),
+                &Currency::USD,
+            )
+            .expect("deposit should create a balance overview");
+
+        AccountSearchDialog {
+            result: Some(Ok(funded)),
+        }
+        .display(&mut trust);
+    }
+
+    #[test]
+    fn account_search_display_handles_error_result() {
+        let mut trust = test_trust();
+
+        AccountSearchDialog {
+            result: Some(Err("synthetic search failure".into())),
+        }
+        .display(&mut trust);
+    }
+
+    #[test]
+    fn scripted_io_confirm_default_is_false() {
+        let mut io = ScriptedIo::default();
+
+        assert!(
+            !crate::dialogs::DialogIo::confirm(&mut io, "continue?", true)
+                .expect("confirm should return")
+        );
+    }
+
+    #[test]
+    fn scripted_io_input_text_defaults_to_empty_string() {
+        let mut io = ScriptedIo::default();
+
+        assert_eq!(
+            crate::dialogs::DialogIo::input_text(&mut io, "Name:", false)
+                .expect("default text input should return"),
+            ""
+        );
     }
 }

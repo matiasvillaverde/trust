@@ -87,6 +87,15 @@ fn credential_store() -> &'static Mutex<Box<dyn CredentialStore + Send>> {
 }
 
 #[cfg(test)]
+pub(crate) fn test_env_guard() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    match LOCK.get_or_init(|| Mutex::new(())).lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
+#[cfg(test)]
 fn with_credential_store(
     store: Box<dyn CredentialStore + Send>,
 ) -> Box<dyn CredentialStore + Send> {
@@ -168,11 +177,11 @@ pub fn delete() -> Result<(), Box<dyn Error>> {
 #[cfg(test)]
 mod tests {
     use super::{
-        delete, keychain_disabled, read_expected, store, with_credential_store, CredentialStore,
-        KeyringCredentialStore, DISABLE_KEYCHAIN_ENV, ENV_OVERRIDE,
+        delete, keychain_disabled, read_expected, store, test_env_guard, with_credential_store,
+        CredentialStore, KeyringCredentialStore, DISABLE_KEYCHAIN_ENV, ENV_OVERRIDE,
     };
     use std::env;
-    use std::sync::{Mutex, OnceLock};
+    use std::sync::Mutex;
 
     #[derive(Default)]
     struct StubStore {
@@ -209,14 +218,9 @@ mod tests {
         }
     }
 
-    fn env_lock() -> &'static Mutex<()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-    }
-
     #[test]
     fn read_expected_prefers_non_empty_env_override() {
-        let _guard = env_lock().lock().expect("lock");
+        let _guard = test_env_guard();
         env::set_var(DISABLE_KEYCHAIN_ENV, "1");
         delete().expect("clear in-memory value");
         env::set_var(ENV_OVERRIDE, "  secret  ");
@@ -228,7 +232,7 @@ mod tests {
 
     #[test]
     fn store_rejects_empty_values() {
-        let _guard = env_lock().lock().expect("lock");
+        let _guard = test_env_guard();
         let result = store("   ");
         assert!(result.is_err());
         assert_eq!(
@@ -241,7 +245,7 @@ mod tests {
 
     #[test]
     fn read_expected_does_not_touch_keychain_without_override_in_tests() {
-        let _guard = env_lock().lock().expect("lock");
+        let _guard = test_env_guard();
         delete().expect("clear in-memory value");
         env::remove_var(ENV_OVERRIDE);
         let error = read_expected().expect_err("tests should not access keychain");
@@ -250,7 +254,7 @@ mod tests {
 
     #[test]
     fn store_read_delete_round_trip_with_disabled_keychain() {
-        let _guard = env_lock().lock().expect("lock");
+        let _guard = test_env_guard();
         env::set_var(DISABLE_KEYCHAIN_ENV, "1");
         delete().expect("clear in-memory value");
 
@@ -265,7 +269,7 @@ mod tests {
 
     #[test]
     fn read_store_delete_use_credential_store_when_keychain_enabled() {
-        let _guard = env_lock().lock().expect("lock");
+        let _guard = test_env_guard();
         env::remove_var(ENV_OVERRIDE);
         env::set_var(DISABLE_KEYCHAIN_ENV, "0");
 
@@ -284,7 +288,7 @@ mod tests {
 
     #[test]
     fn read_expected_surfaces_credential_store_error() {
-        let _guard = env_lock().lock().expect("lock");
+        let _guard = test_env_guard();
         env::remove_var(ENV_OVERRIDE);
         env::set_var(DISABLE_KEYCHAIN_ENV, "0");
 
@@ -301,7 +305,7 @@ mod tests {
 
     #[test]
     fn read_expected_rejects_blank_value_from_enabled_credential_store() {
-        let _guard = env_lock().lock().expect("lock");
+        let _guard = test_env_guard();
         env::remove_var(ENV_OVERRIDE);
         env::set_var(DISABLE_KEYCHAIN_ENV, "0");
 
@@ -318,7 +322,7 @@ mod tests {
 
     #[test]
     fn env_override_takes_precedence_over_enabled_credential_store_value() {
-        let _guard = env_lock().lock().expect("lock");
+        let _guard = test_env_guard();
         env::set_var(ENV_OVERRIDE, " override-secret ");
         env::set_var(DISABLE_KEYCHAIN_ENV, "0");
 
@@ -336,7 +340,7 @@ mod tests {
 
     #[test]
     fn store_trims_value_before_writing_enabled_credential_store() {
-        let _guard = env_lock().lock().expect("lock");
+        let _guard = test_env_guard();
         env::remove_var(ENV_OVERRIDE);
         env::set_var(DISABLE_KEYCHAIN_ENV, "0");
 
@@ -351,7 +355,7 @@ mod tests {
 
     #[test]
     fn keychain_disabled_in_tests_defaults_to_true_except_explicit_false_values() {
-        let _guard = env_lock().lock().expect("lock");
+        let _guard = test_env_guard();
 
         env::remove_var(DISABLE_KEYCHAIN_ENV);
         assert!(keychain_disabled());
@@ -377,7 +381,7 @@ mod tests {
 
     #[test]
     fn read_expected_ignores_blank_env_override_and_uses_in_memory_value() {
-        let _guard = env_lock().lock().expect("lock");
+        let _guard = test_env_guard();
         env::set_var(DISABLE_KEYCHAIN_ENV, "1");
         delete().expect("clear in-memory");
         store("memory-secret").expect("store in-memory value");
@@ -391,8 +395,24 @@ mod tests {
     }
 
     #[test]
+    fn read_expected_rejects_blank_in_memory_value() {
+        let _guard = test_env_guard();
+        env::remove_var(ENV_OVERRIDE);
+        env::set_var(DISABLE_KEYCHAIN_ENV, "1");
+        *super::in_memory_protected_keyword()
+            .lock()
+            .expect("in-memory keyword lock") = Some("   ".to_string());
+
+        let error = read_expected().expect_err("blank in-memory value should be rejected");
+        assert_eq!(error.to_string(), "protected keyword not configured");
+
+        delete().expect("clear in-memory value");
+        env::remove_var(DISABLE_KEYCHAIN_ENV);
+    }
+
+    #[test]
     fn default_keyring_store_is_never_used_successfully_in_tests() {
-        let _guard = env_lock().lock().expect("lock");
+        let _guard = test_env_guard();
         env::remove_var(ENV_OVERRIDE);
         env::set_var(DISABLE_KEYCHAIN_ENV, "0");
         let previous = with_credential_store(Box::new(KeyringCredentialStore));
@@ -408,5 +428,16 @@ mod tests {
 
         let _ = with_credential_store(previous);
         env::remove_var(DISABLE_KEYCHAIN_ENV);
+    }
+
+    #[test]
+    fn test_env_guard_recovers_after_poisoned_lock() {
+        let handle = std::thread::spawn(|| {
+            let _guard = test_env_guard();
+            std::panic::resume_unwind(Box::new("poison protected keyword test lock"));
+        });
+
+        assert!(handle.join().is_err());
+        let _guard = test_env_guard();
     }
 }

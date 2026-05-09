@@ -334,6 +334,7 @@ mod tests {
     use core::TrustFacade;
     use db_sqlite::SqliteDatabase;
     use model::{Currency, Environment, TradeCategory, TradingVehicleCategory};
+    use rust_decimal::Decimal;
     use rust_decimal_macros::dec;
     use std::collections::VecDeque;
     use std::io::{Error as IoError, ErrorKind};
@@ -379,6 +380,35 @@ mod tests {
         let path = std::env::temp_dir().join(format!("trust-test-{}.db", Uuid::new_v4()));
         let db = SqliteDatabase::new(path.to_str().expect("valid temp db path"));
         TrustFacade::new(Box::new(db), Box::<AlpacaBroker>::default())
+    }
+
+    fn account_with_usd_deposit(
+        trust: &mut TrustFacade,
+        name: &str,
+        amount: Decimal,
+    ) -> model::Account {
+        let account = trust
+            .create_account(name, "desc", Environment::Paper, dec!(20), dec!(10))
+            .expect("account should be created");
+        trust
+            .create_transaction(
+                &account,
+                &model::TransactionCategory::Deposit,
+                amount,
+                &Currency::USD,
+            )
+            .expect("deposit should succeed");
+        account
+    }
+
+    fn base_quantity_builder(account: model::Account, entry_price: Decimal) -> TradeDialogBuilder {
+        TradeDialogBuilder {
+            account: Some(account),
+            entry_price: Some(entry_price),
+            stop_price: Some(dec!(95)),
+            currency: Some(Currency::USD),
+            ..TradeDialogBuilder::new()
+        }
     }
 
     #[test]
@@ -568,6 +598,171 @@ mod tests {
         assert_eq!(unchanged.entry_price, Some(dec!(100)));
         assert!(unchanged.thesis.is_none());
         assert_eq!(unchanged.category, Some(TradeCategory::Long));
+    }
+
+    #[test]
+    fn required_selection_and_price_setters_cover_error_paths() {
+        let mut trust = test_trust();
+        let account = account_with_usd_deposit(&mut trust, "trade-io-errors", dec!(100));
+
+        let mut category_error = ScriptedIo::with(
+            vec![Err(IoError::new(ErrorKind::BrokenPipe, "category failed"))],
+            vec![],
+        );
+        let builder = TradeDialogBuilder::new().category_with_io(&mut category_error);
+        assert!(builder.category.is_none());
+
+        let mut entry_invalid = ScriptedIo::with(vec![], vec![Ok("not-a-decimal".to_string())]);
+        let builder = TradeDialogBuilder::new().entry_price_with_io(&mut entry_invalid);
+        assert!(builder.entry_price.is_none());
+
+        let mut entry_error = ScriptedIo::with(
+            vec![],
+            vec![Err(IoError::new(ErrorKind::BrokenPipe, "entry failed"))],
+        );
+        let builder = TradeDialogBuilder::new().entry_price_with_io(&mut entry_error);
+        assert!(builder.entry_price.is_none());
+
+        let mut stop_invalid = ScriptedIo::with(vec![], vec![Ok("bad-stop".to_string())]);
+        let builder = TradeDialogBuilder::new().stop_price_with_io(&mut stop_invalid);
+        assert!(builder.stop_price.is_none());
+
+        let mut stop_error = ScriptedIo::with(
+            vec![],
+            vec![Err(IoError::new(ErrorKind::BrokenPipe, "stop failed"))],
+        );
+        let builder = TradeDialogBuilder::new().stop_price_with_io(&mut stop_error);
+        assert!(builder.stop_price.is_none());
+
+        let mut currency_cancel = ScriptedIo::with(vec![Ok(None)], vec![]);
+        let builder = TradeDialogBuilder {
+            account: Some(account.clone()),
+            ..TradeDialogBuilder::new()
+        }
+        .currency_with_io(&mut trust, &mut currency_cancel);
+        assert!(builder.currency.is_none());
+
+        let mut currency_error = ScriptedIo::with(
+            vec![Err(IoError::new(ErrorKind::BrokenPipe, "currency failed"))],
+            vec![],
+        );
+        let builder = TradeDialogBuilder {
+            account: Some(account.clone()),
+            ..TradeDialogBuilder::new()
+        }
+        .currency_with_io(&mut trust, &mut currency_error);
+        assert!(builder.currency.is_none());
+
+        let mut target_invalid = ScriptedIo::with(vec![], vec![Ok("bad-target".to_string())]);
+        let builder = TradeDialogBuilder::new().target_price_with_io(&mut target_invalid);
+        assert!(builder.target_price.is_none());
+
+        let mut target_error = ScriptedIo::with(
+            vec![],
+            vec![Err(IoError::new(ErrorKind::BrokenPipe, "target failed"))],
+        );
+        let builder = TradeDialogBuilder::new().target_price_with_io(&mut target_error);
+        assert!(builder.target_price.is_none());
+    }
+
+    #[test]
+    fn quantity_with_io_covers_rejection_and_calculation_error_paths() {
+        let mut trust = test_trust();
+        let account = account_with_usd_deposit(&mut trust, "trade-quantity-errors", dec!(100));
+
+        let base_builder = base_quantity_builder(account.clone(), dec!(100));
+        let mut too_large = ScriptedIo::with(vec![], vec![Ok("2".to_string())]);
+        let builder = base_builder.quantity_with_io(&mut trust, &mut too_large);
+        assert!(builder.quantity.is_none());
+
+        let base_builder = base_quantity_builder(account.clone(), dec!(100));
+        let mut zero = ScriptedIo::with(vec![], vec![Ok("0".to_string())]);
+        let builder = base_builder.quantity_with_io(&mut trust, &mut zero);
+        assert!(builder.quantity.is_none());
+
+        let base_builder = base_quantity_builder(account.clone(), dec!(100));
+        let mut invalid_quantity = ScriptedIo::with(vec![], vec![Ok("nan".to_string())]);
+        let builder = base_builder.quantity_with_io(&mut trust, &mut invalid_quantity);
+        assert!(builder.quantity.is_none());
+
+        let base_builder = base_quantity_builder(account.clone(), dec!(100));
+        let mut quantity_error = ScriptedIo::with(
+            vec![],
+            vec![Err(IoError::new(ErrorKind::BrokenPipe, "quantity failed"))],
+        );
+        let builder = base_builder.quantity_with_io(&mut trust, &mut quantity_error);
+        assert!(builder.quantity.is_none());
+
+        let calc_error_builder = base_quantity_builder(account, dec!(0));
+        let mut calc_error = ScriptedIo::with(vec![], vec![Ok("1".to_string())]);
+        let builder = calc_error_builder.quantity_with_io(&mut trust, &mut calc_error);
+        assert!(builder.quantity.is_none());
+    }
+
+    #[test]
+    fn optional_metadata_setters_cover_empty_too_long_and_io_errors() {
+        let mut default_input = ScriptedIo::with(vec![], vec![]);
+        assert_eq!(
+            default_input
+                .input_text("ignored", true)
+                .expect("default text input"),
+            ""
+        );
+
+        let mut thesis_too_long = ScriptedIo::with(vec![], vec![Ok("x".repeat(201))]);
+        let builder = TradeDialogBuilder::new().thesis_with_io(&mut thesis_too_long);
+        assert!(builder.thesis.is_none());
+
+        let mut thesis_error = ScriptedIo::with(
+            vec![],
+            vec![Err(IoError::new(ErrorKind::BrokenPipe, "thesis failed"))],
+        );
+        let builder = TradeDialogBuilder::new().thesis_with_io(&mut thesis_error);
+        assert!(builder.thesis.is_none());
+
+        let mut sector_empty = ScriptedIo::with(vec![], vec![Ok(String::new())]);
+        let builder = TradeDialogBuilder::new().sector_with_io(&mut sector_empty);
+        assert!(builder.sector.is_none());
+
+        let mut sector_error = ScriptedIo::with(
+            vec![],
+            vec![Err(IoError::new(ErrorKind::BrokenPipe, "sector failed"))],
+        );
+        let builder = TradeDialogBuilder::new().sector_with_io(&mut sector_error);
+        assert!(builder.sector.is_none());
+
+        let mut asset_class_empty = ScriptedIo::with(vec![], vec![Ok(String::new())]);
+        let builder = TradeDialogBuilder::new().asset_class_with_io(&mut asset_class_empty);
+        assert!(builder.asset_class.is_none());
+
+        let mut asset_class_error = ScriptedIo::with(
+            vec![],
+            vec![Err(IoError::new(
+                ErrorKind::BrokenPipe,
+                "asset class failed",
+            ))],
+        );
+        let builder = TradeDialogBuilder::new().asset_class_with_io(&mut asset_class_error);
+        assert!(builder.asset_class.is_none());
+
+        let mut context_empty = ScriptedIo::with(vec![], vec![Ok(String::new())]);
+        let builder = TradeDialogBuilder::new().context_with_io(&mut context_empty);
+        assert!(builder.context.is_none());
+    }
+
+    #[test]
+    fn search_wrappers_handle_missing_records_and_scripted_confirm() {
+        let mut trust = test_trust();
+        scripted_reset();
+
+        let builder = TradeDialogBuilder::new()
+            .account(&mut trust)
+            .trading_vehicle(&mut trust);
+        assert!(builder.account.is_none());
+        assert!(builder.trading_vehicle.is_none());
+
+        let mut io = ScriptedIo::with(vec![], vec![]);
+        assert!(!io.confirm("ignored", true).expect("confirm should succeed"));
     }
 
     #[test]

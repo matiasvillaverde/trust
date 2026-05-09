@@ -158,147 +158,9 @@ mod tests {
     use super::*;
     use chrono::Utc;
     use db_sqlite::SqliteDatabase;
-    use model::{AccountType, DatabaseFactory};
+    use model::AccountType;
     use rust_decimal_macros::dec;
     use uuid::Uuid;
-
-    // Mock database factory for testing
-    #[derive(Debug)]
-    struct MockDatabaseFactory {
-        #[allow(dead_code)]
-        transactions_created: Vec<(Uuid, Uuid, Decimal)>, // (from, to, amount)
-    }
-
-    impl MockDatabaseFactory {
-        fn new() -> Self {
-            Self {
-                transactions_created: Vec::new(),
-            }
-        }
-    }
-
-    // Implement required traits for mock - simplified for testing
-    impl DatabaseFactory for MockDatabaseFactory {
-        fn account_read(&self) -> Box<dyn model::AccountRead> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn account_write(&self) -> Box<dyn model::AccountWrite> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn account_balance_read(&self) -> Box<dyn model::AccountBalanceRead> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn account_balance_write(&self) -> Box<dyn model::AccountBalanceWrite> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn order_read(&self) -> Box<dyn model::OrderRead> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn order_write(&self) -> Box<dyn model::OrderWrite> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn transaction_read(&self) -> Box<dyn model::ReadTransactionDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn transaction_write(&self) -> Box<dyn model::WriteTransactionDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn trade_read(&self) -> Box<dyn model::ReadTradeDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn trade_write(&self) -> Box<dyn model::WriteTradeDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn trade_balance_write(&self) -> Box<dyn model::database::WriteAccountBalanceDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn rule_read(&self) -> Box<dyn model::ReadRuleDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn rule_write(&self) -> Box<dyn model::WriteRuleDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn trading_vehicle_read(&self) -> Box<dyn model::ReadTradingVehicleDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn trading_vehicle_write(&self) -> Box<dyn model::WriteTradingVehicleDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn log_read(&self) -> Box<dyn model::ReadBrokerLogsDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn log_write(&self) -> Box<dyn model::WriteBrokerLogsDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn distribution_read(&self) -> Box<dyn model::DistributionRead> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn distribution_write(&self) -> Box<dyn model::DistributionWrite> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn advisory_read(&self) -> Box<dyn model::AdvisoryRead> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn advisory_write(&self) -> Box<dyn model::AdvisoryWrite> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn execution_read(&self) -> Box<dyn model::ReadExecutionDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn execution_write(&self) -> Box<dyn model::WriteExecutionDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn trade_grade_read(&self) -> Box<dyn model::ReadTradeGradeDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn trade_grade_write(&self) -> Box<dyn model::WriteTradeGradeDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn level_read(&self) -> Box<dyn model::ReadLevelDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn level_write(&self) -> Box<dyn model::WriteLevelDB> {
-            todo!("Mock not needed for this test")
-        }
-
-        fn begin_savepoint(&mut self, _name: &str) -> Result<(), Box<dyn Error>> {
-            Ok(())
-        }
-
-        fn release_savepoint(&mut self, _name: &str) -> Result<(), Box<dyn Error>> {
-            Ok(())
-        }
-
-        fn rollback_to_savepoint(&mut self, _name: &str) -> Result<(), Box<dyn Error>> {
-            Ok(())
-        }
-    }
 
     fn create_test_account(account_type: AccountType, parent_id: Option<Uuid>) -> Account {
         Account {
@@ -394,10 +256,121 @@ mod tests {
     }
 
     #[test]
+    fn test_debug_redacts_database_trait_object() {
+        let mut database = SqliteDatabase::new_in_memory();
+        let service = ProfitDistributionService::new(&mut database);
+
+        assert_eq!(
+            format!("{service:?}"),
+            "ProfitDistributionService { database: \"&mut dyn DatabaseFactory\" }"
+        );
+    }
+
+    fn create_persisted_trade(database: &mut SqliteDatabase, account: &Account) -> model::Trade {
+        let vehicle = database
+            .trading_vehicle_write()
+            .create_trading_vehicle(
+                "DISTLINK",
+                Some("DISTLINK"),
+                &model::TradingVehicleCategory::Stock,
+                "alpaca",
+            )
+            .expect("trading vehicle should be created");
+        let stop = database
+            .order_write()
+            .create(
+                &vehicle,
+                10,
+                dec!(90),
+                &Currency::USD,
+                &model::OrderAction::Sell,
+                &model::OrderCategory::Stop,
+            )
+            .expect("stop order should be created");
+        let entry = database
+            .order_write()
+            .create(
+                &vehicle,
+                10,
+                dec!(100),
+                &Currency::USD,
+                &model::OrderAction::Buy,
+                &model::OrderCategory::Limit,
+            )
+            .expect("entry order should be created");
+        let target = database
+            .order_write()
+            .create(
+                &vehicle,
+                10,
+                dec!(120),
+                &Currency::USD,
+                &model::OrderAction::Sell,
+                &model::OrderCategory::Limit,
+            )
+            .expect("target order should be created");
+        let draft = model::DraftTrade {
+            account: account.clone(),
+            trading_vehicle: vehicle,
+            quantity: 10,
+            currency: Currency::USD,
+            category: model::TradeCategory::Long,
+            thesis: None,
+            sector: None,
+            asset_class: None,
+            context: None,
+        };
+
+        database
+            .trade_write()
+            .create_trade(draft, &stop, &entry, &target)
+            .expect("trade should be created")
+    }
+
+    fn account_transactions(
+        database: &SqliteDatabase,
+        account_id: Uuid,
+        currency: &Currency,
+        _label: &str,
+    ) -> Vec<model::Transaction> {
+        database
+            .transaction_read()
+            .all_transactions(account_id, currency)
+            .expect("transactions should be readable")
+    }
+
+    fn assert_source_withdrawals(transactions: &[model::Transaction], expected_total: Decimal) {
+        assert_eq!(transactions.len(), 3);
+        assert!(transactions
+            .iter()
+            .all(|tx| tx.category == TransactionCategory::Withdrawal));
+        let source_total = transactions
+            .iter()
+            .try_fold(Decimal::ZERO, |total, tx| total.checked_add(tx.amount))
+            .expect("transaction total should not overflow");
+        assert_eq!(source_total, expected_total);
+    }
+
+    fn assert_destination_transaction(
+        transactions: &[model::Transaction],
+        expected_category: TransactionCategory,
+        expected_amount: Decimal,
+        _label: &str,
+    ) -> Uuid {
+        assert_eq!(transactions.len(), 1);
+        let transaction = transactions
+            .first()
+            .expect("destination transaction should exist");
+        assert_eq!(transaction.category, expected_category);
+        assert_eq!(transaction.amount, expected_amount);
+        transaction.id
+    }
+
+    #[test]
     fn test_calculate_distribution_happy_path() {
         // Given: A profit distribution service
-        let mut mock_db = MockDatabaseFactory::new();
-        let service = ProfitDistributionService::new(&mut mock_db);
+        let mut database = SqliteDatabase::new_in_memory();
+        let service = ProfitDistributionService::new(&mut database);
 
         // And: An account with distribution rules
         let account = create_test_account(AccountType::Primary, None);
@@ -420,8 +393,8 @@ mod tests {
     #[test]
     fn test_calculate_distribution_below_threshold() {
         // Given: A profit distribution service
-        let mut mock_db = MockDatabaseFactory::new();
-        let service = ProfitDistributionService::new(&mut mock_db);
+        let mut database = SqliteDatabase::new_in_memory();
+        let service = ProfitDistributionService::new(&mut database);
 
         // And: Distribution rules with minimum threshold of 100
         let account = create_test_account(AccountType::Primary, None);
@@ -495,8 +468,8 @@ mod tests {
     #[test]
     fn test_transfer_funds_between_accounts() {
         // Given: A profit distribution service
-        let mut mock_db = MockDatabaseFactory::new();
-        let service = ProfitDistributionService::new(&mut mock_db);
+        let mut database = SqliteDatabase::new_in_memory();
+        let service = ProfitDistributionService::new(&mut database);
 
         // And: Two accounts in the same hierarchy
         let parent_account = create_test_account(AccountType::Primary, None);
@@ -517,8 +490,8 @@ mod tests {
     #[test]
     fn test_transfer_funds_with_negative_amount_fails() {
         // Given: A profit distribution service
-        let mut mock_db = MockDatabaseFactory::new();
-        let service = ProfitDistributionService::new(&mut mock_db);
+        let mut database = SqliteDatabase::new_in_memory();
+        let service = ProfitDistributionService::new(&mut database);
 
         // And: Two valid accounts
         let from_account = create_test_account(AccountType::Primary, None);
@@ -544,8 +517,8 @@ mod tests {
     #[test]
     fn test_execute_distribution_invalid_hierarchy_fails() {
         // Given: A profit distribution service with database
-        let mut mock_db = MockDatabaseFactory::new();
-        let mut service = ProfitDistributionService::new(&mut mock_db);
+        let mut database = SqliteDatabase::new_in_memory();
+        let mut service = ProfitDistributionService::new(&mut database);
 
         // And: Accounts with invalid hierarchy (unrelated accounts)
         let source_account = create_test_account(AccountType::Primary, None);
@@ -578,11 +551,8 @@ mod tests {
 
     #[test]
     fn test_validate_distribution_accounts_success() {
-        // Given: A profit distribution service with database
-        let mut mock_db = MockDatabaseFactory::new();
-        let _service = ProfitDistributionService::new(&mut mock_db);
-
-        // And: A valid account hierarchy
+        // Given: A valid account hierarchy
+        let mut database = SqliteDatabase::new_in_memory();
         let source_account = create_test_account(AccountType::Primary, None);
         let earnings_account = create_test_account(AccountType::Earnings, Some(source_account.id));
         let tax_account = create_test_account(AccountType::TaxReserve, Some(source_account.id));
@@ -590,7 +560,7 @@ mod tests {
             create_test_account(AccountType::Reinvestment, Some(source_account.id));
 
         // When: We validate using the fund transfer service directly
-        let transfer_service = FundTransferService::new(&mut mock_db);
+        let transfer_service = FundTransferService::new(&mut database);
         let validation_amount = dec!(1.0);
 
         // Then: Each validation should succeed
@@ -658,5 +628,87 @@ mod tests {
         assert_eq!(first_history.earnings_amount, Some(dec!(1000)));
         assert_eq!(first_history.tax_amount, None);
         assert_eq!(first_history.reinvestment_amount, None);
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn test_execute_distribution_with_trade_id_uses_auditable_payment_categories() {
+        let mut database = SqliteDatabase::new_in_memory();
+        let (source_account, earnings_account, tax_account, reinvestment_account) =
+            create_real_hierarchy(&database, "trade-linked");
+        let rules = create_test_distribution_rules(source_account.id);
+        let profit_amount = dec!(1000);
+        let currency = Currency::USD;
+        let trade_id = create_persisted_trade(&mut database, &source_account).id;
+
+        let distribution_result = {
+            let mut service = ProfitDistributionService::new(&mut database);
+            service
+                .execute_distribution(
+                    &source_account,
+                    &earnings_account,
+                    &tax_account,
+                    &reinvestment_account,
+                    profit_amount,
+                    &rules,
+                    &currency,
+                    Some(trade_id),
+                )
+                .expect("trade-linked distribution should execute")
+        };
+
+        assert_eq!(distribution_result.transactions_created.len(), 3);
+
+        let source_transactions =
+            account_transactions(&database, source_account.id, &currency, "source");
+        assert_source_withdrawals(&source_transactions, dec!(-1000));
+
+        let earnings_transactions =
+            account_transactions(&database, earnings_account.id, &currency, "earnings");
+        let tax_transactions = account_transactions(&database, tax_account.id, &currency, "tax");
+        let reinvestment_transactions = account_transactions(
+            &database,
+            reinvestment_account.id,
+            &currency,
+            "reinvestment",
+        );
+
+        let destination_transaction_ids = [
+            assert_destination_transaction(
+                &earnings_transactions,
+                TransactionCategory::PaymentEarnings(trade_id),
+                dec!(400),
+                "earnings",
+            ),
+            assert_destination_transaction(
+                &tax_transactions,
+                TransactionCategory::PaymentTax(trade_id),
+                dec!(300),
+                "tax",
+            ),
+            assert_destination_transaction(
+                &reinvestment_transactions,
+                TransactionCategory::Deposit,
+                dec!(300),
+                "reinvestment",
+            ),
+        ];
+        for transaction_id in destination_transaction_ids {
+            assert!(distribution_result
+                .transactions_created
+                .contains(&transaction_id));
+        }
+
+        let history = database
+            .distribution_read()
+            .history_for_account(source_account.id)
+            .expect("history should be readable");
+        assert_eq!(history.len(), 1);
+        let history = history.first().expect("history row should exist");
+        assert_eq!(history.trade_id, Some(trade_id));
+        assert_eq!(history.original_amount, profit_amount);
+        assert_eq!(history.earnings_amount, Some(dec!(400)));
+        assert_eq!(history.tax_amount, Some(dec!(300)));
+        assert_eq!(history.reinvestment_amount, Some(dec!(300)));
     }
 }

@@ -22,13 +22,32 @@ use model::{
 use rust_decimal::Decimal;
 use std::error::Error;
 use std::path::Path;
-use std::sync::Arc;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex, MutexGuard};
 use uuid::Uuid;
 
 /// SQLite database implementation providing access to all database operations
 pub struct SqliteDatabase {
     connection: Arc<Mutex<SqliteConnection>>,
+}
+
+fn fatal_database_error(context: &str, error: impl std::fmt::Display) -> ! {
+    eprintln!("{context}: {error}");
+    std::process::exit(1);
+}
+
+fn lock_connection_or_exit(
+    connection: &Arc<Mutex<SqliteConnection>>,
+) -> MutexGuard<'_, SqliteConnection> {
+    match connection.lock() {
+        Ok(connection) => connection,
+        Err(error) => fatal_database_error("Failed to acquire connection lock", error),
+    }
+}
+
+fn execute_sql_or_exit(connection: &mut SqliteConnection, sql: &str, context: &str) {
+    if let Err(error) = sql_query(sql).execute(connection) {
+        fatal_database_error(context, error);
+    }
 }
 
 impl std::fmt::Debug for SqliteDatabase {
@@ -193,68 +212,50 @@ impl SqliteDatabase {
     ) -> Result<(), Box<dyn Error>> {
         Self::validate_savepoint_name(savepoint)?;
         let sql = format!("{statement} {savepoint}");
-        let mut connection = self.connection.lock().unwrap_or_else(|e| {
-            eprintln!("Failed to acquire connection lock: {e}");
-            std::process::exit(1);
-        });
+        let mut connection = lock_connection_or_exit(&self.connection);
         sql_query(sql).execute(&mut *connection)?;
         Ok(())
     }
 
     fn configure_connection(connection: &mut SqliteConnection) {
         // Enforce relational integrity. SQLite does not enable FK constraints by default.
-        sql_query("PRAGMA foreign_keys = ON;")
-            .execute(connection)
-            .unwrap_or_else(|e| {
-                eprintln!("Failed to enable foreign_keys pragma: {e}");
-                std::process::exit(1);
-            });
+        execute_sql_or_exit(
+            connection,
+            "PRAGMA foreign_keys = ON;",
+            "Failed to enable foreign_keys pragma",
+        );
 
-        sql_query(
+        execute_sql_or_exit(
+            connection,
             "CREATE INDEX IF NOT EXISTS idx_transactions_account_currency_category_active \
              ON transactions(account_id, currency, category, created_at) \
              WHERE deleted_at IS NULL",
-        )
-        .execute(connection)
-        .unwrap_or_else(|e| {
-            eprintln!(
-                "Failed to create index idx_transactions_account_currency_category_active: {e}"
-            );
-            std::process::exit(1);
-        });
+            "Failed to create index idx_transactions_account_currency_category_active",
+        );
 
-        sql_query(
+        execute_sql_or_exit(
+            connection,
             "CREATE INDEX IF NOT EXISTS idx_transactions_trade_category_active \
              ON transactions(trade_id, category, created_at) \
              WHERE deleted_at IS NULL",
-        )
-        .execute(connection)
-        .unwrap_or_else(|e| {
-            eprintln!("Failed to create index idx_transactions_trade_category_active: {e}");
-            std::process::exit(1);
-        });
+            "Failed to create index idx_transactions_trade_category_active",
+        );
 
-        sql_query(
+        execute_sql_or_exit(
+            connection,
             "CREATE INDEX IF NOT EXISTS idx_trades_account_status_currency_active \
              ON trades(account_id, status, currency) \
              WHERE deleted_at IS NULL",
-        )
-        .execute(connection)
-        .unwrap_or_else(|e| {
-            eprintln!("Failed to create index idx_trades_account_status_currency_active: {e}");
-            std::process::exit(1);
-        });
+            "Failed to create index idx_trades_account_status_currency_active",
+        );
 
-        sql_query(
+        execute_sql_or_exit(
+            connection,
             "CREATE INDEX IF NOT EXISTS idx_accounts_balances_account_currency_active \
              ON accounts_balances(account_id, currency) \
              WHERE deleted_at IS NULL",
-        )
-        .execute(connection)
-        .unwrap_or_else(|e| {
-            eprintln!("Failed to create index idx_accounts_balances_account_currency_active: {e}");
-            std::process::exit(1);
-        });
+            "Failed to create index idx_accounts_balances_account_currency_active",
+        );
     }
 
     /// Create a new SQLite database connection from a URL
@@ -275,21 +276,19 @@ impl SqliteDatabase {
         use diesel_migrations::*;
         pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
         // This is only used for tests, so we use a simpler error handling approach
-        let mut connection = SqliteConnection::establish(":memory:").unwrap_or_else(|e| {
-            eprintln!("Failed to establish in-memory database connection: {e}");
-            std::process::exit(1);
-        });
-        connection
-            .run_pending_migrations(MIGRATIONS)
-            .unwrap_or_else(|e| {
-                eprintln!("Failed to run migrations on in-memory database: {e}");
-                std::process::exit(1);
-            });
+        let mut connection = match SqliteConnection::establish(":memory:") {
+            Ok(connection) => connection,
+            Err(error) => {
+                fatal_database_error("Failed to establish in-memory database connection", error)
+            }
+        };
+        if let Err(error) = connection.run_pending_migrations(MIGRATIONS) {
+            fatal_database_error("Failed to run migrations on in-memory database", error);
+        }
         Self::configure_connection(&mut connection);
-        connection.begin_test_transaction().unwrap_or_else(|e| {
-            eprintln!("Failed to begin test transaction: {e}");
-            std::process::exit(1);
-        });
+        if let Err(error) = connection.begin_test_transaction() {
+            fatal_database_error("Failed to begin test transaction", error);
+        }
         SqliteDatabase {
             connection: Arc::new(Mutex::new(connection)),
         }
@@ -299,21 +298,20 @@ impl SqliteDatabase {
     fn establish_connection(database_url: &str) -> SqliteConnection {
         let db_exists = std::path::Path::new(database_url).exists();
         // Use the database URL to establish a connection to the SQLite database
-        let mut connection = SqliteConnection::establish(database_url).unwrap_or_else(|e| {
-            eprintln!("Error connecting to {database_url}: {e}");
-            std::process::exit(1);
-        });
+        let mut connection = match SqliteConnection::establish(database_url) {
+            Ok(connection) => connection,
+            Err(error) => {
+                fatal_database_error(&format!("Error connecting to {database_url}"), error)
+            }
+        };
 
         // Run migrations only if it is a new DB
         if !db_exists {
             use diesel_migrations::*;
             pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
-            connection
-                .run_pending_migrations(MIGRATIONS)
-                .unwrap_or_else(|e| {
-                    eprintln!("Failed to run migrations on new database: {e}");
-                    std::process::exit(1);
-                });
+            if let Err(error) = connection.run_pending_migrations(MIGRATIONS) {
+                fatal_database_error("Failed to run migrations on new database", error);
+            }
         }
 
         Self::configure_connection(&mut connection);
@@ -322,10 +320,7 @@ impl SqliteDatabase {
 
     /// Export a full JSON backup of the DB to `path`.
     pub fn export_backup_to_path(&self, path: &Path) -> Result<(), Box<dyn Error>> {
-        let mut connection = self.connection.lock().unwrap_or_else(|e| {
-            eprintln!("Failed to acquire connection lock: {e}");
-            std::process::exit(1);
-        });
+        let mut connection = lock_connection_or_exit(&self.connection);
         backup::export_to_path(&mut connection, path).map_err(|e| Box::new(e) as Box<dyn Error>)
     }
 
@@ -337,10 +332,7 @@ impl SqliteDatabase {
         path: &Path,
         options: ImportOptions,
     ) -> Result<backup::ImportReport, Box<dyn Error>> {
-        let mut connection = self.connection.lock().unwrap_or_else(|e| {
-            eprintln!("Failed to acquire connection lock: {e}");
-            std::process::exit(1);
-        });
+        let mut connection = lock_connection_or_exit(&self.connection);
         let backup =
             backup::read_backup_from_path(path).map_err(|e| Box::new(e) as Box<dyn Error>)?;
         backup::import_backup(&mut connection, &backup, options)
@@ -359,10 +351,7 @@ impl OrderWrite for SqliteDatabase {
         category: &OrderCategory,
     ) -> Result<Order, Box<dyn Error>> {
         WorkerOrder::create(
-            &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {e}");
-                std::process::exit(1);
-            }),
+            &mut lock_connection_or_exit(&self.connection),
             price,
             currency,
             quantity,
@@ -373,13 +362,7 @@ impl OrderWrite for SqliteDatabase {
     }
 
     fn update(&mut self, order: &Order) -> Result<Order, Box<dyn Error>> {
-        WorkerOrder::update(
-            &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {e}");
-                std::process::exit(1);
-            }),
-            order,
-        )
+        WorkerOrder::update(&mut lock_connection_or_exit(&self.connection), order)
     }
 
     fn submit_of(
@@ -388,33 +371,18 @@ impl OrderWrite for SqliteDatabase {
         broker_order_id: String,
     ) -> Result<Order, Box<dyn Error>> {
         WorkerOrder::update_submitted_at(
-            &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {e}");
-                std::process::exit(1);
-            }),
+            &mut lock_connection_or_exit(&self.connection),
             order,
             broker_order_id,
         )
     }
 
     fn filling_of(&mut self, order: &Order) -> Result<Order, Box<dyn Error>> {
-        WorkerOrder::update_filled_at(
-            &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {e}");
-                std::process::exit(1);
-            }),
-            order,
-        )
+        WorkerOrder::update_filled_at(&mut lock_connection_or_exit(&self.connection), order)
     }
 
     fn closing_of(&mut self, order: &Order) -> Result<Order, Box<dyn Error>> {
-        WorkerOrder::update_closed_at(
-            &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {e}");
-                std::process::exit(1);
-            }),
-            order,
-        )
+        WorkerOrder::update_closed_at(&mut lock_connection_or_exit(&self.connection), order)
     }
     fn update_price(
         &mut self,
@@ -423,10 +391,7 @@ impl OrderWrite for SqliteDatabase {
         new_broker_id: String,
     ) -> Result<Order, Box<dyn Error>> {
         WorkerOrder::update_price(
-            &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {e}");
-                std::process::exit(1);
-            }),
+            &mut lock_connection_or_exit(&self.connection),
             order,
             price,
             new_broker_id,
@@ -443,10 +408,7 @@ impl WriteTransactionDB for SqliteDatabase {
         category: TransactionCategory,
     ) -> Result<Transaction, Box<dyn Error>> {
         WorkerTransaction::create_transaction(
-            &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {e}");
-                std::process::exit(1);
-            }),
+            &mut lock_connection_or_exit(&self.connection),
             account_id,
             amount,
             currency,
@@ -466,10 +428,7 @@ impl WriteTransactionDB for SqliteDatabase {
         let withdrawal_amount = Decimal::ZERO
             .checked_sub(amount)
             .ok_or("Invalid withdrawal amount")?;
-        let connection = &mut self.connection.lock().unwrap_or_else(|e| {
-            eprintln!("Failed to acquire connection lock: {e}");
-            std::process::exit(1);
-        });
+        let connection = &mut lock_connection_or_exit(&self.connection);
 
         connection.transaction::<(Transaction, Transaction), Box<dyn Error>, _>(|conn| {
             let withdrawal_tx = WorkerTransaction::create_transaction(
@@ -498,10 +457,7 @@ impl ReadTradeGradeDB for SqliteDatabase {
         trade_id: Uuid,
     ) -> Result<Option<TradeGrade>, Box<dyn Error>> {
         WorkerTradeGrade::read_latest_for_trade(
-            &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {e}");
-                std::process::exit(1);
-            }),
+            &mut lock_connection_or_exit(&self.connection),
             trade_id,
         )
     }
@@ -512,10 +468,7 @@ impl ReadTradeGradeDB for SqliteDatabase {
         days: u32,
     ) -> Result<Vec<TradeGrade>, Box<dyn Error>> {
         WorkerTradeGrade::read_for_account_days(
-            &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {e}");
-                std::process::exit(1);
-            }),
+            &mut lock_connection_or_exit(&self.connection),
             account_id,
             days,
         )
@@ -524,25 +477,13 @@ impl ReadTradeGradeDB for SqliteDatabase {
 
 impl WriteTradeGradeDB for SqliteDatabase {
     fn create_trade_grade(&mut self, grade: &TradeGrade) -> Result<TradeGrade, Box<dyn Error>> {
-        WorkerTradeGrade::create(
-            &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {e}");
-                std::process::exit(1);
-            }),
-            grade,
-        )
+        WorkerTradeGrade::create(&mut lock_connection_or_exit(&self.connection), grade)
     }
 }
 
 impl ReadLevelDB for SqliteDatabase {
     fn level_for_account(&mut self, account_id: Uuid) -> Result<Level, Box<dyn Error>> {
-        WorkerLevel::read_for_account(
-            &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {e}");
-                std::process::exit(1);
-            }),
-            account_id,
-        )
+        WorkerLevel::read_for_account(&mut lock_connection_or_exit(&self.connection), account_id)
     }
 
     fn level_changes_for_account(
@@ -550,10 +491,7 @@ impl ReadLevelDB for SqliteDatabase {
         account_id: Uuid,
     ) -> Result<Vec<LevelChange>, Box<dyn Error>> {
         WorkerLevel::read_changes_for_account(
-            &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {e}");
-                std::process::exit(1);
-            }),
+            &mut lock_connection_or_exit(&self.connection),
             account_id,
         )
     }
@@ -564,10 +502,7 @@ impl ReadLevelDB for SqliteDatabase {
         days: u32,
     ) -> Result<Vec<LevelChange>, Box<dyn Error>> {
         WorkerLevel::read_recent_changes_for_account(
-            &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {e}");
-                std::process::exit(1);
-            }),
+            &mut lock_connection_or_exit(&self.connection),
             account_id,
             days,
         )
@@ -578,10 +513,7 @@ impl ReadLevelDB for SqliteDatabase {
         account_id: Uuid,
     ) -> Result<LevelAdjustmentRules, Box<dyn Error>> {
         WorkerLevel::read_adjustment_rules_for_account(
-            &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {e}");
-                std::process::exit(1);
-            }),
+            &mut lock_connection_or_exit(&self.connection),
             account_id,
         )
     }
@@ -589,36 +521,18 @@ impl ReadLevelDB for SqliteDatabase {
 
 impl WriteLevelDB for SqliteDatabase {
     fn create_default_level(&mut self, account: &Account) -> Result<Level, Box<dyn Error>> {
-        WorkerLevel::create_default(
-            &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {e}");
-                std::process::exit(1);
-            }),
-            account,
-        )
+        WorkerLevel::create_default(&mut lock_connection_or_exit(&self.connection), account)
     }
 
     fn update_level(&mut self, level: &Level) -> Result<Level, Box<dyn Error>> {
-        WorkerLevel::update(
-            &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {e}");
-                std::process::exit(1);
-            }),
-            level,
-        )
+        WorkerLevel::update(&mut lock_connection_or_exit(&self.connection), level)
     }
 
     fn create_level_change(
         &mut self,
         level_change: &LevelChange,
     ) -> Result<LevelChange, Box<dyn Error>> {
-        WorkerLevel::create_change(
-            &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {e}");
-                std::process::exit(1);
-            }),
-            level_change,
-        )
+        WorkerLevel::create_change(&mut lock_connection_or_exit(&self.connection), level_change)
     }
 
     fn upsert_level_adjustment_rules(
@@ -627,10 +541,7 @@ impl WriteLevelDB for SqliteDatabase {
         rules: &LevelAdjustmentRules,
     ) -> Result<LevelAdjustmentRules, Box<dyn Error>> {
         WorkerLevel::upsert_adjustment_rules(
-            &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {e}");
-                std::process::exit(1);
-            }),
+            &mut lock_connection_or_exit(&self.connection),
             account_id,
             rules,
         )
@@ -644,10 +555,7 @@ impl ReadTransactionDB for SqliteDatabase {
         currency: &Currency,
     ) -> Result<Vec<Transaction>, Box<dyn Error>> {
         WorkerTransaction::read_all_trade_transactions_excluding_taxes(
-            &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {e}");
-                std::process::exit(1);
-            }),
+            &mut lock_connection_or_exit(&self.connection),
             account_id,
             currency,
         )
@@ -659,10 +567,7 @@ impl ReadTransactionDB for SqliteDatabase {
         currency: &Currency,
     ) -> Result<Vec<Transaction>, Box<dyn Error>> {
         WorkerTransaction::all_account_transactions_in_trade(
-            &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {e}");
-                std::process::exit(1);
-            }),
+            &mut lock_connection_or_exit(&self.connection),
             account_id,
             currency,
         )
@@ -674,10 +579,7 @@ impl ReadTransactionDB for SqliteDatabase {
         currency: &Currency,
     ) -> Result<Vec<Transaction>, Box<dyn Error>> {
         WorkerTransaction::read_all_account_transactions_taxes(
-            &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {e}");
-                std::process::exit(1);
-            }),
+            &mut lock_connection_or_exit(&self.connection),
             account_id,
             currency,
         )
@@ -688,10 +590,7 @@ impl ReadTransactionDB for SqliteDatabase {
         trade_id: Uuid,
     ) -> Result<Vec<Transaction>, Box<dyn Error>> {
         WorkerTransaction::read_all_trade_transactions(
-            &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {e}");
-                std::process::exit(1);
-            }),
+            &mut lock_connection_or_exit(&self.connection),
             trade_id,
         )
     }
@@ -701,10 +600,7 @@ impl ReadTransactionDB for SqliteDatabase {
         trade_id: Uuid,
     ) -> Result<Vec<Transaction>, Box<dyn Error>> {
         WorkerTransaction::read_all_trade_transactions_for_category(
-            &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {e}");
-                std::process::exit(1);
-            }),
+            &mut lock_connection_or_exit(&self.connection),
             trade_id,
             TransactionCategory::FundTrade(trade_id),
         )
@@ -715,10 +611,7 @@ impl ReadTransactionDB for SqliteDatabase {
         trade_id: Uuid,
     ) -> Result<Vec<Transaction>, Box<dyn Error>> {
         WorkerTransaction::read_all_trade_transactions_for_category(
-            &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {e}");
-                std::process::exit(1);
-            }),
+            &mut lock_connection_or_exit(&self.connection),
             trade_id,
             TransactionCategory::PaymentTax(trade_id),
         )
@@ -730,10 +623,7 @@ impl ReadTransactionDB for SqliteDatabase {
         currency: &Currency,
     ) -> Result<Vec<Transaction>, Box<dyn Error>> {
         WorkerTransaction::read_all_transaction_excluding_current_month_and_taxes(
-            &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {e}");
-                std::process::exit(1);
-            }),
+            &mut lock_connection_or_exit(&self.connection),
             account_id,
             currency,
         )
@@ -745,10 +635,7 @@ impl ReadTransactionDB for SqliteDatabase {
         currency: &Currency,
     ) -> Result<Vec<Transaction>, Box<dyn Error>> {
         WorkerTransaction::read_all_transactions(
-            &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {e}");
-                std::process::exit(1);
-            }),
+            &mut lock_connection_or_exit(&self.connection),
             account_id,
             currency,
         )
@@ -757,13 +644,7 @@ impl ReadTransactionDB for SqliteDatabase {
 
 impl ReadRuleDB for SqliteDatabase {
     fn read_all_rules(&mut self, account_id: Uuid) -> Result<Vec<Rule>, Box<dyn Error>> {
-        WorkerRule::read_all(
-            &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {e}");
-                std::process::exit(1);
-            }),
-            account_id,
-        )
+        WorkerRule::read_all(&mut lock_connection_or_exit(&self.connection), account_id)
     }
 
     fn rule_for_account(
@@ -772,10 +653,7 @@ impl ReadRuleDB for SqliteDatabase {
         name: &RuleName,
     ) -> Result<Rule, Box<dyn Error>> {
         WorkerRule::read_for_account_with_name(
-            &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {e}");
-                std::process::exit(1);
-            }),
+            &mut lock_connection_or_exit(&self.connection),
             account_id,
             name,
         )
@@ -792,10 +670,7 @@ impl WriteRuleDB for SqliteDatabase {
         level: &model::RuleLevel,
     ) -> Result<model::Rule, Box<dyn Error>> {
         WorkerRule::create(
-            &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {e}");
-                std::process::exit(1);
-            }),
+            &mut lock_connection_or_exit(&self.connection),
             name,
             description,
             priority,
@@ -805,13 +680,7 @@ impl WriteRuleDB for SqliteDatabase {
     }
 
     fn make_rule_inactive(&mut self, rule: &Rule) -> Result<Rule, Box<dyn Error>> {
-        WorkerRule::make_inactive(
-            &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {e}");
-                std::process::exit(1);
-            }),
-            rule,
-        )
+        WorkerRule::make_inactive(&mut lock_connection_or_exit(&self.connection), rule)
     }
 }
 
@@ -824,10 +693,7 @@ impl WriteTradingVehicleDB for SqliteDatabase {
         broker: &str,
     ) -> Result<TradingVehicle, Box<dyn Error>> {
         WorkerTradingVehicle::create(
-            &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {e}");
-                std::process::exit(1);
-            }),
+            &mut lock_connection_or_exit(&self.connection),
             symbol,
             isin,
             category,
@@ -839,32 +705,17 @@ impl WriteTradingVehicleDB for SqliteDatabase {
         &mut self,
         input: TradingVehicleUpsert,
     ) -> Result<TradingVehicle, Box<dyn Error>> {
-        WorkerTradingVehicle::upsert(
-            &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {e}");
-                std::process::exit(1);
-            }),
-            input,
-        )
+        WorkerTradingVehicle::upsert(&mut lock_connection_or_exit(&self.connection), input)
     }
 }
 
 impl ReadTradingVehicleDB for SqliteDatabase {
     fn read_all_trading_vehicles(&mut self) -> Result<Vec<TradingVehicle>, Box<dyn Error>> {
-        WorkerTradingVehicle::read_all(&mut self.connection.lock().unwrap_or_else(|e| {
-            eprintln!("Failed to acquire connection lock: {e}");
-            std::process::exit(1);
-        }))
+        WorkerTradingVehicle::read_all(&mut lock_connection_or_exit(&self.connection))
     }
 
     fn read_trading_vehicle(&mut self, id: Uuid) -> Result<TradingVehicle, Box<dyn Error>> {
-        WorkerTradingVehicle::read(
-            &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {e}");
-                std::process::exit(1);
-            }),
-            id,
-        )
+        WorkerTradingVehicle::read(&mut lock_connection_or_exit(&self.connection), id)
     }
 }
 
@@ -877,10 +728,7 @@ impl WriteTradeDB for SqliteDatabase {
         target: &Order,
     ) -> Result<Trade, Box<dyn Error>> {
         WorkerTrade::create(
-            &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {e}");
-                std::process::exit(1);
-            }),
+            &mut lock_connection_or_exit(&self.connection),
             draft,
             stop,
             entry,
@@ -894,10 +742,7 @@ impl WriteTradeDB for SqliteDatabase {
         trade: &Trade,
     ) -> Result<Trade, Box<dyn Error>> {
         WorkerTrade::update_trade_status(
-            &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {e}");
-                std::process::exit(1);
-            }),
+            &mut lock_connection_or_exit(&self.connection),
             status,
             trade,
         )
@@ -906,33 +751,15 @@ impl WriteTradeDB for SqliteDatabase {
 
 impl ReadTradeDB for SqliteDatabase {
     fn read_trade(&mut self, id: Uuid) -> Result<Trade, Box<dyn Error>> {
-        WorkerTrade::read_trade(
-            &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {e}");
-                std::process::exit(1);
-            }),
-            id,
-        )
+        WorkerTrade::read_trade(&mut lock_connection_or_exit(&self.connection), id)
     }
 
     fn read_trade_status(&mut self, id: Uuid) -> Result<Status, Box<dyn Error>> {
-        WorkerTrade::read_trade_status(
-            &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {e}");
-                std::process::exit(1);
-            }),
-            id,
-        )
+        WorkerTrade::read_trade_status(&mut lock_connection_or_exit(&self.connection), id)
     }
 
     fn read_trade_balance(&mut self, balance_id: Uuid) -> Result<TradeBalance, Box<dyn Error>> {
-        WorkerTrade::read_balance(
-            &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {e}");
-                std::process::exit(1);
-            }),
-            balance_id,
-        )
+        WorkerTrade::read_balance(&mut lock_connection_or_exit(&self.connection), balance_id)
     }
 
     fn all_open_trades_for_currency(
@@ -941,10 +768,7 @@ impl ReadTradeDB for SqliteDatabase {
         currency: &Currency,
     ) -> Result<Vec<Trade>, Box<dyn Error>> {
         WorkerTrade::read_all_funded_trades_for_currency(
-            &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {e}");
-                std::process::exit(1);
-            }),
+            &mut lock_connection_or_exit(&self.connection),
             account_id,
             currency,
         )
@@ -956,10 +780,7 @@ impl ReadTradeDB for SqliteDatabase {
         status: Status,
     ) -> Result<Vec<Trade>, Box<dyn Error>> {
         WorkerTrade::read_all_trades_with_status(
-            &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {e}");
-                std::process::exit(1);
-            }),
+            &mut lock_connection_or_exit(&self.connection),
             account_id,
             status,
         )
@@ -972,10 +793,7 @@ impl ReadTradeDB for SqliteDatabase {
         cutoff: chrono::NaiveDateTime,
     ) -> Result<Vec<model::ClosedTradePerformance>, Box<dyn Error>> {
         WorkerTrade::read_recent_closed_trade_performances(
-            &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {e}");
-                std::process::exit(1);
-            }),
+            &mut lock_connection_or_exit(&self.connection),
             account_id,
             currency,
             cutoff,
@@ -989,10 +807,7 @@ impl ReadTradeDB for SqliteDatabase {
         cutoff: chrono::NaiveDateTime,
     ) -> Result<Vec<(chrono::NaiveDateTime, rust_decimal::Decimal)>, Box<dyn Error>> {
         WorkerTrade::read_recent_closed_trade_performance_points(
-            &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {e}");
-                std::process::exit(1);
-            }),
+            &mut lock_connection_or_exit(&self.connection),
             account_id,
             currency,
             cutoff,
@@ -1011,10 +826,7 @@ impl WriteAccountBalanceDB for SqliteDatabase {
         total_performance: Decimal,
     ) -> Result<TradeBalance, Box<dyn Error>> {
         WorkerTrade::update_trade_balance(
-            &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {e}");
-                std::process::exit(1);
-            }),
+            &mut lock_connection_or_exit(&self.connection),
             trade,
             funding,
             capital_in_market,
@@ -1027,59 +839,656 @@ impl WriteAccountBalanceDB for SqliteDatabase {
 
 impl OrderRead for SqliteDatabase {
     fn for_id(&mut self, id: Uuid) -> Result<Order, Box<dyn Error>> {
-        WorkerOrder::read(
-            &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {e}");
-                std::process::exit(1);
-            }),
-            id,
-        )
+        WorkerOrder::read(&mut lock_connection_or_exit(&self.connection), id)
     }
 }
 
 impl ReadExecutionDB for SqliteDatabase {
     fn all_trade_executions(&mut self, trade_id: Uuid) -> Result<Vec<Execution>, Box<dyn Error>> {
-        WorkerExecution::read_for_trade(
-            &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {e}");
-                std::process::exit(1);
-            }),
-            trade_id,
-        )
+        WorkerExecution::read_for_trade(&mut lock_connection_or_exit(&self.connection), trade_id)
     }
 
     fn all_order_executions(&mut self, order_id: Uuid) -> Result<Vec<Execution>, Box<dyn Error>> {
-        WorkerExecution::read_for_order(
-            &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {e}");
-                std::process::exit(1);
-            }),
-            order_id,
-        )
+        WorkerExecution::read_for_order(&mut lock_connection_or_exit(&self.connection), order_id)
     }
 
     fn latest_trade_execution_at(
         &mut self,
         trade_id: Uuid,
     ) -> Result<Option<chrono::NaiveDateTime>, Box<dyn Error>> {
-        WorkerExecution::latest_for_trade(
-            &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {e}");
-                std::process::exit(1);
-            }),
-            trade_id,
-        )
+        WorkerExecution::latest_for_trade(&mut lock_connection_or_exit(&self.connection), trade_id)
     }
 }
 
 impl WriteExecutionDB for SqliteDatabase {
     fn upsert_execution(&mut self, execution: &Execution) -> Result<Execution, Box<dyn Error>> {
-        WorkerExecution::upsert(
-            &mut self.connection.lock().unwrap_or_else(|e| {
-                eprintln!("Failed to acquire connection lock: {e}");
-                std::process::exit(1);
-            }),
-            execution,
-        )
+        WorkerExecution::upsert(&mut lock_connection_or_exit(&self.connection), execution)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::{Duration, Utc};
+    use model::{
+        Account, Environment, ExecutionSide, ExecutionSource, Grade, LevelTrigger, RuleLevel,
+        RuleName, TradeCategory,
+    };
+    use rust_decimal_macros::dec;
+    use std::path::PathBuf;
+
+    fn unique_temp_path(label: &str, extension: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("trust-{label}-{}.{}", Uuid::new_v4(), extension))
+    }
+
+    fn create_account(database: &SqliteDatabase, name: &str) -> Account {
+        database
+            .account_write()
+            .create(name, name, Environment::Paper, dec!(0), dec!(0))
+            .expect("account should be created")
+    }
+
+    fn create_vehicle(database: &SqliteDatabase, symbol: &str) -> TradingVehicle {
+        database
+            .trading_vehicle_write()
+            .create_trading_vehicle(
+                symbol,
+                Some(symbol),
+                &TradingVehicleCategory::Stock,
+                "alpaca",
+            )
+            .expect("trading vehicle should be created")
+    }
+
+    fn create_order(
+        database: &SqliteDatabase,
+        vehicle: &TradingVehicle,
+        action: OrderAction,
+        category: OrderCategory,
+        price: Decimal,
+    ) -> Order {
+        database
+            .order_write()
+            .create(vehicle, 10, price, &Currency::USD, &action, &category)
+            .expect("order should be created")
+    }
+
+    fn create_trade_graph(database: &SqliteDatabase, account: &Account, symbol: &str) -> Trade {
+        let vehicle = create_vehicle(database, symbol);
+        let stop = create_order(
+            database,
+            &vehicle,
+            OrderAction::Sell,
+            OrderCategory::Stop,
+            dec!(90),
+        );
+        let entry = create_order(
+            database,
+            &vehicle,
+            OrderAction::Buy,
+            OrderCategory::Limit,
+            dec!(100),
+        );
+        let target = create_order(
+            database,
+            &vehicle,
+            OrderAction::Sell,
+            OrderCategory::Limit,
+            dec!(120),
+        );
+        let draft = DraftTrade {
+            account: account.clone(),
+            trading_vehicle: vehicle,
+            quantity: 10,
+            currency: Currency::USD,
+            category: TradeCategory::Long,
+            thesis: Some("database facade route".to_string()),
+            sector: Some("technology".to_string()),
+            asset_class: Some("equity".to_string()),
+            context: Some("unit test".to_string()),
+        };
+
+        database
+            .trade_write()
+            .create_trade(draft, &stop, &entry, &target)
+            .expect("trade should be created")
+    }
+
+    fn assert_single_trade(trades: Vec<Trade>, trade_id: Uuid) {
+        let mut trades = trades.iter();
+        let trade = trades.next().expect("one trade should be returned");
+        assert!(trades.next().is_none());
+        assert_eq!(trade.id, trade_id);
+    }
+
+    fn trade_grade_for(trade: &Trade) -> TradeGrade {
+        let now = Utc::now().naive_utc();
+        TradeGrade {
+            id: Uuid::new_v4(),
+            created_at: now,
+            updated_at: now,
+            deleted_at: None,
+            trade_id: trade.id,
+            overall_score: 88,
+            overall_grade: Grade::BPlus,
+            process_score: 90,
+            risk_score: 87,
+            execution_score: 86,
+            documentation_score: 89,
+            recommendations: vec!["tighten entry notes".to_string()],
+            graded_at: now,
+            process_weight_permille: 250,
+            risk_weight_permille: 300,
+            execution_weight_permille: 250,
+            documentation_weight_permille: 200,
+        }
+    }
+
+    fn assert_account_balance_facade(database: &SqliteDatabase, account: &Account) {
+        let balance = database
+            .account_balance_write()
+            .create(account, &Currency::USD)
+            .expect("balance should be created");
+        let updated = database
+            .account_balance_write()
+            .update(&balance, dec!(500), dec!(25), dec!(475), dec!(10))
+            .expect("balance should be updated");
+        let read = database
+            .account_balance_read()
+            .for_currency(account.id, &Currency::USD)
+            .expect("balance should read");
+
+        assert_eq!(updated.total_balance, dec!(500));
+        assert_eq!(read.total_available, dec!(475));
+        assert_eq!(read.taxed, dec!(10));
+    }
+
+    fn assert_rule_facade(database: &SqliteDatabase, account: &Account) {
+        let name = RuleName::RiskPerTrade(2.5);
+        let level = RuleLevel::Error;
+        let created = database
+            .rule_write()
+            .create_rule(account, &name, "risk limit", 1, &level)
+            .expect("rule should be created");
+        let found = database
+            .rule_read()
+            .rule_for_account(account.id, &name)
+            .expect("rule should read by name");
+        let active_rules = database
+            .rule_read()
+            .read_all_rules(account.id)
+            .expect("active rules should read");
+        let inactive = database
+            .rule_write()
+            .make_rule_inactive(&created)
+            .expect("rule should be deactivated");
+        let active_rules_after_deactivation = database
+            .rule_read()
+            .read_all_rules(account.id)
+            .expect("active rules should read after deactivation");
+
+        assert_eq!(found.id, created.id);
+        assert!(active_rules.iter().any(|rule| rule.id == created.id));
+        assert!(!inactive.active);
+        assert!(!active_rules_after_deactivation
+            .iter()
+            .any(|rule| rule.id == created.id));
+    }
+
+    fn assert_distribution_and_advisory_facades(database: &SqliteDatabase, account: &Account) {
+        database
+            .advisory_write()
+            .upsert_advisory_thresholds(account.id, dec!(35), dec!(45), dec!(20))
+            .expect("advisory thresholds should upsert");
+        let thresholds = database
+            .advisory_read()
+            .advisory_thresholds_for_account(account.id)
+            .expect("advisory thresholds should read");
+        assert_eq!(thresholds, Some((dec!(35), dec!(45), dec!(20))));
+
+        let rules = database
+            .distribution_write()
+            .create_or_update(
+                account.id,
+                dec!(0.4),
+                dec!(0.3),
+                dec!(0.3),
+                dec!(100),
+                "hash",
+            )
+            .expect("distribution rules should upsert");
+        let history = database
+            .distribution_write()
+            .create_history(
+                account.id,
+                None,
+                dec!(250),
+                Utc::now().naive_utc(),
+                Some(dec!(100)),
+                Some(dec!(75)),
+                Some(dec!(75)),
+            )
+            .expect("distribution history should write");
+        let read_rules = database
+            .distribution_read()
+            .for_account(account.id)
+            .expect("distribution rules should read");
+        let read_history = database
+            .distribution_read()
+            .history_for_account(account.id)
+            .expect("distribution history should read");
+
+        assert_eq!(read_rules.id, rules.id);
+        assert!(read_history.iter().any(|entry| entry.id == history.id));
+    }
+
+    fn assert_level_facade(database: &SqliteDatabase, account: &Account) {
+        let level = database
+            .level_write()
+            .create_default_level(account)
+            .expect("default level should be created");
+        let now = Utc::now().naive_utc();
+        let (transitioned, change) = level
+            .transition_to(2, "risk review", LevelTrigger::ManualReview, now)
+            .expect("level transition should build");
+        let updated = database
+            .level_write()
+            .update_level(&transitioned)
+            .expect("level should update");
+        let written_change = database
+            .level_write()
+            .create_level_change(&change)
+            .expect("level change should write");
+        let rules = database
+            .level_write()
+            .upsert_level_adjustment_rules(account.id, &LevelAdjustmentRules::default())
+            .expect("level rules should upsert");
+
+        assert_eq!(updated.current_level, 2);
+        assert_eq!(
+            database
+                .level_read()
+                .level_for_account(account.id)
+                .expect("level should read")
+                .id,
+            level.id
+        );
+        assert_eq!(
+            database
+                .level_read()
+                .level_adjustment_rules_for_account(account.id)
+                .expect("level rules should read"),
+            rules
+        );
+        assert!(database
+            .level_read()
+            .level_changes_for_account(account.id)
+            .expect("level changes should read")
+            .iter()
+            .any(|entry| entry.id == written_change.id));
+        assert!(database
+            .level_read()
+            .recent_level_changes(account.id, 1)
+            .expect("recent level changes should read")
+            .iter()
+            .any(|entry| entry.id == written_change.id));
+    }
+
+    fn assert_order_facade(database: &SqliteDatabase, order: &Order) -> Order {
+        let submitted = database
+            .order_write()
+            .submit_of(order, "broker-entry".to_string())
+            .expect("order should submit");
+        let filled = database
+            .order_write()
+            .filling_of(&submitted)
+            .expect("order should fill");
+        let closed = database
+            .order_write()
+            .closing_of(&filled)
+            .expect("order should close");
+        let updated = database
+            .order_write()
+            .update(&closed)
+            .expect("order should update");
+        let read = database
+            .order_read()
+            .for_id(updated.id)
+            .expect("order should read");
+
+        assert_eq!(read.broker_order_id.as_deref(), Some("broker-entry"));
+        assert!(read.submitted_at.is_some());
+        assert!(read.filled_at.is_some());
+        assert!(read.closed_at.is_some());
+        updated
+    }
+
+    fn assert_trade_facade(database: &SqliteDatabase, account: &Account, trade: &Trade) -> Trade {
+        let read = database
+            .trade_read()
+            .read_trade(trade.id)
+            .expect("trade should read");
+        let funded = database
+            .trade_write()
+            .update_trade_status(Status::Funded, &read)
+            .expect("trade should fund");
+        let balance = database
+            .trade_balance_write()
+            .update_trade_balance(
+                &funded,
+                dec!(1000),
+                dec!(900),
+                dec!(100),
+                dec!(30),
+                dec!(75),
+            )
+            .expect("trade balance should update");
+
+        assert_eq!(
+            database
+                .trade_read()
+                .read_trade_status(trade.id)
+                .expect("trade status should read"),
+            Status::Funded
+        );
+        assert_single_trade(
+            database
+                .trade_read()
+                .all_open_trades_for_currency(account.id, &Currency::USD)
+                .expect("open trades should read"),
+            trade.id,
+        );
+        assert_single_trade(
+            database
+                .trade_read()
+                .read_trades_with_status(account.id, Status::Funded)
+                .expect("funded trades should read"),
+            trade.id,
+        );
+        assert_eq!(
+            database
+                .trade_read()
+                .read_trade_balance(balance.id)
+                .expect("trade balance should read")
+                .total_performance,
+            dec!(75)
+        );
+        let mut funded_with_balance = funded;
+        funded_with_balance.balance = balance;
+        let closed = database
+            .trade_write()
+            .update_trade_status(Status::ClosedTarget, &funded_with_balance)
+            .expect("trade should close");
+        let cutoff = closed
+            .updated_at
+            .checked_sub_signed(Duration::seconds(1))
+            .expect("one-second cutoff before closed trade timestamp should be representable");
+        let closed_performances = database
+            .trade_read()
+            .read_recent_closed_trade_performances(account.id, &Currency::USD, cutoff)
+            .expect("closed trade performances should read");
+        assert!(closed_performances.iter().any(|performance| {
+            performance.trade_id == trade.id && performance.total_performance == dec!(75)
+        }));
+        closed
+    }
+
+    fn assert_log_execution_and_grade_facades(
+        database: &SqliteDatabase,
+        account: &Account,
+        trade: &Trade,
+        order: &Order,
+    ) {
+        let log = database
+            .log_write()
+            .create_log("submitted", trade)
+            .expect("broker log should write");
+        assert!(database
+            .log_read()
+            .read_all_logs_for_trade(trade.id)
+            .expect("broker logs should read")
+            .iter()
+            .any(|entry| entry.id == log.id));
+
+        let executed_at = Utc::now().naive_utc();
+        let mut execution = Execution::new(
+            "alpaca".to_string(),
+            ExecutionSource::TradeUpdates,
+            account.id,
+            "exec-1".to_string(),
+            Some("broker-entry".to_string()),
+            trade.trading_vehicle.symbol.clone(),
+            ExecutionSide::Buy,
+            dec!(10),
+            dec!(101),
+            executed_at,
+        );
+        execution.trade_id = Some(trade.id);
+        execution.order_id = Some(order.id);
+        let written = database
+            .execution_write()
+            .upsert_execution(&execution)
+            .expect("execution should write");
+        assert_eq!(
+            database
+                .execution_read()
+                .latest_trade_execution_at(trade.id)
+                .expect("latest execution should read"),
+            Some(executed_at)
+        );
+        assert!(database
+            .execution_read()
+            .all_trade_executions(trade.id)
+            .expect("trade executions should read")
+            .iter()
+            .any(|entry| entry.id == written.id));
+        assert!(database
+            .execution_read()
+            .all_order_executions(order.id)
+            .expect("order executions should read")
+            .iter()
+            .any(|entry| entry.id == written.id));
+
+        let grade = database
+            .trade_grade_write()
+            .create_trade_grade(&trade_grade_for(trade))
+            .expect("trade grade should write");
+        assert_eq!(
+            database
+                .trade_grade_read()
+                .read_latest_for_trade(trade.id)
+                .expect("latest grade should read")
+                .expect("latest grade should exist")
+                .id,
+            grade.id
+        );
+        assert!(database
+            .trade_grade_read()
+            .read_for_account_days(account.id, 1)
+            .expect("account grades should read")
+            .iter()
+            .any(|entry| entry.id == grade.id));
+    }
+
+    #[test]
+    fn savepoints_validate_names_and_rollback_inner_work() {
+        let mut database = SqliteDatabase::new_in_memory();
+        assert!(SqliteDatabase::validate_savepoint_name("risk_checkpoint_1").is_ok());
+        for invalid in ["", "risk-checkpoint", "risk checkpoint", "risk;drop", "å"] {
+            assert!(SqliteDatabase::validate_savepoint_name(invalid).is_err());
+        }
+
+        database
+            .begin_savepoint("outer_checkpoint")
+            .expect("outer savepoint should begin");
+        let kept = create_account(&database, "savepoint-kept");
+        database
+            .begin_savepoint("inner_checkpoint")
+            .expect("inner savepoint should begin");
+        let rolled_back = create_account(&database, "savepoint-rolled-back");
+
+        database
+            .rollback_to_savepoint("inner_checkpoint")
+            .expect("inner savepoint should roll back");
+        database
+            .release_savepoint("inner_checkpoint")
+            .expect("inner savepoint should release after rollback");
+        assert!(database.account_read().id(kept.id).is_ok());
+        assert!(database.account_read().id(rolled_back.id).is_err());
+        database
+            .release_savepoint("outer_checkpoint")
+            .expect("outer savepoint should release");
+    }
+
+    #[test]
+    fn factory_objects_share_connection_for_account_policy_and_distribution_data() {
+        let database = SqliteDatabase::new_in_memory();
+        let account = create_account(&database, "database-factory-account");
+        assert_eq!(
+            database
+                .account_read()
+                .for_name("database-factory-account")
+                .expect("account should read by name")
+                .id,
+            account.id
+        );
+
+        assert_account_balance_facade(&database, &account);
+        assert_rule_facade(&database, &account);
+        assert_distribution_and_advisory_facades(&database, &account);
+        assert_level_facade(&database, &account);
+    }
+
+    #[test]
+    fn factory_objects_share_connection_for_trade_order_execution_and_grade_data() {
+        let database = SqliteDatabase::new_in_memory();
+        let account = create_account(&database, "database-trade-account");
+        let trade = create_trade_graph(&database, &account, "DBFACADE");
+        let updated_order = assert_order_facade(&database, &trade.entry);
+        let repriced = database
+            .order_write()
+            .update_price(&trade.target, dec!(125), "broker-target".to_string())
+            .expect("target price should update");
+        let closed = assert_trade_facade(&database, &account, &trade);
+
+        assert_eq!(updated_order.id, trade.entry.id);
+        assert_eq!(repriced.unit_price, dec!(125));
+        assert_eq!(
+            database
+                .trading_vehicle_read()
+                .read_trading_vehicle(trade.trading_vehicle.id)
+                .expect("vehicle should read")
+                .id,
+            trade.trading_vehicle.id
+        );
+        assert!(database
+            .trading_vehicle_read()
+            .read_all_trading_vehicles()
+            .expect("vehicles should read")
+            .iter()
+            .any(|vehicle| vehicle.id == trade.trading_vehicle.id));
+        assert_log_execution_and_grade_facades(&database, &account, &closed, &updated_order);
+    }
+
+    #[test]
+    fn transaction_facade_transfer_pair_is_atomic_and_queryable() {
+        let database = SqliteDatabase::new_in_memory();
+        let source = create_account(&database, "database-transfer-source");
+        let destination = create_account(&database, "database-transfer-destination");
+
+        let deposit = database
+            .transaction_write()
+            .create_transaction_by_account_id(
+                source.id,
+                dec!(500),
+                &Currency::USD,
+                TransactionCategory::Deposit,
+            )
+            .expect("deposit should write");
+        let (withdrawal, child_deposit) = database
+            .transaction_write()
+            .create_transfer_pair(
+                &source,
+                &destination,
+                dec!(125),
+                &Currency::USD,
+                TransactionCategory::Withdrawal,
+                TransactionCategory::Deposit,
+            )
+            .expect("transfer pair should write");
+
+        let source_transactions = database
+            .transaction_read()
+            .all_transactions(source.id, &Currency::USD)
+            .expect("source transactions should read");
+        assert!(source_transactions
+            .iter()
+            .any(|transaction| transaction.id == deposit.id));
+        assert!(source_transactions
+            .iter()
+            .any(|transaction| transaction.id == withdrawal.id));
+        assert!(database
+            .transaction_read()
+            .all_account_transactions_excluding_taxes(source.id, &Currency::USD)
+            .expect("non-tax transactions should read")
+            .iter()
+            .any(|transaction| transaction.id == deposit.id));
+        assert!(database
+            .transaction_read()
+            .all_transactions(destination.id, &Currency::USD)
+            .expect("destination transactions should read")
+            .iter()
+            .any(|transaction| transaction.id == child_deposit.id));
+        assert!(database
+            .transaction_read()
+            .read_all_account_transactions_taxes(source.id, &Currency::USD)
+            .expect("tax transactions should read")
+            .is_empty());
+        assert!(database
+            .transaction_read()
+            .all_account_transactions_funding_in_submitted_trades(source.id, &Currency::USD)
+            .expect("funding-in-trades transactions should read")
+            .is_empty());
+    }
+
+    #[test]
+    fn file_database_debug_and_backup_wrappers_roundtrip() {
+        let db_path = unique_temp_path("sqlite-source", "db");
+        let backup_path = unique_temp_path("sqlite-backup", "json");
+
+        let database = SqliteDatabase::new(db_path.to_str().expect("temporary path is utf-8"));
+        assert!(format!("{database:?}").contains("Arc<Mutex<SqliteConnection>>"));
+
+        let account = create_account(&database, "database-backup-wrapper");
+        let existing = SqliteDatabase::new(db_path.to_str().expect("temporary path is utf-8"));
+        assert_eq!(
+            existing
+                .account_read()
+                .id(account.id)
+                .expect("existing file database should read account")
+                .id,
+            account.id
+        );
+        database
+            .export_backup_to_path(&backup_path)
+            .expect("backup export should succeed");
+
+        let mut imported = SqliteDatabase::new_in_memory();
+        let report = imported
+            .import_backup_from_path(&backup_path, ImportOptions::default())
+            .expect("backup import should succeed");
+
+        assert!(report.inserted_rows > 0);
+        assert_eq!(
+            imported
+                .account_read()
+                .id(account.id)
+                .expect("imported account should read")
+                .name,
+            "database-backup-wrapper"
+        );
+
+        let _ = std::fs::remove_file(&db_path);
+        let _ = std::fs::remove_file(&backup_path);
     }
 }

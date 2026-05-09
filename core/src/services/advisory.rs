@@ -467,6 +467,49 @@ mod tests {
     use rust_decimal_macros::dec;
     use uuid::Uuid;
 
+    fn open_trade(
+        symbol: &str,
+        sector: Option<&str>,
+        asset_class: Option<&str>,
+        notional: Decimal,
+    ) -> Trade {
+        let mut trade = Trade::default();
+        trade.trading_vehicle.symbol = symbol.to_string();
+        trade.sector = sector.map(str::to_string);
+        trade.asset_class = asset_class.map(str::to_string);
+        trade.entry.unit_price = notional;
+        trade.entry.quantity = 1;
+        trade
+    }
+
+    fn proposal(
+        symbol: &str,
+        sector: Option<&str>,
+        asset_class: Option<&str>,
+        notional: Decimal,
+    ) -> TradeProposal {
+        TradeProposal {
+            account_id: Uuid::new_v4(),
+            symbol: symbol.to_string(),
+            sector: sector.map(str::to_string),
+            asset_class: asset_class.map(str::to_string),
+            entry_price: notional,
+            quantity: Decimal::ONE,
+        }
+    }
+
+    fn thresholds(
+        sector_limit_pct: Decimal,
+        asset_class_limit_pct: Decimal,
+        single_position_limit_pct: Decimal,
+    ) -> AdvisoryThresholds {
+        AdvisoryThresholds {
+            sector_limit_pct,
+            asset_class_limit_pct,
+            single_position_limit_pct,
+        }
+    }
+
     #[test]
     fn advisory_levels_escalate_to_caution() {
         let mut open = Trade::default();
@@ -487,6 +530,127 @@ mod tests {
         let out = analyze_trade_proposal(&[open], &proposal, &AdvisoryThresholds::default());
         assert!(matches!(out.level, AdvisoryAlertLevel::Block));
         assert!(!out.warnings.is_empty());
+    }
+
+    #[test]
+    fn proposal_analysis_distinguishes_ok_warning_caution_and_block() {
+        let unrelated = open_trade("BND", Some("fixed_income"), Some("bonds"), dec!(54));
+        let warning = analyze_trade_proposal(
+            std::slice::from_ref(&unrelated),
+            &proposal("MSFT", Some("technology"), Some("stocks"), dec!(46)),
+            &thresholds(dec!(50), dec!(100), dec!(100)),
+        );
+        assert_eq!(warning.level, AdvisoryAlertLevel::Warning);
+        assert_eq!(warning.projected_sector_pct, dec!(46));
+        assert!(warning
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("near configured limit")));
+        assert!(warning.recommendations.is_empty());
+
+        let caution = analyze_trade_proposal(
+            &[open_trade(
+                "BND",
+                Some("fixed_income"),
+                Some("bonds"),
+                dec!(45),
+            )],
+            &proposal("MSFT", Some("technology"), Some("stocks"), dec!(55)),
+            &thresholds(dec!(50), dec!(100), dec!(100)),
+        );
+        assert_eq!(caution.level, AdvisoryAlertLevel::Caution);
+        assert_eq!(caution.projected_sector_pct, dec!(55));
+        assert!(caution
+            .recommendations
+            .iter()
+            .any(|recommendation| recommendation.contains("diversifying")));
+
+        let block = analyze_trade_proposal(
+            &[open_trade(
+                "BND",
+                Some("fixed_income"),
+                Some("bonds"),
+                dec!(39),
+            )],
+            &proposal("MSFT", Some("technology"), Some("stocks"), dec!(61)),
+            &thresholds(dec!(50), dec!(100), dec!(100)),
+        );
+        assert_eq!(block.level, AdvisoryAlertLevel::Block);
+        assert_eq!(block.projected_sector_pct, dec!(61));
+        assert!(block
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("hard limit")));
+
+        let ok = analyze_trade_proposal(
+            &[open_trade(
+                "BND",
+                Some("fixed_income"),
+                Some("bonds"),
+                dec!(91),
+            )],
+            &proposal("MSFT", Some("technology"), Some("stocks"), dec!(9)),
+            &thresholds(dec!(50), dec!(50), dec!(50)),
+        );
+        assert_eq!(ok.level, AdvisoryAlertLevel::Ok);
+        assert!(ok.warnings.is_empty());
+        assert!(ok.recommendations.is_empty());
+    }
+
+    #[test]
+    fn proposal_analysis_groups_missing_metadata_under_unknown_bucket() {
+        let open = open_trade("AAPL", None, None, dec!(50));
+        let output = analyze_trade_proposal(
+            &[open],
+            &proposal("MSFT", None, None, dec!(50)),
+            &thresholds(dec!(80), dec!(80), dec!(100)),
+        );
+
+        assert_eq!(output.level, AdvisoryAlertLevel::Block);
+        assert_eq!(output.projected_sector_pct, dec!(100));
+        assert_eq!(output.projected_asset_class_pct, dec!(100));
+        assert_eq!(output.projected_single_position_pct, dec!(50));
+        assert_eq!(output.warnings.len(), 2);
+    }
+
+    #[test]
+    fn portfolio_status_handles_empty_and_concentrated_portfolios() {
+        let empty = portfolio_status(&[], &AdvisoryThresholds::default());
+        assert_eq!(empty.level, AdvisoryAlertLevel::Ok);
+        assert_eq!(empty.top_sector_pct, Decimal::ZERO);
+        assert_eq!(empty.top_asset_class_pct, Decimal::ZERO);
+        assert_eq!(empty.top_position_pct, Decimal::ZERO);
+        assert!(empty.warnings.is_empty());
+
+        let concentrated = portfolio_status(
+            &[
+                open_trade("AAPL", Some("technology"), Some("stocks"), dec!(60)),
+                open_trade("BND", Some("fixed_income"), Some("bonds"), dec!(40)),
+            ],
+            &thresholds(dec!(50), dec!(100), dec!(100)),
+        );
+        assert_eq!(concentrated.level, AdvisoryAlertLevel::Caution);
+        assert_eq!(concentrated.top_sector_pct, dec!(60));
+        assert_eq!(concentrated.top_asset_class_pct, dec!(60));
+        assert_eq!(concentrated.top_position_pct, dec!(60));
+        assert_eq!(concentrated.warnings.len(), 1);
+    }
+
+    #[test]
+    fn portfolio_status_uses_unknown_bucket_for_missing_metadata() {
+        let status = portfolio_status(
+            &[
+                open_trade("AAPL", None, None, dec!(40)),
+                open_trade("MSFT", None, None, dec!(60)),
+            ],
+            &thresholds(dec!(80), dec!(80), dec!(100)),
+        );
+
+        assert_eq!(status.level, AdvisoryAlertLevel::Block);
+        assert_eq!(status.top_sector_pct, dec!(100));
+        assert_eq!(status.top_asset_class_pct, dec!(100));
+        assert_eq!(status.top_position_pct, dec!(60));
+        assert_eq!(status.warnings.len(), 2);
     }
 
     #[test]
@@ -527,5 +691,39 @@ mod tests {
             error.unwrap_err().to_string(),
             "asset_class_limit_pct must be between 0 and 100, got 101"
         );
+    }
+
+    #[test]
+    fn advisory_thresholds_validation_reports_all_invalid_fields() {
+        let cases = [
+            (
+                thresholds(dec!(-1), dec!(50), dec!(20)),
+                "sector_limit_pct must be between 0 and 100, got -1",
+            ),
+            (
+                thresholds(dec!(20), dec!(-1), dec!(20)),
+                "asset_class_limit_pct must be between 0 and 100, got -1",
+            ),
+            (
+                thresholds(dec!(20), dec!(50), dec!(-1)),
+                "single_position_limit_pct must be between 0 and 100, got -1",
+            ),
+            (
+                thresholds(dec!(101), dec!(50), dec!(20)),
+                "sector_limit_pct must be between 0 and 100, got 101",
+            ),
+            (
+                thresholds(dec!(20), dec!(101), dec!(20)),
+                "asset_class_limit_pct must be between 0 and 100, got 101",
+            ),
+            (
+                thresholds(dec!(20), dec!(50), dec!(101)),
+                "single_position_limit_pct must be between 0 and 100, got 101",
+            ),
+        ];
+
+        for (thresholds, message) in cases {
+            assert_eq!(thresholds.validate().unwrap_err().to_string(), message);
+        }
     }
 }

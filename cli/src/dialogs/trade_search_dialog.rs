@@ -220,6 +220,42 @@ mod tests {
     }
 
     #[test]
+    fn display_and_account_wrapper_handle_error_paths() {
+        TradeSearchDialogBuilder {
+            account: None,
+            status: Some(Status::New),
+            balance: true,
+            result: Some(Err("search failed".into())),
+        }
+        .display();
+
+        let mut trust = test_trust();
+        let dialog = TradeSearchDialogBuilder::new().account(&mut trust);
+        assert!(dialog.account.is_none());
+    }
+
+    #[test]
+    fn account_wrapper_selects_account() {
+        let mut trust = test_trust();
+        let account = trust
+            .create_account(
+                "trade-search-account",
+                "desc",
+                Environment::Paper,
+                dec!(20),
+                dec!(10),
+            )
+            .expect("account should be created");
+        crate::dialogs::scripted_reset();
+        crate::dialogs::scripted_push_select(Ok(Some(0)));
+
+        let dialog = TradeSearchDialogBuilder::new().account(&mut trust);
+
+        assert_eq!(dialog.account.expect("selected account").id, account.id);
+        crate::dialogs::scripted_reset();
+    }
+
+    #[test]
     fn search_returns_empty_list_for_account_with_no_matching_status() {
         let mut trust = test_trust();
         let account = trust

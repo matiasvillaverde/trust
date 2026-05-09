@@ -9,6 +9,10 @@ pub struct TradingVehicleView {
     pub symbol: String,
     pub broker: String,
     pub isin: String,
+    pub face_value: String,
+    pub coupon_rate: String,
+    pub coupon_frequency: String,
+    pub maturity: String,
 }
 
 impl TradingVehicleView {
@@ -19,6 +23,30 @@ impl TradingVehicleView {
             symbol: tv.symbol.to_uppercase(),
             broker: tv.broker.to_uppercase(),
             isin: isin.to_uppercase(),
+            face_value: tv
+                .fixed_income
+                .as_ref()
+                .and_then(|terms| terms.face_value)
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| "-".to_string()),
+            coupon_rate: tv
+                .fixed_income
+                .as_ref()
+                .and_then(|terms| terms.annual_coupon_rate_pct)
+                .map(|value| format!("{value}%"))
+                .unwrap_or_else(|| "-".to_string()),
+            coupon_frequency: tv
+                .fixed_income
+                .as_ref()
+                .and_then(|terms| terms.coupon_frequency_per_year)
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| "-".to_string()),
+            maturity: tv
+                .fixed_income
+                .as_ref()
+                .and_then(|terms| terms.maturity_date)
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| "-".to_string()),
         }
     }
 
@@ -57,6 +85,10 @@ mod tests {
         assert_eq!(view.symbol, "AAPL");
         assert_eq!(view.broker, "NASDAQ");
         assert_eq!(view.isin, "US0378331005");
+        assert_eq!(view.face_value, "-");
+        assert_eq!(view.coupon_rate, "-");
+        assert_eq!(view.coupon_frequency, "-");
+        assert_eq!(view.maturity, "-");
     }
 
     #[test]

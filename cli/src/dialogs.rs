@@ -19,6 +19,10 @@ mod transaction_dialog;
 
 pub use account_dialog::AccountDialogBuilder;
 pub use account_dialog::AccountSearchDialog;
+#[cfg(test)]
+pub(crate) use io::{
+    scripted_push_confirm, scripted_push_input, scripted_push_select, scripted_reset,
+};
 pub use io::{ConsoleDialogIo, DialogIo};
 pub use keys_dialog::KeysDeleteDialogBuilder;
 pub use keys_dialog::KeysReadDialogBuilder;
