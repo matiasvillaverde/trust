@@ -417,7 +417,7 @@ pub trait ReadTradeDB {
 pub struct DraftTrade {
     /// The account associated with the trade
     pub account: Account,
-    /// The trading vehicle (e.g., stock, option) for the trade
+    /// The trading vehicle (e.g., stock, ETF, bond, option) for the trade
     pub trading_vehicle: TradingVehicle,
     /// The quantity of the trading vehicle
     pub quantity: i64,
@@ -429,7 +429,7 @@ pub struct DraftTrade {
     pub thesis: Option<String>,
     /// Market sector (e.g., technology, healthcare, finance)
     pub sector: Option<String>,
-    /// Asset class (e.g., stocks, options, futures, crypto)
+    /// Asset class (e.g., stocks, ETFs, bonds, options, futures, crypto)
     pub asset_class: Option<String>,
     /// Trading context (e.g., Elliott Wave count, S/R levels, indicators)
     pub context: Option<String>,
@@ -531,7 +531,7 @@ pub struct TradingVehicleUpsert {
     pub symbol: String,
     /// Optional ISIN if available from enrichment/manual entry.
     pub isin: Option<String>,
-    /// High-level category used by Trust (stock, crypto, fiat).
+    /// High-level category used by Trust (stock, ETF, bond, crypto, fiat).
     pub category: TradingVehicleCategory,
     /// Broker name used as part of the `(broker, symbol)` identity.
     pub broker: String,
@@ -555,6 +555,9 @@ pub struct TradingVehicleUpsert {
     pub easy_to_borrow: Option<bool>,
     /// Whether fractional trading is supported for this asset.
     pub fractionable: Option<bool>,
+
+    /// Optional fixed-income terms for bonds and bond-like instruments.
+    pub fixed_income: Option<crate::FixedIncomeTerms>,
 }
 
 /// Trait for writing broker log data to the database
@@ -716,4 +719,225 @@ pub trait AdvisoryWrite {
         asset_class_limit_pct: Decimal,
         single_position_limit_pct: Decimal,
     ) -> Result<(), Box<dyn Error>>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+    use rust_decimal_macros::dec;
+
+    #[derive(Default)]
+    struct RecordingAccountWrite {
+        calls: Vec<(String, String, Environment, Decimal, Decimal)>,
+    }
+
+    impl AccountWrite for RecordingAccountWrite {
+        fn create(
+            &mut self,
+            name: &str,
+            description: &str,
+            environment: Environment,
+            taxes_percentage: Decimal,
+            earnings_percentage: Decimal,
+        ) -> Result<Account, Box<dyn Error>> {
+            self.calls.push((
+                name.to_string(),
+                description.to_string(),
+                environment,
+                taxes_percentage,
+                earnings_percentage,
+            ));
+
+            Ok(Account {
+                name: name.to_string(),
+                description: description.to_string(),
+                environment,
+                taxes_percentage,
+                earnings_percentage,
+                ..Account::default()
+            })
+        }
+    }
+
+    #[derive(Default)]
+    struct RecordingTransactionWrite {
+        writes: Vec<Transaction>,
+    }
+
+    impl WriteTransactionDB for RecordingTransactionWrite {
+        fn create_transaction_by_account_id(
+            &mut self,
+            account_id: Uuid,
+            amount: Decimal,
+            currency: &Currency,
+            category: TransactionCategory,
+        ) -> Result<Transaction, Box<dyn Error>> {
+            let now = Utc::now().naive_utc();
+            let transaction = Transaction {
+                id: Uuid::new_v4(),
+                created_at: now,
+                updated_at: now,
+                deleted_at: None,
+                category,
+                currency: *currency,
+                amount,
+                account_id,
+            };
+            self.writes.push(transaction.clone());
+            Ok(transaction)
+        }
+    }
+
+    struct FailingTransactionWrite {
+        calls: usize,
+        fail_on_call: usize,
+    }
+
+    impl WriteTransactionDB for FailingTransactionWrite {
+        fn create_transaction_by_account_id(
+            &mut self,
+            account_id: Uuid,
+            amount: Decimal,
+            currency: &Currency,
+            category: TransactionCategory,
+        ) -> Result<Transaction, Box<dyn Error>> {
+            self.calls = self.calls.saturating_add(1);
+            if self.calls == self.fail_on_call {
+                return Err("forced transaction failure".into());
+            }
+
+            let now = Utc::now().naive_utc();
+            Ok(Transaction {
+                id: Uuid::new_v4(),
+                created_at: now,
+                updated_at: now,
+                deleted_at: None,
+                category,
+                currency: *currency,
+                amount,
+                account_id,
+            })
+        }
+    }
+
+    #[test]
+    fn account_write_default_hierarchy_and_profile_delegate_to_create() {
+        let mut writer = RecordingAccountWrite::default();
+        let parent_id = Uuid::new_v4();
+
+        let hierarchy = writer
+            .create_with_hierarchy(
+                "fallback-hierarchy",
+                "delegates",
+                Environment::Live,
+                dec!(10),
+                dec!(20),
+                AccountType::Reinvestment,
+                Some(parent_id),
+            )
+            .expect("hierarchy fallback should create account");
+        let profile = writer
+            .create_with_profile(
+                "fallback-profile",
+                "delegates",
+                Environment::Paper,
+                dec!(5),
+                dec!(15),
+                AccountType::Earnings,
+                Some(parent_id),
+                BrokerKind::Alpaca,
+                Some("broker-account"),
+            )
+            .expect("profile fallback should create account");
+
+        assert_eq!(hierarchy.name, "fallback-hierarchy");
+        assert_eq!(profile.name, "fallback-profile");
+        assert_eq!(writer.calls.len(), 2);
+        assert_eq!(
+            writer.calls.first().expect("first create call").0,
+            "fallback-hierarchy"
+        );
+        assert_eq!(
+            writer.calls.get(1).expect("second create call").0,
+            "fallback-profile"
+        );
+    }
+
+    #[test]
+    fn transaction_write_defaults_create_account_transactions_and_transfer_pairs() {
+        let mut writer = RecordingTransactionWrite::default();
+        let source = Account::default();
+        let destination = Account::default();
+
+        let deposit = writer
+            .create_transaction(
+                &source,
+                dec!(100),
+                &Currency::USD,
+                TransactionCategory::Deposit,
+            )
+            .expect("default create_transaction should delegate by account id");
+        let (withdrawal, transfer_deposit) = writer
+            .create_transfer_pair(
+                &source,
+                &destination,
+                dec!(25),
+                &Currency::USD,
+                TransactionCategory::Withdrawal,
+                TransactionCategory::Deposit,
+            )
+            .expect("default transfer pair should create both legs");
+
+        assert_eq!(deposit.account_id, source.id);
+        assert_eq!(withdrawal.account_id, source.id);
+        assert_eq!(withdrawal.amount, dec!(-25));
+        assert_eq!(transfer_deposit.account_id, destination.id);
+        assert_eq!(transfer_deposit.amount, dec!(25));
+        assert_eq!(writer.writes.len(), 3);
+    }
+
+    #[test]
+    fn transaction_write_transfer_pair_returns_first_or_second_leg_failures() {
+        let source = Account::default();
+        let destination = Account::default();
+
+        let mut first_leg_fails = FailingTransactionWrite {
+            calls: 0,
+            fail_on_call: 1,
+        };
+        let first_error = first_leg_fails
+            .create_transfer_pair(
+                &source,
+                &destination,
+                dec!(25),
+                &Currency::USD,
+                TransactionCategory::Withdrawal,
+                TransactionCategory::Deposit,
+            )
+            .expect_err("withdrawal leg failure should return an error");
+        assert!(first_error
+            .to_string()
+            .contains("forced transaction failure"));
+        assert_eq!(first_leg_fails.calls, 1);
+
+        let mut second_leg_fails = FailingTransactionWrite {
+            calls: 0,
+            fail_on_call: 2,
+        };
+        let second_error = second_leg_fails
+            .create_transfer_pair(
+                &source,
+                &destination,
+                dec!(25),
+                &Currency::USD,
+                TransactionCategory::Withdrawal,
+                TransactionCategory::Deposit,
+            )
+            .expect_err("deposit leg failure should return an error");
+        assert!(second_error
+            .to_string()
+            .contains("forced transaction failure"));
+        assert_eq!(second_leg_fails.calls, 2);
+    }
 }

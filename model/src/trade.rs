@@ -295,3 +295,124 @@ pub struct ClosedTradePerformance {
     /// Persisted total performance for this trade.
     pub total_performance: Decimal,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{Status, Trade, TradeBalance, TradeCategory};
+    use crate::{Currency, Order, TradingVehicle};
+    use rust_decimal_macros::dec;
+    use std::str::FromStr;
+
+    #[test]
+    fn status_display_parse_and_all_variants_are_stable() {
+        let cases = [
+            (Status::New, "new"),
+            (Status::Funded, "funded"),
+            (Status::Submitted, "submitted"),
+            (Status::PartiallyFilled, "partially_filled"),
+            (Status::Filled, "filled"),
+            (Status::ClosedStopLoss, "closed_stop_loss"),
+            (Status::ClosedTarget, "closed_target"),
+            (Status::Canceled, "canceled"),
+            (Status::Expired, "expired"),
+            (Status::Rejected, "rejected"),
+        ];
+
+        assert_eq!(
+            Status::all(),
+            cases.iter().map(|(status, _)| *status).collect::<Vec<_>>()
+        );
+        assert_eq!(Status::default(), Status::New);
+        for (status, text) in cases {
+            assert_eq!(status.to_string(), text);
+            assert_eq!(Status::from_str(text).expect("status should parse"), status);
+        }
+        assert!(Status::from_str("closed").is_err());
+    }
+
+    #[test]
+    fn trade_category_display_parse_and_all_variants_are_stable() {
+        let cases = [
+            (TradeCategory::Long, "long"),
+            (TradeCategory::Short, "short"),
+        ];
+
+        assert_eq!(
+            TradeCategory::all(),
+            cases
+                .iter()
+                .map(|(category, _)| *category)
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(TradeCategory::default(), TradeCategory::Long);
+        for (category, text) in cases {
+            assert_eq!(category.to_string(), text);
+            assert_eq!(
+                TradeCategory::from_str(text).expect("category should parse"),
+                category
+            );
+        }
+        assert!(TradeCategory::from_str("flat").is_err());
+    }
+
+    #[test]
+    fn trade_default_sets_new_long_trade_with_empty_metadata() {
+        let trade = Trade::default();
+
+        assert_eq!(trade.created_at, trade.updated_at);
+        assert!(trade.deleted_at.is_none());
+        assert_eq!(trade.status, Status::New);
+        assert_eq!(trade.category, TradeCategory::Long);
+        assert_eq!(trade.currency, Currency::default());
+        assert!(trade.thesis.is_none());
+        assert!(trade.sector.is_none());
+        assert!(trade.asset_class.is_none());
+        assert!(trade.context.is_none());
+    }
+
+    #[test]
+    fn trade_balance_default_sets_zero_currency_snapshot() {
+        let balance = TradeBalance::default();
+
+        assert_eq!(balance.created_at, balance.updated_at);
+        assert!(balance.deleted_at.is_none());
+        assert_eq!(balance.currency, Currency::default());
+        assert_eq!(balance.funding, dec!(0));
+        assert_eq!(balance.capital_in_market, dec!(0));
+        assert_eq!(balance.capital_out_market, dec!(0));
+        assert_eq!(balance.taxed, dec!(0));
+        assert_eq!(balance.total_performance, dec!(0));
+    }
+
+    #[test]
+    fn trade_display_includes_core_trading_terms() {
+        let trade = Trade {
+            trading_vehicle: TradingVehicle {
+                symbol: "AAPL".to_string(),
+                ..Default::default()
+            },
+            category: TradeCategory::Short,
+            status: Status::Funded,
+            currency: Currency::USD,
+            safety_stop: Order {
+                quantity: 7,
+                unit_price: dec!(95),
+                ..Default::default()
+            },
+            entry: Order {
+                unit_price: dec!(100),
+                ..Default::default()
+            },
+            target: Order {
+                unit_price: dec!(115),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        assert_eq!(
+            trade.to_string(),
+            "AAPL: quantity: 7, category: short, currency: USD, safety_stop: 95, entry: 100, target: 115, status: funded"
+        );
+    }
+}

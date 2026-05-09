@@ -215,7 +215,6 @@ impl Level {
 
     /// Risk multiplier for the provided level.
     pub fn multiplier_for_level(level: u8) -> Result<Decimal, LevelError> {
-        Self::validate_level(level)?;
         match level {
             0 => Ok(dec!(0.10)),
             1 => Ok(dec!(0.25)),
@@ -550,6 +549,10 @@ mod tests {
         assert_eq!(Level::multiplier_for_level(2).unwrap(), dec!(0.50));
         assert_eq!(Level::multiplier_for_level(3).unwrap(), dec!(1.00));
         assert_eq!(Level::multiplier_for_level(4).unwrap(), dec!(1.50));
+        assert!(matches!(
+            Level::multiplier_for_level(5),
+            Err(LevelError::InvalidLevel(5))
+        ));
     }
 
     #[test]
@@ -608,6 +611,16 @@ mod tests {
             level.direction_to(3),
             Err(LevelError::UnchangedLevel(3))
         ));
+
+        assert!(matches!(
+            level.transition_to(
+                2,
+                "reason",
+                LevelTrigger::Custom("   ".to_string()),
+                Utc::now().naive_utc(),
+            ),
+            Err(LevelError::EmptyTrigger)
+        ));
     }
 
     #[test]
@@ -618,6 +631,80 @@ mod tests {
 
         let custom = "my_custom_signal".parse::<LevelTrigger>().unwrap();
         assert_eq!(custom.to_string(), "my_custom_signal");
+    }
+
+    #[test]
+    fn test_level_display_parse_and_error_contracts() {
+        let level = Level::default_for_account(Uuid::new_v4());
+        assert_eq!(level.to_string(), "L3 Full Size Trading (1.00x, normal)");
+        assert_eq!(Level::level_description(9), "Invalid Level");
+
+        for (raw, status) in [
+            ("normal", LevelStatus::Normal),
+            ("probation", LevelStatus::Probation),
+            ("cooldown", LevelStatus::Cooldown),
+        ] {
+            assert_eq!(raw.parse::<LevelStatus>().unwrap(), status);
+            assert_eq!(status.to_string(), raw);
+        }
+        assert_eq!(
+            "invalid".parse::<LevelStatus>().unwrap_err().to_string(),
+            "Invalid level status"
+        );
+
+        assert_eq!(
+            LevelTrigger::known_values(),
+            &[
+                "manual_override",
+                "manual_review",
+                "monthly_loss",
+                "large_loss",
+                "risk_breach",
+                "performance_upgrade",
+                "performance_cooldown",
+                "consecutive_wins",
+                "account_creation",
+            ]
+        );
+        for raw in LevelTrigger::known_values() {
+            assert_eq!(raw.parse::<LevelTrigger>().unwrap().to_string(), *raw);
+        }
+        assert_eq!(
+            "   ".parse::<LevelTrigger>().unwrap_err().to_string(),
+            "Invalid level trigger"
+        );
+    }
+
+    #[test]
+    fn test_level_error_display_contracts() {
+        assert_eq!(
+            LevelError::InvalidLevel(7).to_string(),
+            "Invalid level 7; expected 0..=4"
+        );
+        assert_eq!(
+            LevelError::UnchangedLevel(2).to_string(),
+            "Requested level transition keeps current level 2"
+        );
+        assert_eq!(
+            LevelError::EmptyReason.to_string(),
+            "Level change reason cannot be empty"
+        );
+        assert_eq!(
+            LevelError::EmptyTrigger.to_string(),
+            "Level change trigger cannot be empty"
+        );
+        assert_eq!(
+            LevelRulesError::LossThresholdMustBeNegative("monthly_loss_downgrade_pct").to_string(),
+            "monthly_loss_downgrade_pct must be negative"
+        );
+        assert_eq!(
+            LevelRulesError::PercentageOutOfRange("upgrade_win_rate_pct", dec!(101)).to_string(),
+            "upgrade_win_rate_pct must be between 0 and 100, got 101"
+        );
+        assert_eq!(
+            LevelRulesError::MustBeGreaterThanZero("max_changes_in_30_days").to_string(),
+            "max_changes_in_30_days must be greater than zero"
+        );
     }
 
     #[test]
@@ -659,6 +746,17 @@ mod tests {
             rules.validate(),
             Err(LevelRulesError::LossThresholdMustBeNegative(
                 "monthly_loss_downgrade_pct"
+            ))
+        ));
+
+        let rules = LevelAdjustmentRules {
+            single_loss_downgrade_pct: dec!(0),
+            ..LevelAdjustmentRules::default()
+        };
+        assert!(matches!(
+            rules.validate(),
+            Err(LevelRulesError::LossThresholdMustBeNegative(
+                "single_loss_downgrade_pct"
             ))
         ));
 

@@ -173,3 +173,137 @@ pub trait Broker {
         Ok(vec![])
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct UnsupportedMarketDataBroker;
+
+    impl Broker for UnsupportedMarketDataBroker {
+        fn kind(&self) -> BrokerKind {
+            BrokerKind::Alpaca
+        }
+
+        fn submit_trade(
+            &self,
+            _trade: &Trade,
+            _account: &Account,
+        ) -> Result<(BrokerLog, OrderIds), Box<dyn Error>> {
+            Err("submit not implemented".into())
+        }
+
+        fn sync_trade(
+            &self,
+            _trade: &Trade,
+            _account: &Account,
+        ) -> Result<(Status, Vec<Order>, BrokerLog), Box<dyn Error>> {
+            Err("sync not implemented".into())
+        }
+
+        fn close_trade(
+            &self,
+            _trade: &Trade,
+            _account: &Account,
+        ) -> Result<(Order, BrokerLog), Box<dyn Error>> {
+            Err("close not implemented".into())
+        }
+
+        fn cancel_trade(&self, _trade: &Trade, _account: &Account) -> Result<(), Box<dyn Error>> {
+            Err("cancel not implemented".into())
+        }
+
+        fn modify_stop(
+            &self,
+            _trade: &Trade,
+            _account: &Account,
+            _new_stop_price: Decimal,
+        ) -> Result<String, Box<dyn Error>> {
+            Err("modify stop not implemented".into())
+        }
+
+        fn modify_target(
+            &self,
+            _trade: &Trade,
+            _account: &Account,
+            _new_price: Decimal,
+        ) -> Result<String, Box<dyn Error>> {
+            Err("modify target not implemented".into())
+        }
+    }
+
+    #[test]
+    fn default_market_data_methods_return_explicit_unsupported_errors() {
+        let broker = UnsupportedMarketDataBroker;
+        let account = Account::default();
+        let trade = Trade::default();
+
+        assert_eq!(broker.kind(), BrokerKind::Alpaca);
+
+        assert_eq!(
+            broker
+                .submit_trade(&trade, &account)
+                .unwrap_err()
+                .to_string(),
+            "submit not implemented"
+        );
+        assert_eq!(
+            broker.sync_trade(&trade, &account).unwrap_err().to_string(),
+            "sync not implemented"
+        );
+        assert_eq!(
+            broker
+                .close_trade(&trade, &account)
+                .unwrap_err()
+                .to_string(),
+            "close not implemented"
+        );
+        assert_eq!(
+            broker
+                .cancel_trade(&trade, &account)
+                .unwrap_err()
+                .to_string(),
+            "cancel not implemented"
+        );
+        assert_eq!(
+            broker
+                .modify_stop(&trade, &account, Decimal::ONE)
+                .unwrap_err()
+                .to_string(),
+            "modify stop not implemented"
+        );
+        assert_eq!(
+            broker
+                .modify_target(&trade, &account, Decimal::ONE)
+                .unwrap_err()
+                .to_string(),
+            "modify target not implemented"
+        );
+
+        let quote_error = broker.get_latest_quote("AAPL", &account).unwrap_err();
+        assert_eq!(
+            quote_error.to_string(),
+            "Latest quote not supported by this broker"
+        );
+
+        let trade_error = broker.get_latest_trade("AAPL", &account).unwrap_err();
+        assert_eq!(
+            trade_error.to_string(),
+            "Latest trade not supported by this broker"
+        );
+
+        let events_error = broker
+            .stream_market_data(
+                &[String::from("AAPL")],
+                &[MarketDataChannel::Quotes],
+                1,
+                1,
+                &account,
+            )
+            .unwrap_err();
+        assert_eq!(
+            events_error.to_string(),
+            "Realtime market data streaming not supported by this broker"
+        );
+    }
+}

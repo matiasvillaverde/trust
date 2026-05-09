@@ -283,6 +283,10 @@ diesel::table! {
         shortable -> Nullable<Bool>,
         easy_to_borrow -> Nullable<Bool>,
         fractionable -> Nullable<Bool>,
+        fixed_income_face_value -> Nullable<Text>,
+        fixed_income_coupon_rate_pct -> Nullable<Text>,
+        fixed_income_maturity_date -> Nullable<Date>,
+        fixed_income_coupon_frequency_per_year -> Nullable<Integer>,
     }
 }
 
