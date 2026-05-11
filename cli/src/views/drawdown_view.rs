@@ -8,60 +8,99 @@ impl DrawdownView {
     pub fn display(metrics: DrawdownMetrics) {
         println!("\nRealized P&L Drawdown Analysis");
         println!("=============================");
-
-        // Display warning about realized-only limitation
         println!("⚠️  Based on closed trades only - does not include open position losses\n");
 
-        // Display current equity and peak
+        Self::display_equity_header(&metrics);
+        Self::display_current_drawdown(&metrics);
+        println!();
+        Self::display_max_drawdown(&metrics);
+        Self::display_day_metrics(&metrics);
+        println!();
+        Self::display_drawdown_history(&metrics);
+        println!();
+    }
+
+    fn display_equity_header(metrics: &DrawdownMetrics) {
         println!(
             "Current Account Equity: {}",
-            Self::format_currency(metrics.current_equity)
+            Self::format_equity(metrics.current_equity, metrics.peak_equity)
         );
         println!(
             "All-Time Peak Equity: {}",
-            Self::format_currency(metrics.peak_equity)
+            Self::format_equity(metrics.peak_equity, metrics.peak_equity)
         );
+    }
 
-        // Display current drawdown
+    fn display_current_drawdown(metrics: &DrawdownMetrics) {
         if metrics.current_drawdown > dec!(0) {
+            if crate::zen::is_enabled() {
+                println!(
+                    "Current Drawdown: {}",
+                    Self::format_percentage_negative(metrics.current_drawdown_percentage)
+                );
+            } else {
+                println!(
+                    "Current Drawdown: {} ({})",
+                    Self::format_currency_negative(metrics.current_drawdown),
+                    Self::format_percentage_negative(metrics.current_drawdown_percentage)
+                );
+            }
+        } else {
+            println!("Current Drawdown: {}", Self::zero_drawdown_label());
+        }
+    }
+
+    fn display_max_drawdown(metrics: &DrawdownMetrics) {
+        if metrics.max_drawdown > dec!(0) {
+            Self::display_nonzero_max_drawdown(metrics);
+        } else {
+            println!("Maximum Drawdown: {}", Self::zero_drawdown_label());
+        }
+    }
+
+    fn display_nonzero_max_drawdown(metrics: &DrawdownMetrics) {
+        let date_str = metrics
+            .max_drawdown_date
+            .map(|d| d.format("%Y-%m-%d").to_string())
+            .unwrap_or_else(|| "N/A".to_string());
+
+        if crate::zen::is_enabled() {
             println!(
-                "Current Drawdown: {} ({})",
-                Self::format_currency_negative(metrics.current_drawdown),
-                Self::format_percentage_negative(metrics.current_drawdown_percentage)
+                "Maximum Drawdown: {} on {}",
+                Self::format_percentage_negative(metrics.max_drawdown_percentage),
+                date_str
             );
         } else {
-            println!("Current Drawdown: $0.00 (0.0%)");
-        }
-
-        println!();
-
-        // Display maximum drawdown
-        if metrics.max_drawdown > dec!(0) {
-            let date_str = metrics
-                .max_drawdown_date
-                .map(|d| d.format("%Y-%m-%d").to_string())
-                .unwrap_or_else(|| "N/A".to_string());
-
             println!(
                 "Maximum Drawdown: {} ({}) on {}",
                 Self::format_currency_negative(metrics.max_drawdown),
                 Self::format_percentage_negative(metrics.max_drawdown_percentage),
                 date_str
             );
+        }
+        Self::display_recovery_from_max(metrics);
+    }
 
-            // Display recovery information
-            if metrics.recovery_from_max > dec!(0) {
-                println!(
-                    "Recovery from Max DD: {} ({} recovered)",
-                    Self::format_currency_positive(metrics.recovery_from_max),
-                    Self::format_percentage(metrics.recovery_percentage)
-                );
-            }
-        } else {
-            println!("Maximum Drawdown: $0.00 (0.0%)");
+    fn display_recovery_from_max(metrics: &DrawdownMetrics) {
+        if metrics.recovery_from_max <= dec!(0) {
+            return;
         }
 
-        // Display days metrics
+        if crate::zen::is_enabled() {
+            println!(
+                "Recovery from Max DD: {} recovered",
+                Self::format_percentage(metrics.recovery_percentage)
+            );
+        } else {
+            println!(
+                "Recovery from Max DD: {} ({} recovered)",
+                Self::format_currency_positive(metrics.recovery_from_max),
+                Self::format_percentage(metrics.recovery_percentage)
+            );
+        }
+    }
+
+    fn display_day_metrics(metrics: &DrawdownMetrics) {
         if metrics.days_since_peak > 0 {
             println!("Days Since Peak: {}", metrics.days_since_peak);
         }
@@ -69,13 +108,14 @@ impl DrawdownView {
         if metrics.days_in_drawdown > 0 {
             println!("Days in Current Drawdown: {}", metrics.days_in_drawdown);
         }
+    }
 
-        println!();
-
-        // Display drawdown history summary
-        Self::display_drawdown_history(&metrics);
-
-        println!();
+    fn zero_drawdown_label() -> &'static str {
+        if crate::zen::is_enabled() {
+            "0.0%"
+        } else {
+            "$0.00 (0.0%)"
+        }
     }
 
     fn display_drawdown_history(metrics: &DrawdownMetrics) {
@@ -92,8 +132,14 @@ impl DrawdownView {
             .checked_sub(metrics.max_drawdown)
             .unwrap_or(dec!(0));
 
-        print!("Peak: {} ", Self::format_currency(metrics.peak_equity));
-        print!("→ Low: {} ", Self::format_currency(trough_equity));
+        print!(
+            "Peak: {} ",
+            Self::format_equity(metrics.peak_equity, metrics.peak_equity)
+        );
+        print!(
+            "→ Low: {} ",
+            Self::format_equity(trough_equity, metrics.peak_equity)
+        );
 
         if metrics.max_drawdown > dec!(0) {
             print!(
@@ -104,7 +150,7 @@ impl DrawdownView {
 
         print!(
             " → Current: {}",
-            Self::format_currency(metrics.current_equity)
+            Self::format_equity(metrics.current_equity, metrics.peak_equity)
         );
 
         if metrics.current_drawdown > dec!(0) && metrics.current_drawdown < metrics.max_drawdown {
@@ -117,22 +163,28 @@ impl DrawdownView {
     }
 
     fn format_currency(amount: Decimal) -> String {
-        if amount >= dec!(0) {
-            format!("${amount:.2}")
+        crate::zen::currency(amount)
+    }
+
+    fn format_currency_negative(amount: Decimal) -> String {
+        if crate::zen::is_enabled() {
+            "hidden".to_string()
         } else {
             let abs_amount = amount.abs();
             format!("-${abs_amount:.2}")
         }
     }
 
-    fn format_currency_negative(amount: Decimal) -> String {
-        let abs_amount = amount.abs();
-        format!("-${abs_amount:.2}")
+    fn format_currency_positive(amount: Decimal) -> String {
+        crate::zen::signed_currency(amount.abs())
     }
 
-    fn format_currency_positive(amount: Decimal) -> String {
-        let abs_amount = amount.abs();
-        format!("+${abs_amount:.2}")
+    fn format_equity(amount: Decimal, basis: Decimal) -> String {
+        if crate::zen::is_enabled() {
+            crate::zen::percentage_of(amount, basis)
+        } else {
+            Self::format_currency(amount)
+        }
     }
 
     fn format_percentage(value: Decimal) -> String {
@@ -170,6 +222,7 @@ mod tests {
 
     #[test]
     fn currency_and_percentage_formatters_are_consistent() {
+        crate::zen::set_enabled(false);
         assert_eq!(DrawdownView::format_currency(dec!(10)), "$10.00");
         assert_eq!(DrawdownView::format_currency(dec!(-10)), "-$10.00");
         assert_eq!(DrawdownView::format_currency_negative(dec!(10)), "-$10.00");
@@ -182,7 +235,19 @@ mod tests {
     }
 
     #[test]
+    fn equity_formatter_uses_peak_percentages_in_zen_mode() {
+        crate::zen::set_enabled(true);
+        assert_eq!(
+            DrawdownView::format_equity(dec!(9500), dec!(10000)),
+            "95.0%"
+        );
+        assert_eq!(DrawdownView::format_currency(dec!(10)), "hidden");
+        crate::zen::set_enabled(false);
+    }
+
+    #[test]
     fn display_and_history_cover_recovery_and_no_drawdown_paths() {
+        crate::zen::set_enabled(false);
         let metrics = sample_metrics();
         DrawdownView::display_drawdown_history(&metrics);
         DrawdownView::display(metrics);
@@ -206,6 +271,7 @@ mod tests {
 
     #[test]
     fn display_handles_missing_max_date_zero_recovery_and_no_day_counts() {
+        crate::zen::set_enabled(false);
         let metrics = DrawdownMetrics {
             current_equity: dec!(9500),
             peak_equity: dec!(10000),

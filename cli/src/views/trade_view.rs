@@ -18,15 +18,16 @@ pub struct TradeView {
 
 impl TradeView {
     fn new(trade: Trade, account_name: &str) -> TradeView {
+        let entry_price = trade.entry.unit_price;
         TradeView {
             trading_vehicle: trade.trading_vehicle.clone().symbol,
             category: trade.category.to_string(),
             account: crate::views::uppercase_first(account_name),
             currency: trade.currency.to_string(),
             quantity: trade.entry.quantity.to_string(),
-            stop_price: trade.safety_stop.unit_price.to_string(),
-            entry_price: trade.entry.unit_price.to_string(),
-            target_price: trade.target.unit_price.to_string(),
+            stop_price: crate::zen::price_relative_to(trade.safety_stop.unit_price, entry_price),
+            entry_price: crate::zen::price_relative_to(entry_price, entry_price),
+            target_price: crate::zen::price_relative_to(trade.target.unit_price, entry_price),
             status: trade.status.to_string(),
         }
     }
@@ -61,12 +62,13 @@ pub struct TradeBalanceView {
 
 impl TradeBalanceView {
     fn new(balance: &TradeBalance) -> TradeBalanceView {
+        let basis = balance.funding;
         TradeBalanceView {
-            funding: balance.funding.to_string(),
-            capital_in_market: balance.capital_in_market.to_string(),
-            capital_out_market: balance.capital_out_market.to_string(),
-            taxed: balance.taxed.to_string(),
-            total_performance: balance.total_performance.to_string(),
+            funding: crate::zen::amount_share(balance.funding, basis),
+            capital_in_market: crate::zen::amount_share(balance.capital_in_market, basis),
+            capital_out_market: crate::zen::amount_share(balance.capital_out_market, basis),
+            taxed: crate::zen::amount_share(balance.taxed, basis),
+            total_performance: crate::zen::amount_share(balance.total_performance, basis),
             currency: balance.currency.to_string(),
         }
     }
@@ -92,6 +94,7 @@ mod tests {
 
     #[test]
     fn trade_view_new_maps_trade_snapshot_fields() {
+        crate::zen::set_enabled(false);
         let mut trade = Trade::default();
         trade.trading_vehicle.symbol = "tsla".to_string();
         trade.category = TradeCategory::Short;
@@ -114,6 +117,7 @@ mod tests {
 
     #[test]
     fn trade_balance_view_new_maps_balance_values() {
+        crate::zen::set_enabled(false);
         let balance = TradeBalance {
             funding: dec!(1000),
             capital_in_market: dec!(500),
@@ -132,7 +136,38 @@ mod tests {
     }
 
     #[test]
+    fn trade_views_use_percentages_in_zen_mode() {
+        crate::zen::set_enabled(true);
+        let mut trade = Trade::default();
+        trade.safety_stop.unit_price = dec!(90);
+        trade.entry.unit_price = dec!(100);
+        trade.target.unit_price = dec!(120);
+
+        let trade_view = TradeView::new(trade, "paper");
+        assert_eq!(trade_view.stop_price, "90.0%");
+        assert_eq!(trade_view.entry_price, "100.0%");
+        assert_eq!(trade_view.target_price, "120.0%");
+
+        let balance = TradeBalance {
+            funding: dec!(1000),
+            capital_in_market: dec!(250),
+            capital_out_market: dec!(750),
+            taxed: dec!(50),
+            total_performance: dec!(120),
+            ..Default::default()
+        };
+        let balance_view = TradeBalanceView::new(&balance);
+        assert_eq!(balance_view.funding, "100.0%");
+        assert_eq!(balance_view.capital_in_market, "25.0%");
+        assert_eq!(balance_view.capital_out_market, "75.0%");
+        assert_eq!(balance_view.taxed, "5.0%");
+        assert_eq!(balance_view.total_performance, "12.0%");
+        crate::zen::set_enabled(false);
+    }
+
+    #[test]
     fn display_helpers_run_for_smoke_coverage() {
+        crate::zen::set_enabled(false);
         let trade = Trade::default();
         TradeView::display_trades(vec![trade.clone()], "main");
         TradeView::display(&trade, "main");

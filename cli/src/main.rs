@@ -38,7 +38,7 @@ use crate::commands::{
     TransactionCommandBuilder,
 };
 use crate::dispatcher::ArgDispatcher;
-use clap::Command;
+use clap::{Arg, ArgAction, Command};
 use commands::RuleCommandBuilder;
 mod command_routing;
 mod commands;
@@ -50,6 +50,7 @@ mod protected_keyword;
 mod test_support;
 mod trading_vehicle_import;
 mod views;
+mod zen;
 
 fn build_keys_subcommand() -> Command {
     KeysCommandBuilder::new()
@@ -77,6 +78,15 @@ fn build_cli() -> Command {
         .version(env!("CARGO_PKG_VERSION"))
         .subcommand_required(true)
         .arg_required_else_help(true)
+        .arg(
+            Arg::new("zen")
+                .long("zen")
+                .global(true)
+                .action(ArgAction::SetTrue)
+                .help(
+                    "Hide absolute dollar amounts and show percentage-only output where possible",
+                ),
+        )
         .subcommand(DbCommandBuilder::new().export().import().build())
         .subcommand(build_keys_subcommand())
         .subcommand(
@@ -199,6 +209,7 @@ fn build_cli() -> Command {
 
 fn main() {
     let matches = build_cli().get_matches();
+    crate::zen::set_enabled(matches.get_flag("zen"));
 
     let dispatcher = ArgDispatcher::new_sqlite();
     if let Err(error) = dispatcher.dispatch(matches) {
@@ -266,5 +277,18 @@ mod tests {
             .subcommand()
             .expect("nested report subcommand should exist");
         assert_eq!(nested, "summary");
+    }
+
+    #[test]
+    fn cli_accepts_zen_as_global_flag() {
+        let matches = build_cli()
+            .try_get_matches_from(["trust", "--zen", "report", "summary"])
+            .expect("global zen flag should parse before subcommand");
+        assert!(matches.get_flag("zen"));
+
+        let nested = build_cli()
+            .try_get_matches_from(["trust", "report", "--zen", "summary"])
+            .expect("global zen flag should parse within subcommand tree");
+        assert!(nested.get_flag("zen"));
     }
 }

@@ -78,7 +78,11 @@ impl AdvancedMetricsView {
             "├─ Average R-Multiple: {:.2}",
             AdvancedMetricsCalculator::calculate_average_r_multiple(trades)
         );
-        println!("├─ Expectancy (EV): ${expectancy:.2} per trade ({expectancy_rating})");
+        if crate::zen::is_enabled() {
+            println!("├─ Expectancy (EV): hidden per trade ({expectancy_rating})");
+        } else {
+            println!("├─ Expectancy (EV): ${expectancy:.2} per trade ({expectancy_rating})");
+        }
         println!(
             "├─ Pareto Profit Share (Top 20% Winners): {:.1}%",
             concentration.top_20pct_profit_share_percentage

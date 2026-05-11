@@ -43,13 +43,17 @@ impl PerformanceView {
     }
 
     fn display_win_loss_analysis(stats: &PerformanceStats) {
-        let avg_win_display = if stats.average_win > Decimal::ZERO {
+        let avg_win_display = if crate::zen::is_enabled() {
+            "hidden".to_string()
+        } else if stats.average_win > Decimal::ZERO {
             format!("${:.2}", stats.average_win)
         } else {
             "$0.00".to_string()
         };
 
-        let avg_loss_display = if stats.average_loss < Decimal::ZERO {
+        let avg_loss_display = if crate::zen::is_enabled() {
+            "hidden".to_string()
+        } else if stats.average_loss < Decimal::ZERO {
             format!("${:.2}", stats.average_loss)
         } else {
             "$0.00".to_string()
@@ -63,11 +67,19 @@ impl PerformanceView {
         println!("Average R-Multiple: {:.2}", stats.average_r_multiple);
 
         if let Some(best) = stats.best_trade {
-            println!("Best Trade: ${best:.2}");
+            if crate::zen::is_enabled() {
+                println!("Best Trade: hidden");
+            } else {
+                println!("Best Trade: ${best:.2}");
+            }
         }
 
         if let Some(worst) = stats.worst_trade {
-            println!("Worst Trade: ${worst:.2}");
+            if crate::zen::is_enabled() {
+                println!("Worst Trade: hidden");
+            } else {
+                println!("Worst Trade: ${worst:.2}");
+            }
         }
     }
 }
@@ -95,6 +107,7 @@ mod tests {
 
     #[test]
     fn display_helpers_handle_positive_and_zero_edge_cases() {
+        crate::zen::set_enabled(false);
         let mut s = stats();
         PerformanceView::display_trade_summary(&s);
         PerformanceView::display_win_loss_analysis(&s);
@@ -110,6 +123,7 @@ mod tests {
 
     #[test]
     fn display_handles_empty_and_closed_trade_inputs() {
+        crate::zen::set_enabled(false);
         PerformanceView::display(Vec::new());
 
         let mut trade = Trade {
@@ -120,5 +134,14 @@ mod tests {
         trade.balance.funding = dec!(1000);
         trade.balance.capital_in_market = dec!(0);
         PerformanceView::display(vec![trade]);
+    }
+
+    #[test]
+    fn display_helpers_hide_absolute_amounts_in_zen_mode() {
+        crate::zen::set_enabled(true);
+        let s = stats();
+        PerformanceView::display_win_loss_analysis(&s);
+        PerformanceView::display_performance_metrics(&s);
+        crate::zen::set_enabled(false);
     }
 }
