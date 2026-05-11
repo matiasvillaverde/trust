@@ -58,6 +58,7 @@ diesel::table! {
         earnings_amount -> Nullable<Text>,
         tax_amount -> Nullable<Text>,
         reinvestment_amount -> Nullable<Text>,
+        insurance_amount -> Nullable<Text>,
     }
 }
 
@@ -72,6 +73,7 @@ diesel::table! {
         reinvestment_percent -> Text,
         minimum_threshold -> Text,
         configuration_password_hash -> Text,
+        insurance_percent -> Text,
     }
 }
 

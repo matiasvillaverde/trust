@@ -374,6 +374,7 @@ impl TryFrom<AccountSQLite> for Account {
             "earnings" => AccountType::Earnings,
             "tax_reserve" => AccountType::TaxReserve,
             "reinvestment" => AccountType::Reinvestment,
+            "insurance" => AccountType::Insurance,
             _ => {
                 return Err(ConversionError::new(
                     "account_type",

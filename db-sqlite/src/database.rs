@@ -1248,6 +1248,7 @@ mod tests {
             .expect("distribution history should read");
 
         assert_eq!(read_rules.id, rules.id);
+        assert_eq!(read_rules.insurance_percent, Decimal::ZERO);
         assert!(read_history.iter().any(|entry| entry.id == history.id));
     }
 
