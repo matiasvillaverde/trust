@@ -1,5 +1,5 @@
 use model::{Currency, DatabaseFactory, RuleName};
-use rust_decimal::Decimal;
+use rust_decimal::{Decimal, RoundingStrategy};
 use rust_decimal_macros::dec;
 use std::str::FromStr;
 use uuid::Uuid;
@@ -8,6 +8,8 @@ use crate::calculators_account::AccountCapitalAvailable;
 use crate::calculators_trade::RiskCalculator;
 
 pub struct QuantityCalculator;
+
+const MAX_QUANTITY_DECIMAL_PLACES: u32 = 8;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LevelAdjustedQuantity {
@@ -81,7 +83,7 @@ impl QuantityCalculator {
         } else {
             max_quantity
         };
-        Ok(max_quantity)
+        Ok(Self::conservative_quantity(max_quantity))
     }
 
     pub fn maximum_quantity_with_level(
@@ -109,7 +111,13 @@ impl QuantityCalculator {
             Some(value) => value,
             None => return Decimal::ZERO,
         };
-        adjusted.max(Decimal::ZERO)
+        Self::conservative_quantity(adjusted)
+    }
+
+    fn conservative_quantity(quantity: Decimal) -> Decimal {
+        quantity
+            .max(Decimal::ZERO)
+            .round_dp_with_strategy(MAX_QUANTITY_DECIMAL_PLACES, RoundingStrategy::ToZero)
     }
 
     fn max_quantity_per_trade(
@@ -159,13 +167,13 @@ impl QuantityCalculator {
 
         if risk_capital >= max_risk {
             // The risk capital is greater than the max risk, so return the max quantity
-            max_quantity
+            Self::conservative_quantity(max_quantity)
         } else {
             // The risk capital is less than the max risk, so return the max quantity based on the risk capital
             let Some(risk_per_trade) = risk_capital.checked_div(price_diff) else {
                 return Decimal::ZERO; // Division overflow
             };
-            risk_per_trade
+            Self::conservative_quantity(risk_per_trade)
         }
     }
 }
@@ -294,6 +302,24 @@ mod tests {
         assert_eq!(
             QuantityCalculator::max_quantity_per_trade(available, entry_price, stop_price, risk),
             dec!(99.9)
+        );
+    }
+
+    #[test]
+    fn test_max_quantity_per_trade_rounds_down_to_fundable_decimal_quantity() {
+        let quantity = QuantityCalculator::max_quantity_per_trade(
+            dec!(169_940),
+            dec!(169),
+            dec!(151.7113),
+            1.0,
+        );
+
+        assert_eq!(quantity, dec!(98.29541839));
+        assert!(
+            quantity
+                .checked_mul(dec!(17.2887))
+                .expect("risk should fit")
+                <= dec!(1699.40)
         );
     }
 

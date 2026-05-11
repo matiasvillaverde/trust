@@ -7,8 +7,7 @@ use model::{
 use proptest::prelude::Strategy;
 use proptest::sample::select;
 use proptest::test_runner::{Config as ProptestConfig, TestCaseError, TestCaseResult, TestRunner};
-use rust_decimal::prelude::ToPrimitive;
-use rust_decimal::Decimal;
+use rust_decimal::{Decimal, RoundingStrategy};
 use rust_decimal_macros::dec;
 use std::error::Error;
 
@@ -138,7 +137,7 @@ fn trade(
     account: &Account,
     category: TradingVehicleCategory,
     side: TradeCategory,
-    quantity: i64,
+    quantity: Decimal,
     entry: Decimal,
     stop: Decimal,
 ) -> Trade {
@@ -155,7 +154,7 @@ fn trade(
             DraftTrade {
                 account: account.clone(),
                 trading_vehicle: vehicle,
-                quantity: quantity.into(),
+                quantity,
                 currency: Currency::USD,
                 category: side,
                 thesis: None,
@@ -184,15 +183,15 @@ fn risk_per_unit(side: TradeCategory, entry: Decimal, stop: Decimal) -> Decimal 
     }
 }
 
-fn max_risk_quantity(capital: Decimal, risk: RiskPct, risk_unit: Decimal) -> i64 {
+fn max_risk_quantity(capital: Decimal, risk: RiskPct, risk_unit: Decimal) -> Decimal {
     let max_risk = capital
         .checked_mul(risk.decimal)
         .and_then(|value| value.checked_div(dec!(100)))
         .expect("max risk");
     max_risk
         .checked_div(risk_unit)
-        .and_then(|value| value.to_i64())
         .expect("risk quantity")
+        .round_dp_with_strategy(8, RoundingStrategy::ToZero)
 }
 
 fn category_strategy() -> impl Strategy<Value = TradingVehicleCategory> {
@@ -320,7 +319,7 @@ fn funding_gate_respects_risk_formula_across_assets_sides_and_prices() {
                         let risk_unit = risk_per_unit(side, entry, stop);
                         let boundary_qty = max_risk_quantity(capital, risk, risk_unit);
                         assert!(
-                            boundary_qty > 0,
+                            boundary_qty > Decimal::ZERO,
                             "test scenario must allow positive quantity"
                         );
 
@@ -347,7 +346,7 @@ fn funding_gate_respects_risk_formula_across_assets_sides_and_prices() {
                             category,
                             side,
                             boundary_qty
-                                .checked_add(1)
+                                .checked_add(dec!(1))
                                 .expect("rejecting quantity increment"),
                             entry,
                             stop,
@@ -365,7 +364,7 @@ fn funding_gate_respects_risk_formula_across_assets_sides_and_prices() {
                             .expect("maximum quantity");
                         assert_eq!(
                             sizing,
-                            Decimal::from(boundary_qty),
+                            boundary_qty,
                             "quantity calculator and funding gate must agree for {category} {side:?}"
                         );
                     }
@@ -397,7 +396,7 @@ fn invalid_stop_entry_geometry_is_rejected_across_assets_and_sides() {
         for (side, entry, stop) in invalid_setups {
             let mut trust = trust();
             let account = account_with_rules(&mut trust, dec!(10000), risk);
-            let trade = trade(&mut trust, &account, category, side, 1, entry, stop);
+            let trade = trade(&mut trust, &account, category, side, dec!(1), entry, stop);
             let error = trust
                 .fund_trade(&trade)
                 .expect_err("invalid stop/entry geometry must be rejected");
@@ -418,7 +417,7 @@ fn generated_funding_gate_matches_risk_formula() {
         .run(&strategy, |case| {
             let risk_unit = risk_per_unit(case.side, case.entry, case.stop);
             let boundary_qty = max_risk_quantity(case.capital, case.risk, risk_unit);
-            if boundary_qty <= 0 {
+            if boundary_qty <= Decimal::ZERO {
                 return Err(TestCaseError::reject("generated zero boundary quantity"));
             }
 
@@ -444,7 +443,7 @@ fn generated_funding_gate_matches_risk_formula() {
             let sizing = reject_trust
                 .calculate_maximum_quantity(account.id, case.entry, case.stop, &Currency::USD)
                 .expect("maximum quantity");
-            if sizing != Decimal::from(boundary_qty) {
+            if sizing != boundary_qty {
                 return Err(TestCaseError::fail(format!(
                     "quantity calculator and funding gate must agree for {case:?}: sizing={sizing}, boundary={boundary_qty}"
                 )));
@@ -455,7 +454,7 @@ fn generated_funding_gate_matches_risk_formula() {
                 case.category,
                 case.side,
                 boundary_qty
-                    .checked_add(1)
+                    .checked_add(dec!(1))
                     .expect("rejecting quantity increment"),
                 case.entry,
                 case.stop,
@@ -491,7 +490,7 @@ fn invalid_stop_entry_case(case: GeneratedRiskCase) -> TestCaseResult {
         &account,
         case.category,
         case.side,
-        1,
+        dec!(1),
         case.entry,
         case.stop,
     );
