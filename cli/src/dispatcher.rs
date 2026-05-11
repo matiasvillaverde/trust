@@ -731,6 +731,9 @@ impl ArgDispatcher {
             DistributionSubcommand::History(history_matches) => {
                 self.distribution_history(history_matches)?
             }
+            DistributionSubcommand::Insurance(insurance_matches) => {
+                self.distribution_insurance_status(insurance_matches)?
+            }
             DistributionSubcommand::Rules(rules_matches) => {
                 if let Some(("show", nested)) = rules_matches.subcommand() {
                     self.distribution_rules(nested)?
@@ -1768,9 +1771,10 @@ impl ArgDispatcher {
             "earnings" => Ok(AccountType::Earnings),
             "tax-reserve" | "tax_reserve" => Ok(AccountType::TaxReserve),
             "reinvestment" => Ok(AccountType::Reinvestment),
+            "insurance" => Ok(AccountType::Insurance),
             _ => Err(CliError::new(
                 "invalid_account_type",
-                "Invalid --type value (expected primary|earnings|tax-reserve|reinvestment)",
+                "Invalid --type value (expected primary|earnings|tax-reserve|reinvestment|insurance)",
             )),
         }
     }
@@ -10094,6 +10098,10 @@ impl ArgDispatcher {
         let earnings_str = matches.get_one::<String>("earnings").unwrap();
         let tax_str = matches.get_one::<String>("tax").unwrap();
         let reinvestment_str = matches.get_one::<String>("reinvestment").unwrap();
+        let insurance_str = matches
+            .get_one::<String>("insurance")
+            .map(String::as_str)
+            .unwrap_or("0");
         let threshold_str = matches.get_one::<String>("threshold").unwrap();
         let password = if let Some(p) = matches.get_one::<String>("password") {
             p.to_string()
@@ -10120,15 +10128,20 @@ impl ArgDispatcher {
             .map_err(|_| CliError::new("invalid_decimal", "Invalid --reinvestment decimal"))?
             .checked_div(Decimal::new(100, 0))
             .ok_or_else(|| CliError::new("invalid_decimal", "Invalid --reinvestment percentage"))?;
+        let insurance_pct = Decimal::from_str_exact(insurance_str)
+            .map_err(|_| CliError::new("invalid_decimal", "Invalid --insurance decimal"))?
+            .checked_div(Decimal::new(100, 0))
+            .ok_or_else(|| CliError::new("invalid_decimal", "Invalid --insurance percentage"))?;
         let threshold = Decimal::from_str_exact(threshold_str)
             .map_err(|_| CliError::new("invalid_decimal", "Invalid --threshold decimal"))?;
 
         self.trust
-            .configure_distribution(
+            .configure_distribution_with_insurance(
                 account_id,
                 earnings_pct,
                 tax_pct,
                 reinvestment_pct,
+                insurance_pct,
                 threshold,
                 &password,
             )
@@ -10139,6 +10152,7 @@ impl ArgDispatcher {
         println!("  earnings: {earnings_pct}");
         println!("  tax: {tax_pct}");
         println!("  reinvestment: {reinvestment_pct}");
+        println!("  insurance: {insurance_pct}");
         println!("  minimum_threshold: {}", crate::zen::amount(threshold));
         Ok(())
     }
@@ -10186,6 +10200,13 @@ impl ArgDispatcher {
             )
         );
         println!(
+            "  insurance_amount: {}",
+            crate::zen::amount_share(
+                result.insurance_amount.unwrap_or_default(),
+                result.original_amount,
+            )
+        );
+        println!(
             "  transactions_created: {}",
             result.transactions_created.len()
         );
@@ -10215,7 +10236,7 @@ impl ArgDispatcher {
         for entry in entries {
             let basis = entry.original_amount;
             println!(
-                "- at={} trade_id={} amount={} earnings={} tax={} reinvestment={}",
+                "- at={} trade_id={} amount={} earnings={} tax={} reinvestment={} insurance={}",
                 entry.distribution_date,
                 entry
                     .trade_id
@@ -10234,9 +10255,68 @@ impl ArgDispatcher {
                     .reinvestment_amount
                     .map(|v| crate::zen::amount_share(v, basis))
                     .unwrap_or_else(|| crate::zen::amount_share(Decimal::ZERO, basis)),
+                entry
+                    .insurance_amount
+                    .map(|v| crate::zen::amount_share(v, basis))
+                    .unwrap_or_else(|| crate::zen::amount_share(Decimal::ZERO, basis)),
             );
         }
 
+        Ok(())
+    }
+
+    fn distribution_insurance_status(&mut self, matches: &ArgMatches) -> Result<(), CliError> {
+        let account_id_str = matches.get_one::<String>("account-id").unwrap();
+        let source_account_id = Uuid::parse_str(account_id_str)
+            .map_err(|_| CliError::new("invalid_uuid", "Invalid --account-id UUID"))?;
+
+        let accounts = self
+            .trust
+            .search_all_accounts()
+            .map_err(|e| CliError::new("insurance_status_failed", e.to_string()))?;
+        let insurance_account = accounts
+            .iter()
+            .find(|account| {
+                account.parent_account_id == Some(source_account_id)
+                    && account.account_type == AccountType::Insurance
+            })
+            .ok_or_else(|| {
+                CliError::new(
+                    "insurance_account_not_found",
+                    "Missing insurance subaccount for distribution",
+                )
+            })?;
+
+        let transactions = self
+            .trust
+            .get_account_transactions(insurance_account.id)
+            .map_err(|e| CliError::new("insurance_status_failed", e.to_string()))?;
+        let balance = transactions.iter().try_fold(Decimal::ZERO, |total, tx| {
+            total
+                .checked_add(tx.amount)
+                .ok_or_else(|| CliError::new("insurance_status_failed", "Balance overflow"))
+        })?;
+        let history = self
+            .trust
+            .distribution_history(source_account_id)
+            .map_err(|e| CliError::new("insurance_status_failed", e.to_string()))?;
+        let allocated = history.iter().try_fold(Decimal::ZERO, |total, entry| {
+            total
+                .checked_add(entry.insurance_amount.unwrap_or_default())
+                .ok_or_else(|| CliError::new("insurance_status_failed", "Allocation overflow"))
+        })?;
+        let distribution_count = history
+            .iter()
+            .filter(|entry| entry.insurance_amount.unwrap_or_default() > Decimal::ZERO)
+            .count();
+
+        println!("Insurance reserve:");
+        println!("  source_account_id: {source_account_id}");
+        println!("  insurance_account_id: {}", insurance_account.id);
+        println!("  insurance_account_name: {}", insurance_account.name);
+        println!("  balance: {}", crate::zen::amount(balance));
+        println!("  allocated_total: {}", crate::zen::amount(allocated));
+        println!("  distribution_count: {distribution_count}");
         Ok(())
     }
 
@@ -10255,6 +10335,7 @@ impl ArgDispatcher {
         println!("  earnings_percent: {}", rules.earnings_percent);
         println!("  tax_percent: {}", rules.tax_percent);
         println!("  reinvestment_percent: {}", rules.reinvestment_percent);
+        println!("  insurance_percent: {}", rules.insurance_percent);
         println!(
             "  minimum_threshold: {}",
             crate::zen::amount(rules.minimum_threshold)
@@ -10792,6 +10873,7 @@ mod tests {
             .arg(Arg::new("earnings").long("earnings"))
             .arg(Arg::new("tax").long("tax"))
             .arg(Arg::new("reinvestment").long("reinvestment"))
+            .arg(Arg::new("insurance").long("insurance"))
             .arg(Arg::new("threshold").long("threshold"))
             .arg(Arg::new("password").long("password"))
             .get_matches_from(argv)
@@ -10904,6 +10986,7 @@ mod tests {
                     .configure_distribution()
                     .execute_distribution()
                     .history()
+                    .insurance_status()
                     .show_rules()
                     .build(),
             )
@@ -11108,6 +11191,10 @@ mod tests {
             ArgDispatcher::parse_account_type("reinvestment").unwrap(),
             AccountType::Reinvestment
         );
+        assert_eq!(
+            ArgDispatcher::parse_account_type("insurance").unwrap(),
+            AccountType::Insurance
+        );
     }
 
     #[test]
@@ -11144,7 +11231,7 @@ mod tests {
         let error = ArgDispatcher::parse_account_type("savings").unwrap_err();
         assert_eq!(
             error.to_string(),
-            "invalid_account_type: Invalid --type value (expected primary|earnings|tax-reserve|reinvestment)"
+            "invalid_account_type: Invalid --type value (expected primary|earnings|tax-reserve|reinvestment|insurance)"
         );
     }
 
@@ -20076,6 +20163,18 @@ mod tests {
             .expect("create reinvestment account");
         dispatcher
             .trust
+            .create_account_with_hierarchy(
+                "dist-insurance",
+                "insurance",
+                Environment::Paper,
+                dec!(10),
+                dec!(5),
+                AccountType::Insurance,
+                Some(source.id),
+            )
+            .expect("create insurance account");
+        dispatcher
+            .trust
             .create_transaction(
                 &source,
                 &TransactionCategory::Deposit,
@@ -20092,7 +20191,9 @@ mod tests {
             "--tax",
             "30",
             "--reinvestment",
-            "30",
+            "20",
+            "--insurance",
+            "10",
             "--threshold",
             "0",
             "--password",
@@ -20119,6 +20220,11 @@ mod tests {
         dispatcher
             .distribution_history(&history)
             .expect("distribution history should render the truncated latest entry");
+
+        let insurance = distribution_rules_matches(&["--account-id", &source.id.to_string()]);
+        dispatcher
+            .distribution_insurance_status(&insurance)
+            .expect("insurance reserve status should render configured account");
 
         let rules = distribution_rules_matches(&["--account-id", &source.id.to_string()]);
         dispatcher

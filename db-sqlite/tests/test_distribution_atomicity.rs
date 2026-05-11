@@ -87,6 +87,7 @@ fn test_execute_distribution_plan_atomic_rolls_back_on_midway_failure() {
         earnings_amount: Some(dec!(400)),
         tax_amount: Some(dec!(600)),
         reinvestment_amount: None,
+        insurance_amount: None,
     };
 
     let err = db
@@ -156,6 +157,7 @@ fn test_execute_distribution_plan_atomic_happy_path_writes_transfers_and_history
         earnings_amount: Some(dec!(400)),
         tax_amount: Some(dec!(600)),
         reinvestment_amount: None,
+        insurance_amount: None,
     };
 
     let deposit_ids = db

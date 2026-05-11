@@ -48,6 +48,7 @@ impl IntegrationTestSuite {
             dec!(0.40),  // 40% earnings
             dec!(0.30),  // 30% tax
             dec!(0.30),  // 30% reinvestment
+            dec!(0.00),  // 0% insurance
             dec!(100.0), // $100 minimum
         );
 
@@ -193,7 +194,14 @@ impl IntegrationTestSuite {
         assert_eq!(total, dec!(1.0)); // Should equal 1.0 (100%)
 
         // Create distribution rules to validate structure
-        let rules = model::DistributionRules::new(account_id, earnings, tax, reinvestment, minimum);
+        let rules = model::DistributionRules::new(
+            account_id,
+            earnings,
+            tax,
+            reinvestment,
+            Decimal::ZERO,
+            minimum,
+        );
 
         // Test validation
         rules.validate()?;
@@ -269,6 +277,7 @@ impl IntegrationTestSuite {
             dec!(0.40),  // 40% earnings
             dec!(0.30),  // 30% tax
             dec!(0.30),  // 30% reinvestment
+            dec!(0.00),  // 0% insurance
             dec!(100.0), // $100 minimum
         );
 
@@ -338,6 +347,7 @@ impl IntegrationTestSuite {
             earnings_pct,
             tax_pct,
             reinvestment_pct,
+            Decimal::ZERO,
             minimum,
         );
         rules.validate()?;
@@ -643,6 +653,7 @@ impl IntegrationTestSuite {
             dec!(0.50), // 50%
             dec!(0.30), // 30%
             dec!(0.30), // 30% = 110% total
+            dec!(0.00),
             dec!(100.0),
         );
 
@@ -656,6 +667,7 @@ impl IntegrationTestSuite {
             dec!(-0.10), // Negative percentage
             dec!(0.60),
             dec!(0.50),
+            dec!(0.00),
             dec!(100.0),
         );
 
@@ -669,6 +681,7 @@ impl IntegrationTestSuite {
             dec!(0.40),
             dec!(0.30),
             dec!(0.30),
+            dec!(0.00),
             dec!(0.0), // Zero minimum
         );
 
@@ -682,6 +695,7 @@ impl IntegrationTestSuite {
             dec!(0.40),
             dec!(0.30),
             dec!(0.30),
+            dec!(0.00),
             dec!(-100.0), // Negative minimum
         );
 
@@ -697,6 +711,7 @@ impl IntegrationTestSuite {
             dec!(0.01), // 1%
             dec!(0.01), // 1%
             dec!(0.98), // 98% = 100% total
+            dec!(0.00),
             dec!(1.0),  // $1 minimum
         );
 

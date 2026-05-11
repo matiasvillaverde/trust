@@ -114,6 +114,13 @@ struct LevelSnapshotCache {
     last_closed_at: Option<chrono::NaiveDateTime>,
 }
 
+struct DistributionTargetAccounts {
+    earnings: Account,
+    tax: Account,
+    reinvestment: Account,
+    insurance: Option<Account>,
+}
+
 impl LevelSnapshotCache {
     fn new() -> Self {
         Self {
@@ -1755,15 +1762,15 @@ impl TrustFacade {
         }
 
         let source_account = self.factory.account_read().id(trade.account_id)?;
-        let (earnings_account, tax_account, reinvestment_account) =
-            self.resolve_distribution_accounts(source_account.id)?;
+        let target_accounts = self.resolve_distribution_accounts(source_account.id)?;
         let mut distribution_service = ProfitDistributionService::new(&mut *self.factory);
 
         let result = distribution_service.execute_distribution(
             &source_account,
-            &earnings_account,
-            &tax_account,
-            &reinvestment_account,
+            &target_accounts.earnings,
+            &target_accounts.tax,
+            &target_accounts.reinvestment,
+            target_accounts.insurance.as_ref(),
             profit,
             &rules,
             &trade.currency,
@@ -2067,11 +2074,35 @@ impl TrustFacade {
         minimum_threshold: Decimal,
         configuration_password: &str,
     ) -> Result<DistributionRules, Box<dyn std::error::Error>> {
+        self.configure_distribution_with_insurance(
+            account_id,
+            earnings_percent,
+            tax_percent,
+            reinvestment_percent,
+            Decimal::ZERO,
+            minimum_threshold,
+            configuration_password,
+        )
+    }
+
+    /// Configure distribution rules for an account, including insurance reserve allocation.
+    #[allow(clippy::too_many_arguments)]
+    pub fn configure_distribution_with_insurance(
+        &mut self,
+        account_id: Uuid,
+        earnings_percent: Decimal,
+        tax_percent: Decimal,
+        reinvestment_percent: Decimal,
+        insurance_percent: Decimal,
+        minimum_threshold: Decimal,
+        configuration_password: &str,
+    ) -> Result<DistributionRules, Box<dyn std::error::Error>> {
         self.consume_protected_authorization("configure_distribution")?;
         // Validate percentages sum to 100%.
         let total = earnings_percent
             .checked_add(tax_percent)
             .and_then(|sum| sum.checked_add(reinvestment_percent))
+            .and_then(|sum| sum.checked_add(insurance_percent))
             .ok_or("Arithmetic overflow in percentage calculation")?;
         if total != Decimal::ONE {
             return Err("Distribution percentages must sum to 100%".into());
@@ -2082,6 +2113,7 @@ impl TrustFacade {
             earnings_percent,
             tax_percent,
             reinvestment_percent,
+            insurance_percent,
             minimum_threshold,
         );
         rules.validate()?;
@@ -2105,14 +2137,18 @@ impl TrustFacade {
         }
 
         let password_hash = hash_distribution_password(configuration_password)?;
-        let rules = self.factory.distribution_write().create_or_update(
-            account_id,
-            earnings_percent,
-            tax_percent,
-            reinvestment_percent,
-            minimum_threshold,
-            &password_hash,
-        )?;
+        let rules = self
+            .factory
+            .distribution_write()
+            .create_or_update_with_insurance(
+                account_id,
+                earnings_percent,
+                tax_percent,
+                reinvestment_percent,
+                insurance_percent,
+                minimum_threshold,
+                &password_hash,
+            )?;
 
         // Cache for this facade instance to avoid repeated DB reads on high-frequency closes.
         self.distribution_rules_cache
@@ -2134,15 +2170,15 @@ impl TrustFacade {
             .factory
             .distribution_read()
             .for_account(source_account_id)?;
-        let (earnings_account, tax_account, reinvestment_account) =
-            self.resolve_distribution_accounts(source_account_id)?;
+        let target_accounts = self.resolve_distribution_accounts(source_account_id)?;
 
         let mut distribution_service = ProfitDistributionService::new(&mut *self.factory);
         distribution_service.execute_distribution(
             &source_account,
-            &earnings_account,
-            &tax_account,
-            &reinvestment_account,
+            &target_accounts.earnings,
+            &target_accounts.tax,
+            &target_accounts.reinvestment,
+            target_accounts.insurance.as_ref(),
             profit_amount,
             &rules,
             &currency,
@@ -2307,7 +2343,7 @@ impl TrustFacade {
     fn resolve_distribution_accounts(
         &mut self,
         source_account_id: Uuid,
-    ) -> Result<(Account, Account, Account), Box<dyn std::error::Error>> {
+    ) -> Result<DistributionTargetAccounts, Box<dyn std::error::Error>> {
         let child_accounts: Vec<Account> = self
             .factory
             .account_read()
@@ -2331,8 +2367,17 @@ impl TrustFacade {
             .find(|account| account.account_type == AccountType::Reinvestment)
             .cloned()
             .ok_or("Missing reinvestment subaccount for distribution")?;
+        let insurance_account = child_accounts
+            .iter()
+            .find(|account| account.account_type == AccountType::Insurance)
+            .cloned();
 
-        Ok((earnings_account, tax_account, reinvestment_account))
+        Ok(DistributionTargetAccounts {
+            earnings: earnings_account,
+            tax: tax_account,
+            reinvestment: reinvestment_account,
+            insurance: insurance_account,
+        })
     }
 }
 
@@ -2559,6 +2604,7 @@ mod tests {
             ("earnings", AccountType::Earnings),
             ("tax", AccountType::TaxReserve),
             ("reinvestment", AccountType::Reinvestment),
+            ("insurance", AccountType::Insurance),
         ] {
             trust
                 .create_account_with_profile(
@@ -2828,11 +2874,12 @@ mod tests {
         assert!(wrong_password.to_string().contains("Invalid distribution"));
 
         trust
-            .configure_distribution(
+            .configure_distribution_with_insurance(
                 source.id,
-                dec!(0.50),
+                dec!(0.45),
                 dec!(0.25),
-                dec!(0.25),
+                dec!(0.20),
+                dec!(0.10),
                 dec!(50),
                 "distribution-pass",
             )
@@ -2854,7 +2901,8 @@ mod tests {
             .expect("distribution result should be present");
 
         assert_eq!(result.source_account_id, source.id);
-        assert_eq!(result.transactions_created.len(), 3);
+        assert_eq!(result.insurance_amount, Some(dec!(12.0)));
+        assert_eq!(result.transactions_created.len(), 4);
     }
 
     #[test]

@@ -12,6 +12,13 @@ pub struct ProfitDistributionService<'a> {
     database: &'a mut dyn DatabaseFactory,
 }
 
+struct DistributionTargetRefs<'a> {
+    earnings: &'a Account,
+    tax: &'a Account,
+    reinvestment: &'a Account,
+    insurance: Option<&'a Account>,
+}
+
 impl<'a> std::fmt::Debug for ProfitDistributionService<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ProfitDistributionService")
@@ -46,6 +53,7 @@ impl<'a> ProfitDistributionService<'a> {
         earnings_account: &Account,
         tax_account: &Account,
         reinvestment_account: &Account,
+        insurance_account: Option<&Account>,
         profit_amount: Decimal,
         rules: &DistributionRules,
         currency: &Currency,
@@ -57,61 +65,14 @@ impl<'a> ProfitDistributionService<'a> {
         // Update the source account ID to match the provided account
         result.source_account_id = source_account.id;
 
-        let mut legs: Vec<DistributionExecutionLeg> = Vec::new();
-
-        if let Some(amount) = result.earnings_amount {
-            legs.push(DistributionExecutionLeg {
-                to_account_id: earnings_account.id,
-                amount,
-                withdrawal_category: TransactionCategory::Withdrawal,
-                deposit_category: trade_id
-                    .map(TransactionCategory::PaymentEarnings)
-                    .unwrap_or(TransactionCategory::Deposit),
-                forced_withdrawal_tx_id: None,
-                forced_deposit_tx_id: None,
-            });
-        }
-
-        if let Some(amount) = result.tax_amount {
-            legs.push(DistributionExecutionLeg {
-                to_account_id: tax_account.id,
-                amount,
-                withdrawal_category: TransactionCategory::Withdrawal,
-                deposit_category: trade_id
-                    .map(TransactionCategory::PaymentTax)
-                    .unwrap_or(TransactionCategory::Deposit),
-                forced_withdrawal_tx_id: None,
-                forced_deposit_tx_id: None,
-            });
-        }
-
-        if let Some(amount) = result.reinvestment_amount {
-            legs.push(DistributionExecutionLeg {
-                to_account_id: reinvestment_account.id,
-                amount,
-                withdrawal_category: TransactionCategory::Withdrawal,
-                deposit_category: TransactionCategory::Deposit,
-                forced_withdrawal_tx_id: None,
-                forced_deposit_tx_id: None,
-            });
-        }
-
-        // Validate hierarchy constraints before any write.
-        {
-            let transfer_service = FundTransferService::new(self.database);
-            for leg in &legs {
-                let destination = if leg.to_account_id == earnings_account.id {
-                    earnings_account
-                } else if leg.to_account_id == tax_account.id {
-                    tax_account
-                } else if leg.to_account_id == reinvestment_account.id {
-                    reinvestment_account
-                } else {
-                    return Err("Unknown distribution destination account".into());
-                };
-                transfer_service.validate_transfer(source_account, destination, leg.amount)?;
-            }
-        }
+        let target_accounts = DistributionTargetRefs {
+            earnings: earnings_account,
+            tax: tax_account,
+            reinvestment: reinvestment_account,
+            insurance: insurance_account,
+        };
+        let legs = build_distribution_legs(&result, &target_accounts, trade_id)?;
+        validate_distribution_legs(self.database, source_account, &target_accounts, &legs)?;
 
         let plan = DistributionExecutionPlan {
             source_account_id: source_account.id,
@@ -123,6 +84,7 @@ impl<'a> ProfitDistributionService<'a> {
             earnings_amount: result.earnings_amount,
             tax_amount: result.tax_amount,
             reinvestment_amount: result.reinvestment_amount,
+            insurance_amount: result.insurance_amount,
         };
 
         let deposit_ids = self
@@ -150,6 +112,105 @@ impl<'a> ProfitDistributionService<'a> {
         // For now, just validate the input and return success
         // Later this will create actual transactions
         Ok(())
+    }
+}
+
+fn build_distribution_legs(
+    result: &DistributionResult,
+    targets: &DistributionTargetRefs<'_>,
+    trade_id: Option<Uuid>,
+) -> Result<Vec<DistributionExecutionLeg>, Box<dyn Error>> {
+    let mut legs: Vec<DistributionExecutionLeg> = Vec::new();
+
+    if let Some(amount) = result.earnings_amount {
+        push_distribution_leg(
+            &mut legs,
+            targets.earnings.id,
+            amount,
+            trade_id
+                .map(TransactionCategory::PaymentEarnings)
+                .unwrap_or(TransactionCategory::Deposit),
+        );
+    }
+
+    if let Some(amount) = result.tax_amount {
+        push_distribution_leg(
+            &mut legs,
+            targets.tax.id,
+            amount,
+            trade_id
+                .map(TransactionCategory::PaymentTax)
+                .unwrap_or(TransactionCategory::Deposit),
+        );
+    }
+
+    if let Some(amount) = result.reinvestment_amount {
+        push_distribution_leg(
+            &mut legs,
+            targets.reinvestment.id,
+            amount,
+            TransactionCategory::Deposit,
+        );
+    }
+
+    if let Some(amount) = result.insurance_amount {
+        let account = targets
+            .insurance
+            .ok_or("Missing insurance subaccount for distribution")?;
+        push_distribution_leg(&mut legs, account.id, amount, TransactionCategory::Deposit);
+    }
+
+    Ok(legs)
+}
+
+fn push_distribution_leg(
+    legs: &mut Vec<DistributionExecutionLeg>,
+    to_account_id: Uuid,
+    amount: Decimal,
+    deposit_category: TransactionCategory,
+) {
+    legs.push(DistributionExecutionLeg {
+        to_account_id,
+        amount,
+        withdrawal_category: TransactionCategory::Withdrawal,
+        deposit_category,
+        forced_withdrawal_tx_id: None,
+        forced_deposit_tx_id: None,
+    });
+}
+
+fn validate_distribution_legs(
+    database: &mut dyn DatabaseFactory,
+    source_account: &Account,
+    targets: &DistributionTargetRefs<'_>,
+    legs: &[DistributionExecutionLeg],
+) -> Result<(), Box<dyn Error>> {
+    let transfer_service = FundTransferService::new(database);
+    for leg in legs {
+        let destination = distribution_destination(leg, targets)?;
+        transfer_service.validate_transfer(source_account, destination, leg.amount)?;
+    }
+    Ok(())
+}
+
+fn distribution_destination<'a>(
+    leg: &DistributionExecutionLeg,
+    targets: &'a DistributionTargetRefs<'a>,
+) -> Result<&'a Account, Box<dyn Error>> {
+    if leg.to_account_id == targets.earnings.id {
+        Ok(targets.earnings)
+    } else if leg.to_account_id == targets.tax.id {
+        Ok(targets.tax)
+    } else if leg.to_account_id == targets.reinvestment.id {
+        Ok(targets.reinvestment)
+    } else if let Some(account) = targets.insurance {
+        if leg.to_account_id == account.id {
+            Ok(account)
+        } else {
+            Err("Unknown distribution destination account".into())
+        }
+    } else {
+        Err("Unknown distribution destination account".into())
     }
 }
 
@@ -189,6 +250,7 @@ mod tests {
             earnings_percent: dec!(0.40),     // 40%
             tax_percent: dec!(0.30),          // 30%
             reinvestment_percent: dec!(0.30), // 30%
+            insurance_percent: Decimal::ZERO, // 0%
             minimum_threshold: dec!(100),
             configuration_password_hash: "test-password-hash".to_string(),
         }
@@ -253,6 +315,26 @@ mod tests {
             tax_account,
             reinvestment_account,
         )
+    }
+
+    fn create_real_child_account(
+        database: &SqliteDatabase,
+        source_account: &Account,
+        name: &str,
+        account_type: AccountType,
+    ) -> Account {
+        database
+            .account_write()
+            .create_with_hierarchy(
+                name,
+                name,
+                model::Environment::Paper,
+                dec!(0),
+                dec!(0),
+                account_type,
+                Some(source_account.id),
+            )
+            .expect("child account should be created")
     }
 
     #[test]
@@ -435,6 +517,7 @@ mod tests {
                 &earnings_account,
                 &tax_account,
                 &reinvestment_account,
+                None,
                 profit_amount,
                 &rules,
                 &currency,
@@ -537,6 +620,7 @@ mod tests {
             &unrelated_account, // This should fail - no hierarchy relationship
             &tax_account,
             &earnings_account,
+            None,
             profit_amount,
             &rules,
             &currency,
@@ -602,6 +686,7 @@ mod tests {
                 &earnings_account,
                 &tax_account,
                 &reinvestment_account,
+                None,
                 profit_amount,
                 &rules,
                 &currency,
@@ -628,6 +713,61 @@ mod tests {
         assert_eq!(first_history.earnings_amount, Some(dec!(1000)));
         assert_eq!(first_history.tax_amount, None);
         assert_eq!(first_history.reinvestment_amount, None);
+        assert_eq!(first_history.insurance_amount, None);
+    }
+
+    #[test]
+    fn test_execute_distribution_allocates_insurance_amount() {
+        let mut database = SqliteDatabase::new_in_memory();
+        let (source_account, earnings_account, tax_account, reinvestment_account) =
+            create_real_hierarchy(&database, "insurance");
+        let insurance_account = create_real_child_account(
+            &database,
+            &source_account,
+            "insurance-child",
+            AccountType::Insurance,
+        );
+
+        let mut rules = create_test_distribution_rules(source_account.id);
+        rules.earnings_percent = dec!(0.35);
+        rules.tax_percent = dec!(0.25);
+        rules.reinvestment_percent = dec!(0.30);
+        rules.insurance_percent = dec!(0.10);
+
+        let result = {
+            let mut service = ProfitDistributionService::new(&mut database);
+            service.execute_distribution(
+                &source_account,
+                &earnings_account,
+                &tax_account,
+                &reinvestment_account,
+                Some(&insurance_account),
+                dec!(1000),
+                &rules,
+                &Currency::USD,
+                None,
+            )
+        }
+        .expect("insurance distribution should execute");
+
+        assert_eq!(result.insurance_amount, Some(dec!(100)));
+        assert_eq!(result.transactions_created.len(), 4);
+
+        let insurance_transactions =
+            account_transactions(&database, insurance_account.id, &Currency::USD, "insurance");
+        assert_destination_transaction(
+            &insurance_transactions,
+            TransactionCategory::Deposit,
+            dec!(100),
+            "insurance",
+        );
+
+        let history = database
+            .distribution_read()
+            .history_for_account(source_account.id)
+            .expect("history should be readable");
+        let history = history.first().expect("history row should exist");
+        assert_eq!(history.insurance_amount, Some(dec!(100)));
     }
 
     #[test]
@@ -649,6 +789,7 @@ mod tests {
                     &earnings_account,
                     &tax_account,
                     &reinvestment_account,
+                    None,
                     profit_amount,
                     &rules,
                     &currency,
@@ -710,5 +851,6 @@ mod tests {
         assert_eq!(history.earnings_amount, Some(dec!(400)));
         assert_eq!(history.tax_amount, Some(dec!(300)));
         assert_eq!(history.reinvestment_amount, Some(dec!(300)));
+        assert_eq!(history.insurance_amount, None);
     }
 }

@@ -17,6 +17,8 @@ pub enum AccountType {
     TaxReserve,
     /// Additional trading capital
     Reinvestment,
+    /// Safety-net reserve funded from trade profits
+    Insurance,
 }
 
 /// Error type for account hierarchy validation failures
@@ -233,6 +235,7 @@ impl Display for AccountType {
             AccountType::Earnings => write!(f, "earnings"),
             AccountType::TaxReserve => write!(f, "tax_reserve"),
             AccountType::Reinvestment => write!(f, "reinvestment"),
+            AccountType::Insurance => write!(f, "insurance"),
         }
     }
 }
@@ -308,6 +311,14 @@ mod tests {
     fn test_account_type_reinvestment() {
         let account_type = AccountType::Reinvestment;
         assert_eq!(account_type.to_string(), "reinvestment");
+        assert!(!account_type.can_have_children());
+        assert!(account_type.requires_parent());
+    }
+
+    #[test]
+    fn test_account_type_insurance() {
+        let account_type = AccountType::Insurance;
+        assert_eq!(account_type.to_string(), "insurance");
         assert!(!account_type.can_have_children());
         assert!(account_type.requires_parent());
     }

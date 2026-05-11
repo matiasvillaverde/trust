@@ -56,6 +56,13 @@ impl DistributionCommandBuilder {
                         .required(true),
                 )
                 .arg(
+                    Arg::new("insurance")
+                        .long("insurance")
+                        .value_name("PERCENT")
+                        .help("Percentage for insurance reserve allocation (default: 0.0)")
+                        .required(false),
+                )
+                .arg(
                     Arg::new("threshold")
                         .long("threshold")
                         .short('m')
@@ -123,6 +130,22 @@ impl DistributionCommandBuilder {
         self
     }
 
+    pub fn insurance_status(mut self) -> Self {
+        self.subcommands.push(
+            Command::new("insurance")
+                .about("Show insurance reserve status for an account")
+                .arg(
+                    Arg::new("account-id")
+                        .long("account-id")
+                        .short('a')
+                        .value_name("UUID")
+                        .help("Primary account ID to show insurance status for")
+                        .required(true),
+                ),
+        );
+        self
+    }
+
     pub fn show_rules(mut self) -> Self {
         self.subcommands.push(
             Command::new("rules")
@@ -174,10 +197,21 @@ mod tests {
             "30.0",
             "--reinvestment",
             "30.0",
+            "--insurance",
+            "0.0",
             "--threshold",
             "100.0",
         ]);
 
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn insurance_status_subcommand_parses() {
+        let cmd = DistributionCommandBuilder::new().insurance_status().build();
+        let account_id = "550e8400-e29b-41d4-a716-446655440000";
+        let result =
+            cmd.try_get_matches_from(["distribution", "insurance", "--account-id", account_id]);
         assert!(result.is_ok());
     }
 

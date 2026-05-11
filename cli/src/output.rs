@@ -62,7 +62,8 @@ impl DistributionFormatter {
             │ Distribution Breakdown:                                 \n\
             │ ├─ Earnings:     ${} → Account: {}   \n\
             │ ├─ Tax Reserve:  ${} → Account: {}   \n\
-            │ └─ Reinvestment: ${} → Account: {}   \n\
+            │ ├─ Reinvestment: ${} → Account: {}   \n\
+            │ └─ Insurance:    ${} → Account: {}   \n\
             └─────────────────────────────────────────────────────────┘",
             result.source_account_id,
             result.original_amount,
@@ -71,7 +72,9 @@ impl DistributionFormatter {
             result.tax_amount.unwrap_or_default(),
             "N/A", // tax account ID not available in result
             result.reinvestment_amount.unwrap_or_default(),
-            "N/A" // reinvestment account ID not available in result
+            "N/A", // reinvestment account ID not available in result
+            result.insurance_amount.unwrap_or_default(),
+            "N/A" // insurance account ID not available in result
         )
     }
 
@@ -80,6 +83,7 @@ impl DistributionFormatter {
         earnings_pct: Decimal,
         tax_pct: Decimal,
         reinvestment_pct: Decimal,
+        insurance_pct: Decimal,
         minimum: Decimal,
     ) -> String {
         format!(
@@ -88,7 +92,8 @@ impl DistributionFormatter {
             │ Allocation Rules:                                       \n\
             │ ├─ Earnings:     {}% of profit              \n\
             │ ├─ Tax Reserve:  {}% of profit              \n\
-            │ └─ Reinvestment: {}% of profit              \n\
+            │ ├─ Reinvestment: {}% of profit              \n\
+            │ └─ Insurance:    {}% of profit              \n\
             │                                                         \n\
             │ Minimum Threshold: ${}                     \n\
             │ (Only profits above this amount will be distributed)    \n\
@@ -100,6 +105,9 @@ impl DistributionFormatter {
             reinvestment_pct
                 .checked_mul(Decimal::from(100))
                 .unwrap_or(reinvestment_pct),
+            insurance_pct
+                .checked_mul(Decimal::from(100))
+                .unwrap_or(insurance_pct),
             minimum
         )
     }
@@ -113,7 +121,7 @@ impl DistributionFormatter {
             "📜 Distribution History".to_string(),
             "┌──────────────────────────────────────────────────────────────────────────┐"
                 .to_string(),
-            "│ Date (UTC)           │ Trade      │ Profit    │ Earnings │ Tax    │ Reinv │"
+            "│ Date (UTC)           │ Trade      │ Profit    │ Earnings │ Tax    │ Reinv │ Insur │"
                 .to_string(),
             "├──────────────────────────────────────────────────────────────────────────┤"
                 .to_string(),
@@ -131,13 +139,14 @@ impl DistributionFormatter {
             };
 
             lines.push(format!(
-                "│ {:19} │ {:8} │ {:8} │ {:8} │ {:6} │ {:5} │",
+                "│ {:19} │ {:8} │ {:8} │ {:8} │ {:6} │ {:5} │ {:5} │",
                 entry.distribution_date.format("%Y-%m-%d %H:%M:%S"),
                 trade_short,
                 entry.original_amount,
                 entry.earnings_amount.unwrap_or_default(),
                 entry.tax_amount.unwrap_or_default(),
                 entry.reinvestment_amount.unwrap_or_default(),
+                entry.insurance_amount.unwrap_or_default(),
             ));
         }
 
@@ -279,6 +288,7 @@ mod tests {
             dec!(0.40),
             dec!(0.30),
             dec!(0.30),
+            dec!(0.00),
             dec!(100.0),
         );
 

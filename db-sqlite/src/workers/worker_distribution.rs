@@ -87,6 +87,27 @@ impl DistributionWrite for DistributionDB {
         minimum_threshold: Decimal,
         configuration_password_hash: &str,
     ) -> Result<DistributionRules, Box<dyn Error>> {
+        self.create_or_update_with_insurance(
+            account_id,
+            earnings_percent,
+            tax_percent,
+            reinvestment_percent,
+            Decimal::ZERO,
+            minimum_threshold,
+            configuration_password_hash,
+        )
+    }
+
+    fn create_or_update_with_insurance(
+        &mut self,
+        account_id: Uuid,
+        earnings_percent: Decimal,
+        tax_percent: Decimal,
+        reinvestment_percent: Decimal,
+        insurance_percent: Decimal,
+        minimum_threshold: Decimal,
+        configuration_password_hash: &str,
+    ) -> Result<DistributionRules, Box<dyn Error>> {
         let uuid = Uuid::new_v4().to_string();
         let now = Utc::now().naive_utc();
 
@@ -98,6 +119,7 @@ impl DistributionWrite for DistributionDB {
             earnings_percent: earnings_percent.to_string(),
             tax_percent: tax_percent.to_string(),
             reinvestment_percent: reinvestment_percent.to_string(),
+            insurance_percent: insurance_percent.to_string(),
             minimum_threshold: minimum_threshold.to_string(),
             configuration_password_hash: configuration_password_hash.to_string(),
         };
@@ -123,6 +145,7 @@ impl DistributionWrite for DistributionDB {
                 distribution_rules::earnings_percent.eq(&new_rules.earnings_percent),
                 distribution_rules::tax_percent.eq(&new_rules.tax_percent),
                 distribution_rules::reinvestment_percent.eq(&new_rules.reinvestment_percent),
+                distribution_rules::insurance_percent.eq(&new_rules.insurance_percent),
                 distribution_rules::minimum_threshold.eq(&new_rules.minimum_threshold),
                 distribution_rules::configuration_password_hash
                     .eq(&new_rules.configuration_password_hash),
@@ -156,6 +179,29 @@ impl DistributionWrite for DistributionDB {
         tax_amount: Option<Decimal>,
         reinvestment_amount: Option<Decimal>,
     ) -> Result<DistributionHistory, Box<dyn Error>> {
+        self.create_history_with_insurance(
+            source_account_id,
+            trade_id,
+            original_amount,
+            distribution_date,
+            earnings_amount,
+            tax_amount,
+            reinvestment_amount,
+            None,
+        )
+    }
+
+    fn create_history_with_insurance(
+        &mut self,
+        source_account_id: Uuid,
+        trade_id: Option<Uuid>,
+        original_amount: Decimal,
+        distribution_date: NaiveDateTime,
+        earnings_amount: Option<Decimal>,
+        tax_amount: Option<Decimal>,
+        reinvestment_amount: Option<Decimal>,
+        insurance_amount: Option<Decimal>,
+    ) -> Result<DistributionHistory, Box<dyn Error>> {
         let mut guard = self.connection_guard()?;
         let connection: &mut SqliteConnection = &mut guard;
 
@@ -171,6 +217,7 @@ impl DistributionWrite for DistributionDB {
             earnings_amount: earnings_amount.map(|amount| amount.to_string()),
             tax_amount: tax_amount.map(|amount| amount.to_string()),
             reinvestment_amount: reinvestment_amount.map(|amount| amount.to_string()),
+            insurance_amount: insurance_amount.map(|amount| amount.to_string()),
         };
 
         diesel::insert_into(distribution_history::table)
@@ -242,6 +289,7 @@ impl DistributionWrite for DistributionDB {
                 earnings_amount: plan.earnings_amount.map(|amount| amount.to_string()),
                 tax_amount: plan.tax_amount.map(|amount| amount.to_string()),
                 reinvestment_amount: plan.reinvestment_amount.map(|amount| amount.to_string()),
+                insurance_amount: plan.insurance_amount.map(|amount| amount.to_string()),
             };
 
             diesel::insert_into(distribution_history::table)
@@ -271,6 +319,7 @@ pub struct DistributionRulesSQLite {
     pub reinvestment_percent: String,
     pub minimum_threshold: String,
     pub configuration_password_hash: String,
+    pub insurance_percent: String,
 }
 
 impl TryFrom<DistributionRulesSQLite> for DistributionRules {
@@ -300,6 +349,9 @@ impl TryFrom<DistributionRulesSQLite> for DistributionRules {
                 ConversionError::new("minimum_threshold", "Failed to parse minimum threshold")
             })?,
             configuration_password_hash: value.configuration_password_hash,
+            insurance_percent: Decimal::from_str(&value.insurance_percent).map_err(|_| {
+                ConversionError::new("insurance_percent", "Failed to parse insurance percentage")
+            })?,
         })
     }
 }
@@ -323,6 +375,7 @@ struct NewDistributionRules {
     reinvestment_percent: String,
     minimum_threshold: String,
     configuration_password_hash: String,
+    insurance_percent: String,
 }
 
 #[derive(Debug, Queryable, Identifiable, AsChangeset, Insertable)]
@@ -340,6 +393,7 @@ pub struct DistributionHistorySQLite {
     pub earnings_amount: Option<String>,
     pub tax_amount: Option<String>,
     pub reinvestment_amount: Option<String>,
+    pub insurance_amount: Option<String>,
 }
 
 impl TryFrom<DistributionHistorySQLite> for DistributionHistory {
@@ -387,6 +441,14 @@ impl TryFrom<DistributionHistorySQLite> for DistributionHistory {
                         "Failed to parse reinvestment amount",
                     )
                 })?,
+            insurance_amount: value
+                .insurance_amount
+                .as_deref()
+                .map(Decimal::from_str)
+                .transpose()
+                .map_err(|_| {
+                    ConversionError::new("insurance_amount", "Failed to parse insurance amount")
+                })?,
             created_at: value.created_at,
             updated_at: value.updated_at,
         })
@@ -413,6 +475,7 @@ struct NewDistributionHistory {
     earnings_amount: Option<String>,
     tax_amount: Option<String>,
     reinvestment_amount: Option<String>,
+    insurance_amount: Option<String>,
 }
 
 #[cfg(test)]
@@ -514,6 +577,7 @@ mod tests {
             earnings_amount: Some(amount),
             tax_amount: None,
             reinvestment_amount: None,
+            insurance_amount: None,
         }
     }
 
@@ -652,6 +716,7 @@ mod tests {
             earnings_percent: dec!(0.40).to_string(),
             tax_percent: dec!(0.30).to_string(),
             reinvestment_percent: dec!(0.30).to_string(),
+            insurance_percent: Decimal::ZERO.to_string(),
             minimum_threshold: dec!(100).to_string(),
             configuration_password_hash: "hash".to_string(),
         }
@@ -675,6 +740,7 @@ mod tests {
             earnings_amount: Some(dec!(400).to_string()),
             tax_amount: Some(dec!(300).to_string()),
             reinvestment_amount: Some(dec!(300).to_string()),
+            insurance_amount: None,
         }
     }
 
@@ -1064,6 +1130,7 @@ mod tests {
             earnings_amount: Some(dec!(40)),
             tax_amount: Some(dec!(30)),
             reinvestment_amount: Some(dec!(30)),
+            insurance_amount: None,
         };
 
         let deposit_ids = database
@@ -1127,6 +1194,7 @@ mod tests {
         assert_eq!(history.earnings_amount, Some(dec!(40)));
         assert_eq!(history.tax_amount, Some(dec!(30)));
         assert_eq!(history.reinvestment_amount, Some(dec!(30)));
+        assert_eq!(history.insurance_amount, None);
     }
 
     #[test]
@@ -1169,6 +1237,10 @@ mod tests {
         assert_rules_conversion_error(row, "reinvestment_percent");
 
         let mut row = rules_row();
+        row.insurance_percent = "not-decimal".to_string();
+        assert_rules_conversion_error(row, "insurance_percent");
+
+        let mut row = rules_row();
         row.minimum_threshold = "not-decimal".to_string();
         assert_rules_conversion_error(row, "minimum_threshold");
     }
@@ -1202,5 +1274,9 @@ mod tests {
         let mut row = history_row();
         row.reinvestment_amount = Some("not-decimal".to_string());
         assert_history_conversion_error(row, "reinvestment_amount");
+
+        let mut row = history_row();
+        row.insurance_amount = Some("not-decimal".to_string());
+        assert_history_conversion_error(row, "insurance_amount");
     }
 }

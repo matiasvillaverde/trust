@@ -9,6 +9,14 @@ pub struct EventDistributionService<'a> {
     database: &'a mut dyn DatabaseFactory,
 }
 
+#[derive(Debug)]
+struct DistributionTargetAccounts {
+    earnings: Account,
+    tax: Account,
+    reinvestment: Account,
+    insurance: Option<Account>,
+}
+
 impl<'a> std::fmt::Debug for EventDistributionService<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("EventDistributionService")
@@ -50,15 +58,15 @@ impl<'a> EventDistributionService<'a> {
             return Ok(None);
         }
 
-        let (earnings_account, tax_account, reinvestment_account) =
-            self.find_distribution_accounts(source_account.id)?;
+        let target_accounts = self.find_distribution_accounts(source_account.id)?;
         let mut distribution_service = ProfitDistributionService::new(self.database);
 
         let result = distribution_service.execute_distribution(
             &source_account,
-            &earnings_account,
-            &tax_account,
-            &reinvestment_account,
+            &target_accounts.earnings,
+            &target_accounts.tax,
+            &target_accounts.reinvestment,
+            target_accounts.insurance.as_ref(),
             profit,
             &rules,
             currency,
@@ -77,7 +85,7 @@ impl<'a> EventDistributionService<'a> {
     fn find_distribution_accounts(
         &mut self,
         source_account_id: uuid::Uuid,
-    ) -> Result<(Account, Account, Account), Box<dyn Error>> {
+    ) -> Result<DistributionTargetAccounts, Box<dyn Error>> {
         let child_accounts: Vec<Account> = self
             .database
             .account_read()
@@ -101,8 +109,17 @@ impl<'a> EventDistributionService<'a> {
             .find(|acc| acc.account_type == AccountType::Reinvestment)
             .cloned()
             .ok_or("Reinvestment account not found")?;
+        let insurance_account = child_accounts
+            .iter()
+            .find(|acc| acc.account_type == AccountType::Insurance)
+            .cloned();
 
-        Ok((earnings_account, tax_account, reinvestment_account))
+        Ok(DistributionTargetAccounts {
+            earnings: earnings_account,
+            tax: tax_account,
+            reinvestment: reinvestment_account,
+            insurance: insurance_account,
+        })
     }
 }
 
@@ -433,12 +450,13 @@ mod tests {
         let (source, earnings, tax, reinvestment) = create_sqlite_distribution_hierarchy(&database);
         let mut service = EventDistributionService::new(&mut database);
 
-        let (e, t, r) = service
+        let targets = service
             .find_distribution_accounts(source.id)
             .expect("all distribution child accounts should exist");
-        assert_eq!(e.id, earnings.id);
-        assert_eq!(t.id, tax.id);
-        assert_eq!(r.id, reinvestment.id);
+        assert_eq!(targets.earnings.id, earnings.id);
+        assert_eq!(targets.tax.id, tax.id);
+        assert_eq!(targets.reinvestment.id, reinvestment.id);
+        assert!(targets.insurance.is_none());
     }
 
     #[test]
