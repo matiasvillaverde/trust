@@ -41,6 +41,7 @@ pub enum AccountsSubcommand<'a> {
     List(&'a ArgMatches),
     Balance(&'a ArgMatches),
     Transfer(&'a ArgMatches),
+    Delete(&'a ArgMatches),
 }
 
 pub enum TransactionsSubcommand<'a> {
@@ -210,6 +211,7 @@ pub fn parse_accounts_subcommand(sub_matches: &ArgMatches) -> AccountsSubcommand
         Some(("list", sub_sub_matches)) => AccountsSubcommand::List(sub_sub_matches),
         Some(("balance", sub_sub_matches)) => AccountsSubcommand::Balance(sub_sub_matches),
         Some(("transfer", sub_sub_matches)) => AccountsSubcommand::Transfer(sub_sub_matches),
+        Some(("delete", sub_sub_matches)) => AccountsSubcommand::Delete(sub_sub_matches),
         _ => unreachable!("No subcommand provided"),
     }
 }
@@ -757,7 +759,8 @@ mod tests {
                 .subcommand(Command::new("search"))
                 .subcommand(Command::new("list"))
                 .subcommand(Command::new("balance"))
-                .subcommand(Command::new("transfer")),
+                .subcommand(Command::new("transfer"))
+                .subcommand(Command::new("delete")),
         );
         for (sub, expected) in [
             ("create", "create"),
@@ -765,6 +768,7 @@ mod tests {
             ("list", "list"),
             ("balance", "balance"),
             ("transfer", "transfer"),
+            ("delete", "delete"),
         ] {
             let m = account.clone().get_matches_from(["trust", "account", sub]);
             let (_, sm) = m.subcommand().expect("expected account");
@@ -774,6 +778,7 @@ mod tests {
                 AccountsSubcommand::List(_) => "list",
                 AccountsSubcommand::Balance(_) => "balance",
                 AccountsSubcommand::Transfer(_) => "transfer",
+                AccountsSubcommand::Delete(_) => "delete",
             };
             assert_eq!(got, expected);
         }

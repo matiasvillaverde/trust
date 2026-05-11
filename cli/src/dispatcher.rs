@@ -608,6 +608,7 @@ impl ArgDispatcher {
             AccountsSubcommand::Transfer(transfer_matches) => {
                 self.transfer_accounts(transfer_matches)?
             }
+            AccountsSubcommand::Delete(delete_matches) => self.delete_account(delete_matches)?,
         }
         Ok(())
     }
@@ -1648,6 +1649,27 @@ impl ArgDispatcher {
                 println!("{} ({}) total={}", account.name, account.id, total);
             }
         }
+        Ok(())
+    }
+
+    fn delete_account(&mut self, matches: &ArgMatches) -> Result<(), CliError> {
+        self.ensure_protected_keyword(matches, ReportOutputFormat::Text, "account deletion")?;
+        let account_id = matches
+            .get_one::<String>("account")
+            .ok_or_else(|| CliError::new("missing_account", "Missing --account"))?;
+        let account_id = Uuid::parse_str(account_id)
+            .map_err(|_| CliError::new("invalid_uuid", "Invalid --account UUID"))?;
+        let force = matches.get_flag("force");
+
+        let account = self
+            .trust
+            .delete_account(account_id, force)
+            .map_err(|e| CliError::new("delete_account_failed", e.to_string()))?;
+
+        println!("Account deleted:");
+        println!("  id: {}", account.id);
+        println!("  name: {}", account.name);
+        println!("  force: {}", force);
         Ok(())
     }
 
@@ -10157,6 +10179,12 @@ mod tests {
             .arg(Arg::new("broker").long("broker"))
             .arg(Arg::new("broker-account-id").long("broker-account-id"))
             .arg(Arg::new("parent").long("parent"))
+            .arg(Arg::new("account").long("account"))
+            .arg(
+                Arg::new("force")
+                    .long("force")
+                    .action(clap::ArgAction::SetTrue),
+            )
             .get_matches_from(argv)
     }
 
@@ -10409,6 +10437,7 @@ mod tests {
                     .list_accounts()
                     .balance_accounts()
                     .transfer_account()
+                    .delete_account()
                     .build(),
             )
             .subcommand(
@@ -17327,6 +17356,128 @@ mod tests {
             .create_account(&duplicate)
             .expect_err("duplicate account creation should fail");
         assert!(error.to_string().contains("create_account_failed"));
+
+        std::env::remove_var("TRUST_PROTECTED_KEYWORD_EXPECTED");
+    }
+
+    #[test]
+    fn test_delete_account_requires_protected_keyword_and_deletes_zero_balance_account() {
+        let _guard = env_guard();
+        std::env::set_var("TRUST_PROTECTED_KEYWORD_EXPECTED", "secret");
+        let mut dispatcher = test_dispatcher();
+        let account = dispatcher
+            .trust
+            .create_account(
+                "delete-cli",
+                "delete",
+                Environment::Paper,
+                dec!(20),
+                dec!(10),
+            )
+            .expect("account should be created");
+        let account_id = account.id.to_string();
+
+        let missing = account_matches(&["--account", &account_id]);
+        let error = dispatcher
+            .delete_account(&missing)
+            .expect_err("protected keyword should be required");
+        assert!(error.to_string().contains("protected_keyword_required"));
+
+        let invalid = account_matches(&[
+            "--account",
+            &account_id,
+            "--confirm-protected",
+            "wrong-secret",
+        ]);
+        let error = dispatcher
+            .delete_account(&invalid)
+            .expect_err("invalid protected keyword should fail");
+        assert!(error.to_string().contains("protected_keyword_invalid"));
+
+        let valid = account_matches(&["--account", &account_id, "--confirm-protected", "secret"]);
+        dispatcher
+            .delete_account(&valid)
+            .expect("account deletion should succeed");
+        assert!(dispatcher.trust.search_account("delete-cli").is_err());
+        assert!(dispatcher
+            .trust
+            .search_all_accounts()
+            .expect("accounts should load")
+            .is_empty());
+
+        std::env::remove_var("TRUST_PROTECTED_KEYWORD_EXPECTED");
+    }
+
+    #[test]
+    fn test_delete_account_rejects_non_zero_balance_unless_forced() {
+        let _guard = env_guard();
+        std::env::set_var("TRUST_PROTECTED_KEYWORD_EXPECTED", "secret");
+        let mut dispatcher = test_dispatcher();
+        let account = dispatcher
+            .trust
+            .create_account(
+                "delete-balance-cli",
+                "delete",
+                Environment::Paper,
+                dec!(20),
+                dec!(10),
+            )
+            .expect("account should be created");
+        dispatcher
+            .trust
+            .create_transaction(
+                &account,
+                &TransactionCategory::Deposit,
+                dec!(50),
+                &Currency::USD,
+            )
+            .expect("deposit should create non-zero balance");
+        let account_id = account.id.to_string();
+
+        let safe_delete =
+            account_matches(&["--account", &account_id, "--confirm-protected", "secret"]);
+        let error = dispatcher
+            .delete_account(&safe_delete)
+            .expect_err("non-zero account should require force");
+        assert!(error.to_string().contains("non-zero balance"));
+
+        let forced = account_matches(&[
+            "--account",
+            &account_id,
+            "--force",
+            "--confirm-protected",
+            "secret",
+        ]);
+        dispatcher
+            .delete_account(&forced)
+            .expect("force should bypass zero-balance check");
+        assert!(dispatcher
+            .trust
+            .search_account("delete-balance-cli")
+            .is_err());
+
+        std::env::remove_var("TRUST_PROTECTED_KEYWORD_EXPECTED");
+    }
+
+    #[test]
+    fn test_delete_account_rejects_open_trades() {
+        let _guard = env_guard();
+        std::env::set_var("TRUST_PROTECTED_KEYWORD_EXPECTED", "secret");
+        let mut dispatcher = test_dispatcher();
+        let (account, _trade) = seed_new_trade(&mut dispatcher);
+        let account_id = account.id.to_string();
+        let matches = account_matches(&[
+            "--account",
+            &account_id,
+            "--force",
+            "--confirm-protected",
+            "secret",
+        ]);
+
+        let error = dispatcher
+            .delete_account(&matches)
+            .expect_err("account with open trades should not delete");
+        assert!(error.to_string().contains("open trade"));
 
         std::env::remove_var("TRUST_PROTECTED_KEYWORD_EXPECTED");
     }

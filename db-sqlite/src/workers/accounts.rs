@@ -1,9 +1,9 @@
 use crate::error::{ConversionError, IntoDomainModel, IntoDomainModels};
-use crate::schema::accounts;
+use crate::schema::{accounts, accounts_balances, trades};
 use chrono::{NaiveDateTime, Utc};
 use diesel::prelude::*;
 use model::AccountRead;
-use model::{Account, AccountType, AccountWrite, BrokerKind, Environment};
+use model::{Account, AccountType, AccountWrite, BrokerKind, Environment, Status};
 use rust_decimal::Decimal;
 use std::error::Error;
 use std::str::FromStr;
@@ -29,6 +29,105 @@ impl AccountDB {
         self.connection.lock().map_err(|error| {
             format!("failed to acquire account database connection lock: {error}").into()
         })
+    }
+
+    fn ensure_no_active_children(
+        connection: &mut SqliteConnection,
+        account_id: Uuid,
+    ) -> Result<(), Box<dyn Error>> {
+        let child_names = accounts::table
+            .filter(accounts::deleted_at.is_null())
+            .filter(accounts::parent_account_id.eq(account_id.to_string()))
+            .select(accounts::name)
+            .load::<String>(connection)
+            .map_err(|error| {
+                error!("Error checking child accounts before deletion: {:?}", error);
+                error
+            })?;
+
+        if child_names.is_empty() {
+            return Ok(());
+        }
+
+        Err(format!(
+            "Cannot delete account with child accounts. Delete child accounts first: {}",
+            child_names.join(", ")
+        )
+        .into())
+    }
+
+    fn ensure_no_open_trades(
+        connection: &mut SqliteConnection,
+        account_id: Uuid,
+    ) -> Result<(), Box<dyn Error>> {
+        let open_statuses = [
+            Status::New,
+            Status::Funded,
+            Status::Submitted,
+            Status::PartiallyFilled,
+            Status::Filled,
+        ]
+        .into_iter()
+        .map(|status| status.to_string())
+        .collect::<Vec<_>>();
+
+        let open_trade_count = trades::table
+            .filter(trades::deleted_at.is_null())
+            .filter(trades::account_id.eq(account_id.to_string()))
+            .filter(trades::status.eq_any(open_statuses))
+            .count()
+            .get_result::<i64>(connection)
+            .map_err(|error| {
+                error!(
+                    "Error checking open trades before account deletion: {:?}",
+                    error
+                );
+                error
+            })?;
+
+        if open_trade_count == 0 {
+            return Ok(());
+        }
+
+        Err(
+            format!("Cannot delete account {account_id}: {open_trade_count} open trade(s) exist")
+                .into(),
+        )
+    }
+
+    fn ensure_zero_balances(
+        connection: &mut SqliteConnection,
+        account_id: Uuid,
+    ) -> Result<(), Box<dyn Error>> {
+        let balance_rows = accounts_balances::table
+            .filter(accounts_balances::deleted_at.is_null())
+            .filter(accounts_balances::account_id.eq(account_id.to_string()))
+            .select((
+                accounts_balances::total_balance,
+                accounts_balances::total_in_trade,
+                accounts_balances::total_available,
+                accounts_balances::taxed,
+                accounts_balances::total_earnings,
+            ))
+            .load::<BalanceSafetyRow>(connection)
+            .map_err(|error| {
+                error!(
+                    "Error checking account balances before account deletion: {:?}",
+                    error
+                );
+                error
+            })?;
+
+        for row in balance_rows {
+            if row.has_non_zero_amount()? {
+                return Err(format!(
+                    "Cannot delete account {account_id}: account has a non-zero balance. Use --force to bypass the zero-balance check"
+                )
+                .into());
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -142,6 +241,63 @@ impl AccountWrite for AccountDB {
             })?
             .into_domain_model()
     }
+
+    fn delete(&mut self, account_id: Uuid, force: bool) -> Result<Account, Box<dyn Error>> {
+        let mut guard = self.connection_guard()?;
+        let connection: &mut SqliteConnection = &mut guard;
+
+        let account = accounts::table
+            .filter(accounts::id.eq(account_id.to_string()))
+            .filter(accounts::deleted_at.is_null())
+            .first::<AccountSQLite>(connection)
+            .map_err(|error| {
+                error!("Error reading account before deletion: {:?}", error);
+                error
+            })?;
+
+        Self::ensure_no_active_children(connection, account_id)?;
+        Self::ensure_no_open_trades(connection, account_id)?;
+        if !force {
+            Self::ensure_zero_balances(connection, account_id)?;
+        }
+
+        let now = Utc::now().naive_utc();
+        diesel::update(
+            accounts_balances::table
+                .filter(accounts_balances::account_id.eq(account_id.to_string()))
+                .filter(accounts_balances::deleted_at.is_null()),
+        )
+        .set((
+            accounts_balances::updated_at.eq(now),
+            accounts_balances::deleted_at.eq(Some(now)),
+        ))
+        .execute(connection)
+        .map_err(|error| {
+            error!("Error soft-deleting account balances: {:?}", error);
+            error
+        })?;
+
+        diesel::update(
+            accounts::table
+                .filter(accounts::id.eq(account_id.to_string()))
+                .filter(accounts::deleted_at.is_null()),
+        )
+        .set((
+            accounts::updated_at.eq(now),
+            accounts::deleted_at.eq(Some(now)),
+        ))
+        .execute(connection)
+        .map_err(|error| {
+            error!("Error soft-deleting account: {:?}", error);
+            error
+        })?;
+
+        Ok(Account {
+            updated_at: now,
+            deleted_at: Some(now),
+            ..account.into_domain_model()?
+        })
+    }
 }
 
 impl AccountRead for AccountDB {
@@ -151,6 +307,7 @@ impl AccountRead for AccountDB {
 
         accounts::table
             .filter(accounts::name.eq(name.to_lowercase()))
+            .filter(accounts::deleted_at.is_null())
             .first::<AccountSQLite>(connection)
             .map_err(|error| {
                 error!("Error reading account: {:?}", error);
@@ -165,6 +322,7 @@ impl AccountRead for AccountDB {
 
         accounts::table
             .filter(accounts::id.eq(id.to_string()))
+            .filter(accounts::deleted_at.is_null())
             .first::<AccountSQLite>(connection)
             .map_err(|error| {
                 error!("Error reading account: {:?}", error);
@@ -283,12 +441,48 @@ struct NewAccount {
     broker_account_id: Option<String>,
 }
 
+#[derive(Queryable)]
+struct BalanceSafetyRow {
+    total_balance: String,
+    total_in_trade: String,
+    total_available: String,
+    taxed: String,
+    total_earnings: String,
+}
+
+impl BalanceSafetyRow {
+    fn has_non_zero_amount(&self) -> Result<bool, Box<dyn Error>> {
+        let amounts = [
+            (&self.total_balance, "total_balance"),
+            (&self.total_in_trade, "total_in_trade"),
+            (&self.total_available, "total_available"),
+            (&self.taxed, "taxed"),
+            (&self.total_earnings, "total_earnings"),
+        ];
+
+        for (value, field) in amounts {
+            let amount = Decimal::from_str(value).map_err(|_| {
+                ConversionError::new(field, "Failed to parse account balance amount")
+            })?;
+            if amount != Decimal::ZERO {
+                return Ok(true);
+            }
+        }
+
+        Ok(false)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::workers::{WorkerOrder, WorkerTrade, WorkerTradingVehicle};
     use crate::SqliteDatabase;
     use diesel_migrations::*;
-    use model::DatabaseFactory;
+    use model::{
+        Currency, DatabaseFactory, DraftTrade, OrderAction, OrderCategory, TradeCategory,
+        TradingVehicleCategory,
+    };
     use rust_decimal_macros::dec;
     pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
     // Declare a test database connection
@@ -342,6 +536,92 @@ mod tests {
         AccountDB {
             connection: Arc::new(Mutex::new(establish_connection())),
         }
+    }
+
+    fn create_account_balance(
+        db: &AccountDB,
+        account: &Account,
+        balance: Decimal,
+    ) -> model::AccountBalance {
+        let database = SqliteDatabase::new_from(Arc::clone(&db.connection));
+        let account_balance = database
+            .account_balance_write()
+            .create(account, &Currency::USD)
+            .expect("account balance should be created");
+        database
+            .account_balance_write()
+            .update(
+                &account_balance,
+                balance,
+                Decimal::ZERO,
+                balance,
+                Decimal::ZERO,
+            )
+            .expect("account balance should be updated")
+    }
+
+    fn create_open_trade(db: &AccountDB, account: &Account) {
+        let mut connection = db
+            .connection
+            .lock()
+            .expect("connection lock should be available");
+        let vehicle = WorkerTradingVehicle::create(
+            &mut connection,
+            "DELETEOPEN",
+            Some("DELETEOPEN"),
+            &TradingVehicleCategory::Stock,
+            "alpaca",
+        )
+        .expect("trading vehicle should be created");
+        let stop = WorkerOrder::create(
+            &mut connection,
+            dec!(90),
+            &Currency::USD,
+            10,
+            &OrderAction::Sell,
+            &OrderCategory::Stop,
+            &vehicle,
+        )
+        .expect("stop order should be created");
+        let entry = WorkerOrder::create(
+            &mut connection,
+            dec!(100),
+            &Currency::USD,
+            10,
+            &OrderAction::Buy,
+            &OrderCategory::Limit,
+            &vehicle,
+        )
+        .expect("entry order should be created");
+        let target = WorkerOrder::create(
+            &mut connection,
+            dec!(120),
+            &Currency::USD,
+            10,
+            &OrderAction::Sell,
+            &OrderCategory::Limit,
+            &vehicle,
+        )
+        .expect("target order should be created");
+
+        WorkerTrade::create(
+            &mut connection,
+            DraftTrade {
+                account: account.clone(),
+                trading_vehicle: vehicle,
+                quantity: 10,
+                currency: Currency::USD,
+                category: TradeCategory::Long,
+                thesis: None,
+                sector: None,
+                asset_class: None,
+                context: None,
+            },
+            &stop,
+            &entry,
+            &target,
+        )
+        .expect("open trade should be created");
     }
 
     fn poisoned_account_db() -> AccountDB {
@@ -398,6 +678,7 @@ mod tests {
             dec!(20),
             dec!(80),
         ));
+        assert_connection_lock_error(db.delete(Uuid::new_v4(), false));
         assert_connection_lock_error(db.for_name("locked account"));
         assert_connection_lock_error(db.id(Uuid::new_v4()));
         assert_connection_lock_error(db.all());
@@ -713,6 +994,119 @@ mod tests {
     }
 
     #[test]
+    fn delete_soft_deletes_zero_balance_account_and_hides_it_from_reads() {
+        let mut db = account_db();
+        let account = db
+            .create(
+                "Delete Zero Balance",
+                "delete",
+                Environment::Paper,
+                dec!(20),
+                dec!(80),
+            )
+            .expect("account should be created");
+        create_account_balance(&db, &account, Decimal::ZERO);
+
+        let deleted = db
+            .delete(account.id, false)
+            .expect("zero balance account should delete");
+
+        assert_eq!(deleted.id, account.id);
+        assert!(deleted.deleted_at.is_some());
+        assert!(db.id(account.id).is_err());
+        assert!(db.for_name("delete zero balance").is_err());
+        assert!(db.all().expect("active accounts should read").is_empty());
+
+        let database = SqliteDatabase::new_from(Arc::clone(&db.connection));
+        assert!(database
+            .account_balance_read()
+            .for_account(account.id)
+            .expect("balances should read")
+            .is_empty());
+    }
+
+    #[test]
+    fn delete_rejects_non_zero_balance_unless_forced() {
+        let mut db = account_db();
+        let account = db
+            .create(
+                "Delete Non Zero Balance",
+                "delete",
+                Environment::Paper,
+                dec!(20),
+                dec!(80),
+            )
+            .expect("account should be created");
+        create_account_balance(&db, &account, dec!(25));
+
+        let error = db
+            .delete(account.id, false)
+            .expect_err("non-zero account should require force");
+        assert_error_mentions(error, "non-zero balance");
+
+        let deleted = db
+            .delete(account.id, true)
+            .expect("force should bypass zero-balance check");
+        assert_eq!(deleted.id, account.id);
+        assert!(deleted.deleted_at.is_some());
+    }
+
+    #[test]
+    fn delete_rejects_accounts_with_active_children() {
+        let mut db = account_db();
+        let parent = db
+            .create(
+                "Delete Parent",
+                "delete",
+                Environment::Paper,
+                dec!(20),
+                dec!(80),
+            )
+            .expect("parent account should be created");
+        let child = db
+            .create_with_hierarchy(
+                "Delete Child",
+                "child",
+                Environment::Paper,
+                dec!(20),
+                dec!(80),
+                AccountType::Earnings,
+                Some(parent.id),
+            )
+            .expect("child account should be created");
+
+        let error = db
+            .delete(parent.id, true)
+            .expect_err("parent with active child should not delete");
+        assert_error_mentions(error, "child accounts");
+
+        db.delete(child.id, true)
+            .expect("child account should delete first");
+        db.delete(parent.id, true)
+            .expect("parent should delete after child");
+    }
+
+    #[test]
+    fn delete_rejects_accounts_with_open_trades() {
+        let mut db = account_db();
+        let account = db
+            .create(
+                "Delete Open Trade",
+                "delete",
+                Environment::Paper,
+                dec!(20),
+                dec!(80),
+            )
+            .expect("account should be created");
+        create_open_trade(&db, &account);
+
+        let error = db
+            .delete(account.id, true)
+            .expect_err("open trade account should not delete");
+        assert_error_mentions(error, "open trade");
+    }
+
+    #[test]
     fn read_all_surfaces_corrupt_row_id() {
         let mut db = account_db();
         {
@@ -750,6 +1144,11 @@ mod tests {
                 dec!(80),
             )
             .expect_err("missing accounts table should fail create");
+        assert_error_mentions(error, "accounts");
+
+        let error = db
+            .delete(Uuid::new_v4(), true)
+            .expect_err("missing accounts table should fail delete");
         assert_error_mentions(error, "accounts");
 
         let error = db

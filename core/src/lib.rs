@@ -510,6 +510,31 @@ impl TrustFacade {
         self.factory.account_read().all()
     }
 
+    /// Soft-delete an account after protected-mode and database safety checks.
+    ///
+    /// `force` bypasses only the zero-balance check; open trades and active child
+    /// accounts remain protected by the database implementation.
+    pub fn delete_account(
+        &mut self,
+        account_id: Uuid,
+        force: bool,
+    ) -> Result<Account, Box<dyn std::error::Error>> {
+        self.consume_protected_authorization("delete_account")?;
+        let savepoint = "delete_account";
+        self.factory.begin_savepoint(savepoint)?;
+
+        let deleted = match self.factory.account_write().delete(account_id, force) {
+            Ok(account) => account,
+            Err(error) => {
+                let _ = self.factory.rollback_to_savepoint(savepoint);
+                return Err(error);
+            }
+        };
+
+        self.factory.release_savepoint(savepoint)?;
+        Ok(deleted)
+    }
+
     /// Retrieve all risk management rules for a specific account.
     ///
     /// # Arguments

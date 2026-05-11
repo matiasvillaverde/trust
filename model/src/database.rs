@@ -175,6 +175,17 @@ pub trait AccountWrite {
             parent_account_id,
         )
     }
+
+    /// Soft-deletes an account after implementation-specific safety checks.
+    ///
+    /// `force` may bypass zero-balance checks, but implementations should still
+    /// protect account hierarchy integrity and open trade state.
+    fn delete(&mut self, account_id: Uuid, _force: bool) -> Result<Account, Box<dyn Error>> {
+        Err(format!(
+            "account deletion is not supported by this database implementation: {account_id}"
+        )
+        .into())
+    }
 }
 
 /// Trait for reading account balance data from the database

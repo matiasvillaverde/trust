@@ -41,12 +41,15 @@ trust accounts search
 trust accounts list --hierarchy
 trust accounts balance --detailed
 trust accounts transfer --from <account-id> --to <account-id> --amount 100 --reason "rebalance"
+trust accounts delete --account <account-id> --confirm-protected "<keyword>"
+trust accounts delete --account <account-id> --force --confirm-protected "<keyword>"
 
 trust transaction deposit --account <account-id> --amount 1000 --currency USD
 trust transaction withdraw --account <account-id> --amount 100 --currency USD
 ```
 
 Account hierarchy supports primary, earnings, tax reserve, and reinvestment accounts.
+Deletion is protected, blocks open trades and active child accounts, and requires zero balances unless `--force` is supplied.
 
 ## Rules And Levels
 

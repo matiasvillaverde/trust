@@ -144,6 +144,36 @@ impl AccountCommandBuilder {
         self
     }
 
+    pub fn delete_account(mut self) -> Self {
+        self.subcommands.push(
+            Command::new("delete")
+                .about("Delete an account after safety checks")
+                .arg(
+                    Arg::new("account")
+                        .long("account")
+                        .short('a')
+                        .value_name("UUID")
+                        .help("Account ID to delete")
+                        .required(true),
+                )
+                .arg(
+                    Arg::new("force")
+                        .long("force")
+                        .help("Bypass the zero-balance check")
+                        .action(clap::ArgAction::SetTrue)
+                        .required(false),
+                )
+                .arg(
+                    Arg::new("confirm-protected")
+                        .long("confirm-protected")
+                        .value_name("KEYWORD")
+                        .help("Protected mutation keyword")
+                        .required(false),
+                ),
+        );
+        self
+    }
+
     pub fn list_accounts(mut self) -> Self {
         self.subcommands.push(
             Command::new("list").about("List accounts").arg(
@@ -215,6 +245,21 @@ mod tests {
     fn balance_detailed_parses() {
         let cmd = AccountCommandBuilder::new().balance_accounts().build();
         let result = cmd.try_get_matches_from(["accounts", "balance", "--detailed"]);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn delete_account_parses() {
+        let cmd = AccountCommandBuilder::new().delete_account().build();
+        let result = cmd.try_get_matches_from([
+            "accounts",
+            "delete",
+            "--account",
+            "550e8400-e29b-41d4-a716-446655440000",
+            "--force",
+            "--confirm-protected",
+            "secret",
+        ]);
         assert!(result.is_ok());
     }
 }
