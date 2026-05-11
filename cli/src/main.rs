@@ -164,6 +164,7 @@ fn build_cli() -> Command {
                 .benchmark()
                 .timeline()
                 .bias_summary()
+                .wash_sales()
                 .build(),
         )
         .subcommand(

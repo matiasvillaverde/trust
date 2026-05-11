@@ -32,7 +32,8 @@
 
 use crate::services::{
     AdvisoryHistoryEntry, AdvisoryResult, AdvisoryThresholds, FundTransferService,
-    PortfolioAdvisoryStatus, ProfitDistributionService, TradeProposal,
+    PortfolioAdvisoryStatus, ProfitDistributionService, TradeProposal, WashSaleReport,
+    WashSaleService,
 };
 use advisor::{
     CalendarCredentials, CatalystScanRequest, CatalystScanResult, CatalystScanner,
@@ -1245,6 +1246,48 @@ impl TrustFacade {
         }
 
         Ok(all_trades)
+    }
+
+    /// Calculate wash sale matches and replacement basis adjustments.
+    ///
+    /// The report is computed from the trade ledger at read time. It flags
+    /// loss trades and replacement purchases without mutating historical trade
+    /// records, so downstream tax reports can consume the adjusted basis data
+    /// deterministically.
+    pub fn wash_sale_report(
+        &mut self,
+        account_id: Option<Uuid>,
+    ) -> Result<WashSaleReport, Box<dyn std::error::Error>> {
+        let trades = self.search_all_trades_for_tax(account_id)?;
+        WashSaleService::detect(&trades).map_err(|error| Box::new(error) as Box<dyn StdError>)
+    }
+
+    fn search_all_trades_for_tax(
+        &mut self,
+        account_id: Option<Uuid>,
+    ) -> Result<Vec<Trade>, Box<dyn std::error::Error>> {
+        let mut all_trades = Vec::new();
+        if let Some(id) = account_id {
+            self.append_all_status_trades(id, &mut all_trades)?;
+            return Ok(all_trades);
+        }
+
+        for account in self.search_all_accounts()? {
+            self.append_all_status_trades(account.id, &mut all_trades)?;
+        }
+        Ok(all_trades)
+    }
+
+    fn append_all_status_trades(
+        &mut self,
+        account_id: Uuid,
+        all_trades: &mut Vec<Trade>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        for status in Status::all() {
+            let mut status_trades = self.search_trades(account_id, status)?;
+            all_trades.append(&mut status_trades);
+        }
+        Ok(())
     }
 
     // Trade Steps

@@ -15,6 +15,8 @@ pub mod grading;
 pub mod leveling;
 /// Profit distribution service for handling account hierarchy and fund transfers
 pub mod profit_distribution_service;
+/// Wash sale detection and basis adjustment reporting
+pub mod wash_sale;
 
 pub use advisory::{
     AdvisoryAlertLevel, AdvisoryHistoryEntry, AdvisoryResult, AdvisoryThresholds,
@@ -23,3 +25,6 @@ pub use advisory::{
 pub use event_distribution_service::EventDistributionService;
 pub use fund_transfer_service::FundTransferService;
 pub use profit_distribution_service::ProfitDistributionService;
+pub use wash_sale::{
+    WashSaleError, WashSaleMatch, WashSaleReplacementAdjustment, WashSaleReport, WashSaleService,
+};
