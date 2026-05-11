@@ -2,8 +2,8 @@
 //!
 //! This crate owns external advisory configuration and HTTP-backed advisory
 //! features. Catalyst scanning is implemented against configurable calendar
-//! APIs; correlation and regime modules remain explicit stubs until their
-//! issue-specific implementations land.
+//! APIs; correlation analysis uses broker bars, and the regime module remains
+//! an explicit stub until its issue-specific implementation lands.
 
 #![deny(
     clippy::unwrap_used,
@@ -25,7 +25,7 @@
 pub mod catalyst;
 /// Keychain-backed advisor configuration.
 pub mod config;
-/// Correlation advisory scaffolding.
+/// Correlation advisory integration.
 pub mod correlation;
 /// Advisor crate error types.
 pub mod error;
@@ -34,6 +34,10 @@ pub mod regime;
 
 pub use catalyst::{CatalystScanRequest, CatalystScanResult, CatalystScanner};
 pub use config::{AdvisorConfig, AdvisorConfigUpdate, CalendarCredentials, CalendarProvider};
+pub use correlation::{
+    CorrelationAdvisory, CorrelationAnalyzer, CorrelationCalculator, CorrelationConfig,
+    CorrelationPair, CorrelationRequest, PositionHeat,
+};
 pub use error::AdvisorError;
 
 /// Entry point for future external advisory integrations.
