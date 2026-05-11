@@ -1,8 +1,9 @@
 //! AI-powered advisory integration scaffolding for Trust.
 //!
-//! This crate owns external advisory configuration and future HTTP-backed
-//! advisory features. The catalyst, correlation, and regime modules are stubs
-//! until their issue-specific implementations land.
+//! This crate owns external advisory configuration and HTTP-backed advisory
+//! features. Catalyst scanning is implemented against configurable calendar
+//! APIs; correlation and regime modules remain explicit stubs until their
+//! issue-specific implementations land.
 
 #![deny(
     clippy::unwrap_used,
@@ -20,7 +21,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 #![warn(missing_docs, rust_2018_idioms, missing_debug_implementations)]
 
-/// Catalyst-calendar advisory scaffolding.
+/// Catalyst-calendar advisory integration.
 pub mod catalyst;
 /// Keychain-backed advisor configuration.
 pub mod config;
@@ -31,7 +32,8 @@ pub mod error;
 /// Market-regime advisory scaffolding.
 pub mod regime;
 
-pub use config::{AdvisorConfig, AdvisorConfigUpdate, CalendarProvider};
+pub use catalyst::{CatalystScanRequest, CatalystScanResult, CatalystScanner};
+pub use config::{AdvisorConfig, AdvisorConfigUpdate, CalendarCredentials, CalendarProvider};
 pub use error::AdvisorError;
 
 /// Entry point for future external advisory integrations.
