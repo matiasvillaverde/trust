@@ -233,7 +233,7 @@ pub trait OrderWrite {
     fn create(
         &mut self,
         trading_vehicle: &TradingVehicle,
-        quantity: i64,
+        quantity: Decimal,
         price: Decimal,
         currency: &Currency,
         action: &OrderAction,
@@ -444,7 +444,7 @@ pub struct DraftTrade {
     /// The trading vehicle (e.g., stock, ETF, bond, option) for the trade
     pub trading_vehicle: TradingVehicle,
     /// The quantity of the trading vehicle
-    pub quantity: i64,
+    pub quantity: Decimal,
     /// The currency used for the trade
     pub currency: Currency,
     /// The category of the trade

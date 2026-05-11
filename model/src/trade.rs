@@ -1,8 +1,8 @@
 use crate::currency::Currency;
 use crate::order::Order;
-use crate::trading_vehicle::TradingVehicle;
-use chrono::NaiveDateTime;
+use crate::trading_vehicle::{TradingVehicle, TradingVehicleCategory};
 use chrono::Utc;
+use chrono::{Datelike, Days, NaiveDate, NaiveDateTime, Weekday};
 use rust_decimal::Decimal;
 use uuid::Uuid;
 
@@ -33,6 +33,9 @@ pub struct Trade {
 
     /// The currency of the trade
     pub currency: Currency,
+
+    /// Expected settlement date for the trade, based on the asset category and trade date.
+    pub settlement_date: Option<NaiveDate>,
 
     /// The safety stop - the order that is used to protect the trade from losing too much money.
     /// The safety stop is an order that is used to close the trade if the price goes in the wrong direction.
@@ -67,6 +70,36 @@ pub struct Trade {
 
     /// Trading context (e.g., Elliott Wave count, S/R levels, indicators)
     pub context: Option<String>,
+}
+
+impl Trade {
+    /// Returns the default settlement date for a trade category using common settlement conventions.
+    pub fn default_settlement_date_for_category(
+        category: TradingVehicleCategory,
+        trade_date: NaiveDate,
+    ) -> NaiveDate {
+        match category {
+            TradingVehicleCategory::Crypto | TradingVehicleCategory::Fiat => trade_date,
+            TradingVehicleCategory::Stock | TradingVehicleCategory::Etf => {
+                Self::add_business_days(trade_date, 1)
+            }
+            TradingVehicleCategory::Bond => Self::add_business_days(trade_date, 2),
+        }
+    }
+
+    fn add_business_days(mut date: NaiveDate, days: u8) -> NaiveDate {
+        let mut remaining = days;
+        while remaining > 0 {
+            let Some(next_date) = date.checked_add_days(Days::new(1)) else {
+                return date;
+            };
+            date = next_date;
+            if !matches!(date.weekday(), Weekday::Sat | Weekday::Sun) {
+                remaining = remaining.saturating_sub(1);
+            }
+        }
+        date
+    }
 }
 
 impl std::fmt::Display for Trade {
@@ -254,6 +287,7 @@ impl Default for Trade {
             status: Status::default(),
             category: TradeCategory::default(),
             currency: Currency::default(),
+            settlement_date: None,
             trading_vehicle: TradingVehicle::default(),
             safety_stop: Order::default(),
             entry: Order::default(),
@@ -299,7 +333,8 @@ pub struct ClosedTradePerformance {
 #[cfg(test)]
 mod tests {
     use super::{Status, Trade, TradeBalance, TradeCategory};
-    use crate::{Currency, Order, TradingVehicle};
+    use crate::{Currency, Order, TradingVehicle, TradingVehicleCategory};
+    use chrono::NaiveDate;
     use rust_decimal_macros::dec;
     use std::str::FromStr;
 
@@ -364,10 +399,37 @@ mod tests {
         assert_eq!(trade.status, Status::New);
         assert_eq!(trade.category, TradeCategory::Long);
         assert_eq!(trade.currency, Currency::default());
+        assert!(trade.settlement_date.is_none());
         assert!(trade.thesis.is_none());
         assert!(trade.sector.is_none());
         assert!(trade.asset_class.is_none());
         assert!(trade.context.is_none());
+    }
+
+    #[test]
+    fn default_settlement_date_uses_asset_category_conventions() {
+        let friday = NaiveDate::from_ymd_opt(2026, 5, 15).expect("valid date");
+
+        assert_eq!(
+            Trade::default_settlement_date_for_category(TradingVehicleCategory::Crypto, friday),
+            friday
+        );
+        assert_eq!(
+            Trade::default_settlement_date_for_category(TradingVehicleCategory::Fiat, friday),
+            friday
+        );
+        assert_eq!(
+            Trade::default_settlement_date_for_category(TradingVehicleCategory::Stock, friday),
+            NaiveDate::from_ymd_opt(2026, 5, 18).expect("valid date")
+        );
+        assert_eq!(
+            Trade::default_settlement_date_for_category(TradingVehicleCategory::Etf, friday),
+            NaiveDate::from_ymd_opt(2026, 5, 18).expect("valid date")
+        );
+        assert_eq!(
+            Trade::default_settlement_date_for_category(TradingVehicleCategory::Bond, friday),
+            NaiveDate::from_ymd_opt(2026, 5, 19).expect("valid date")
+        );
     }
 
     #[test]
@@ -395,7 +457,7 @@ mod tests {
             status: Status::Funded,
             currency: Currency::USD,
             safety_stop: Order {
-                quantity: 7,
+                quantity: dec!(7),
                 unit_price: dec!(95),
                 ..Default::default()
             },

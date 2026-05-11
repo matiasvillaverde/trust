@@ -31,8 +31,9 @@ pub struct Order {
     /// The currency of the order
     pub currency: Currency,
 
-    /// The quantity of the order
-    pub quantity: u64,
+    /// The quantity of the order. Decimal supports fractional crypto,
+    /// fractional shares, and bond lots.
+    pub quantity: Decimal,
 
     /// The trading vehicle ID - the asset that is traded
     pub trading_vehicle_id: Uuid,
@@ -55,8 +56,8 @@ pub struct Order {
     /// For Trailing Orders - the trailing price
     pub trailing_price: Option<Decimal>,
 
-    /// The quantity of the order that has been filled
-    pub filled_quantity: u64,
+    /// The quantity of the order that has been filled.
+    pub filled_quantity: Decimal,
 
     /// The average filled price of the order
     pub average_filled_price: Option<Decimal>,
@@ -340,8 +341,8 @@ impl Default for Order {
             category: OrderCategory::Market,
             status: OrderStatus::New,
             time_in_force: TimeInForce::default(),
-            quantity: 10,
-            filled_quantity: 0,
+            quantity: dec!(10),
+            filled_quantity: dec!(0),
             average_filled_price: None,
             extended_hours: false,
             submitted_at: None,
@@ -460,7 +461,7 @@ mod tests {
         let after = Utc::now().naive_utc();
         assert_eq!(order.unit_price, dec!(10.0));
         assert_eq!(order.currency, Currency::default());
-        assert_eq!(order.quantity, 10);
+        assert_eq!(order.quantity, dec!(10));
         assert_eq!(order.action, OrderAction::Buy);
         assert_eq!(order.category, OrderCategory::Market);
         assert_eq!(order.status, OrderStatus::New);
@@ -476,7 +477,7 @@ mod tests {
         let order = Order::default();
 
         assert!(order.broker_order_id.is_none());
-        assert_eq!(order.filled_quantity, 0);
+        assert_eq!(order.filled_quantity, dec!(0));
         assert_eq!(order.average_filled_price, None);
         assert!(order.deleted_at.is_none());
         assert!(order.submitted_at.is_none());

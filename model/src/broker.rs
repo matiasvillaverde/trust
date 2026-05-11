@@ -1,12 +1,56 @@
 use crate::{
     Account, BarTimeframe, BrokerKind, Execution, FeeActivity, MarketBar, MarketDataChannel,
     MarketDataStreamEvent, MarketQuote, MarketTradeTick, Order, Status, Trade,
+    TradingVehicleCategory,
 };
 use chrono::NaiveDateTime;
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use std::error::Error;
 use uuid::Uuid;
+
+/// Broker-level errors that callers can inspect instead of parsing strings.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BrokerError {
+    /// The selected broker does not support the requested asset category.
+    UnsupportedAssetClass {
+        /// Broker that rejected the asset category.
+        broker: BrokerKind,
+        /// Asset category that is not supported by the broker operation.
+        category: TradingVehicleCategory,
+        /// Human-readable remediation message.
+        message: String,
+    },
+}
+
+impl BrokerError {
+    /// Creates a typed unsupported-asset-class error.
+    pub fn unsupported_asset_class(
+        broker: BrokerKind,
+        category: TradingVehicleCategory,
+        message: impl Into<String>,
+    ) -> Self {
+        Self::UnsupportedAssetClass {
+            broker,
+            category,
+            message: message.into(),
+        }
+    }
+}
+
+impl std::fmt::Display for BrokerError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnsupportedAssetClass {
+                broker,
+                category,
+                message,
+            } => write!(f, "{broker} does not support {category}: {message}"),
+        }
+    }
+}
+
+impl Error for BrokerError {}
 
 /// Log entry for broker operations
 #[derive(Debug)]
