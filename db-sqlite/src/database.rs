@@ -1354,6 +1354,10 @@ mod tests {
             .iter()
             .any(|entry| entry.id == grade.id));
 
+        assert_trade_event_facade(database, trade);
+    }
+
+    fn assert_trade_event_facade(database: &SqliteDatabase, trade: &Trade) {
         let event = database
             .trade_event_write()
             .create_trade_event(&trade_event_for(trade))
