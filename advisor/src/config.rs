@@ -91,6 +91,71 @@ impl Default for AdvisorConfig {
     }
 }
 
+/// Calendar provider credentials used by HTTP-backed catalyst scans.
+#[derive(Clone, PartialEq, Eq)]
+pub struct CalendarCredentials {
+    /// Configured calendar provider.
+    provider: CalendarProvider,
+    api_key: Option<String>,
+}
+
+impl CalendarCredentials {
+    /// Build explicit calendar credentials.
+    pub fn new(provider: CalendarProvider, api_key: Option<String>) -> Self {
+        let normalized_key = api_key.and_then(|value| {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        });
+        Self {
+            provider,
+            api_key: normalized_key,
+        }
+    }
+
+    /// Read calendar credentials from the system keychain.
+    pub fn read() -> Result<Self, AdvisorError> {
+        let store = KeychainSecretStore;
+        read_calendar_credentials_with_store(&store)
+    }
+
+    /// Configured calendar provider.
+    pub fn provider(&self) -> CalendarProvider {
+        self.provider
+    }
+
+    /// Calendar API key, if one is configured.
+    pub fn api_key(&self) -> Option<&str> {
+        self.api_key.as_deref()
+    }
+
+    /// Returns true when a nonblank calendar API key is available.
+    pub fn has_api_key(&self) -> bool {
+        self.api_key().is_some()
+    }
+}
+
+impl Default for CalendarCredentials {
+    fn default() -> Self {
+        Self {
+            provider: CalendarProvider::None,
+            api_key: None,
+        }
+    }
+}
+
+impl fmt::Debug for CalendarCredentials {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CalendarCredentials")
+            .field("provider", &self.provider)
+            .field("api_key_configured", &self.has_api_key())
+            .finish()
+    }
+}
+
 /// Partial advisor configuration update.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AdvisorConfigUpdate {
@@ -159,15 +224,25 @@ fn apply_update_with_store(
 }
 
 fn read_with_store(store: &dyn SecretStore) -> Result<AdvisorConfig, AdvisorError> {
+    let credentials = read_calendar_credentials_with_store(store)?;
+    Ok(AdvisorConfig {
+        calendar_provider: credentials.provider(),
+        calendar_api_key_configured: credentials.has_api_key(),
+        claude_api_key_configured: has_nonblank_secret(store, CLAUDE_API_KEY)?,
+    })
+}
+
+fn read_calendar_credentials_with_store(
+    store: &dyn SecretStore,
+) -> Result<CalendarCredentials, AdvisorError> {
     let provider = match store.read(CALENDAR_PROVIDER)? {
         Some(value) => CalendarProvider::from_str(&value)?,
         None => CalendarProvider::None,
     };
-    Ok(AdvisorConfig {
-        calendar_provider: provider,
-        calendar_api_key_configured: has_nonblank_secret(store, CALENDAR_API_KEY)?,
-        claude_api_key_configured: has_nonblank_secret(store, CLAUDE_API_KEY)?,
-    })
+    Ok(CalendarCredentials::new(
+        provider,
+        read_nonblank_secret(store, CALENDAR_API_KEY)?,
+    ))
 }
 
 fn store_secret(
@@ -184,10 +259,21 @@ fn store_secret(
 }
 
 fn has_nonblank_secret(store: &dyn SecretStore, name: &'static str) -> Result<bool, AdvisorError> {
-    Ok(store
-        .read(name)?
-        .map(|value| !value.trim().is_empty())
-        .unwrap_or(false))
+    Ok(read_nonblank_secret(store, name)?.is_some())
+}
+
+fn read_nonblank_secret(
+    store: &dyn SecretStore,
+    name: &'static str,
+) -> Result<Option<String>, AdvisorError> {
+    Ok(store.read(name)?.and_then(|value| {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    }))
 }
 
 fn redacted_key_state(is_configured: bool) -> &'static str {
@@ -264,6 +350,10 @@ mod tests {
             store.read(CALENDAR_API_KEY).unwrap(),
             Some("calendar-secret".to_string())
         );
+        let credentials = read_calendar_credentials_with_store(&store).unwrap();
+        assert_eq!(credentials.provider(), CalendarProvider::Polygon);
+        assert_eq!(credentials.api_key(), Some("calendar-secret"));
+        assert!(!format!("{credentials:?}").contains("calendar-secret"));
     }
 
     #[test]
