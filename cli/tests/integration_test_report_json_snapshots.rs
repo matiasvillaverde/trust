@@ -1,6 +1,9 @@
 use core::TrustFacade;
 use db_sqlite::SqliteDatabase;
-use model::{Currency, DraftTrade, Environment, TradeCategory, TradingVehicleCategory};
+use model::{
+    Currency, DraftTrade, Environment, Mistake, MistakeErrorType, MungerTendency, TradeCategory,
+    TradingVehicleCategory,
+};
 use rust_decimal_macros::dec;
 use serde_json::Value;
 use std::fs;
@@ -154,7 +157,63 @@ fn seed_snapshot_dataset(database_url: &str) -> Uuid {
         .expect("create trade 2");
     let _ = trust.fund_trade(&t2).expect("fund trade 2");
 
+    seed_snapshot_mistake(
+        &mut trust,
+        t1.id,
+        vec![
+            MungerTendency::DeprivalSuperreaction,
+            MungerTendency::SocialProof,
+        ],
+        false,
+        MistakeErrorType::Commission,
+    );
+    seed_snapshot_mistake(
+        &mut trust,
+        t1.id,
+        vec![
+            MungerTendency::DeprivalSuperreaction,
+            MungerTendency::Lollapalooza,
+        ],
+        true,
+        MistakeErrorType::Omission,
+    );
+    seed_snapshot_mistake(
+        &mut trust,
+        t2.id,
+        vec![
+            MungerTendency::InconsistencyAvoidance,
+            MungerTendency::Lollapalooza,
+        ],
+        true,
+        MistakeErrorType::Commission,
+    );
+
     account.id
+}
+
+fn seed_snapshot_mistake(
+    trust: &mut TrustFacade,
+    trade_id: Uuid,
+    bias_tags: Vec<MungerTendency>,
+    lollapalooza: bool,
+    error_type: MistakeErrorType,
+) {
+    let now = chrono::Utc::now().naive_utc();
+    trust
+        .create_mistake(Mistake {
+            id: Uuid::new_v4(),
+            created_at: now,
+            updated_at: now,
+            deleted_at: None,
+            trade_id,
+            bias_tags,
+            lollapalooza,
+            error_type,
+            rule_violated: None,
+            counterfactual_r: rust_decimal::Decimal::ZERO,
+            lesson: "Review the bias cluster before the next session.".to_string(),
+        })
+        .expect("create snapshot mistake");
 }
 
 fn normalize_json(mut payload: Value) -> Value {
@@ -370,6 +429,19 @@ fn test_report_json_snapshots() {
                 "json".into(),
                 "--account".into(),
                 account_arg.clone(),
+            ],
+        ),
+        (
+            "report_bias_summary",
+            vec![
+                "report".into(),
+                "bias-summary".into(),
+                "--format".into(),
+                "json".into(),
+                "--account".into(),
+                account_arg.clone(),
+                "--days".into(),
+                "7".into(),
             ],
         ),
     ];

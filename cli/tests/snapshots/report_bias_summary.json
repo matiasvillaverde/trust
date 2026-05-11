@@ -1,0 +1,19 @@
+{
+  "account_id": "<account-id>",
+  "commission_count": 2,
+  "generated_at": "<redacted>",
+  "lollapalooza_count": 2,
+  "mechanical_antidote_needed": true,
+  "most_frequent_tendency": {
+    "count": 2,
+    "label": "Deprival Superreaction",
+    "percentage": "67",
+    "tendency_number": 14
+  },
+  "omission_count": 1,
+  "report": "bias_summary",
+  "schema_version": 1,
+  "standdown_recommended": true,
+  "total_mistakes": 3,
+  "window_days": 7
+}

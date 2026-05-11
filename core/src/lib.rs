@@ -45,6 +45,7 @@ use argon2::{
 };
 use broker_registry::BrokerRegistry;
 use calculators_fixed_income::{BondAnalytics, BondAnalyticsInput, FixedIncomeCalculator};
+use calculators_performance::{BiasAggregation, BiasAggregationCalculator};
 use calculators_trade::{
     LevelAdjustedQuantity, QuantityCalculator, TradeHypothesis, TradeHypothesisCalculator,
 };
@@ -871,6 +872,29 @@ impl TrustFacade {
         self.factory
             .mistake_read()
             .read_mistakes_for_trade(trade_id)
+    }
+
+    /// Aggregate post-trade mistake bias patterns for an account over a lookback window.
+    pub fn bias_aggregation_for_account(
+        &mut self,
+        account_id: Uuid,
+        window_days: i32,
+    ) -> Result<BiasAggregation, Box<dyn std::error::Error>> {
+        if window_days <= 0 {
+            return Err("bias aggregation window_days must be positive".into());
+        }
+
+        self.ensure_account_exists(account_id)?;
+        let end_at = chrono::Utc::now().naive_utc();
+        let start_at = end_at
+            .checked_sub_signed(chrono::Duration::days(i64::from(window_days)))
+            .ok_or("bias aggregation window is out of range")?;
+        let mistakes = self
+            .factory
+            .mistake_read()
+            .read_mistakes_for_account_in_period(account_id, start_at, end_at)?;
+
+        Ok(BiasAggregationCalculator::calculate(&mistakes, window_days))
     }
 
     /// Persist a new open plan-act-review session plan.
