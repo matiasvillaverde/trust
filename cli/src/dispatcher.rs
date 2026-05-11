@@ -44,7 +44,9 @@ use core::services::leveling::{
     LevelCriterionProgress, LevelEvaluationOutcome, LevelPathProgress, LevelPerformanceSnapshot,
     LevelProgressReport,
 };
-use core::services::{AdvisoryThresholds, TradeProposal};
+use core::services::{
+    AdvisoryThresholds, TradeProposal, WashSaleMatch, WashSaleReplacementAdjustment, WashSaleReport,
+};
 use core::TrustFacade;
 use db_sqlite::SqliteDatabase;
 use db_sqlite::{ImportMode, ImportOptions};
@@ -286,6 +288,7 @@ struct AttributionReportCommand;
 struct BenchmarkReportCommand;
 struct TimelineReportCommand;
 struct BiasSummaryReportCommand;
+struct WashSalesReportCommand;
 
 impl MarketDataCommandHandler for MarketDataSnapshotCommand {
     fn execute(
@@ -460,6 +463,17 @@ impl ReportCommandHandler for BiasSummaryReportCommand {
         format: ReportOutputFormat,
     ) -> Result<(), CliError> {
         dispatcher.bias_summary_report(sub_matches, format)
+    }
+}
+
+impl ReportCommandHandler for WashSalesReportCommand {
+    fn execute(
+        &self,
+        dispatcher: &mut ArgDispatcher,
+        sub_matches: &ArgMatches,
+        format: ReportOutputFormat,
+    ) -> Result<(), CliError> {
+        dispatcher.wash_sales_report(sub_matches, format)
     }
 }
 
@@ -736,6 +750,7 @@ impl ArgDispatcher {
         static BENCHMARK: BenchmarkReportCommand = BenchmarkReportCommand;
         static TIMELINE: TimelineReportCommand = TimelineReportCommand;
         static BIAS_SUMMARY: BiasSummaryReportCommand = BiasSummaryReportCommand;
+        static WASH_SALES: WashSalesReportCommand = WashSalesReportCommand;
 
         match subcommand {
             ReportSubcommand::Performance(sub_matches) => (&PERFORMANCE, sub_matches),
@@ -748,6 +763,7 @@ impl ArgDispatcher {
             ReportSubcommand::Benchmark(sub_matches) => (&BENCHMARK, sub_matches),
             ReportSubcommand::Timeline(sub_matches) => (&TIMELINE, sub_matches),
             ReportSubcommand::BiasSummary(sub_matches) => (&BIAS_SUMMARY, sub_matches),
+            ReportSubcommand::WashSales(sub_matches) => (&WASH_SALES, sub_matches),
         }
     }
 
@@ -7408,6 +7424,115 @@ impl ArgDispatcher {
         }
 
         Ok(())
+    }
+
+    fn wash_sales_report(
+        &mut self,
+        sub_matches: &ArgMatches,
+        format: ReportOutputFormat,
+    ) -> Result<(), CliError> {
+        let account_id = if let Some(raw) = sub_matches.get_one::<String>("account") {
+            Some(self.resolve_account_arg(raw, format)?.id)
+        } else {
+            None
+        };
+        let report = self
+            .trust
+            .wash_sale_report(account_id)
+            .map_err(|error| Self::report_error(format, "report_failed", error.to_string()))?;
+
+        match format {
+            ReportOutputFormat::Text => Self::print_wash_sales_text(&report, account_id),
+            ReportOutputFormat::Json => {
+                let payload = json!({
+                    "report": "wash_sales",
+                    "format_version": 1,
+                    "generated_at": Utc::now().to_rfc3339(),
+                    "scope": { "account_id": account_id.map(|id| id.to_string()) },
+                    "data": {
+                        "scanned_trade_count": report.scanned_trade_count,
+                        "eligible_loss_trade_count": report.eligible_loss_trade_count,
+                        "wash_sale_count": report.wash_sale_count,
+                        "total_disallowed_loss": Self::decimal_string(report.total_disallowed_loss),
+                        "total_basis_adjustment": Self::decimal_string(report.total_basis_adjustment),
+                        "matches": report.matches.iter().map(Self::wash_sale_match_json).collect::<Vec<Value>>(),
+                        "replacement_adjustments": report.replacement_adjustments.iter().map(Self::wash_sale_adjustment_json).collect::<Vec<Value>>()
+                    },
+                    "consistency": {
+                        "basis_adjustments_match_disallowed_loss": report.total_basis_adjustment == report.total_disallowed_loss,
+                        "match_count_balanced": report.wash_sale_count == report.matches.len(),
+                    }
+                });
+                Self::print_json(&payload)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn print_wash_sales_text(report: &WashSaleReport, account_id: Option<Uuid>) {
+        println!("Wash sale report");
+        println!("================");
+        match account_id {
+            Some(id) => println!("account_id: {id}"),
+            None => println!("account_id: all"),
+        }
+        println!("trades_scanned: {}", report.scanned_trade_count);
+        println!("eligible_loss_trades: {}", report.eligible_loss_trade_count);
+        println!("wash_sales: {}", report.wash_sale_count);
+        println!(
+            "total_disallowed_loss: {}",
+            Self::decimal_string(report.total_disallowed_loss)
+        );
+        println!(
+            "total_basis_adjustment: {}",
+            Self::decimal_string(report.total_basis_adjustment)
+        );
+        if report.matches.is_empty() {
+            println!("No wash sales detected.");
+            return;
+        }
+        for wash_sale in &report.matches {
+            println!(
+                "{} sale={} replacement={} qty={} disallowed_loss={} adjusted_basis={}",
+                wash_sale.symbol,
+                wash_sale.loss_trade_id,
+                wash_sale.replacement_trade_id,
+                Self::decimal_string(wash_sale.matched_quantity),
+                Self::decimal_string(wash_sale.disallowed_loss),
+                Self::decimal_string(wash_sale.adjusted_replacement_cost_basis)
+            );
+        }
+    }
+
+    fn wash_sale_match_json(wash_sale: &WashSaleMatch) -> Value {
+        json!({
+            "account_id": wash_sale.account_id.to_string(),
+            "symbol": wash_sale.symbol.clone(),
+            "loss_trade_id": wash_sale.loss_trade_id.to_string(),
+            "replacement_trade_id": wash_sale.replacement_trade_id.to_string(),
+            "sale_date": wash_sale.sale_date.to_string(),
+            "replacement_purchase_date": wash_sale.replacement_purchase_date.to_string(),
+            "loss_quantity": Self::decimal_string(wash_sale.loss_quantity),
+            "matched_quantity": Self::decimal_string(wash_sale.matched_quantity),
+            "realized_loss": Self::decimal_string(wash_sale.realized_loss),
+            "disallowed_loss": Self::decimal_string(wash_sale.disallowed_loss),
+            "replacement_cost_basis": Self::decimal_string(wash_sale.replacement_cost_basis),
+            "adjusted_replacement_cost_basis": Self::decimal_string(wash_sale.adjusted_replacement_cost_basis),
+        })
+    }
+
+    fn wash_sale_adjustment_json(adjustment: &WashSaleReplacementAdjustment) -> Value {
+        json!({
+            "replacement_trade_id": adjustment.replacement_trade_id.to_string(),
+            "account_id": adjustment.account_id.to_string(),
+            "symbol": adjustment.symbol.clone(),
+            "replacement_purchase_date": adjustment.replacement_purchase_date.to_string(),
+            "matched_quantity": Self::decimal_string(adjustment.matched_quantity),
+            "original_cost_basis": Self::decimal_string(adjustment.original_cost_basis),
+            "basis_adjustment": Self::decimal_string(adjustment.basis_adjustment),
+            "adjusted_cost_basis": Self::decimal_string(adjustment.adjusted_cost_basis),
+        })
     }
 
     #[allow(clippy::too_many_lines)]

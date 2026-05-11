@@ -274,6 +274,21 @@ impl ReportCommandBuilder {
         );
         self
     }
+
+    pub fn wash_sales(mut self) -> Self {
+        self.subcommands.push(
+            Command::new("wash-sales")
+                .about("Detect potential wash sales and replacement cost-basis adjustments")
+                .arg(
+                    Arg::new("account")
+                        .long("account")
+                        .value_name("ACCOUNT_ID_OR_NAME")
+                        .help("Filter by account ID or name")
+                        .required(false),
+                ),
+        );
+        self
+    }
 }
 
 impl Default for ReportCommandBuilder {
@@ -299,6 +314,7 @@ mod tests {
             .benchmark()
             .timeline()
             .bias_summary()
+            .wash_sales()
             .build();
         for name in [
             "performance",
@@ -311,6 +327,7 @@ mod tests {
             "benchmark",
             "timeline",
             "bias-summary",
+            "wash-sales",
         ] {
             assert!(cmd.get_subcommands().any(|c| c.get_name() == name));
         }
@@ -528,5 +545,27 @@ mod tests {
             Some("acc-1")
         );
         assert_eq!(sub.get_one::<i32>("days"), Some(&14));
+    }
+
+    #[test]
+    fn report_wash_sales_parses_optional_account() {
+        let cmd = ReportCommandBuilder::new().wash_sales().build();
+        let matches = cmd
+            .try_get_matches_from([
+                "report",
+                "--format",
+                "json",
+                "wash-sales",
+                "--account",
+                "paper-main",
+            ])
+            .expect("wash-sales should parse");
+        let sub = matches
+            .subcommand_matches("wash-sales")
+            .expect("wash-sales subcommand");
+        assert_eq!(
+            sub.get_one::<String>("account").map(String::as_str),
+            Some("paper-main")
+        );
     }
 }

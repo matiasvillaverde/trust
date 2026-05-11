@@ -1,7 +1,8 @@
+use chrono::{NaiveDate, NaiveDateTime};
 use core::TrustFacade;
 use db_sqlite::SqliteDatabase;
 use model::{
-    Currency, DatabaseFactory, DraftTrade, Environment, Status, TradeCategory,
+    Currency, DatabaseFactory, DraftTrade, Environment, Order, OrderStatus, Status, TradeCategory,
     TradingVehicleCategory,
 };
 use rust_decimal::Decimal;
@@ -279,6 +280,160 @@ fn seed_account_with_adjusted_metrics_history(database_url: &str) -> Uuid {
     )
 }
 
+fn report_test_datetime(year: i32, month: u32, day: u32) -> NaiveDateTime {
+    NaiveDate::from_ymd_opt(year, month, day)
+        .expect("valid report test date")
+        .and_hms_opt(14, 30, 0)
+        .expect("valid report test time")
+}
+
+fn persist_filled_order(
+    database_url: &str,
+    order: &Order,
+    quantity: Decimal,
+    price: Decimal,
+    filled_at: NaiveDateTime,
+) {
+    let database = SqliteDatabase::new(database_url);
+    let mut filled = order.clone();
+    filled.status = OrderStatus::Filled;
+    filled.filled_quantity = quantity;
+    filled.average_filled_price = Some(price);
+    filled.filled_at = Some(filled_at);
+    database
+        .order_write()
+        .update(&filled)
+        .expect("filled order should be persisted");
+}
+
+fn seed_account_with_wash_sale(database_url: &str) -> Uuid {
+    let database = SqliteDatabase::new(database_url);
+    let mut trust = TrustFacade::new(Box::new(database), Box::new(alpaca_broker::AlpacaBroker));
+
+    let account = trust
+        .create_account(
+            "Wash Sale Account",
+            "wash sale contract test",
+            Environment::Paper,
+            dec!(25.0),
+            dec!(10.0),
+        )
+        .expect("create account");
+    trust
+        .create_transaction(
+            &account,
+            &model::TransactionCategory::Deposit,
+            dec!(50000),
+            &Currency::USD,
+        )
+        .expect("deposit funds");
+    let vehicle = trust
+        .create_trading_vehicle(
+            "AAPL",
+            Some("US0378331005"),
+            &TradingVehicleCategory::Stock,
+            "alpaca",
+        )
+        .expect("create trading vehicle");
+
+    let loss = trust
+        .create_trade(
+            DraftTrade {
+                account: account.clone(),
+                trading_vehicle: vehicle.clone(),
+                quantity: dec!(10),
+                category: TradeCategory::Long,
+                currency: Currency::USD,
+                sector: Some("Technology".to_string()),
+                asset_class: Some("Stocks".to_string()),
+                thesis: Some("wash sale loss".to_string()),
+                context: None,
+            },
+            dec!(100),
+            dec!(90),
+            dec!(120),
+        )
+        .expect("create loss trade");
+    let (funded_loss, _, _, _) = trust.fund_trade(&loss).expect("fund loss trade");
+    persist_filled_order(
+        database_url,
+        &funded_loss.entry,
+        dec!(10),
+        dec!(100),
+        report_test_datetime(2026, 1, 2),
+    );
+    persist_filled_order(
+        database_url,
+        &funded_loss.safety_stop,
+        dec!(10),
+        dec!(90),
+        report_test_datetime(2026, 1, 10),
+    );
+    let database = SqliteDatabase::new(database_url);
+    let closed_loss = database
+        .trade_write()
+        .update_trade_status(Status::ClosedStopLoss, &funded_loss)
+        .expect("close loss trade");
+    database
+        .trade_balance_write()
+        .update_trade_balance(
+            &closed_loss,
+            funded_loss.balance.funding,
+            dec!(0),
+            dec!(900),
+            dec!(0),
+            dec!(-100),
+        )
+        .expect("persist loss balance");
+
+    let replacement = trust
+        .create_trade(
+            DraftTrade {
+                account: account.clone(),
+                trading_vehicle: vehicle,
+                quantity: dec!(5),
+                category: TradeCategory::Long,
+                currency: Currency::USD,
+                sector: Some("Technology".to_string()),
+                asset_class: Some("Stocks".to_string()),
+                thesis: Some("replacement buy".to_string()),
+                context: None,
+            },
+            dec!(95),
+            dec!(88),
+            dec!(115),
+        )
+        .expect("create replacement trade");
+    let (funded_replacement, _, _, _) = trust
+        .fund_trade(&replacement)
+        .expect("fund replacement trade");
+    persist_filled_order(
+        database_url,
+        &funded_replacement.entry,
+        dec!(5),
+        dec!(95),
+        report_test_datetime(2026, 1, 20),
+    );
+    let database = SqliteDatabase::new(database_url);
+    let filled_replacement = database
+        .trade_write()
+        .update_trade_status(Status::Filled, &funded_replacement)
+        .expect("fill replacement trade");
+    database
+        .trade_balance_write()
+        .update_trade_balance(
+            &filled_replacement,
+            funded_replacement.balance.funding,
+            funded_replacement.balance.funding,
+            dec!(0),
+            dec!(0),
+            dec!(0),
+        )
+        .expect("persist replacement balance");
+
+    account.id
+}
+
 #[test]
 fn test_risk_report_json_math_consistency() {
     let database_url = format!("file:test_risk_report_json_{}.db", Uuid::new_v4().simple());
@@ -526,6 +681,61 @@ fn test_performance_report_json_has_balanced_counts() {
     assert_report_envelope(&payload, "performance");
     assert_eq!(payload["consistency"]["trade_count_balanced"], true);
     assert!(payload["data"]["total_trades"].is_number());
+}
+
+#[test]
+fn test_wash_sales_report_json_flags_loss_trade_and_basis_adjustment() {
+    let database_url = format!(
+        "file:test_wash_sales_report_json_{}.db",
+        Uuid::new_v4().simple()
+    );
+    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let account_id = seed_account_with_wash_sale(&database_url);
+
+    let output = run_report(
+        &database_url,
+        &[
+            "report",
+            "wash-sales",
+            "--format",
+            "json",
+            "--account",
+            &account_id.to_string(),
+        ],
+    );
+
+    assert!(output.status.success(), "wash-sales report should succeed");
+
+    let payload = parse_stdout_json(&output);
+    assert_report_envelope(&payload, "wash_sales");
+    assert_eq!(payload["scope"]["account_id"], account_id.to_string());
+    assert_eq!(payload["data"]["eligible_loss_trade_count"], 1);
+    assert_eq!(payload["data"]["wash_sale_count"], 1);
+    assert_eq!(payload["data"]["total_disallowed_loss"], "50");
+    assert_eq!(payload["data"]["total_basis_adjustment"], "50");
+    assert_eq!(
+        payload["consistency"]["basis_adjustments_match_disallowed_loss"],
+        true
+    );
+
+    let matches = payload["data"]["matches"]
+        .as_array()
+        .expect("wash sale matches should be an array");
+    let first_match = matches.first().expect("one wash sale match");
+    assert_eq!(first_match["symbol"], "AAPL");
+    assert_eq!(first_match["loss_quantity"], "10");
+    assert_eq!(first_match["matched_quantity"], "5");
+    assert_eq!(first_match["realized_loss"], "100");
+    assert_eq!(first_match["disallowed_loss"], "50");
+    assert_eq!(first_match["replacement_cost_basis"], "475");
+    assert_eq!(first_match["adjusted_replacement_cost_basis"], "525");
+
+    let adjustments = payload["data"]["replacement_adjustments"]
+        .as_array()
+        .expect("replacement adjustments should be an array");
+    let adjustment = adjustments.first().expect("one replacement adjustment");
+    assert_eq!(adjustment["basis_adjustment"], "50");
+    assert_eq!(adjustment["adjusted_cost_basis"], "525");
 }
 
 #[test]
