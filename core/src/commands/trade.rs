@@ -4,8 +4,8 @@ use crate::commands;
 use chrono::Utc;
 use model::{
     Account, AccountBalance, Broker, BrokerLog, DatabaseFactory, DraftTrade, Execution,
-    ExecutionSide, ExecutionSource, FeeActivity, Order, OrderStatus, Status, Trade, TradeBalance,
-    TradeCategory, TradingVehicleCategory, Transaction, TransactionCategory,
+    ExecutionSide, ExecutionSource, FeeActivity, Order, OrderCategory, OrderStatus, Status, Trade,
+    TradeBalance, TradeCategory, TradingVehicleCategory, Transaction, TransactionCategory,
 };
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
@@ -75,6 +75,24 @@ pub fn create_trade(
     target_price: Decimal,
     database: &mut dyn DatabaseFactory,
 ) -> Result<Trade, Box<dyn std::error::Error>> {
+    create_trade_with_safety_order_category(
+        trade,
+        stop_price,
+        entry_price,
+        target_price,
+        OrderCategory::Stop,
+        database,
+    )
+}
+
+pub fn create_trade_with_safety_order_category(
+    trade: DraftTrade,
+    stop_price: Decimal,
+    entry_price: Decimal,
+    target_price: Decimal,
+    safety_order_category: OrderCategory,
+    database: &mut dyn DatabaseFactory,
+) -> Result<Trade, Box<dyn std::error::Error>> {
     if trade.quantity <= 0 {
         return Err(format!(
             "Trade quantity must be greater than zero, got {}",
@@ -84,14 +102,31 @@ pub fn create_trade(
     }
 
     // 1. Create Stop-loss Order
-    let stop = commands::order::create_stop(
-        trade.trading_vehicle.id,
-        trade.quantity,
-        stop_price,
-        &trade.currency,
-        &trade.category,
-        database,
-    )?;
+    let stop = match safety_order_category {
+        OrderCategory::Stop => commands::order::create_stop(
+            trade.trading_vehicle.id,
+            trade.quantity,
+            stop_price,
+            &trade.currency,
+            &trade.category,
+            database,
+        )?,
+        OrderCategory::StopLimit => commands::order::create_stop_with_category(
+            trade.trading_vehicle.id,
+            trade.quantity,
+            stop_price,
+            &trade.currency,
+            &trade.category,
+            &safety_order_category,
+            database,
+        )?,
+        _ => {
+            return Err(format!(
+                "Safety order category must be stop or stop_limit, got {safety_order_category}"
+            )
+            .into());
+        }
+    };
 
     // 2. Create Entry Order
     let entry = commands::order::create_entry(

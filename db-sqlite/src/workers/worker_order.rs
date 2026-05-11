@@ -420,6 +420,26 @@ mod tests {
     }
 
     #[test]
+    fn create_order_roundtrips_stop_limit_category() {
+        let mut conn = establish_connection();
+        let trading_vehicle = trading_vehicle(&mut conn);
+
+        let order = WorkerOrder::create(
+            &mut conn,
+            dec!(95.00),
+            &Currency::USD,
+            100,
+            &OrderAction::Sell,
+            &OrderCategory::StopLimit,
+            &trading_vehicle,
+        )
+        .expect("stop-limit order should create");
+        let read = WorkerOrder::read(&mut conn, order.id).expect("stop-limit order should read");
+
+        assert_eq!(read.category, OrderCategory::StopLimit);
+    }
+
+    #[test]
     fn create_and_read_report_missing_orders_table_errors() {
         let mut conn = establish_connection();
         let trading_vehicle = trading_vehicle(&mut conn);

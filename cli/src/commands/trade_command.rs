@@ -56,6 +56,13 @@ impl TradeCommandBuilder {
                         .help("Stop price (non-interactive mode)"),
                 )
                 .arg(
+                    Arg::new("safety-order-type")
+                        .long("safety-order-type")
+                        .value_name("TYPE")
+                        .value_parser(["stop", "stop-limit"])
+                        .help("Safety order type (stop|stop-limit) (non-interactive mode)"),
+                )
+                .arg(
                     Arg::new("target")
                         .long("target")
                         .value_name("PRICE")
@@ -648,6 +655,8 @@ mod tests {
                 "100",
                 "--stop",
                 "95",
+                "--safety-order-type",
+                "stop-limit",
                 "--target",
                 "110",
                 "--quantity",
@@ -675,6 +684,11 @@ mod tests {
         assert_eq!(
             sub.get_one::<String>("category").map(String::as_str),
             Some("long")
+        );
+        assert_eq!(
+            sub.get_one::<String>("safety-order-type")
+                .map(String::as_str),
+            Some("stop-limit")
         );
         assert!(sub.get_flag("auto-submit"));
     }

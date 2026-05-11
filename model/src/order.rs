@@ -90,6 +90,8 @@ pub enum OrderCategory {
     Limit,
     /// Stop order - buy or sell at a specific price or worse. The order is executed when the price is reached.
     Stop,
+    /// Stop-limit order - becomes a limit order after the stop price is reached.
+    StopLimit,
 }
 
 /// The action of the order - buy, sell, short, etc.
@@ -246,6 +248,7 @@ impl std::fmt::Display for OrderCategory {
             OrderCategory::Market => write!(f, "market"),
             OrderCategory::Limit => write!(f, "limit"),
             OrderCategory::Stop => write!(f, "stop"),
+            OrderCategory::StopLimit => write!(f, "stop_limit"),
         }
     }
 }
@@ -288,6 +291,7 @@ impl std::str::FromStr for OrderCategory {
             "market" => Ok(OrderCategory::Market),
             "limit" => Ok(OrderCategory::Limit),
             "stop" => Ok(OrderCategory::Stop),
+            "stop_limit" | "stop-limit" => Ok(OrderCategory::StopLimit),
             _ => Err(OrderCategoryParseError),
         }
     }
@@ -361,6 +365,14 @@ mod tests {
         assert_eq!("market".parse::<OrderCategory>(), Ok(OrderCategory::Market));
         assert_eq!("limit".parse::<OrderCategory>(), Ok(OrderCategory::Limit));
         assert_eq!("stop".parse::<OrderCategory>(), Ok(OrderCategory::Stop));
+        assert_eq!(
+            "stop_limit".parse::<OrderCategory>(),
+            Ok(OrderCategory::StopLimit)
+        );
+        assert_eq!(
+            "stop-limit".parse::<OrderCategory>(),
+            Ok(OrderCategory::StopLimit)
+        );
         assert!("invalid".parse::<OrderCategory>().is_err());
     }
 
@@ -369,6 +381,7 @@ mod tests {
         assert_eq!(format!("{}", OrderCategory::Market), "market");
         assert_eq!(format!("{}", OrderCategory::Limit), "limit");
         assert_eq!(format!("{}", OrderCategory::Stop), "stop");
+        assert_eq!(format!("{}", OrderCategory::StopLimit), "stop_limit");
     }
 
     #[test]

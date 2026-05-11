@@ -12,6 +12,26 @@ pub fn create_stop(
     category: &TradeCategory,
     database: &mut dyn DatabaseFactory,
 ) -> Result<Order, Box<dyn std::error::Error>> {
+    create_stop_with_category(
+        trading_vehicle_id,
+        quantity,
+        price,
+        currency,
+        category,
+        &OrderCategory::Stop,
+        database,
+    )
+}
+
+pub fn create_stop_with_category(
+    trading_vehicle_id: Uuid,
+    quantity: i64,
+    price: Decimal,
+    currency: &Currency,
+    category: &TradeCategory,
+    order_category: &OrderCategory,
+    database: &mut dyn DatabaseFactory,
+) -> Result<Order, Box<dyn std::error::Error>> {
     let tv = database
         .trading_vehicle_read()
         .read_trading_vehicle(trading_vehicle_id)?;
@@ -21,7 +41,7 @@ pub fn create_stop(
         price,
         currency,
         &action_for_stop(category),
-        &OrderCategory::Market,
+        order_category,
     )
 }
 

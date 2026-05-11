@@ -310,7 +310,7 @@ fn score_process(trade: &Trade) -> (u8, Vec<String>) {
     let mut score: i32 = 100;
     let mut recs: Vec<String> = Vec::new();
 
-    // Planned bracket order shape (entry=limit, stop=stop, target=limit) is the default Trust flow.
+    // Planned bracket order shape (entry=limit, stop/stop-limit, target=limit) is the default Trust flow.
     if trade.entry.category != OrderCategory::Limit {
         score = score.saturating_sub(10);
         recs.push("Use limit orders for entries (reduce slippage)".to_string());
@@ -319,9 +319,12 @@ fn score_process(trade: &Trade) -> (u8, Vec<String>) {
         score = score.saturating_sub(10);
         recs.push("Use limit orders for targets when possible".to_string());
     }
-    if trade.safety_stop.category != OrderCategory::Stop {
+    if !matches!(
+        trade.safety_stop.category,
+        OrderCategory::Stop | OrderCategory::StopLimit
+    ) {
         score = score.saturating_sub(10);
-        recs.push("Use stop orders for safety stops".to_string());
+        recs.push("Use stop or stop-limit orders for safety stops".to_string());
     }
 
     // Planned risk/reward (wiki guidance: avoid 1:1, prefer >= 2:1).
@@ -1181,8 +1184,20 @@ mod tests {
             .any(|rec| rec.contains("limit orders for targets")));
         assert!(recs
             .iter()
-            .any(|rec| rec.contains("stop orders for safety stops")));
+            .any(|rec| rec.contains("stop or stop-limit orders for safety stops")));
         assert!(recs.iter().any(|rec| rec.contains("Planned R:R is < 1.0")));
+    }
+
+    #[test]
+    fn score_process_accepts_stop_limit_safety_order_shape() {
+        let trade = Trade {
+            safety_stop: order(dec!(95), OrderCategory::StopLimit, 10),
+            ..trade_with_plan(TradeCategory::Long, dec!(100), dec!(95), dec!(115))
+        };
+
+        let (_score, recs) = score_process(&trade);
+
+        assert!(!recs.iter().any(|rec| rec.contains("safety stops")));
     }
 
     #[test]
