@@ -86,6 +86,7 @@ fn build_cli() -> Command {
                 .list_accounts()
                 .balance_accounts()
                 .transfer_account()
+                .delete_account()
                 .build(),
         )
         .subcommand(
