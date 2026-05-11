@@ -7,11 +7,12 @@ use model::{
     DistributionHistory, DistributionRead, DistributionRules, DistributionWrite, Execution, Grade,
     Level, LevelAdjustmentRules, LevelChange, Order, OrderAction, OrderCategory, OrderRead,
     OrderWrite, ReadBrokerLogsDB, ReadExecutionDB, ReadLevelDB, ReadMistakeDB, ReadRuleDB,
-    ReadTradeDB, ReadTradeEventDB, ReadTradeGradeDB, ReadTradingVehicleDB, ReadTransactionDB, Rule,
-    RuleLevel, RuleName, Status, Trade, TradeBalance, TradeEvent, TradeGrade, TradingVehicle,
-    TradingVehicleCategory, Transaction, TransactionCategory, WriteBrokerLogsDB, WriteExecutionDB,
-    WriteLevelDB, WriteMistakeDB, WriteRuleDB, WriteTradeDB, WriteTradeEventDB, WriteTradeGradeDB,
-    WriteTradingVehicleDB, WriteTransactionDB,
+    ReadSessionPlanDB, ReadTradeDB, ReadTradeEventDB, ReadTradeGradeDB, ReadTradingVehicleDB,
+    ReadTransactionDB, Rule, RuleLevel, RuleName, Status, Trade, TradeBalance, TradeEvent,
+    TradeGrade, TradingVehicle, TradingVehicleCategory, Transaction, TransactionCategory,
+    WriteBrokerLogsDB, WriteExecutionDB, WriteLevelDB, WriteMistakeDB, WriteRuleDB,
+    WriteSessionPlanDB, WriteTradeDB, WriteTradeEventDB, WriteTradeGradeDB, WriteTradingVehicleDB,
+    WriteTransactionDB,
 };
 use rust_decimal::Decimal;
 use std::cell::Cell;
@@ -286,6 +287,14 @@ impl DatabaseFactory for ReadFailureFactory {
 
     fn mistake_write(&self) -> Box<dyn WriteMistakeDB> {
         panic!("mistake_write should not be called")
+    }
+
+    fn session_plan_read(&self) -> Box<dyn ReadSessionPlanDB> {
+        panic!("session_plan_read should not be called")
+    }
+
+    fn session_plan_write(&self) -> Box<dyn WriteSessionPlanDB> {
+        panic!("session_plan_write should not be called")
     }
 
     fn trade_event_read(&self) -> Box<dyn ReadTradeEventDB> {
@@ -1539,6 +1548,40 @@ impl WriteMistakeDB for FailingAccountRead {
         _mistake: &model::Mistake,
     ) -> Result<model::Mistake, Box<dyn Error>> {
         Err("mistake write failed".into())
+    }
+}
+
+impl ReadSessionPlanDB for FailingAccountRead {
+    fn read_open_session(
+        &mut self,
+        _account_id: Uuid,
+    ) -> Result<Option<model::SessionPlan>, Box<dyn Error>> {
+        Err("session plan read failed".into())
+    }
+
+    fn read_session_plans_for_account(
+        &mut self,
+        _account_id: Uuid,
+        _start_at: chrono::NaiveDateTime,
+        _end_at: chrono::NaiveDateTime,
+    ) -> Result<Vec<model::SessionPlan>, Box<dyn Error>> {
+        Err("session plan read failed".into())
+    }
+}
+
+impl WriteSessionPlanDB for FailingAccountRead {
+    fn create_session_plan(
+        &mut self,
+        _session_plan: &model::SessionPlan,
+    ) -> Result<model::SessionPlan, Box<dyn Error>> {
+        Err("session plan write failed".into())
+    }
+
+    fn close_session_plan(
+        &mut self,
+        _close: &model::SessionPlanClose,
+    ) -> Result<model::SessionPlan, Box<dyn Error>> {
+        Err("session plan write failed".into())
     }
 }
 

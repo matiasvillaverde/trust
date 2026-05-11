@@ -2,8 +2,9 @@ use crate::{
     Account, AccountBalance, AccountType, BrokerKind, BrokerLog, Currency,
     DistributionExecutionPlan, DistributionHistory, DistributionRules, Environment, Execution,
     Level, LevelAdjustmentRules, LevelChange, Mistake, Order, OrderAction, OrderCategory, Rule,
-    RuleLevel, RuleName, Status, Trade, TradeBalance, TradeCategory, TradeEvent, TradeGrade,
-    TradingVehicle, TradingVehicleCategory, Transaction, TransactionCategory,
+    RuleLevel, RuleName, SessionPlan, SessionPlanClose, Status, Trade, TradeBalance, TradeCategory,
+    TradeEvent, TradeGrade, TradingVehicle, TradingVehicleCategory, Transaction,
+    TransactionCategory,
 };
 use rust_decimal::Decimal;
 use uuid::Uuid;
@@ -65,6 +66,10 @@ pub trait DatabaseFactory {
     fn mistake_read(&self) -> Box<dyn ReadMistakeDB>;
     /// Returns a writer for mistake data operations
     fn mistake_write(&self) -> Box<dyn WriteMistakeDB>;
+    /// Returns a reader for session plan operations
+    fn session_plan_read(&self) -> Box<dyn ReadSessionPlanDB>;
+    /// Returns a writer for session plan operations
+    fn session_plan_write(&self) -> Box<dyn WriteSessionPlanDB>;
     /// Returns a reader for trade event data operations
     fn trade_event_read(&self) -> Box<dyn ReadTradeEventDB>;
     /// Returns a writer for trade event data operations
@@ -599,6 +604,38 @@ pub trait ReadMistakeDB {
 pub trait WriteMistakeDB {
     /// Persist a new mistake for a trade.
     fn create_mistake(&mut self, mistake: &Mistake) -> Result<Mistake, Box<dyn Error>>;
+}
+
+/// Trait for reading plan-act-review session plans from the database.
+pub trait ReadSessionPlanDB {
+    /// Read the active open session for an account, if one exists.
+    fn read_open_session(
+        &mut self,
+        account_id: Uuid,
+    ) -> Result<Option<SessionPlan>, Box<dyn Error>>;
+
+    /// Read active session plans for an account within an inclusive opened-at period.
+    fn read_session_plans_for_account(
+        &mut self,
+        account_id: Uuid,
+        start_at: chrono::NaiveDateTime,
+        end_at: chrono::NaiveDateTime,
+    ) -> Result<Vec<SessionPlan>, Box<dyn Error>>;
+}
+
+/// Trait for writing plan-act-review session plans to the database.
+pub trait WriteSessionPlanDB {
+    /// Persist a new open session plan.
+    fn create_session_plan(
+        &mut self,
+        session_plan: &SessionPlan,
+    ) -> Result<SessionPlan, Box<dyn Error>>;
+
+    /// Close an open session plan by applying review data.
+    fn close_session_plan(
+        &mut self,
+        close: &SessionPlanClose,
+    ) -> Result<SessionPlan, Box<dyn Error>>;
 }
 
 /// Trait for reading trade event catalysts from the database.

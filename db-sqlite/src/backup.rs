@@ -97,6 +97,8 @@ pub struct BackupTablesV1 {
     pub levels: Vec<LevelRow>,
     pub level_changes: Vec<LevelChangeRow>,
     #[serde(default)]
+    pub session_plans: Vec<SessionPlanRow>,
+    #[serde(default)]
     pub mistakes: Vec<MistakeRow>,
     #[serde(default)]
     pub trade_events: Vec<TradeEventRow>,
@@ -316,6 +318,26 @@ pub struct LevelChangeRow {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Queryable, Insertable)]
+#[diesel(table_name = schema::session_plans)]
+pub struct SessionPlanRow {
+    pub id: String,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
+    pub deleted_at: Option<NaiveDateTime>,
+    pub account_id: String,
+    pub opened_at: NaiveDateTime,
+    pub closed_at: Option<NaiveDateTime>,
+    pub regime: String,
+    pub permitted_setups: String,
+    pub max_positions: i32,
+    pub hypothesis: String,
+    pub success_criteria: String,
+    pub failure_criteria: String,
+    pub session_grade: Option<String>,
+    pub adherence_notes: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Queryable, Insertable)]
 #[diesel(table_name = schema::mistakes)]
 pub struct MistakeRow {
     pub id: String,
@@ -413,6 +435,7 @@ const ALLOWED_TABLES: &[&str] = &[
     "mistakes",
     "orders",
     "rules",
+    "session_plans",
     "trade_events",
     "trade_grades",
     "trades",
@@ -444,6 +467,7 @@ fn clear_all_tables(conn: &mut SqliteConnection) -> Result<u64, BackupError> {
     // Delete children before parents to satisfy FK constraints with FK checks enabled.
     let tables = [
         "mistakes",
+        "session_plans",
         "trade_events",
         "trade_grades",
         "logs",
@@ -479,6 +503,7 @@ fn insert_all(conn: &mut SqliteConnection, tables: &BackupTablesV1) -> Result<u6
     }
 
     insert_and_add!(schema::accounts::table, &tables.accounts);
+    insert_and_add!(schema::session_plans::table, &tables.session_plans);
     insert_and_add!(schema::trading_vehicles::table, &tables.trading_vehicles);
     insert_and_add!(schema::orders::table, &tables.orders);
     insert_and_add!(schema::trades_balances::table, &tables.trades_balances);
@@ -529,6 +554,7 @@ fn read_backup_at(
             logs: schema::logs::table.load(conn)?,
             levels: schema::levels::table.load(conn)?,
             level_changes: schema::level_changes::table.load(conn)?,
+            session_plans: schema::session_plans::table.load(conn)?,
             mistakes: schema::mistakes::table.load(conn)?,
             trade_events: schema::trade_events::table.load(conn)?,
             trade_grades: schema::trade_grades::table.load(conn)?,
@@ -629,7 +655,14 @@ fn validate_optional_uuid_field(
 }
 
 fn validate_backup_rows(backup: &BackupEnvelopeV1) -> Result<(), BackupError> {
-    for row in &backup.tables.accounts {
+    validate_account_uuid_rows(&backup.tables)?;
+    validate_trade_uuid_rows(&backup.tables)?;
+    validate_review_uuid_rows(&backup.tables)?;
+    Ok(())
+}
+
+fn validate_account_uuid_rows(tables: &BackupTablesV1) -> Result<(), BackupError> {
+    for row in &tables.accounts {
         validate_uuid_field("accounts", "id", &row.id)?;
         validate_optional_uuid_field(
             "accounts",
@@ -637,30 +670,34 @@ fn validate_backup_rows(backup: &BackupEnvelopeV1) -> Result<(), BackupError> {
             row.parent_account_id.as_deref(),
         )?;
     }
-    for row in &backup.tables.accounts_balances {
+    for row in &tables.accounts_balances {
         validate_uuid_field("accounts_balances", "id", &row.id)?;
         validate_uuid_field("accounts_balances", "account_id", &row.account_id)?;
     }
-    for row in &backup.tables.rules {
+    for row in &tables.rules {
         validate_uuid_field("rules", "id", &row.id)?;
         validate_uuid_field("rules", "account_id", &row.account_id)?;
     }
-    for row in &backup.tables.transactions {
+    for row in &tables.transactions {
         validate_uuid_field("transactions", "id", &row.id)?;
         validate_uuid_field("transactions", "account_id", &row.account_id)?;
         validate_optional_uuid_field("transactions", "trade_id", row.trade_id.as_deref())?;
     }
-    for row in &backup.tables.trading_vehicles {
+    for row in &tables.trading_vehicles {
         validate_uuid_field("trading_vehicles", "id", &row.id)?;
     }
-    for row in &backup.tables.orders {
+    Ok(())
+}
+
+fn validate_trade_uuid_rows(tables: &BackupTablesV1) -> Result<(), BackupError> {
+    for row in &tables.orders {
         validate_uuid_field("orders", "id", &row.id)?;
         validate_uuid_field("orders", "trading_vehicle_id", &row.trading_vehicle_id)?;
     }
-    for row in &backup.tables.trades_balances {
+    for row in &tables.trades_balances {
         validate_uuid_field("trades_balances", "id", &row.id)?;
     }
-    for row in &backup.tables.trades {
+    for row in &tables.trades {
         validate_uuid_field("trades", "id", &row.id)?;
         validate_uuid_field("trades", "trading_vehicle_id", &row.trading_vehicle_id)?;
         validate_uuid_field("trades", "safety_stop_id", &row.safety_stop_id)?;
@@ -669,27 +706,35 @@ fn validate_backup_rows(backup: &BackupEnvelopeV1) -> Result<(), BackupError> {
         validate_uuid_field("trades", "account_id", &row.account_id)?;
         validate_uuid_field("trades", "balance_id", &row.balance_id)?;
     }
-    for row in &backup.tables.logs {
+    for row in &tables.logs {
         validate_uuid_field("logs", "id", &row.id)?;
         validate_uuid_field("logs", "trade_id", &row.trade_id)?;
     }
-    for row in &backup.tables.levels {
+    Ok(())
+}
+
+fn validate_review_uuid_rows(tables: &BackupTablesV1) -> Result<(), BackupError> {
+    for row in &tables.levels {
         validate_uuid_field("levels", "id", &row.id)?;
         validate_uuid_field("levels", "account_id", &row.account_id)?;
     }
-    for row in &backup.tables.level_changes {
+    for row in &tables.level_changes {
         validate_uuid_field("level_changes", "id", &row.id)?;
         validate_uuid_field("level_changes", "account_id", &row.account_id)?;
     }
-    for row in &backup.tables.mistakes {
+    for row in &tables.session_plans {
+        validate_uuid_field("session_plans", "id", &row.id)?;
+        validate_uuid_field("session_plans", "account_id", &row.account_id)?;
+    }
+    for row in &tables.mistakes {
         validate_uuid_field("mistakes", "id", &row.id)?;
         validate_uuid_field("mistakes", "trade_id", &row.trade_id)?;
     }
-    for row in &backup.tables.trade_events {
+    for row in &tables.trade_events {
         validate_uuid_field("trade_events", "id", &row.id)?;
         validate_uuid_field("trade_events", "trade_id", &row.trade_id)?;
     }
-    for row in &backup.tables.trade_grades {
+    for row in &tables.trade_grades {
         validate_uuid_field("trade_grades", "id", &row.id)?;
         validate_uuid_field("trade_grades", "trade_id", &row.trade_id)?;
     }
@@ -859,6 +904,7 @@ mod tests {
         let trade_grade_id = uuid_text(717);
         let trade_event_id = uuid_text(718);
         let mistake_id = uuid_text(719);
+        let session_plan_id = uuid_text(720);
 
         let mut account = account_row(account_id.clone(), "uuid-validation");
         account.parent_account_id = Some(parent_account_id);
@@ -1013,12 +1059,29 @@ mod tests {
                     created_at: dt,
                     updated_at: dt,
                     deleted_at: None,
-                    account_id,
+                    account_id: account_id.clone(),
                     old_level: 1,
                     new_level: 2,
                     change_reason: "manual".to_string(),
                     trigger_type: "manual_override".to_string(),
                     changed_at: dt,
+                }],
+                session_plans: vec![SessionPlanRow {
+                    id: session_plan_id,
+                    created_at: dt,
+                    updated_at: dt,
+                    deleted_at: None,
+                    account_id: account_id.clone(),
+                    opened_at: dt,
+                    closed_at: Some(dt),
+                    regime: "normal".to_string(),
+                    permitted_setups: "opening range,pullback".to_string(),
+                    max_positions: 2,
+                    hypothesis: "follow only planned setups".to_string(),
+                    success_criteria: "take valid setups only".to_string(),
+                    failure_criteria: "force trades outside plan".to_string(),
+                    session_grade: Some("A".to_string()),
+                    adherence_notes: Some("followed plan".to_string()),
                 }],
                 mistakes: vec![MistakeRow {
                     id: mistake_id,
@@ -1256,6 +1319,18 @@ mod tests {
                 },
             },
             UuidValidationCase {
+                table: "session_plans",
+                field: "id",
+                mutate: |backup| first_row(&mut backup.tables.session_plans).id = invalid_uuid(),
+            },
+            UuidValidationCase {
+                table: "session_plans",
+                field: "account_id",
+                mutate: |backup| {
+                    first_row(&mut backup.tables.session_plans).account_id = invalid_uuid();
+                },
+            },
+            UuidValidationCase {
                 table: "mistakes",
                 field: "id",
                 mutate: |backup| first_row(&mut backup.tables.mistakes).id = invalid_uuid(),
@@ -1329,6 +1404,7 @@ mod tests {
         let trade_grade_id = "00000000-0000-0000-0000-000000000014".to_string();
         let trade_event_id = "00000000-0000-0000-0000-000000000015".to_string();
         let mistake_id = "00000000-0000-0000-0000-000000000016".to_string();
+        let session_plan_id = "00000000-0000-0000-0000-000000000017".to_string();
 
         diesel::insert_into(schema::accounts::table)
             .values(AccountRow {
@@ -1539,6 +1615,27 @@ mod tests {
                 change_reason: "reason".to_string(),
                 trigger_type: "manual_override".to_string(),
                 changed_at: dt0,
+            })
+            .execute(&mut conn1)
+            .unwrap();
+
+        diesel::insert_into(schema::session_plans::table)
+            .values(SessionPlanRow {
+                id: session_plan_id.clone(),
+                created_at: dt0,
+                updated_at: dt0,
+                deleted_at: None,
+                account_id: account_id.clone(),
+                opened_at: dt0,
+                closed_at: Some(dt0),
+                regime: "normal".to_string(),
+                permitted_setups: "opening range,pullback".to_string(),
+                max_positions: 2,
+                hypothesis: "follow only planned setups".to_string(),
+                success_criteria: "take valid setups only".to_string(),
+                failure_criteria: "force trades outside plan".to_string(),
+                session_grade: Some("A".to_string()),
+                adherence_notes: Some("followed plan".to_string()),
             })
             .execute(&mut conn1)
             .unwrap();

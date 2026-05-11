@@ -1,7 +1,7 @@
 use crate::workers::{
     AccountBalanceDB, AccountDB, AdvisoryDB, BrokerLogDB, DistributionDB, WorkerExecution,
-    WorkerLevel, WorkerMistake, WorkerOrder, WorkerRule, WorkerTrade, WorkerTradeEvent,
-    WorkerTradeGrade, WorkerTradingVehicle, WorkerTransaction,
+    WorkerLevel, WorkerMistake, WorkerOrder, WorkerRule, WorkerSessionPlan, WorkerTrade,
+    WorkerTradeEvent, WorkerTradeGrade, WorkerTradingVehicle, WorkerTransaction,
 };
 use crate::{backup, backup::ImportOptions};
 use diesel::prelude::*;
@@ -14,10 +14,11 @@ use model::{
     Account, AccountBalanceRead, AccountBalanceWrite, AccountRead, Currency, DatabaseFactory,
     DistributionRead, DistributionWrite, Execution, Level, LevelAdjustmentRules, LevelChange,
     Mistake, Order, OrderAction, OrderCategory, OrderRead, OrderWrite, ReadExecutionDB,
-    ReadLevelDB, ReadMistakeDB, ReadRuleDB, ReadTradeDB, ReadTradeEventDB, ReadTradeGradeDB,
-    ReadTradingVehicleDB, ReadTransactionDB, Rule, RuleName, Trade, TradeBalance, TradeEvent,
-    TradeGrade, TradingVehicle, TradingVehicleCategory, Transaction, TransactionCategory,
-    WriteExecutionDB, WriteLevelDB, WriteMistakeDB, WriteRuleDB, WriteTradeDB, WriteTradeEventDB,
+    ReadLevelDB, ReadMistakeDB, ReadRuleDB, ReadSessionPlanDB, ReadTradeDB, ReadTradeEventDB,
+    ReadTradeGradeDB, ReadTradingVehicleDB, ReadTransactionDB, Rule, RuleName, SessionPlan,
+    SessionPlanClose, Trade, TradeBalance, TradeEvent, TradeGrade, TradingVehicle,
+    TradingVehicleCategory, Transaction, TransactionCategory, WriteExecutionDB, WriteLevelDB,
+    WriteMistakeDB, WriteRuleDB, WriteSessionPlanDB, WriteTradeDB, WriteTradeEventDB,
     WriteTradeGradeDB, WriteTradingVehicleDB, WriteTransactionDB,
 };
 use rust_decimal::Decimal;
@@ -156,6 +157,14 @@ impl DatabaseFactory for SqliteDatabase {
     }
 
     fn mistake_write(&self) -> Box<dyn WriteMistakeDB> {
+        Box::new(SqliteDatabase::new_from(self.connection.clone()))
+    }
+
+    fn session_plan_read(&self) -> Box<dyn ReadSessionPlanDB> {
+        Box::new(SqliteDatabase::new_from(self.connection.clone()))
+    }
+
+    fn session_plan_write(&self) -> Box<dyn WriteSessionPlanDB> {
         Box::new(SqliteDatabase::new_from(self.connection.clone()))
     }
 
@@ -491,6 +500,45 @@ impl ReadMistakeDB for SqliteDatabase {
 impl WriteMistakeDB for SqliteDatabase {
     fn create_mistake(&mut self, mistake: &Mistake) -> Result<Mistake, Box<dyn Error>> {
         WorkerMistake::create(&mut lock_connection_or_exit(&self.connection), mistake)
+    }
+}
+
+impl ReadSessionPlanDB for SqliteDatabase {
+    fn read_open_session(
+        &mut self,
+        account_id: Uuid,
+    ) -> Result<Option<SessionPlan>, Box<dyn Error>> {
+        WorkerSessionPlan::read_open(&mut lock_connection_or_exit(&self.connection), account_id)
+    }
+
+    fn read_session_plans_for_account(
+        &mut self,
+        account_id: Uuid,
+        start_at: chrono::NaiveDateTime,
+        end_at: chrono::NaiveDateTime,
+    ) -> Result<Vec<SessionPlan>, Box<dyn Error>> {
+        WorkerSessionPlan::read_for_account_in_period(
+            &mut lock_connection_or_exit(&self.connection),
+            account_id,
+            start_at,
+            end_at,
+        )
+    }
+}
+
+impl WriteSessionPlanDB for SqliteDatabase {
+    fn create_session_plan(
+        &mut self,
+        session_plan: &SessionPlan,
+    ) -> Result<SessionPlan, Box<dyn Error>> {
+        WorkerSessionPlan::create(&mut lock_connection_or_exit(&self.connection), session_plan)
+    }
+
+    fn close_session_plan(
+        &mut self,
+        close: &SessionPlanClose,
+    ) -> Result<SessionPlan, Box<dyn Error>> {
+        WorkerSessionPlan::close(&mut lock_connection_or_exit(&self.connection), close)
     }
 }
 
@@ -934,8 +982,8 @@ mod tests {
     use chrono::{Duration, NaiveDate, Utc};
     use model::{
         Account, Environment, ExecutionSide, ExecutionSource, Grade, LevelTrigger,
-        MistakeErrorType, MungerTendency, RuleLevel, RuleName, TradeCategory, TradeEventSeverity,
-        TradeEventSource, TradeEventType,
+        MistakeErrorType, MungerTendency, RuleLevel, RuleName, SessionRegime, TradeCategory,
+        TradeEventSeverity, TradeEventSource, TradeEventType,
     };
     use rust_decimal_macros::dec;
     use std::path::PathBuf;
@@ -1081,6 +1129,27 @@ mod tests {
             rule_violated: Some("move_stop_only_to_reduce_risk".to_string()),
             counterfactual_r: dec!(1.75),
             lesson: "Pre-commit stop movement criteria before entry.".to_string(),
+        }
+    }
+
+    fn session_plan_for(account: &Account) -> SessionPlan {
+        let now = Utc::now().naive_utc();
+        SessionPlan {
+            id: Uuid::new_v4(),
+            created_at: now,
+            updated_at: now,
+            deleted_at: None,
+            account_id: account.id,
+            opened_at: now,
+            closed_at: None,
+            regime: SessionRegime::Normal,
+            permitted_setups: vec!["opening range".to_string(), "pullback".to_string()],
+            max_positions: 2,
+            hypothesis: "follow planned setups only".to_string(),
+            success_criteria: "take valid setups only".to_string(),
+            failure_criteria: "force trades outside plan".to_string(),
+            session_grade: None,
+            adherence_notes: None,
         }
     }
 
@@ -1409,8 +1478,55 @@ mod tests {
             .iter()
             .any(|entry| entry.id == grade.id));
 
+        assert_session_plan_facade(database, account);
         assert_mistake_facade(database, account, trade);
         assert_trade_event_facade(database, trade);
+    }
+
+    fn assert_session_plan_facade(database: &SqliteDatabase, account: &Account) {
+        let plan = database
+            .session_plan_write()
+            .create_session_plan(&session_plan_for(account))
+            .expect("session plan should write");
+        assert_eq!(
+            database
+                .session_plan_read()
+                .read_open_session(account.id)
+                .expect("open session should read")
+                .map(|entry| entry.id),
+            Some(plan.id)
+        );
+
+        let window = Duration::seconds(1);
+        let start_at = plan
+            .opened_at
+            .checked_sub_signed(window)
+            .expect("session timestamp should support start window");
+        let closed_at = plan
+            .opened_at
+            .checked_add_signed(window)
+            .expect("session timestamp should support close window");
+        let closed = database
+            .session_plan_write()
+            .close_session_plan(&SessionPlanClose {
+                session_plan_id: plan.id,
+                closed_at,
+                session_grade: Some("A".to_string()),
+                adherence_notes: Some("followed plan".to_string()),
+            })
+            .expect("session plan should close");
+        assert_eq!(closed.session_grade.as_deref(), Some("A"));
+        assert!(database
+            .session_plan_read()
+            .read_session_plans_for_account(account.id, start_at, closed_at)
+            .expect("account session plans should read")
+            .iter()
+            .any(|entry| entry.id == plan.id));
+        assert!(database
+            .session_plan_read()
+            .read_open_session(account.id)
+            .expect("open session should read after close")
+            .is_none());
     }
 
     fn assert_mistake_facade(database: &SqliteDatabase, account: &Account, trade: &Trade) {

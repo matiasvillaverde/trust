@@ -222,6 +222,26 @@ diesel::table! {
 }
 
 diesel::table! {
+    session_plans (id) {
+        id -> Text,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        deleted_at -> Nullable<Timestamp>,
+        account_id -> Text,
+        opened_at -> Timestamp,
+        closed_at -> Nullable<Timestamp>,
+        regime -> Text,
+        permitted_setups -> Text,
+        max_positions -> Integer,
+        hypothesis -> Text,
+        success_criteria -> Text,
+        failure_criteria -> Text,
+        session_grade -> Nullable<Text>,
+        adherence_notes -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
     trade_events (id) {
         id -> Text,
         created_at -> Timestamp,
@@ -351,6 +371,7 @@ diesel::joinable!(logs -> trades (trade_id));
 diesel::joinable!(mistakes -> trades (trade_id));
 diesel::joinable!(orders -> trading_vehicles (trading_vehicle_id));
 diesel::joinable!(rules -> accounts (account_id));
+diesel::joinable!(session_plans -> accounts (account_id));
 diesel::joinable!(trade_events -> trades (trade_id));
 diesel::joinable!(trade_grades -> trades (trade_id));
 diesel::joinable!(trades -> accounts (account_id));
@@ -373,6 +394,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     mistakes,
     orders,
     rules,
+    session_plans,
     trade_events,
     trade_grades,
     trades,

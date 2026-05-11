@@ -56,6 +56,8 @@ pub mod mistake;
 pub mod order;
 /// Risk management rules and enforcement
 pub mod rule;
+/// Session plan and review types
+pub mod session_plan;
 /// Trading strategy definitions
 pub mod strategy;
 /// Trade lifecycle and management
@@ -78,10 +80,10 @@ pub use database::{
     AccountBalanceRead, AccountBalanceWrite, AccountRead, AccountWrite, AdvisoryRead,
     AdvisoryThresholds, AdvisoryWrite, DatabaseFactory, DistributionRead, DistributionWrite,
     DraftTrade, OrderRead, OrderWrite, ReadBrokerLogsDB, ReadExecutionDB, ReadLevelDB,
-    ReadMistakeDB, ReadRuleDB, ReadTradeDB, ReadTradeEventDB, ReadTradeGradeDB,
+    ReadMistakeDB, ReadRuleDB, ReadSessionPlanDB, ReadTradeDB, ReadTradeEventDB, ReadTradeGradeDB,
     ReadTradingVehicleDB, ReadTransactionDB, WriteBrokerLogsDB, WriteExecutionDB, WriteLevelDB,
-    WriteMistakeDB, WriteRuleDB, WriteTradeDB, WriteTradeEventDB, WriteTradeGradeDB,
-    WriteTradingVehicleDB, WriteTransactionDB,
+    WriteMistakeDB, WriteRuleDB, WriteSessionPlanDB, WriteTradeDB, WriteTradeEventDB,
+    WriteTradeGradeDB, WriteTradingVehicleDB, WriteTransactionDB,
 };
 pub use distribution::{
     DistributionError, DistributionExecutionLeg, DistributionExecutionPlan, DistributionHistory,
@@ -106,6 +108,10 @@ pub use mistake::{
 };
 pub use order::{Order, OrderAction, OrderCategory, OrderStatus, TimeInForce};
 pub use rule::{Rule, RuleLevel, RuleName};
+pub use session_plan::{
+    format_session_setups, parse_session_setups, SessionPlan, SessionPlanClose, SessionRegime,
+    SessionRegimeParseError, SessionSetupListError,
+};
 pub use strategy::Strategy;
 pub use trade::ClosedTradePerformance;
 pub use trade::{Status, Trade, TradeBalance, TradeCategory};
