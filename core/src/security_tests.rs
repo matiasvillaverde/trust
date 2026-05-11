@@ -292,28 +292,19 @@ mod tests {
     /// that hashing the same password twice produces DIFFERENT results
     /// (which Argon2 does, but SHA-256 doesn't).
     #[test]
-    #[should_panic]
     fn password_hash_should_be_salted() {
-        use sha2::{Digest, Sha256};
-
         let password = "my_secure_password";
-
-        // Reproduce the legacy hashing logic from core/src/lib.rs:1977-1987
-        let hash = |p: &str| {
-            let mut h = Sha256::new();
-            h.update(p.as_bytes());
-            format!("{:x}", h.finalize())
-        };
-
-        let h1 = hash(password);
-        let h2 = hash(password);
+        let h1 = crate::hash_distribution_password(password).unwrap();
+        let h2 = crate::hash_distribution_password(password).unwrap();
 
         // CORRECT behavior: hashing same password twice should produce
-        // different results (salted).  Legacy SHA-256 fails this.
+        // different results (salted).
         assert_ne!(
             h1, h2,
-            "Password hash should be salted — same input must produce different output"
+            "Password hash should be salted - same input must produce different output"
         );
+        assert!(h1.starts_with("$argon2"));
+        assert!(h2.starts_with("$argon2"));
     }
 
     // ===============================================================

@@ -56,7 +56,6 @@ use model::{
 use rand_core::OsRng;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
-use sha2::{Digest, Sha256};
 use uuid::Uuid;
 use {
     services::leveling::{
@@ -2009,20 +2008,8 @@ fn verify_distribution_password(
             .verify_password(password.as_bytes(), &parsed)
             .is_ok())
     } else {
-        Ok(hash_distribution_password_legacy_sha256(password)? == stored_hash)
+        Ok(false)
     }
-}
-
-fn hash_distribution_password_legacy_sha256(
-    password: &str,
-) -> Result<String, Box<dyn std::error::Error>> {
-    if password.trim().len() < 8 {
-        return Err("Distribution password must be at least 8 characters".into());
-    }
-    let mut hasher = Sha256::new();
-    hasher.update(password.as_bytes());
-    let digest = hasher.finalize();
-    Ok(format!("{digest:x}"))
 }
 
 #[cfg(test)]
@@ -2320,17 +2307,18 @@ mod tests {
     #[test]
     fn distribution_password_hashes_verify_and_reject_weak_inputs() {
         assert!(hash_distribution_password("short").is_err());
-        assert!(hash_distribution_password_legacy_sha256("short").is_err());
 
         let password = "correct horse battery staple";
         let argon_hash = hash_distribution_password(password).unwrap();
+        let second_argon_hash = hash_distribution_password(password).unwrap();
         assert!(argon_hash.starts_with("$argon2"));
+        assert!(second_argon_hash.starts_with("$argon2"));
+        assert_ne!(argon_hash, second_argon_hash);
         assert!(verify_distribution_password(password, &argon_hash).unwrap());
         assert!(!verify_distribution_password("wrong password", &argon_hash).unwrap());
 
-        let legacy_hash = hash_distribution_password_legacy_sha256(password).unwrap();
-        assert!(verify_distribution_password(password, &legacy_hash).unwrap());
-        assert!(!verify_distribution_password("wrong password", &legacy_hash).unwrap());
+        let legacy_sha256_hash = "cbe6beb26479b568e48058e254b7c50b8d0fef2bd635a0f024ee3f80d1a7084d";
+        assert!(!verify_distribution_password(password, legacy_sha256_hash).unwrap());
         assert!(!verify_distribution_password(password, "$argon2id$invalid").unwrap());
     }
 
