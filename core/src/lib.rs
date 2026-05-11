@@ -55,9 +55,9 @@ use model::{
     DatabaseFactory, DistributionHistory, DistributionResult, DistributionRules, DraftTrade,
     Environment, Execution, Level, LevelAdjustmentRules, LevelChange, LevelTrigger, MarketBar,
     MarketDataChannel, MarketDataStreamEvent, MarketSnapshot, MarketSnapshotSource,
-    MarketSnapshotV2, Mistake, Order, Rule, RuleLevel, RuleName, Status, Trade, TradeBalance,
-    TradeEvent, TradeEventSeverity, TradeEventSource, TradeEventType, TradingVehicle,
-    TradingVehicleCategory, Transaction, TransactionCategory,
+    MarketSnapshotV2, Mistake, Order, Rule, RuleLevel, RuleName, SessionPlan, SessionPlanClose,
+    Status, Trade, TradeBalance, TradeEvent, TradeEventSeverity, TradeEventSource, TradeEventType,
+    TradingVehicle, TradingVehicleCategory, Transaction, TransactionCategory,
 };
 use rand_core::OsRng;
 use rust_decimal::Decimal;
@@ -372,6 +372,20 @@ impl TrustFacade {
         }
         self.protected_authorized = false;
         Ok(())
+    }
+
+    fn ensure_account_exists(
+        &mut self,
+        account_id: Uuid,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        if self
+            .search_all_accounts()?
+            .into_iter()
+            .any(|account| account.id == account_id)
+        {
+            return Ok(());
+        }
+        Err(format!("account not found: {account_id}").into())
     }
 
     /// Creates a new account.
@@ -857,6 +871,79 @@ impl TrustFacade {
         self.factory
             .mistake_read()
             .read_mistakes_for_trade(trade_id)
+    }
+
+    /// Persist a new open plan-act-review session plan.
+    pub fn create_session_plan(
+        &mut self,
+        session_plan: SessionPlan,
+    ) -> Result<SessionPlan, Box<dyn std::error::Error>> {
+        self.ensure_account_exists(session_plan.account_id)?;
+        if self
+            .factory
+            .session_plan_read()
+            .read_open_session(session_plan.account_id)?
+            .is_some()
+        {
+            return Err("account already has an open session".into());
+        }
+        self.factory
+            .session_plan_write()
+            .create_session_plan(&session_plan)
+    }
+
+    /// Read the active open session plan for an account, if present.
+    pub fn open_session_for_account(
+        &mut self,
+        account_id: Uuid,
+    ) -> Result<Option<SessionPlan>, Box<dyn std::error::Error>> {
+        self.ensure_account_exists(account_id)?;
+        self.factory
+            .session_plan_read()
+            .read_open_session(account_id)
+    }
+
+    /// Read active session plans for an account in an inclusive opened-at period.
+    pub fn session_plans_for_account(
+        &mut self,
+        account_id: Uuid,
+        start_at: chrono::NaiveDateTime,
+        end_at: chrono::NaiveDateTime,
+    ) -> Result<Vec<SessionPlan>, Box<dyn std::error::Error>> {
+        self.ensure_account_exists(account_id)?;
+        self.factory
+            .session_plan_read()
+            .read_session_plans_for_account(account_id, start_at, end_at)
+    }
+
+    /// Close an open session plan by applying post-session review fields.
+    pub fn close_session_plan(
+        &mut self,
+        close: SessionPlanClose,
+    ) -> Result<SessionPlan, Box<dyn std::error::Error>> {
+        self.factory.session_plan_write().close_session_plan(&close)
+    }
+
+    /// Read trades created for an account during an inclusive session window.
+    pub fn trades_for_account_in_period(
+        &mut self,
+        account_id: Uuid,
+        start_at: chrono::NaiveDateTime,
+        end_at: chrono::NaiveDateTime,
+    ) -> Result<Vec<Trade>, Box<dyn std::error::Error>> {
+        if end_at < start_at {
+            return Err("trade period end_at cannot be before start_at".into());
+        }
+        self.ensure_account_exists(account_id)?;
+
+        let mut trades = Vec::new();
+        for status in Status::all() {
+            let mut status_trades = self.search_trades(account_id, status)?;
+            trades.append(&mut status_trades);
+        }
+        trades.retain(|trade| trade.created_at >= start_at && trade.created_at <= end_at);
+        trades.sort_by_key(|trade| (trade.created_at, trade.id));
+        Ok(trades)
     }
 
     /// Scan external calendar catalysts for a trade and persist returned events.
