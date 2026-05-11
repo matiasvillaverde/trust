@@ -17,6 +17,7 @@ pub enum TopLevelCommand<'a> {
     Policy(&'a ArgMatches),
     Metrics(&'a ArgMatches),
     Advisor(&'a ArgMatches),
+    Session(&'a ArgMatches),
     External { name: &'a str, args: &'a ArgMatches },
 }
 
@@ -144,6 +145,12 @@ pub enum AdvisorSubcommand<'a> {
     History(&'a ArgMatches),
 }
 
+pub enum SessionSubcommand<'a> {
+    Open(&'a ArgMatches),
+    Close(&'a ArgMatches),
+    List(&'a ArgMatches),
+}
+
 pub fn parse_top_level_command(matches: &ArgMatches) -> TopLevelCommand<'_> {
     match matches.subcommand() {
         Some(("db", sub_matches)) => TopLevelCommand::Db(sub_matches),
@@ -164,6 +171,7 @@ pub fn parse_top_level_command(matches: &ArgMatches) -> TopLevelCommand<'_> {
         Some(("policy", sub_matches)) => TopLevelCommand::Policy(sub_matches),
         Some(("metrics", sub_matches)) => TopLevelCommand::Metrics(sub_matches),
         Some(("advisor", sub_matches)) => TopLevelCommand::Advisor(sub_matches),
+        Some(("session", sub_matches)) => TopLevelCommand::Session(sub_matches),
         Some((name, sub_matches)) => TopLevelCommand::External {
             name,
             args: sub_matches,
@@ -352,6 +360,15 @@ pub fn parse_advisor_subcommand(sub_matches: &ArgMatches) -> AdvisorSubcommand<'
     }
 }
 
+pub fn parse_session_subcommand(sub_matches: &ArgMatches) -> SessionSubcommand<'_> {
+    match sub_matches.subcommand() {
+        Some(("open", sub_sub_matches)) => SessionSubcommand::Open(sub_sub_matches),
+        Some(("close", sub_sub_matches)) => SessionSubcommand::Close(sub_sub_matches),
+        Some(("list", sub_sub_matches)) => SessionSubcommand::List(sub_sub_matches),
+        _ => unreachable!("No subcommand provided"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -406,6 +423,7 @@ mod tests {
             .subcommand(Command::new("onboarding").subcommand(Command::new("init")))
             .subcommand(Command::new("metrics").subcommand(Command::new("compare")))
             .subcommand(Command::new("advisor").subcommand(Command::new("check")))
+            .subcommand(Command::new("session").subcommand(Command::new("open")))
             .subcommand(Command::new("policy").arg(Arg::new("noop")));
 
         let db = app.clone().get_matches_from(["trust", "db", "export"]);
@@ -446,6 +464,7 @@ mod tests {
             .clone()
             .get_matches_from(["trust", "metrics", "compare"]);
         let advisor = app.clone().get_matches_from(["trust", "advisor", "check"]);
+        let session = app.clone().get_matches_from(["trust", "session", "open"]);
 
         let (_, db_m) = db.subcommand().expect("expected db subcommand");
         assert!(matches!(parse_db_subcommand(db_m), DbSubcommand::Export(_)));
@@ -531,6 +550,11 @@ mod tests {
         assert!(matches!(
             parse_advisor_subcommand(advisor_m),
             AdvisorSubcommand::Check(_)
+        ));
+        let (_, session_m) = session.subcommand().expect("expected session subcommand");
+        assert!(matches!(
+            parse_session_subcommand(session_m),
+            SessionSubcommand::Open(_)
         ));
     }
 
@@ -641,7 +665,8 @@ mod tests {
             .subcommand(Command::new("onboarding"))
             .subcommand(Command::new("policy"))
             .subcommand(Command::new("metrics"))
-            .subcommand(Command::new("advisor"));
+            .subcommand(Command::new("advisor"))
+            .subcommand(Command::new("session"));
 
         let cases = [
             ("db", "db"),
@@ -661,6 +686,7 @@ mod tests {
             ("policy", "policy"),
             ("metrics", "metrics"),
             ("advisor", "advisor"),
+            ("session", "session"),
             ("external-command", "external"),
         ];
 
@@ -683,6 +709,7 @@ mod tests {
                 TopLevelCommand::Policy(_) => "policy",
                 TopLevelCommand::Metrics(_) => "metrics",
                 TopLevelCommand::Advisor(_) => "advisor",
+                TopLevelCommand::Session(_) => "session",
                 TopLevelCommand::External { .. } => "external",
             };
             assert_eq!(got, expected, "top-level route mismatch for {name}");
@@ -869,6 +896,23 @@ mod tests {
             };
             assert_eq!(got, expected);
         }
+
+        let session = Command::new("trust").subcommand(
+            Command::new("session")
+                .subcommand(Command::new("open"))
+                .subcommand(Command::new("close"))
+                .subcommand(Command::new("list")),
+        );
+        for (sub, expected) in [("open", "open"), ("close", "close"), ("list", "list")] {
+            let m = session.clone().get_matches_from(["trust", "session", sub]);
+            let (_, sm) = m.subcommand().expect("expected session");
+            let got = match parse_session_subcommand(sm) {
+                SessionSubcommand::Open(_) => "open",
+                SessionSubcommand::Close(_) => "close",
+                SessionSubcommand::List(_) => "list",
+            };
+            assert_eq!(got, expected);
+        }
     }
 
     #[test]
@@ -937,6 +981,15 @@ mod tests {
         let m = app.get_matches_from(["trust", "market-data"]);
         let (_, sm) = m.subcommand().expect("expected market-data");
         let _ = parse_market_data_subcommand(sm);
+    }
+
+    #[test]
+    #[should_panic(expected = "No subcommand provided")]
+    fn parse_session_subcommand_panics_without_nested_subcommand() {
+        let app = Command::new("trust").subcommand(Command::new("session"));
+        let m = app.get_matches_from(["trust", "session"]);
+        let (_, sm) = m.subcommand().expect("expected session");
+        let _ = parse_session_subcommand(sm);
     }
 
     #[test]

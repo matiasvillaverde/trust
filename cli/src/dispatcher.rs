@@ -14,11 +14,12 @@ use crate::command_routing::{
     parse_distribution_subcommand, parse_grade_subcommand, parse_keys_subcommand,
     parse_level_subcommand, parse_market_data_subcommand, parse_metrics_subcommand,
     parse_onboarding_subcommand, parse_report_subcommand, parse_rules_subcommand,
-    parse_top_level_command, parse_trade_subcommand, parse_trading_vehicle_subcommand,
-    parse_transactions_subcommand, AccountsSubcommand, AdvisorSubcommand, DbSubcommand,
-    DistributionSubcommand, GradeSubcommand, KeysSubcommand, LevelSubcommand, MarketDataSubcommand,
-    MetricsSubcommand, OnboardingSubcommand, ReportSubcommand, RulesSubcommand, TopLevelCommand,
-    TradeSubcommand, TradingVehicleSubcommand, TransactionsSubcommand,
+    parse_session_subcommand, parse_top_level_command, parse_trade_subcommand,
+    parse_trading_vehicle_subcommand, parse_transactions_subcommand, AccountsSubcommand,
+    AdvisorSubcommand, DbSubcommand, DistributionSubcommand, GradeSubcommand, KeysSubcommand,
+    LevelSubcommand, MarketDataSubcommand, MetricsSubcommand, OnboardingSubcommand,
+    ReportSubcommand, RulesSubcommand, SessionSubcommand, TopLevelCommand, TradeSubcommand,
+    TradingVehicleSubcommand, TransactionsSubcommand,
 };
 use crate::dialogs::{
     AccountDialogBuilder, AccountSearchDialog, CancelDialogBuilder, CloseDialogBuilder,
@@ -51,8 +52,9 @@ use ibkr_broker::IbkrBroker;
 use model::{
     Account, AccountType, BarTimeframe, BrokerKind, Currency, DraftTrade, Environment,
     FixedIncomeTerms, Level, LevelAdjustmentRules, LevelTrigger, MarketDataChannel,
-    MarketSnapshotSource, Mistake, MistakeErrorType, MungerTendency, Status, Trade, TradeCategory,
-    TradeEvent, TradeEventSeverity, TradeEventType, TradeGrade, TransactionCategory,
+    MarketSnapshotSource, Mistake, MistakeErrorType, MungerTendency, SessionPlan, SessionPlanClose,
+    SessionRegime, Status, Trade, TradeCategory, TradeEvent, TradeEventSeverity, TradeEventType,
+    TradeGrade, TransactionCategory,
 };
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
@@ -106,6 +108,14 @@ struct TradeHypothesisReport {
 struct TradeAdvisorCheck {
     status: &'static str,
     payload: Value,
+}
+
+#[derive(Debug, Clone)]
+struct SessionTradeReviewRow {
+    trade_id: Uuid,
+    symbol: String,
+    setup: Option<String>,
+    planned: bool,
 }
 
 #[derive(Debug)]
@@ -533,6 +543,7 @@ impl ArgDispatcher {
             TopLevelCommand::Policy(sub_matches) => self.dispatch_policy(sub_matches)?,
             TopLevelCommand::Metrics(sub_matches) => self.dispatch_metrics(sub_matches)?,
             TopLevelCommand::Advisor(sub_matches) => self.dispatch_advisor(sub_matches)?,
+            TopLevelCommand::Session(sub_matches) => self.dispatch_session(sub_matches)?,
             TopLevelCommand::External {
                 name,
                 args: sub_matches,
@@ -818,6 +829,22 @@ impl ArgDispatcher {
             AdvisorSubcommand::Check(sub_sub_matches) => self.advisor_check(sub_sub_matches)?,
             AdvisorSubcommand::Status(sub_sub_matches) => self.advisor_status(sub_sub_matches)?,
             AdvisorSubcommand::History(sub_sub_matches) => self.advisor_history(sub_sub_matches)?,
+        }
+        Ok(())
+    }
+
+    fn dispatch_session(&mut self, sub_matches: &ArgMatches) -> Result<(), CliError> {
+        let format = Self::parse_report_format(sub_matches);
+        match parse_session_subcommand(sub_matches) {
+            SessionSubcommand::Open(sub_sub_matches) => {
+                self.session_open(sub_sub_matches, format)?
+            }
+            SessionSubcommand::Close(sub_sub_matches) => {
+                self.session_close(sub_sub_matches, format)?
+            }
+            SessionSubcommand::List(sub_sub_matches) => {
+                self.session_list(sub_sub_matches, format)?
+            }
         }
         Ok(())
     }
@@ -8647,6 +8674,629 @@ impl ArgDispatcher {
         max_drawdown
     }
 
+    fn session_open(
+        &mut self,
+        sub_matches: &ArgMatches,
+        format: ReportOutputFormat,
+    ) -> Result<(), CliError> {
+        let account_raw = sub_matches.get_one::<String>("account").ok_or_else(|| {
+            Self::report_error(
+                format,
+                "missing_argument",
+                "Missing --account for session open",
+            )
+        })?;
+        let account = self.resolve_account_arg(account_raw, format)?;
+        if self
+            .trust
+            .open_session_for_account(account.id)
+            .map_err(|error| {
+                Self::report_error(
+                    format,
+                    "session_lookup_failed",
+                    format!("Failed to read open session: {error}"),
+                )
+            })?
+            .is_some()
+        {
+            return Err(Self::report_error(
+                format,
+                "session_already_open",
+                format!("Account '{}' already has an open session", account.name),
+            ));
+        }
+
+        let suggested = self.suggest_session_regime(&account);
+        let mut io = ConsoleDialogIo::default();
+        let plan = Self::session_plan_from_dialog(&mut io, &account, suggested, format)?;
+        let saved = self.trust.create_session_plan(plan).map_err(|error| {
+            Self::report_error(
+                format,
+                "session_open_failed",
+                format!("Failed to open session: {error}"),
+            )
+        })?;
+
+        Self::print_session_open_summary(&saved, &account, format)
+    }
+
+    fn session_close(
+        &mut self,
+        sub_matches: &ArgMatches,
+        format: ReportOutputFormat,
+    ) -> Result<(), CliError> {
+        let (account, plan) = self.open_session_target(sub_matches, format)?;
+        let closed_at = Utc::now().naive_utc();
+        let actual_regime = self.suggest_session_regime(&account);
+        let trades = self
+            .trust
+            .trades_for_account_in_period(account.id, plan.opened_at, closed_at)
+            .map_err(|error| {
+                Self::report_error(
+                    format,
+                    "session_trade_lookup_failed",
+                    format!("Failed to load session trades: {error}"),
+                )
+            })?;
+        let review_rows = Self::session_trade_review_rows(&plan, &trades);
+
+        Self::print_session_close_comparison(&plan, &account, actual_regime, &review_rows, format)?;
+
+        let mut io = ConsoleDialogIo::default();
+        let grade = Self::select_session_grade(&mut io, format)?;
+        let notes = Self::read_optional_session_text(&mut io, "Adherence notes", format)?;
+        let close = SessionPlanClose {
+            session_plan_id: plan.id,
+            closed_at,
+            session_grade: Some(grade),
+            adherence_notes: notes,
+        };
+        let closed = self.trust.close_session_plan(close).map_err(|error| {
+            Self::report_error(
+                format,
+                "session_close_failed",
+                format!("Failed to close session: {error}"),
+            )
+        })?;
+
+        Self::print_session_closed_summary(&closed, &account, &review_rows, format)
+    }
+
+    fn session_list(
+        &mut self,
+        sub_matches: &ArgMatches,
+        format: ReportOutputFormat,
+    ) -> Result<(), CliError> {
+        let account_raw = sub_matches.get_one::<String>("account").ok_or_else(|| {
+            Self::report_error(
+                format,
+                "missing_argument",
+                "Missing --account for session list",
+            )
+        })?;
+        let account = self.resolve_account_arg(account_raw, format)?;
+        let sessions = self
+            .trust
+            .session_plans_for_account(
+                account.id,
+                chrono::NaiveDateTime::MIN,
+                Utc::now().naive_utc(),
+            )
+            .map_err(|error| {
+                Self::report_error(
+                    format,
+                    "session_list_failed",
+                    format!("Failed to list sessions: {error}"),
+                )
+            })?;
+
+        if format == ReportOutputFormat::Json {
+            let payload = json!({
+                "account": {
+                    "id": account.id.to_string(),
+                    "name": account.name,
+                },
+                "sessions": sessions.iter().map(Self::session_plan_payload).collect::<Vec<_>>(),
+            });
+            return Self::print_json(&payload);
+        }
+
+        println!("Session history for {} ({})", account.name, account.id);
+        if sessions.is_empty() {
+            println!("No sessions found.");
+            return Ok(());
+        }
+        println!(
+            "{:<19} {:<19} {:<9} {:<5} {:<8} setups",
+            "opened_at", "closed_at", "regime", "max", "grade"
+        );
+        for session in sessions {
+            println!(
+                "{:<19} {:<19} {:<9} {:<5} {:<8} {}",
+                session.opened_at,
+                session
+                    .closed_at
+                    .map(|closed_at| closed_at.to_string())
+                    .unwrap_or_else(|| "open".to_string()),
+                session.regime,
+                session.max_positions,
+                session.session_grade.as_deref().unwrap_or("-"),
+                session.permitted_setups.join(", ")
+            );
+        }
+        Ok(())
+    }
+
+    fn open_session_target(
+        &mut self,
+        sub_matches: &ArgMatches,
+        format: ReportOutputFormat,
+    ) -> Result<(Account, SessionPlan), CliError> {
+        if let Some(account_raw) = sub_matches.get_one::<String>("account") {
+            let account = self.resolve_account_arg(account_raw, format)?;
+            let plan = self
+                .trust
+                .open_session_for_account(account.id)
+                .map_err(|error| {
+                    Self::report_error(
+                        format,
+                        "session_lookup_failed",
+                        format!("Failed to read open session: {error}"),
+                    )
+                })?
+                .ok_or_else(|| {
+                    Self::report_error(
+                        format,
+                        "no_open_session",
+                        format!("No open session for account '{}'", account.name),
+                    )
+                })?;
+            return Ok((account, plan));
+        }
+
+        let accounts = self.trust.search_all_accounts().map_err(|error| {
+            Self::report_error(
+                format,
+                "accounts_unavailable",
+                format!("Failed to load accounts: {error}"),
+            )
+        })?;
+        let mut open = Vec::new();
+        for account in accounts {
+            if let Some(plan) =
+                self.trust
+                    .open_session_for_account(account.id)
+                    .map_err(|error| {
+                        Self::report_error(
+                            format,
+                            "session_lookup_failed",
+                            format!("Failed to read open session: {error}"),
+                        )
+                    })?
+            {
+                open.push((account, plan));
+            }
+        }
+
+        match open.len() {
+            0 => Err(Self::report_error(
+                format,
+                "no_open_session",
+                "No open session found",
+            )),
+            1 => open.into_iter().next().ok_or_else(|| {
+                Self::report_error(format, "no_open_session", "No open session found")
+            }),
+            _ => Err(Self::report_error(
+                format,
+                "ambiguous_open_session",
+                "More than one session is open; pass --account",
+            )),
+        }
+    }
+
+    fn session_plan_from_dialog(
+        io: &mut dyn DialogIo,
+        account: &Account,
+        suggested_regime: Option<SessionRegime>,
+        format: ReportOutputFormat,
+    ) -> Result<SessionPlan, CliError> {
+        let regime = Self::select_session_regime(io, suggested_regime, format)?;
+        let permitted_setups = Self::read_session_setups(io, format)?;
+        let max_positions = Self::read_session_max_positions(io, format)?;
+        let hypothesis = Self::read_required_session_text(io, "Hypothesis", 500, format)?;
+        let success_criteria =
+            Self::read_required_session_text(io, "Success criteria", 500, format)?;
+        let failure_criteria =
+            Self::read_required_session_text(io, "Failure criteria", 500, format)?;
+        let now = Utc::now().naive_utc();
+
+        Ok(SessionPlan {
+            id: Uuid::new_v4(),
+            created_at: now,
+            updated_at: now,
+            deleted_at: None,
+            account_id: account.id,
+            opened_at: now,
+            closed_at: None,
+            regime,
+            permitted_setups,
+            max_positions,
+            hypothesis,
+            success_criteria,
+            failure_criteria,
+            session_grade: None,
+            adherence_notes: None,
+        })
+    }
+
+    fn select_session_regime(
+        io: &mut dyn DialogIo,
+        suggested: Option<SessionRegime>,
+        format: ReportOutputFormat,
+    ) -> Result<SessionRegime, CliError> {
+        let regimes = [
+            SessionRegime::Calm,
+            SessionRegime::Normal,
+            SessionRegime::Elevated,
+        ];
+        let labels = regimes
+            .iter()
+            .map(|regime| {
+                let label = Self::session_regime_label(*regime);
+                if Some(*regime) == suggested {
+                    format!("{label} (suggested)")
+                } else {
+                    label.to_string()
+                }
+            })
+            .collect::<Vec<_>>();
+        let default = regimes
+            .iter()
+            .position(|regime| Some(*regime) == suggested)
+            .unwrap_or(1);
+        let selected = io
+            .select_index("Regime today?", &labels, default)
+            .map_err(|error| {
+                Self::report_error(
+                    format,
+                    "session_dialog_failed",
+                    format!("Failed to select regime: {error}"),
+                )
+            })?
+            .ok_or_else(|| {
+                Self::report_error(format, "session_dialog_cancelled", "Session open cancelled")
+            })?;
+        regimes.get(selected).copied().ok_or_else(|| {
+            Self::report_error(format, "invalid_session_regime", "Invalid regime selection")
+        })
+    }
+
+    fn read_session_setups(
+        io: &mut dyn DialogIo,
+        format: ReportOutputFormat,
+    ) -> Result<Vec<String>, CliError> {
+        let raw = Self::read_required_session_text(
+            io,
+            "Permitted setups (comma-separated)",
+            500,
+            format,
+        )?;
+        model::parse_session_setups(&raw).map_err(|error| {
+            Self::report_error(
+                format,
+                "invalid_session_setups",
+                format!("Invalid permitted setups: {error:?}"),
+            )
+        })
+    }
+
+    fn read_session_max_positions(
+        io: &mut dyn DialogIo,
+        format: ReportOutputFormat,
+    ) -> Result<i32, CliError> {
+        let raw = Self::read_required_session_text(io, "Max new positions", 32, format)?;
+        let max_positions = raw.trim().parse::<i32>().map_err(|_| {
+            Self::report_error(
+                format,
+                "invalid_session_max_positions",
+                "Max new positions must be an integer",
+            )
+        })?;
+        if max_positions < 0 {
+            return Err(Self::report_error(
+                format,
+                "invalid_session_max_positions",
+                "Max new positions cannot be negative",
+            ));
+        }
+        Ok(max_positions)
+    }
+
+    fn select_session_grade(
+        io: &mut dyn DialogIo,
+        format: ReportOutputFormat,
+    ) -> Result<String, CliError> {
+        let labels = ["A", "B", "C", "D", "F"]
+            .iter()
+            .map(|grade| (*grade).to_string())
+            .collect::<Vec<_>>();
+        let selected = io
+            .select_index("Session grade", &labels, 2)
+            .map_err(|error| {
+                Self::report_error(
+                    format,
+                    "session_dialog_failed",
+                    format!("Failed to select grade: {error}"),
+                )
+            })?
+            .ok_or_else(|| {
+                Self::report_error(
+                    format,
+                    "session_dialog_cancelled",
+                    "Session close cancelled",
+                )
+            })?;
+        labels.get(selected).cloned().ok_or_else(|| {
+            Self::report_error(
+                format,
+                "invalid_session_grade",
+                "Invalid session grade selection",
+            )
+        })
+    }
+
+    fn read_required_session_text(
+        io: &mut dyn DialogIo,
+        prompt: &str,
+        max_chars: usize,
+        format: ReportOutputFormat,
+    ) -> Result<String, CliError> {
+        let value = io.input_text(prompt, false).map_err(|error| {
+            Self::report_error(
+                format,
+                "session_dialog_failed",
+                format!("Failed to read {prompt}: {error}"),
+            )
+        })?;
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            return Err(Self::report_error(
+                format,
+                "invalid_session_text",
+                format!("{prompt} cannot be blank"),
+            ));
+        }
+        if trimmed.chars().count() > max_chars {
+            return Err(Self::report_error(
+                format,
+                "invalid_session_text",
+                format!("{prompt} cannot exceed {max_chars} characters"),
+            ));
+        }
+        Ok(trimmed.to_string())
+    }
+
+    fn read_optional_session_text(
+        io: &mut dyn DialogIo,
+        prompt: &str,
+        format: ReportOutputFormat,
+    ) -> Result<Option<String>, CliError> {
+        let value = io.input_text(prompt, true).map_err(|error| {
+            Self::report_error(
+                format,
+                "session_dialog_failed",
+                format!("Failed to read {prompt}: {error}"),
+            )
+        })?;
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(trimmed.to_string()))
+        }
+    }
+
+    fn suggest_session_regime(&mut self, account: &Account) -> Option<SessionRegime> {
+        self.trust
+            .regime_advisory(&RegimeRequest::default(), account, RegimeConfig::default())
+            .ok()
+            .map(|snapshot| match snapshot.composite {
+                advisor::CompositeRegime::CalmTrending => SessionRegime::Calm,
+                advisor::CompositeRegime::NormalTrending => SessionRegime::Normal,
+                advisor::CompositeRegime::ElevatedTrending
+                | advisor::CompositeRegime::Choppy
+                | advisor::CompositeRegime::ElevatedChoppy
+                | advisor::CompositeRegime::NarrowBreadth => SessionRegime::Elevated,
+            })
+    }
+
+    fn session_trade_review_rows(
+        plan: &SessionPlan,
+        trades: &[Trade],
+    ) -> Vec<SessionTradeReviewRow> {
+        trades
+            .iter()
+            .map(|trade| {
+                let setup = Self::trade_setup_type(trade);
+                let planned = setup
+                    .as_deref()
+                    .is_some_and(|value| Self::setup_is_permitted(&plan.permitted_setups, value));
+                SessionTradeReviewRow {
+                    trade_id: trade.id,
+                    symbol: trade.trading_vehicle.symbol.clone(),
+                    setup,
+                    planned,
+                }
+            })
+            .collect()
+    }
+
+    fn trade_setup_type(trade: &Trade) -> Option<String> {
+        trade
+            .context
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned)
+    }
+
+    fn setup_is_permitted(permitted_setups: &[String], setup: &str) -> bool {
+        permitted_setups
+            .iter()
+            .any(|permitted| permitted.eq_ignore_ascii_case(setup.trim()))
+    }
+
+    fn session_regime_label(regime: SessionRegime) -> &'static str {
+        match regime {
+            SessionRegime::Calm => "Calm",
+            SessionRegime::Normal => "Normal",
+            SessionRegime::Elevated => "Elevated",
+        }
+    }
+
+    fn print_session_open_summary(
+        plan: &SessionPlan,
+        account: &Account,
+        format: ReportOutputFormat,
+    ) -> Result<(), CliError> {
+        if format == ReportOutputFormat::Json {
+            return Self::print_json(&json!({
+                "session": Self::session_plan_payload(plan),
+                "account": {
+                    "id": account.id.to_string(),
+                    "name": account.name,
+                },
+            }));
+        }
+
+        println!("Session opened:");
+        println!("  account: {} ({})", account.name, account.id);
+        println!("  session_id: {}", plan.id);
+        println!("  opened_at: {}", plan.opened_at);
+        println!("  regime: {}", plan.regime);
+        println!("  permitted_setups: {}", plan.permitted_setups.join(", "));
+        println!("  max_new_positions: {}", plan.max_positions);
+        Ok(())
+    }
+
+    fn print_session_close_comparison(
+        plan: &SessionPlan,
+        account: &Account,
+        actual_regime: Option<SessionRegime>,
+        review_rows: &[SessionTradeReviewRow],
+        format: ReportOutputFormat,
+    ) -> Result<(), CliError> {
+        if format == ReportOutputFormat::Json {
+            return Self::print_json(&json!({
+                "comparison": Self::session_comparison_payload(plan, account, actual_regime, review_rows),
+            }));
+        }
+
+        println!("Session review:");
+        println!("  account: {} ({})", account.name, account.id);
+        println!("  opened_at: {}", plan.opened_at);
+        println!(
+            "  regime: planned {} | actual {}",
+            plan.regime,
+            actual_regime
+                .map(|regime| regime.to_string())
+                .unwrap_or_else(|| "unavailable".to_string())
+        );
+        println!(
+            "  positions: planned max {} | actual {}",
+            plan.max_positions,
+            review_rows.len()
+        );
+        println!("Trades:");
+        if review_rows.is_empty() {
+            println!("  none");
+        } else {
+            for row in review_rows {
+                let marker = if row.planned { "planned" } else { "UNPLANNED" };
+                println!(
+                    "  {} {} setup={} {}",
+                    row.trade_id,
+                    row.symbol,
+                    row.setup.as_deref().unwrap_or("none"),
+                    marker
+                );
+            }
+        }
+        Ok(())
+    }
+
+    fn print_session_closed_summary(
+        plan: &SessionPlan,
+        account: &Account,
+        review_rows: &[SessionTradeReviewRow],
+        format: ReportOutputFormat,
+    ) -> Result<(), CliError> {
+        if format == ReportOutputFormat::Json {
+            return Self::print_json(&json!({
+                "closed_session": Self::session_plan_payload(plan),
+                "comparison": Self::session_comparison_payload(plan, account, None, review_rows),
+            }));
+        }
+
+        println!("Session closed:");
+        println!("  session_id: {}", plan.id);
+        println!("  closed_at: {}", plan.closed_at.unwrap_or(plan.updated_at));
+        println!("  grade: {}", plan.session_grade.as_deref().unwrap_or("-"));
+        println!(
+            "  unplanned_trades: {}",
+            review_rows.iter().filter(|row| !row.planned).count()
+        );
+        Ok(())
+    }
+
+    fn session_plan_payload(plan: &SessionPlan) -> Value {
+        json!({
+            "id": plan.id.to_string(),
+            "created_at": plan.created_at.to_string(),
+            "updated_at": plan.updated_at.to_string(),
+            "account_id": plan.account_id.to_string(),
+            "opened_at": plan.opened_at.to_string(),
+            "closed_at": plan.closed_at.map(|value| value.to_string()),
+            "regime": plan.regime.to_string(),
+            "permitted_setups": &plan.permitted_setups,
+            "max_positions": plan.max_positions,
+            "hypothesis": &plan.hypothesis,
+            "success_criteria": &plan.success_criteria,
+            "failure_criteria": &plan.failure_criteria,
+            "session_grade": &plan.session_grade,
+            "adherence_notes": &plan.adherence_notes,
+        })
+    }
+
+    fn session_comparison_payload(
+        plan: &SessionPlan,
+        account: &Account,
+        actual_regime: Option<SessionRegime>,
+        review_rows: &[SessionTradeReviewRow],
+    ) -> Value {
+        json!({
+            "account": {
+                "id": account.id.to_string(),
+                "name": account.name,
+            },
+            "session_id": plan.id.to_string(),
+            "planned_regime": plan.regime.to_string(),
+            "actual_regime": actual_regime.map(|regime| regime.to_string()),
+            "planned_max_positions": plan.max_positions,
+            "actual_positions": review_rows.len(),
+            "trades": review_rows.iter().map(|row| {
+                json!({
+                    "trade_id": row.trade_id.to_string(),
+                    "symbol": &row.symbol,
+                    "setup": &row.setup,
+                    "planned": row.planned,
+                    "unplanned": !row.planned,
+                })
+            }).collect::<Vec<_>>(),
+        })
+    }
+
     fn advisor_configure(&mut self, sub_matches: &ArgMatches) -> Result<(), CliError> {
         let provider_mode = advisor_provider_config_requested(sub_matches);
         let threshold_mode = advisor_threshold_config_requested(sub_matches);
@@ -9073,7 +9723,7 @@ mod tests {
         AccountCommandBuilder, AdvisorCommandBuilder, DbCommandBuilder, DistributionCommandBuilder,
         GradeCommandBuilder, KeysCommandBuilder, LevelCommandBuilder, MarketDataCommandBuilder,
         MetricsCommandBuilder, OnboardingCommandBuilder, PolicyCommandBuilder,
-        ReportCommandBuilder, RuleCommandBuilder, TradeCommandBuilder,
+        ReportCommandBuilder, RuleCommandBuilder, SessionCommandBuilder, TradeCommandBuilder,
         TradingVehicleCommandBuilder, TransactionCommandBuilder,
     };
     use alpaca_broker::AlpacaBroker;
@@ -9091,8 +9741,8 @@ mod tests {
         database::TradingVehicleUpsert, AccountType, Broker, BrokerKind, BrokerLog, Currency,
         Environment, FixedIncomeTerms, Level, LevelAdjustmentRules, LevelDirection, LevelStatus,
         LevelTrigger, MarketBar, MarketDataChannel, MarketDataStreamEvent, MarketQuote,
-        MarketSnapshotSource, MarketSnapshotV2, MarketTradeTick, OrderIds, Status, Trade,
-        TradingVehicleCategory, TransactionCategory,
+        MarketSnapshotSource, MarketSnapshotV2, MarketTradeTick, OrderIds, SessionRegime, Status,
+        Trade, TradingVehicleCategory, TransactionCategory,
     };
     use rust_decimal::Decimal;
     use rust_decimal_macros::dec;
@@ -9542,6 +10192,15 @@ mod tests {
             .get_matches_from(argv)
     }
 
+    fn session_matches(args: &[&str]) -> clap::ArgMatches {
+        let mut argv: Vec<&str> = vec!["test"];
+        argv.extend_from_slice(args);
+        Command::new("test")
+            .arg(Arg::new("account").long("account"))
+            .arg(Arg::new("format").long("format"))
+            .get_matches_from(argv)
+    }
+
     fn distribution_config_matches(args: &[&str]) -> clap::ArgMatches {
         let mut argv: Vec<&str> = vec!["test"];
         argv.extend_from_slice(args);
@@ -9714,6 +10373,7 @@ mod tests {
                     .history()
                     .build(),
             )
+            .subcommand(SessionCommandBuilder::new().open().close().list().build())
             .subcommand(OnboardingCommandBuilder::new().init().status().build())
             .subcommand(PolicyCommandBuilder::new().build())
     }
@@ -16452,6 +17112,162 @@ mod tests {
     }
 
     #[test]
+    fn test_session_open_interactive_persists_plan_and_blocks_duplicate_open() {
+        let mut dispatcher = test_dispatcher();
+        let (account, _vehicle) = seed_account_and_vehicle(&mut dispatcher);
+
+        crate::dialogs::scripted_reset();
+        crate::dialogs::scripted_push_select(Ok(Some(1)));
+        crate::dialogs::scripted_push_input(Ok("breakout, pullback".to_string()));
+        crate::dialogs::scripted_push_input(Ok("2".to_string()));
+        crate::dialogs::scripted_push_input(Ok("Wait for A-grade continuation setups".to_string()));
+        crate::dialogs::scripted_push_input(Ok("Take one clean setup and honor stops".to_string()));
+        crate::dialogs::scripted_push_input(Ok("Chase a low-quality trade".to_string()));
+
+        dispatcher
+            .session_open(
+                &session_matches(&["--account", &account.name]),
+                ReportOutputFormat::Text,
+            )
+            .expect("session open should persist plan");
+
+        let open = dispatcher
+            .trust
+            .open_session_for_account(account.id)
+            .expect("open session lookup should succeed")
+            .expect("session should be open");
+        assert_eq!(open.regime, SessionRegime::Normal);
+        assert_eq!(open.permitted_setups, vec!["breakout", "pullback"]);
+        assert_eq!(open.max_positions, 2);
+        assert!(open.closed_at.is_none());
+
+        let duplicate = dispatcher
+            .session_open(
+                &session_matches(&["--account", &account.name]),
+                ReportOutputFormat::Text,
+            )
+            .expect_err("duplicate open session should fail before dialog");
+        assert_eq!(duplicate.code, "session_already_open");
+
+        crate::dialogs::scripted_reset();
+    }
+
+    #[test]
+    fn test_session_close_reviews_unplanned_trades_and_list_formats() {
+        let mut dispatcher = test_dispatcher();
+        let (account, vehicle) = seed_account_and_vehicle(&mut dispatcher);
+
+        crate::dialogs::scripted_reset();
+        crate::dialogs::scripted_push_select(Ok(Some(1)));
+        crate::dialogs::scripted_push_input(Ok("breakout, pullback".to_string()));
+        crate::dialogs::scripted_push_input(Ok("1".to_string()));
+        crate::dialogs::scripted_push_input(Ok("Only take planned setups".to_string()));
+        crate::dialogs::scripted_push_input(Ok("One A setup maximum".to_string()));
+        crate::dialogs::scripted_push_input(Ok("Any unplanned setup".to_string()));
+        dispatcher
+            .session_open(
+                &session_matches(&["--account", &account.name]),
+                ReportOutputFormat::Text,
+            )
+            .expect("session should open");
+
+        for setup in ["breakout", "mean reversion"] {
+            dispatcher
+                .trust
+                .create_trade(
+                    model::DraftTrade {
+                        account: account.clone(),
+                        trading_vehicle: vehicle.clone(),
+                        quantity: 1,
+                        category: model::TradeCategory::Long,
+                        currency: Currency::USD,
+                        thesis: Some(format!("{setup} thesis")),
+                        sector: Some("technology".to_string()),
+                        asset_class: Some("equity".to_string()),
+                        context: Some(setup.to_string()),
+                    },
+                    dec!(95),
+                    dec!(100),
+                    dec!(110),
+                )
+                .expect("session trade should create");
+        }
+
+        let open = dispatcher
+            .trust
+            .open_session_for_account(account.id)
+            .expect("open session lookup")
+            .expect("open session");
+        let trades = dispatcher
+            .trust
+            .trades_for_account_in_period(account.id, open.opened_at, Utc::now().naive_utc())
+            .expect("session trades should load");
+        let rows = ArgDispatcher::session_trade_review_rows(&open, &trades);
+        assert_eq!(rows.iter().filter(|row| row.planned).count(), 1);
+        assert_eq!(rows.iter().filter(|row| !row.planned).count(), 1);
+
+        crate::dialogs::scripted_push_select(Ok(Some(0)));
+        crate::dialogs::scripted_push_input(Ok("One unplanned trade slipped in.".to_string()));
+        dispatcher
+            .session_close(&session_matches(&[]), ReportOutputFormat::Text)
+            .expect("session close should persist review");
+
+        assert!(dispatcher
+            .trust
+            .open_session_for_account(account.id)
+            .expect("open session lookup after close")
+            .is_none());
+        let sessions = dispatcher
+            .trust
+            .session_plans_for_account(
+                account.id,
+                chrono::NaiveDateTime::MIN,
+                Utc::now().naive_utc(),
+            )
+            .expect("session history should load");
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].session_grade.as_deref(), Some("A"));
+        assert_eq!(
+            sessions[0].adherence_notes.as_deref(),
+            Some("One unplanned trade slipped in.")
+        );
+
+        dispatcher
+            .session_list(
+                &session_matches(&["--account", &account.name, "--format", "json"]),
+                ReportOutputFormat::Json,
+            )
+            .expect("json session list should render");
+        dispatcher
+            .session_list(
+                &session_matches(&["--account", &account.name, "--format", "human"]),
+                ReportOutputFormat::Text,
+            )
+            .expect("human session list should render");
+
+        crate::dialogs::scripted_reset();
+    }
+
+    #[test]
+    fn test_session_close_fails_when_no_session_is_open() {
+        let mut dispatcher = test_dispatcher();
+        let (account, _vehicle) = seed_account_and_vehicle(&mut dispatcher);
+
+        let no_account_error = dispatcher
+            .session_close(&session_matches(&[]), ReportOutputFormat::Text)
+            .expect_err("close without an open session should fail");
+        assert_eq!(no_account_error.code, "no_open_session");
+
+        let account_error = dispatcher
+            .session_close(
+                &session_matches(&["--account", &account.name]),
+                ReportOutputFormat::Text,
+            )
+            .expect_err("close for an account without a session should fail");
+        assert_eq!(account_error.code, "no_open_session");
+    }
+
+    #[test]
     fn test_trade_interactive_dispatch_funds_submits_and_syncs_selected_trade() {
         let mut dispatcher =
             test_dispatcher_with_broker(Box::new(StubBroker::submitted_fill_fixture()));
@@ -18378,6 +19194,7 @@ mod tests {
         check_panics_without_subcommand(ArgDispatcher::dispatch_onboarding, "onboarding");
         check_panics_without_subcommand(ArgDispatcher::dispatch_metrics, "metrics");
         check_panics_without_subcommand(ArgDispatcher::dispatch_advisor, "advisor");
+        check_panics_without_subcommand(ArgDispatcher::dispatch_session, "session");
     }
 
     #[test]
@@ -18465,6 +19282,7 @@ mod tests {
         ])
         .is_ok());
         assert!(dispatch(&["trust", "advisor", "status", "--account", "bad"]).is_err());
+        assert!(dispatch(&["trust", "session", "list", "--account", "bad"]).is_err());
         assert!(dispatch(&["trust", "external-plugin", "arg1", "arg2"]).is_ok());
 
         std::env::remove_var("TRUST_PROTECTED_KEYWORD_EXPECTED");

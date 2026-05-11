@@ -34,7 +34,8 @@ use crate::commands::{
     AccountCommandBuilder, AdvisorCommandBuilder, DbCommandBuilder, DistributionCommandBuilder,
     GradeCommandBuilder, KeysCommandBuilder, LevelCommandBuilder, MarketDataCommandBuilder,
     MetricsCommandBuilder, OnboardingCommandBuilder, PolicyCommandBuilder, ReportCommandBuilder,
-    TradeCommandBuilder, TradingVehicleCommandBuilder, TransactionCommandBuilder,
+    SessionCommandBuilder, TradeCommandBuilder, TradingVehicleCommandBuilder,
+    TransactionCommandBuilder,
 };
 use crate::dispatcher::ArgDispatcher;
 use clap::Command;
@@ -189,6 +190,7 @@ fn build_cli() -> Command {
                 .history()
                 .build(),
         )
+        .subcommand(SessionCommandBuilder::new().open().close().list().build())
         .subcommand(build_onboarding_subcommand())
         .subcommand(build_policy_subcommand())
 }
@@ -237,6 +239,7 @@ mod tests {
             "level",
             "metrics",
             "advisor",
+            "session",
             "onboarding",
             "policy",
         ] {
