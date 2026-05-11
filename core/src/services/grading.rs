@@ -613,7 +613,7 @@ fn planned_rr_ratio(trade: &Trade) -> Option<Decimal> {
 
 fn planned_risk_amount(trade: &Trade, entry_fill: Decimal) -> Option<Decimal> {
     let per_share = planned_stop_distance(trade, entry_fill)?;
-    let qty = Decimal::from(trade.entry.quantity);
+    let qty = trade.entry.quantity;
     per_share.checked_mul(qty)
 }
 
@@ -950,7 +950,7 @@ mod tests {
         model::Order {
             unit_price: price,
             category,
-            quantity,
+            quantity: quantity.into(),
             ..Default::default()
         }
     }
@@ -1018,7 +1018,7 @@ mod tests {
             .order_write()
             .create(
                 &vehicle,
-                10,
+                dec!(10),
                 dec!(95),
                 &Currency::USD,
                 &OrderAction::Sell,
@@ -1029,7 +1029,7 @@ mod tests {
             .order_write()
             .create(
                 &vehicle,
-                10,
+                dec!(10),
                 dec!(100),
                 &Currency::USD,
                 &OrderAction::Buy,
@@ -1040,7 +1040,7 @@ mod tests {
             .order_write()
             .create(
                 &vehicle,
-                10,
+                dec!(10),
                 dec!(115),
                 &Currency::USD,
                 &OrderAction::Sell,
@@ -1053,7 +1053,7 @@ mod tests {
                 DraftTrade {
                     account: account.clone(),
                     trading_vehicle: vehicle,
-                    quantity: 10,
+                    quantity: 10.into(),
                     currency: Currency::USD,
                     category: TradeCategory::Long,
                     thesis: Some("Breakout after consolidation".to_string()),

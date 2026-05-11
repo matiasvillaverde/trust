@@ -326,7 +326,7 @@ mod tests {
             face_value: dec!(1000),
             market_price: dec!(1000),
             annual_coupon_rate_pct: dec!(5),
-            quantity: 10,
+            quantity: 10.into(),
             years_to_maturity: dec!(5),
             accrued_interest: None,
         })
@@ -351,7 +351,7 @@ mod tests {
             face_value: dec!(1000),
             market_price: dec!(950),
             annual_coupon_rate_pct: dec!(4),
-            quantity: 3,
+            quantity: 3.into(),
             years_to_maturity: dec!(5),
             accrued_interest: None,
         })
@@ -376,7 +376,7 @@ mod tests {
             face_value: dec!(1000),
             market_price: dec!(1001),
             annual_coupon_rate_pct: dec!(3.5),
-            quantity: 2,
+            quantity: 2.into(),
             years_to_maturity: Decimal::ZERO,
             accrued_interest: None,
         })
@@ -392,7 +392,7 @@ mod tests {
             face_value: dec!(1000),
             market_price: dec!(1000),
             annual_coupon_rate_pct: dec!(5),
-            quantity: 1,
+            quantity: 1.into(),
             years_to_maturity: dec!(1),
             accrued_interest: None,
         };
@@ -419,7 +419,7 @@ mod tests {
         );
 
         let mut invalid = valid.clone();
-        invalid.quantity = 0;
+        invalid.quantity = 0.into();
         assert_eq!(
             FixedIncomeCalculator::analyze_bond(invalid),
             Err(FixedIncomeError::InvalidQuantity)
@@ -439,7 +439,7 @@ mod tests {
             face_value: dec!(1000),
             market_price: dec!(1000),
             annual_coupon_rate_pct: dec!(6),
-            quantity: 10,
+            quantity: 10.into(),
             years_to_maturity: dec!(5),
             accrued_interest: Some(BondAccruedInterestInput {
                 settlement_date: NaiveDate::from_ymd_opt(2026, 4, 1).unwrap(),
@@ -505,7 +505,7 @@ mod tests {
             face_value: dec!(1000),
             market_price: dec!(1050),
             annual_coupon_rate_pct: dec!(5),
-            quantity: 1,
+            quantity: 1.into(),
             years_to_maturity: dec!(5),
             accrued_interest: None,
         };
@@ -523,7 +523,7 @@ mod tests {
             face_value: dec!(1000),
             market_price: dec!(990),
             annual_coupon_rate_pct: dec!(6),
-            quantity: 2,
+            quantity: 2.into(),
             years_to_maturity: dec!(4),
             accrued_interest: Some(BondAccruedInterestInput {
                 settlement_date: NaiveDate::from_ymd_opt(2026, 4, 1).unwrap(),
@@ -559,7 +559,7 @@ mod tests {
             face_value: dec!(1000),
             market_price: dec!(1000),
             annual_coupon_rate_pct: dec!(6),
-            quantity: 1,
+            quantity: 1.into(),
             years_to_maturity: dec!(5),
             accrued_interest: Some(BondAccruedInterestInput {
                 settlement_date: NaiveDate::from_ymd_opt(2026, 4, 1).unwrap(),

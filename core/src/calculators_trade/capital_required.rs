@@ -36,7 +36,7 @@ impl TradeCapitalRequired {
             TradeCategory::Long => trade
                 .entry
                 .unit_price
-                .checked_mul(Decimal::from(trade.entry.quantity))
+                .checked_mul(trade.entry.quantity)
                 .ok_or_else(|| {
                     format!(
                         "Arithmetic overflow in multiplication: {} * {}",
@@ -54,7 +54,7 @@ impl TradeCapitalRequired {
                 trade
                     .safety_stop
                     .unit_price
-                    .checked_mul(Decimal::from(trade.entry.quantity))
+                    .checked_mul(trade.entry.quantity)
                     .ok_or_else(|| {
                         format!(
                             "Arithmetic overflow in multiplication: {} * {}",
@@ -80,7 +80,7 @@ mod tests {
             category: TradeCategory::Long,
             entry: Order {
                 unit_price: dec!(10),
-                quantity: 5,
+                quantity: 5.into(),
                 ..Default::default()
             },
             ..Default::default()
@@ -100,12 +100,12 @@ mod tests {
             category: TradeCategory::Short,
             entry: Order {
                 unit_price: dec!(10),
-                quantity: 5,
+                quantity: 5.into(),
                 ..Default::default()
             },
             safety_stop: Order {
                 unit_price: dec!(15),
-                quantity: 5,
+                quantity: 5.into(),
                 ..Default::default()
             },
             ..Default::default()
@@ -125,12 +125,12 @@ mod tests {
             category: TradeCategory::Short,
             entry: Order {
                 unit_price: dec!(20),
-                quantity: 10,
+                quantity: 10.into(),
                 ..Default::default()
             },
             safety_stop: Order {
                 unit_price: dec!(25),
-                quantity: 10, // Same quantity for safety
+                quantity: 10.into(), // Same quantity for safety
                 ..Default::default()
             },
             ..Default::default()
@@ -149,7 +149,7 @@ mod tests {
             category: TradeCategory::Long,
             entry: Order {
                 unit_price: Decimal::MAX,
-                quantity: 2,
+                quantity: 2.into(),
                 ..Default::default()
             },
             ..Default::default()
@@ -168,12 +168,12 @@ mod tests {
             category: TradeCategory::Short,
             entry: Order {
                 unit_price: dec!(10),
-                quantity: 2,
+                quantity: 2.into(),
                 ..Default::default()
             },
             safety_stop: Order {
                 unit_price: Decimal::MAX,
-                quantity: 2,
+                quantity: 2.into(),
                 ..Default::default()
             },
             ..Default::default()

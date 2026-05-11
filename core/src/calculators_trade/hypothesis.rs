@@ -11,7 +11,7 @@ pub struct TradeHypothesis {
     /// Available account capital in the selected currency.
     pub available_capital: Decimal,
     /// Proposed position quantity.
-    pub quantity: i64,
+    pub quantity: Decimal,
     /// Required capital to fund the position.
     ///
     /// Long setups use `entry_price * quantity`.
@@ -51,7 +51,7 @@ impl TradeHypothesisCalculator {
         entry_price: Decimal,
         stop_price: Decimal,
         target_price: Decimal,
-        quantity: i64,
+        quantity: Decimal,
         currency: &Currency,
         database: &mut dyn DatabaseFactory,
     ) -> Result<TradeHypothesis, Box<dyn std::error::Error>> {
@@ -59,7 +59,7 @@ impl TradeHypothesisCalculator {
         Self::ensure_positive_price("stop_price", stop_price)?;
         Self::ensure_positive_price("target_price", target_price)?;
 
-        if quantity <= 0 {
+        if quantity <= Decimal::ZERO {
             return Err(format!("quantity must be greater than 0, got {quantity}").into());
         }
 
@@ -84,17 +84,16 @@ impl TradeHypothesisCalculator {
         entry_price: Decimal,
         stop_price: Decimal,
         target_price: Decimal,
-        quantity: i64,
+        quantity: Decimal,
     ) -> Result<TradeHypothesis, Box<dyn std::error::Error>> {
         Self::ensure_positive_price("entry_price", entry_price)?;
         Self::ensure_positive_price("stop_price", stop_price)?;
         Self::ensure_positive_price("target_price", target_price)?;
 
-        if quantity <= 0 {
+        if quantity <= Decimal::ZERO {
             return Err(format!("quantity must be greater than 0, got {quantity}").into());
         }
 
-        let quantity_decimal = Decimal::from(quantity);
         let side = Self::infer_side(entry_price, stop_price, target_price)?;
 
         let risk_per_share = match side {
@@ -115,10 +114,9 @@ impl TradeHypothesisCalculator {
         };
         let funding_price = Self::funding_price(entry_price, stop_price, side);
 
-        let capital_required =
-            Self::checked_multiply(funding_price, quantity_decimal, "capital required")?;
-        let max_loss = Self::checked_multiply(risk_per_share, quantity_decimal, "maximum loss")?;
-        let max_gain = Self::checked_multiply(reward_per_share, quantity_decimal, "maximum gain")?;
+        let capital_required = Self::checked_multiply(funding_price, quantity, "capital required")?;
+        let max_loss = Self::checked_multiply(risk_per_share, quantity, "maximum loss")?;
+        let max_gain = Self::checked_multiply(reward_per_share, quantity, "maximum gain")?;
 
         let capital_required_pct_of_available =
             Self::percentage_of_available(capital_required, available_capital)?;
@@ -253,12 +251,12 @@ mod tests {
             dec!(40),
             dec!(38),
             dec!(48),
-            100,
+            dec!(100),
         )
         .expect("hypothesis should calculate");
 
         assert_eq!(result.available_capital, dec!(10_000));
-        assert_eq!(result.quantity, 100);
+        assert_eq!(result.quantity, dec!(100));
         assert_eq!(result.capital_required, dec!(4_000));
         assert_eq!(result.capital_required_pct_of_available, Some(dec!(40)));
         assert_eq!(result.risk_per_share, dec!(2));
@@ -277,7 +275,7 @@ mod tests {
             dec!(50),
             dec!(55),
             dec!(40),
-            10,
+            dec!(10),
         )
         .expect("hypothesis should calculate");
 
@@ -369,7 +367,7 @@ mod tests {
             dec!(40.17),
             dec!(39.62),
             dec!(42.92),
-            17,
+            dec!(17),
         )
         .expect("hypothesis should calculate");
 
@@ -394,7 +392,7 @@ mod tests {
             dec!(100),
             dec!(95),
             dec!(120),
-            2,
+            dec!(2),
         )
         .expect("hypothesis should calculate");
 
@@ -411,7 +409,7 @@ mod tests {
             dec!(100),
             dec!(95),
             dec!(120),
-            2,
+            dec!(2),
         )
         .expect("hypothesis should calculate");
 
@@ -428,7 +426,7 @@ mod tests {
             dec!(25),
             dec!(25),
             dec!(30),
-            4,
+            dec!(4),
         )
         .expect("hypothesis should calculate");
 
@@ -444,7 +442,7 @@ mod tests {
             dec!(25),
             dec!(24),
             dec!(25),
-            4,
+            dec!(4),
         )
         .expect("hypothesis should calculate");
 
@@ -461,7 +459,7 @@ mod tests {
             dec!(40),
             dec!(38),
             dec!(48),
-            0,
+            dec!(0),
         )
         .expect_err("zero quantity should fail");
 
@@ -475,7 +473,7 @@ mod tests {
             Decimal::ZERO,
             dec!(38),
             dec!(48),
-            1,
+            dec!(1),
         )
         .expect_err("zero entry should fail");
         assert_eq!(
@@ -488,7 +486,7 @@ mod tests {
             dec!(40),
             dec!(-1),
             dec!(48),
-            1,
+            dec!(1),
         )
         .expect_err("negative stop should fail");
         assert_eq!(
@@ -501,7 +499,7 @@ mod tests {
             dec!(40),
             dec!(38),
             Decimal::ZERO,
-            1,
+            dec!(1),
         )
         .expect_err("zero target should fail");
         assert_eq!(
@@ -517,7 +515,7 @@ mod tests {
             dec!(50),
             dec!(55),
             dec!(60),
-            1,
+            dec!(1),
         )
         .expect_err("conflicting direction should fail");
 
@@ -536,7 +534,7 @@ mod tests {
             dec!(40),
             dec!(38),
             dec!(48),
-            0,
+            dec!(0),
             &Currency::USD,
             &mut database,
         )
@@ -573,7 +571,7 @@ mod tests {
             dec!(50),
             dec!(45),
             dec!(65),
-            10,
+            dec!(10),
             &Currency::USD,
             &mut database,
         )
@@ -616,7 +614,7 @@ mod tests {
             dec!(50),
             dec!(45),
             dec!(65),
-            10,
+            dec!(10),
             &Currency::USD,
             &mut database,
         )
@@ -638,7 +636,7 @@ mod tests {
             Decimal::MAX,
             stop_price,
             Decimal::MAX,
-            2,
+            dec!(2),
         )
         .expect_err("overflow should fail");
 
@@ -696,7 +694,7 @@ mod tests {
             dec!(40),
             dec!(38),
             dec!(48),
-            1,
+            dec!(1),
             &Currency::USD,
             &mut database,
         )

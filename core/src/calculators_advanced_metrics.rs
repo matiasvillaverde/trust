@@ -336,7 +336,7 @@ impl AdvancedMetricsCalculator {
                 let stop_price = trade.safety_stop.unit_price;
                 let risk_per_share = entry_price.checked_sub(stop_price).unwrap_or(dec!(0)).abs();
                 let total_risk = risk_per_share
-                    .checked_mul(Decimal::from(trade.entry.quantity))
+                    .checked_mul(trade.entry.quantity)
                     .unwrap_or(dec!(0));
 
                 if total_risk > dec!(0) {
@@ -556,7 +556,7 @@ impl AdvancedMetricsCalculator {
 
             if risk_per_share > dec!(0) {
                 let total_risk = risk_per_share
-                    .checked_mul(Decimal::from(trade.entry.quantity))
+                    .checked_mul(trade.entry.quantity)
                     .unwrap_or(dec!(0));
 
                 if total_risk > dec!(0) {
@@ -1783,7 +1783,7 @@ mod tests {
         trade.entry.unit_price = dec!(100);
         trade.safety_stop.unit_price = dec!(95);
         trade.target.unit_price = dec!(110);
-        trade.entry.quantity = 10;
+        trade.entry.quantity = 10.into();
         trade
     }
 

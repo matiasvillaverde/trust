@@ -3,9 +3,10 @@
 use crate::commands;
 use chrono::Utc;
 use model::{
-    Account, AccountBalance, Broker, BrokerLog, DatabaseFactory, DraftTrade, Execution,
-    ExecutionSide, ExecutionSource, FeeActivity, Order, OrderCategory, OrderStatus, Status, Trade,
-    TradeBalance, TradeCategory, TradingVehicleCategory, Transaction, TransactionCategory,
+    Account, AccountBalance, Broker, BrokerError, BrokerKind, BrokerLog, DatabaseFactory,
+    DraftTrade, Execution, ExecutionSide, ExecutionSource, FeeActivity, Order, OrderCategory,
+    OrderStatus, Status, Trade, TradeBalance, TradeCategory, TradingVehicleCategory, Transaction,
+    TransactionCategory,
 };
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
@@ -93,13 +94,14 @@ pub fn create_trade_with_safety_order_category(
     safety_order_category: OrderCategory,
     database: &mut dyn DatabaseFactory,
 ) -> Result<Trade, Box<dyn std::error::Error>> {
-    if trade.quantity <= 0 {
+    if trade.quantity <= Decimal::ZERO {
         return Err(format!(
             "Trade quantity must be greater than zero, got {}",
             trade.quantity
         )
         .into());
     }
+    validate_broker_asset_support(&trade)?;
 
     // 1. Create Stop-loss Order
     let stop = match safety_order_category {
@@ -164,6 +166,32 @@ pub fn create_trade_with_safety_order_category(
     database
         .trade_write()
         .create_trade(draft, &stop, &entry, &target)
+}
+
+fn validate_broker_asset_support(trade: &DraftTrade) -> Result<(), Box<dyn std::error::Error>> {
+    match trade.trading_vehicle.category {
+        TradingVehicleCategory::Bond if vehicle_broker_is(&trade.trading_vehicle, "alpaca") => {
+            Err(BrokerError::unsupported_asset_class(
+                BrokerKind::Alpaca,
+                TradingVehicleCategory::Bond,
+                "Bonds are not supported by Alpaca. Use IBKR for bond trading.",
+            )
+            .into())
+        }
+        TradingVehicleCategory::Fiat if vehicle_broker_is(&trade.trading_vehicle, "alpaca") => {
+            Err(BrokerError::unsupported_asset_class(
+                BrokerKind::Alpaca,
+                TradingVehicleCategory::Fiat,
+                "Fiat spot trading is not supported by Alpaca trade creation.",
+            )
+            .into())
+        }
+        _ => Ok(()),
+    }
+}
+
+fn vehicle_broker_is(vehicle: &model::TradingVehicle, broker: &str) -> bool {
+    vehicle.broker.trim().eq_ignore_ascii_case(broker)
 }
 
 pub fn update_status(
@@ -700,7 +728,7 @@ fn derive_trade_update_executions(
             side_for_exit(previous_trade.category),
         ),
     ] {
-        if updated_order.filled_quantity == 0
+        if updated_order.filled_quantity <= Decimal::ZERO
             || updated_order.filled_quantity <= previous_order.filled_quantity
         {
             continue;
@@ -720,7 +748,7 @@ fn derive_trade_update_executions(
         else {
             continue;
         };
-        let qty = Decimal::from(delta_qty);
+        let qty = delta_qty;
         let broker_execution_id = format!(
             "trade_updates:{}:{}:{}",
             broker_order_id,
@@ -1080,12 +1108,12 @@ mod tests {
     use super::{
         allocated_fee_totals_for_trade, derive_trade_update_executions, ensure_order_filled,
         is_integer_decimal, is_terminal_order_status, must_reject_fractional_qty,
-        resolve_orders_for_sync, should_persist_order_update, validate_sync_transition,
-        ResolvedSyncOrders,
+        resolve_orders_for_sync, should_persist_order_update, validate_broker_asset_support,
+        validate_sync_transition, ResolvedSyncOrders,
     };
     use model::{
-        ExecutionSource, FeeActivity, OrderCategory, OrderStatus, Status, Trade, TradeCategory,
-        TradingVehicleCategory,
+        BrokerError, BrokerKind, Currency, DraftTrade, ExecutionSource, FeeActivity, OrderCategory,
+        OrderStatus, Status, Trade, TradeCategory, TradingVehicleCategory,
     };
     use rust_decimal_macros::dec;
     use uuid::Uuid;
@@ -1142,6 +1170,38 @@ mod tests {
     }
 
     #[test]
+    fn validate_broker_asset_support_rejects_alpaca_bonds() {
+        let mut draft = DraftTrade {
+            account: model::Account::default(),
+            trading_vehicle: model::TradingVehicle::default(),
+            quantity: dec!(1),
+            currency: Currency::USD,
+            category: TradeCategory::Long,
+            thesis: None,
+            sector: None,
+            asset_class: None,
+            context: None,
+        };
+        draft.trading_vehicle.category = TradingVehicleCategory::Bond;
+        draft.trading_vehicle.broker = "alpaca".to_string();
+
+        let error =
+            validate_broker_asset_support(&draft).expect_err("alpaca bond should be rejected");
+
+        assert!(error
+            .to_string()
+            .contains("Bonds are not supported by Alpaca"));
+        assert!(matches!(
+            error.downcast_ref::<BrokerError>(),
+            Some(BrokerError::UnsupportedAssetClass {
+                broker: BrokerKind::Alpaca,
+                category: TradingVehicleCategory::Bond,
+                ..
+            })
+        ));
+    }
+
+    #[test]
     fn test_allocate_fee_totals_by_symbol_and_day() {
         let mut trade = Trade::default();
         trade.trading_vehicle.symbol = "AAPL".to_string();
@@ -1186,7 +1246,7 @@ mod tests {
         assert!(should_persist_order_update(&current, &changed));
 
         let mut changed = current.clone();
-        changed.filled_quantity = 1;
+        changed.filled_quantity = 1.into();
         assert!(should_persist_order_update(&current, &changed));
 
         let mut changed = current.clone();
@@ -1284,7 +1344,7 @@ mod tests {
         let mut entry_update = trade.entry.clone();
         entry_update.broker_order_id = Some("entry-broker".to_string());
         entry_update.status = OrderStatus::Filled;
-        entry_update.filled_quantity = 10;
+        entry_update.filled_quantity = 10.into();
         entry_update.average_filled_price = Some(dec!(100.25));
         entry_update.submitted_at = Some(now);
         entry_update.filled_at = Some(now);
@@ -1311,7 +1371,7 @@ mod tests {
             Some("entry-broker")
         );
         assert_eq!(resolved.entry.status, OrderStatus::Filled);
-        assert_eq!(resolved.entry.filled_quantity, 10);
+        assert_eq!(resolved.entry.filled_quantity, dec!(10));
         assert_eq!(resolved.entry.average_filled_price, Some(dec!(100.25)));
         assert_eq!(
             resolved.target.broker_order_id.as_deref(),
@@ -1344,7 +1404,7 @@ mod tests {
         };
         previous.trading_vehicle.symbol = "AAPL".to_string();
         previous.entry.broker_order_id = Some(Uuid::new_v4().to_string());
-        previous.entry.filled_quantity = 5;
+        previous.entry.filled_quantity = 5.into();
         previous.entry.average_filled_price = Some(dec!(100.50));
 
         let mut resolved = ResolvedSyncOrders {
@@ -1352,7 +1412,7 @@ mod tests {
             target: previous.target.clone(),
             stop: previous.safety_stop.clone(),
         };
-        resolved.entry.filled_quantity = 10;
+        resolved.entry.filled_quantity = 10.into();
         resolved.entry.filled_at = Some(
             chrono::NaiveDate::from_ymd_opt(2026, 2, 18)
                 .unwrap()
@@ -1360,7 +1420,7 @@ mod tests {
                 .unwrap(),
         );
         resolved.target.broker_order_id = Some(Uuid::new_v4().to_string());
-        resolved.target.filled_quantity = 10;
+        resolved.target.filled_quantity = 10.into();
         resolved.target.average_filled_price = Some(dec!(102.75));
         resolved.target.filled_at = Some(
             chrono::NaiveDate::from_ymd_opt(2026, 2, 18)

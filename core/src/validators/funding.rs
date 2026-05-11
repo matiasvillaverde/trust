@@ -139,15 +139,7 @@ fn validate_level_adjusted_quantity(
         })
     })?;
 
-    let allowed_quantity = u64::try_from(sizing.final_quantity).map_err(|_| {
-        Box::new(FundValidationError {
-            code: FundValidationErrorCode::NotEnoughFunds,
-            message: format!(
-                "Invalid level-adjusted quantity {} for account {}",
-                sizing.final_quantity, trade.account_id
-            ),
-        })
-    })?;
+    let allowed_quantity = sizing.final_quantity;
 
     if trade.entry.quantity > allowed_quantity {
         return Err(Box::new(FundValidationError {
@@ -173,7 +165,7 @@ fn validate_risk_per_trade(
     risk: Decimal,
     risk_per_month: Decimal,
 ) -> FundingValidationResult {
-    if trade.entry.quantity == 0 {
+    if trade.entry.quantity <= Decimal::ZERO {
         return Err(Box::new(FundValidationError {
             code: FundValidationErrorCode::InvalidQuantity,
             message: format!(
@@ -210,7 +202,7 @@ fn validate_risk_per_trade(
     }
 
     let total_risk = price_diff
-        .checked_mul(Decimal::from(trade.entry.quantity))
+        .checked_mul(trade.entry.quantity)
         .ok_or_else(|| {
             Box::new(FundValidationError {
                 code: FundValidationErrorCode::NotEnoughFunds,
@@ -390,12 +382,12 @@ mod tests {
             category: TradeCategory::Long,
             entry: Order {
                 unit_price: entry_price,
-                quantity,
+                quantity: quantity.into(),
                 ..Default::default()
             },
             safety_stop: Order {
                 unit_price: stop_price,
-                quantity,
+                quantity: quantity.into(),
                 ..Default::default()
             },
             ..Default::default()
@@ -432,7 +424,7 @@ mod tests {
         let trade = Trade {
             entry: Order {
                 unit_price: Decimal::new(10, 0),
-                quantity: 5,
+                quantity: 5.into(),
                 ..Default::default()
             },
             ..Default::default()
@@ -453,7 +445,7 @@ mod tests {
             account_id: id,
             entry: Order {
                 unit_price: Decimal::new(2000, 0),
-                quantity: 5,
+                quantity: 5.into(),
                 ..Default::default()
             },
             ..Default::default()
@@ -477,7 +469,7 @@ mod tests {
         let trade = Trade {
             entry: Order {
                 unit_price: Decimal::MAX,
-                quantity: 2,
+                quantity: 2.into(),
                 ..Default::default()
             },
             ..Default::default()
@@ -501,12 +493,12 @@ mod tests {
             category: TradeCategory::Short,
             entry: Order {
                 unit_price: dec!(10),
-                quantity: 4,
+                quantity: 4.into(),
                 ..Default::default()
             },
             safety_stop: Order {
                 unit_price: dec!(15),
-                quantity: 4,
+                quantity: 4.into(),
                 ..Default::default()
             },
             ..Default::default()
@@ -531,12 +523,12 @@ mod tests {
             category: TradeCategory::Short,
             entry: Order {
                 unit_price: dec!(10),
-                quantity: 4,
+                quantity: 4.into(),
                 ..Default::default()
             },
             safety_stop: Order {
                 unit_price: dec!(15),
-                quantity: 4,
+                quantity: 4.into(),
                 ..Default::default()
             },
             ..Default::default()
@@ -583,7 +575,7 @@ mod tests {
             category: TradeCategory::Short,
             entry: Order {
                 unit_price: dec!(100),
-                quantity: u64::MAX,
+                quantity: Decimal::from(u64::MAX),
                 ..Default::default()
             },
             safety_stop: Order {
@@ -634,7 +626,7 @@ mod tests {
         let trade = Trade {
             entry: Order {
                 unit_price: dec!(10),
-                quantity: 5,
+                quantity: 5.into(),
                 ..Default::default()
             },
             safety_stop: Order {
@@ -657,7 +649,7 @@ mod tests {
         let trade = Trade {
             entry: Order {
                 unit_price: dec!(10),
-                quantity: 5,
+                quantity: 5.into(),
                 ..Default::default()
             },
             safety_stop: Order {
@@ -686,7 +678,7 @@ mod tests {
         let trade = Trade {
             entry: Order {
                 unit_price: dec!(10),
-                quantity: 5,
+                quantity: 5.into(),
                 ..Default::default()
             },
             safety_stop: Order {
@@ -712,7 +704,7 @@ mod tests {
         let trade = Trade {
             entry: Order {
                 unit_price: dec!(10),
-                quantity: 0,
+                quantity: 0.into(),
                 ..Default::default()
             },
             safety_stop: Order {
@@ -739,7 +731,7 @@ mod tests {
             category: TradeCategory::Short,
             entry: Order {
                 unit_price: dec!(10),
-                quantity: 5,
+                quantity: 5.into(),
                 ..Default::default()
             },
             safety_stop: Order {
@@ -765,7 +757,7 @@ mod tests {
         let trade = Trade {
             entry: Order {
                 unit_price: dec!(10),
-                quantity: 5,
+                quantity: 5.into(),
                 ..Default::default()
             },
             safety_stop: Order {
@@ -794,7 +786,7 @@ mod tests {
         let trade = Trade {
             entry: Order {
                 unit_price: Decimal::MAX,
-                quantity: 2,
+                quantity: 2.into(),
                 ..Default::default()
             },
             safety_stop: Order {
@@ -823,7 +815,7 @@ mod tests {
         let trade = Trade {
             entry: Order {
                 unit_price: dec!(10),
-                quantity: 1,
+                quantity: 1.into(),
                 ..Default::default()
             },
             safety_stop: Order {

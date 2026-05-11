@@ -155,7 +155,7 @@ fn trade(
             DraftTrade {
                 account: account.clone(),
                 trading_vehicle: vehicle,
-                quantity,
+                quantity: quantity.into(),
                 currency: Currency::USD,
                 category: side,
                 thesis: None,
@@ -364,7 +364,8 @@ fn funding_gate_respects_risk_formula_across_assets_sides_and_prices() {
                             .calculate_maximum_quantity(account.id, entry, stop, &Currency::USD)
                             .expect("maximum quantity");
                         assert_eq!(
-                            sizing, boundary_qty,
+                            sizing,
+                            Decimal::from(boundary_qty),
                             "quantity calculator and funding gate must agree for {category} {side:?}"
                         );
                     }
@@ -443,7 +444,7 @@ fn generated_funding_gate_matches_risk_formula() {
             let sizing = reject_trust
                 .calculate_maximum_quantity(account.id, case.entry, case.stop, &Currency::USD)
                 .expect("maximum quantity");
-            if sizing != boundary_qty {
+            if sizing != Decimal::from(boundary_qty) {
                 return Err(TestCaseError::fail(format!(
                     "quantity calculator and funding gate must agree for {case:?}: sizing={sizing}, boundary={boundary_qty}"
                 )));
