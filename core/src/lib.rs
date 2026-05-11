@@ -290,6 +290,25 @@ impl std::fmt::Debug for TrustFacade {
     }
 }
 
+fn protected_keyword_matches(expected: &str, provided: &str) -> bool {
+    if expected.is_empty() || provided.is_empty() {
+        return false;
+    }
+
+    let expected_bytes = expected.as_bytes();
+    let provided_bytes = provided.as_bytes();
+    let max_len = expected_bytes.len().max(provided_bytes.len());
+    let mut diff = expected_bytes.len() ^ provided_bytes.len();
+
+    for index in 0..max_len {
+        let expected_byte = expected_bytes.get(index).copied().unwrap_or_default();
+        let provided_byte = provided_bytes.get(index).copied().unwrap_or_default();
+        diff |= usize::from(expected_byte ^ provided_byte);
+    }
+
+    diff == 0
+}
+
 /// Trust is the main entry point for interacting with the core library.
 /// It is a facade that provides a simple interface for interacting with the
 /// core library.
@@ -320,9 +339,20 @@ impl TrustFacade {
         self.protected_mode = true;
     }
 
-    /// Authorizes exactly one protected mutation operation.
-    pub fn authorize_protected_mutation(&mut self) {
+    /// Authorizes exactly one protected mutation operation with the protected keyword.
+    pub fn authorize_protected_mutation(
+        &mut self,
+        provided_keyword: &str,
+        expected_keyword: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        if !self.protected_mode {
+            return Ok(());
+        }
+        if !protected_keyword_matches(expected_keyword, provided_keyword) {
+            return Err("Protected mutation authorization failed".into());
+        }
         self.protected_authorized = true;
+        Ok(())
     }
 
     fn consume_protected_authorization(

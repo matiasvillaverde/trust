@@ -1,10 +1,7 @@
 //! Security and correctness tests for Trust core.
 //!
-//! Each test asserts the **correct** behavior.  Since the bugs are unfixed,
-//! the correct assertion fails — so tests are marked `#[should_panic]`.
-//!
-//! When you fix a bug, its test will stop panicking and the `#[should_panic]`
-//! will cause a test failure — that's your signal to remove the annotation.
+//! Each test asserts the expected fixed behavior directly so these regressions
+//! fail loudly if any of the security guarantees are weakened.
 
 #[cfg(test)]
 #[allow(
@@ -89,13 +86,11 @@ mod tests {
     }
 
     // ===============================================================
-    // 1. PROTECTED MODE BYPASS — no password required
+    // 1. PROTECTED MODE BYPASS - no password required
     // ===============================================================
 
-    /// Protected mutations should require a password.  Currently
-    /// `authorize_protected_mutation()` needs no credentials at all.
+    /// Protected mutations should require valid credentials.
     #[test]
-    #[should_panic]
     fn protected_mode_should_require_password() {
         use crate::TrustFacade;
         use model::{Currency, Environment, TransactionCategory};
@@ -108,8 +103,10 @@ mod tests {
             .unwrap();
 
         facade.enable_protected_mode();
-        // Call authorize without any password — this should fail but doesn't.
-        facade.authorize_protected_mutation();
+        assert!(
+            facade.authorize_protected_mutation("", "").is_err(),
+            "Blank protected credentials should be rejected"
+        );
 
         let result = facade.create_transaction(
             &account,
@@ -125,7 +122,6 @@ mod tests {
     }
 
     /// Confirm that without calling authorize, operations are blocked.
-    /// (This is already correct behavior — no should_panic needed.)
     #[test]
     fn protected_mode_blocks_without_authorize() {
         use crate::TrustFacade;
@@ -151,7 +147,6 @@ mod tests {
 
     /// Re-authorization should require credentials each time.
     #[test]
-    #[should_panic]
     fn protected_mode_re_authorization_should_require_credentials() {
         use crate::TrustFacade;
         use model::{Currency, Environment, TransactionCategory};
@@ -165,16 +160,21 @@ mod tests {
 
         facade.enable_protected_mode();
 
-        // Second authorization without credentials should fail.
-        facade.authorize_protected_mutation();
+        facade
+            .authorize_protected_mutation("correct-secret", "correct-secret")
+            .unwrap();
         let _ = facade.create_transaction(
             &account,
             &TransactionCategory::Deposit,
             dec!(10),
             &Currency::USD,
         );
-        // Now try again — should require credentials again.
-        facade.authorize_protected_mutation();
+        assert!(
+            facade
+                .authorize_protected_mutation("wrong-secret", "correct-secret")
+                .is_err(),
+            "Re-authorization should reject invalid credentials"
+        );
         let result = facade.create_transaction(
             &account,
             &TransactionCategory::Deposit,
