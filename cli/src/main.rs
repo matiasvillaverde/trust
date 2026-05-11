@@ -128,6 +128,7 @@ fn build_cli() -> Command {
                 .hypothesis()
                 .advisor()
                 .events()
+                .autopsy()
                 .build(),
         )
         .subcommand(

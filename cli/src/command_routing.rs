@@ -79,6 +79,7 @@ pub enum TradeSubcommand<'a> {
     Hypothesis(&'a ArgMatches),
     Advisor(&'a ArgMatches),
     Events(&'a ArgMatches),
+    Autopsy(&'a ArgMatches),
 }
 
 pub enum DistributionSubcommand<'a> {
@@ -255,6 +256,7 @@ pub fn parse_trade_subcommand(sub_matches: &ArgMatches) -> TradeSubcommand<'_> {
         Some(("hypothesis", sub_sub_matches)) => TradeSubcommand::Hypothesis(sub_sub_matches),
         Some(("advisor", sub_sub_matches)) => TradeSubcommand::Advisor(sub_sub_matches),
         Some(("events", sub_sub_matches)) => TradeSubcommand::Events(sub_sub_matches),
+        Some(("autopsy", sub_sub_matches)) => TradeSubcommand::Autopsy(sub_sub_matches),
         _ => unreachable!("No subcommand provided"),
     }
 }
@@ -564,7 +566,8 @@ mod tests {
                 .subcommand(Command::new("size-preview"))
                 .subcommand(Command::new("hypothesis"))
                 .subcommand(Command::new("advisor"))
-                .subcommand(Command::new("events")),
+                .subcommand(Command::new("events"))
+                .subcommand(Command::new("autopsy")),
         );
         let trade_variants = [
             ("create", "Create"),
@@ -586,6 +589,7 @@ mod tests {
             ("hypothesis", "Hypothesis"),
             ("advisor", "Advisor"),
             ("events", "Events"),
+            ("autopsy", "Autopsy"),
         ];
         for (sub, expected) in trade_variants {
             let m = trade_app.clone().get_matches_from(["trust", "trade", sub]);
@@ -611,6 +615,7 @@ mod tests {
                 TradeSubcommand::Hypothesis(_) => "Hypothesis",
                 TradeSubcommand::Advisor(_) => "Advisor",
                 TradeSubcommand::Events(_) => "Events",
+                TradeSubcommand::Autopsy(_) => "Autopsy",
             };
             assert_eq!(got, expected);
         }

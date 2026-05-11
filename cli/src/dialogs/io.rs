@@ -1,5 +1,5 @@
 #[cfg(not(test))]
-use dialoguer::{theme::ColorfulTheme, Confirm, FuzzySelect};
+use dialoguer::{theme::ColorfulTheme, Confirm, FuzzySelect, MultiSelect};
 use std::io::Error as IoError;
 use std::io::ErrorKind;
 
@@ -12,6 +12,17 @@ pub trait DialogIo {
     ) -> Result<Option<usize>, IoError>;
 
     fn confirm(&mut self, prompt: &str, default: bool) -> Result<bool, IoError>;
+
+    fn multi_select_indices(
+        &mut self,
+        _prompt: &str,
+        _labels: &[String],
+    ) -> Result<Vec<usize>, IoError> {
+        Err(IoError::new(
+            ErrorKind::Unsupported,
+            "multi_select_indices not implemented",
+        ))
+    }
 
     fn input_text(&mut self, _prompt: &str, _allow_empty: bool) -> Result<String, IoError> {
         Err(IoError::new(
@@ -31,6 +42,17 @@ pub trait DialogBackend {
 
     fn confirm(&mut self, prompt: &str, default: bool) -> Result<bool, dialoguer::Error>;
 
+    fn multi_select_indices(
+        &mut self,
+        _prompt: &str,
+        _labels: &[String],
+    ) -> Result<Vec<usize>, dialoguer::Error> {
+        Err(dialoguer::Error::IO(IoError::new(
+            ErrorKind::Unsupported,
+            "multi_select_indices not implemented",
+        )))
+    }
+
     fn input_text(&mut self, prompt: &str, allow_empty: bool) -> Result<String, dialoguer::Error>;
 }
 
@@ -46,6 +68,7 @@ mod scripted_backend {
     #[derive(Default)]
     pub struct ScriptedState {
         pub selects: VecDeque<Result<Option<usize>, IoError>>,
+        pub multi_selects: VecDeque<Result<Vec<usize>, IoError>>,
         pub confirms: VecDeque<Result<bool, IoError>>,
         pub inputs: VecDeque<Result<String, IoError>>,
     }
@@ -56,6 +79,10 @@ mod scripted_backend {
 
     pub(crate) fn push_select(result: Result<Option<usize>, IoError>) {
         STATE.with(|state| state.borrow_mut().selects.push_back(result));
+    }
+
+    pub(crate) fn push_multi_select(result: Result<Vec<usize>, IoError>) {
+        STATE.with(|state| state.borrow_mut().multi_selects.push_back(result));
     }
 
     #[allow(dead_code)]
@@ -78,6 +105,16 @@ mod scripted_backend {
                 .selects
                 .pop_front()
                 .unwrap_or_else(|| Err(IoError::other("no scripted selection response")))
+        })
+    }
+
+    pub(crate) fn next_multi_select() -> Result<Vec<usize>, IoError> {
+        STATE.with(|state| {
+            state
+                .borrow_mut()
+                .multi_selects
+                .pop_front()
+                .unwrap_or_else(|| Err(IoError::other("no scripted multi-selection response")))
         })
     }
 
@@ -141,6 +178,27 @@ impl DialogBackend for DialoguerBackend {
     }
 
     #[cfg(not(test))]
+    fn multi_select_indices(
+        &mut self,
+        prompt: &str,
+        labels: &[String],
+    ) -> Result<Vec<usize>, dialoguer::Error> {
+        MultiSelect::with_theme(&ColorfulTheme::default())
+            .with_prompt(prompt)
+            .items(labels)
+            .interact()
+    }
+
+    #[cfg(test)]
+    fn multi_select_indices(
+        &mut self,
+        _prompt: &str,
+        _labels: &[String],
+    ) -> Result<Vec<usize>, dialoguer::Error> {
+        scripted_backend::next_multi_select().map_err(dialoguer::Error::IO)
+    }
+
+    #[cfg(not(test))]
     fn input_text(&mut self, prompt: &str, allow_empty: bool) -> Result<String, dialoguer::Error> {
         dialoguer::Input::with_theme(&ColorfulTheme::default())
             .with_prompt(prompt)
@@ -188,6 +246,16 @@ impl<B: DialogBackend> DialogIo for ConsoleDialogIo<B> {
             .map_err(Self::to_io_error)
     }
 
+    fn multi_select_indices(
+        &mut self,
+        prompt: &str,
+        labels: &[String],
+    ) -> Result<Vec<usize>, IoError> {
+        self.backend
+            .multi_select_indices(prompt, labels)
+            .map_err(Self::to_io_error)
+    }
+
     fn input_text(&mut self, prompt: &str, allow_empty: bool) -> Result<String, IoError> {
         self.backend
             .input_text(prompt, allow_empty)
@@ -212,6 +280,11 @@ pub(crate) fn scripted_push_select(result: Result<Option<usize>, IoError>) {
 }
 
 #[cfg(test)]
+pub(crate) fn scripted_push_multi_select(result: Result<Vec<usize>, IoError>) {
+    scripted_backend::push_multi_select(result);
+}
+
+#[cfg(test)]
 #[allow(dead_code)]
 pub(crate) fn scripted_push_confirm(result: Result<bool, IoError>) {
     scripted_backend::push_confirm(result);
@@ -230,8 +303,9 @@ pub(crate) fn scripted_reset() {
 #[cfg(test)]
 mod tests {
     use super::{
-        scripted_push_confirm, scripted_push_input, scripted_push_select, scripted_reset,
-        ConsoleDialogIo, DialogBackend, DialogIo, DialoguerBackend,
+        scripted_push_confirm, scripted_push_input, scripted_push_multi_select,
+        scripted_push_select, scripted_reset, ConsoleDialogIo, DialogBackend, DialogIo,
+        DialoguerBackend,
     };
     use std::io::ErrorKind;
 
@@ -283,6 +357,21 @@ mod tests {
 
         let result = io.select_index("Pick one", &labels, 1).unwrap();
         assert_eq!(result, Some(2));
+    }
+
+    #[test]
+    fn multi_select_uses_scripted_test_backend() {
+        scripted_reset();
+        scripted_push_multi_select(Ok(vec![0, 2]));
+        let mut io = ConsoleDialogIo::<DialoguerBackend>::default();
+        let labels = vec!["a".to_string(), "b".to_string(), "c".to_string()];
+
+        let result = io
+            .multi_select_indices("Pick many", &labels)
+            .expect("scripted multi-select should succeed");
+
+        assert_eq!(result, vec![0, 2]);
+        scripted_reset();
     }
 
     #[test]
