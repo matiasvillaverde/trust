@@ -536,6 +536,14 @@ impl ArgDispatcher {
 
     #[allow(clippy::too_many_lines, clippy::cognitive_complexity)]
     pub fn dispatch(mut self, matches: ArgMatches) -> Result<(), CliError> {
+        let zen_enabled = matches
+            .try_get_one::<bool>("zen")
+            .ok()
+            .flatten()
+            .copied()
+            .unwrap_or(false);
+        crate::zen::set_enabled(zen_enabled);
+
         match parse_top_level_command(&matches) {
             TopLevelCommand::Db(sub_matches) => self.dispatch_db(sub_matches)?,
             TopLevelCommand::Keys(sub_matches) => self.dispatch_keys(sub_matches)?,
@@ -1633,21 +1641,27 @@ impl ArgDispatcher {
                     account.name, account.id, account.account_type
                 );
                 for b in balances {
+                    let basis = b.total_balance;
                     println!(
                         "  {} total={} available={} in_trade={} taxed={} earnings={}",
                         b.currency,
-                        b.total_balance,
-                        b.total_available,
-                        b.total_in_trade,
-                        b.taxed,
-                        b.total_earnings
+                        crate::zen::amount_share(b.total_balance, basis),
+                        crate::zen::amount_share(b.total_available, basis),
+                        crate::zen::amount_share(b.total_in_trade, basis),
+                        crate::zen::amount_share(b.taxed, basis),
+                        crate::zen::amount_share(b.total_earnings, basis)
                     );
                 }
             } else {
                 let total = balances.into_iter().fold(Decimal::ZERO, |acc, b| {
                     acc.checked_add(b.total_balance).unwrap_or(acc)
                 });
-                println!("{} ({}) total={}", account.name, account.id, total);
+                println!(
+                    "{} ({}) total={}",
+                    account.name,
+                    account.id,
+                    crate::zen::amount_share(total, total)
+                );
             }
         }
         Ok(())
@@ -1768,7 +1782,11 @@ impl ArgDispatcher {
             .create_transaction(&account, &category, amount, &currency)
             .map_err(|e| Self::report_error(format, "transaction_create_failed", e.to_string()))?;
 
-        crate::views::TransactionView::display(&transaction, &account.name);
+        crate::views::TransactionView::display_with_basis(
+            &transaction,
+            &account.name,
+            account_balance.total_balance,
+        );
         crate::views::AccountBalanceView::display(account_balance, &account.name);
         Ok(())
     }
@@ -2142,17 +2160,17 @@ impl ArgDispatcher {
                 println!("===============");
                 println!("symbol: {}", snapshot.symbol);
                 println!("as_of: {}", snapshot.as_of.to_rfc3339());
-                println!("last_price: {}", Self::decimal_string(snapshot.last_price));
-                println!("open: {}", Self::decimal_string(snapshot.open));
-                println!("high: {}", Self::decimal_string(snapshot.high));
-                println!("low: {}", Self::decimal_string(snapshot.low));
+                println!("last_price: {}", crate::zen::amount(snapshot.last_price));
+                println!("open: {}", crate::zen::amount(snapshot.open));
+                println!("high: {}", crate::zen::amount(snapshot.high));
+                println!("low: {}", crate::zen::amount(snapshot.low));
                 println!("volume: {}", snapshot.volume);
                 if let Some(quote) = &snapshot.quote {
-                    println!("bid: {}", Self::decimal_string(quote.bid_price));
-                    println!("ask: {}", Self::decimal_string(quote.ask_price));
+                    println!("bid: {}", crate::zen::amount(quote.bid_price));
+                    println!("ask: {}", crate::zen::amount(quote.ask_price));
                 }
                 if let Some(trade) = &snapshot.trade {
-                    println!("last_trade_price: {}", Self::decimal_string(trade.price));
+                    println!("last_trade_price: {}", crate::zen::amount(trade.price));
                     println!("last_trade_size: {}", trade.size);
                 }
                 let source = Self::market_snapshot_source_label(&snapshot.source);
@@ -2223,9 +2241,9 @@ impl ArgDispatcher {
                 println!("============");
                 println!("symbol: {symbol}");
                 println!("as_of: {}", quote.as_of.to_rfc3339());
-                println!("bid_price: {}", Self::decimal_string(quote.bid_price));
+                println!("bid_price: {}", crate::zen::amount(quote.bid_price));
                 println!("bid_size: {}", quote.bid_size);
-                println!("ask_price: {}", Self::decimal_string(quote.ask_price));
+                println!("ask_price: {}", crate::zen::amount(quote.ask_price));
                 println!("ask_size: {}", quote.ask_size);
             }
             ReportOutputFormat::Json => {
@@ -2284,7 +2302,7 @@ impl ArgDispatcher {
                 println!("============");
                 println!("symbol: {symbol}");
                 println!("as_of: {}", trade.as_of.to_rfc3339());
-                println!("price: {}", Self::decimal_string(trade.price));
+                println!("price: {}", crate::zen::amount(trade.price));
                 println!("size: {}", trade.size);
             }
             ReportOutputFormat::Json => {
@@ -2449,7 +2467,7 @@ impl ArgDispatcher {
                         event.as_of.to_rfc3339(),
                         channel,
                         event.symbol,
-                        Self::decimal_string(event.price),
+                        crate::zen::amount(event.price),
                         event.size
                     );
                 }
@@ -2518,10 +2536,10 @@ impl ArgDispatcher {
                     println!(
                         "{} o={} h={} l={} c={} v={}",
                         bar.time.to_rfc3339(),
-                        Self::decimal_string(bar.open),
-                        Self::decimal_string(bar.high),
-                        Self::decimal_string(bar.low),
-                        Self::decimal_string(bar.close),
+                        crate::zen::amount(bar.open),
+                        crate::zen::amount(bar.high),
+                        crate::zen::amount(bar.low),
+                        crate::zen::amount(bar.close),
                         bar.volume
                     );
                 }
@@ -3912,11 +3930,14 @@ impl ArgDispatcher {
             format!("Account: {}", preview.account_id),
             format!(
                 "Entry: {} {} | Stop: {} {} | Risk/Share: {} {}",
-                Self::decimal_string(preview.entry_price),
+                crate::zen::price_relative_to(preview.entry_price, preview.entry_price),
                 preview.currency,
-                Self::decimal_string(preview.stop_price),
+                crate::zen::price_relative_to(preview.stop_price, preview.entry_price),
                 preview.currency,
-                Self::decimal_string(Self::trade_preview_risk_per_share(preview)),
+                crate::zen::amount_share(
+                    Self::trade_preview_risk_per_share(preview),
+                    preview.entry_price,
+                ),
                 preview.currency
             ),
             format!(
@@ -3940,7 +3961,11 @@ impl ArgDispatcher {
                 item["level"].as_u64().unwrap_or(0),
                 item["multiplier"].as_str().unwrap_or("0"),
                 item["quantity"].as_i64().unwrap_or(0),
-                item["risk_amount"].as_str().unwrap_or("0"),
+                if crate::zen::is_enabled() {
+                    "hidden"
+                } else {
+                    item["risk_amount"].as_str().unwrap_or("0")
+                },
                 preview.currency,
                 current_marker
             ));
@@ -4001,42 +4026,42 @@ impl ArgDispatcher {
             format!("Account: {}", args.preview.account_id),
             format!(
                 "Entry: {} {} | Stop: {} {} | Target: {} {} | Quantity: {}",
-                Self::decimal_string(args.preview.entry_price),
+                crate::zen::price_relative_to(args.preview.entry_price, args.preview.entry_price),
                 args.preview.currency,
-                Self::decimal_string(args.preview.stop_price),
+                crate::zen::price_relative_to(args.preview.stop_price, args.preview.entry_price),
                 args.preview.currency,
-                Self::decimal_string(args.target_price),
+                crate::zen::price_relative_to(args.target_price, args.preview.entry_price),
                 args.preview.currency,
                 args.quantity
             ),
             format!(
                 "Available capital: {} {}",
-                Self::decimal_string(report.available_capital),
+                crate::zen::amount_share(report.available_capital, report.available_capital),
                 args.preview.currency
             ),
             format!(
                 "Capital required: {} {} ({})",
-                Self::decimal_string(report.capital_required),
+                crate::zen::amount_share(report.capital_required, report.available_capital),
                 args.preview.currency,
                 Self::format_optional_percentage(report.capital_required_pct_of_available)
             ),
             format!(
                 "Risk/share: {} {} | Reward/share: {} {} | R:R {}",
-                Self::decimal_string(report.risk_per_share),
+                crate::zen::amount_share(report.risk_per_share, args.preview.entry_price),
                 args.preview.currency,
-                Self::decimal_string(report.reward_per_share),
+                crate::zen::amount_share(report.reward_per_share, args.preview.entry_price),
                 args.preview.currency,
                 Self::format_optional_decimal(report.risk_reward_ratio)
             ),
             format!(
                 "Max loss: {} {} ({})",
-                Self::decimal_string(report.max_loss),
+                crate::zen::amount_share(report.max_loss, report.available_capital),
                 args.preview.currency,
                 Self::format_optional_percentage(report.max_loss_pct_of_available)
             ),
             format!(
                 "Max gain: {} {} ({})",
-                Self::decimal_string(report.max_gain),
+                crate::zen::amount_share(report.max_gain, report.available_capital),
                 args.preview.currency,
                 Self::format_optional_percentage(report.max_gain_pct_of_available)
             ),
@@ -4158,21 +4183,20 @@ impl ArgDispatcher {
     }
 
     fn print_trade_autopsy_context(trade: &Trade, grade: &TradeGrade) {
+        let entry_price = trade
+            .entry
+            .average_filled_price
+            .unwrap_or(trade.entry.unit_price);
         println!("Trade autopsy");
         println!("Trade: {} {}", trade.id, trade.trading_vehicle.symbol);
         println!(
             "Entry: {}",
-            Self::decimal_string(
-                trade
-                    .entry
-                    .average_filled_price
-                    .unwrap_or(trade.entry.unit_price)
-            )
+            crate::zen::price_relative_to(entry_price, entry_price)
         );
         println!(
             "Exit: {}",
             Self::trade_exit_price(trade)
-                .map(Self::decimal_string)
+                .map(|value| crate::zen::price_relative_to(value, entry_price))
                 .unwrap_or_else(|| "n/a".to_string())
         );
         println!(
@@ -5181,7 +5205,11 @@ impl ArgDispatcher {
             println!("Trade funded:");
             crate::views::TradeView::display(&funded_trade, &account.name);
             crate::views::TradeBalanceView::display(&trade_balance);
-            crate::views::TransactionView::display(&tx, &account.name);
+            crate::views::TransactionView::display_with_basis(
+                &tx,
+                &account.name,
+                account_balance.total_balance,
+            );
             crate::views::AccountBalanceView::display(account_balance, &account.name);
 
             if auto_submit {
@@ -5237,7 +5265,11 @@ impl ArgDispatcher {
 
         println!("Trade canceled:");
         crate::views::TradeBalanceView::display(&trade_balance);
-        crate::views::TransactionView::display(&transaction, &account.name);
+        crate::views::TransactionView::display_with_basis(
+            &transaction,
+            &account.name,
+            account_balance.total_balance,
+        );
         crate::views::AccountBalanceView::display(account_balance, &account.name);
         Ok(())
     }
@@ -5269,7 +5301,11 @@ impl ArgDispatcher {
         println!("Trade funded:");
         crate::views::TradeView::display(&funded_trade, &account.name);
         crate::views::TradeBalanceView::display(&trade_balance);
-        crate::views::TransactionView::display(&tx, &account.name);
+        crate::views::TransactionView::display_with_basis(
+            &tx,
+            &account.name,
+            account_balance.total_balance,
+        );
         crate::views::AccountBalanceView::display(account_balance, &account.name);
         Ok(())
     }
@@ -6679,7 +6715,10 @@ impl ArgDispatcher {
                     .map(|id| id.to_string())
                     .unwrap_or_else(|| "all_accounts".to_string())
             );
-            println!("Equity: ${:.2}", summary.equity);
+            println!(
+                "Equity: {}",
+                crate::zen::currency_share(summary.equity, summary.equity)
+            );
             println!(
                 "Performance: {} trades ({}W/{}L), win rate {:.1}%, avg R {:.2}",
                 performance.total_trades,
@@ -6689,8 +6728,8 @@ impl ArgDispatcher {
                 performance.average_r_multiple
             );
             println!(
-                "Risk: ${:.2} at risk ({:.2}% of equity), {} open positions",
-                total_risk,
+                "Risk: {} at risk ({:.2}% of equity), {} open positions",
+                crate::zen::currency_share(total_risk, summary.equity),
                 risk_pct,
                 summary.capital_at_risk.len()
             );
@@ -7286,6 +7325,9 @@ impl ArgDispatcher {
             acc.checked_add(trade.balance.total_performance)
                 .unwrap_or(acc)
         });
+        let total_funding = in_window.iter().fold(Decimal::ZERO, |acc, trade| {
+            acc.checked_add(trade.balance.funding).unwrap_or(acc)
+        });
         let mut rows: Vec<(String, u64, Decimal, Decimal)> = groups
             .into_iter()
             .map(|(key, (count, pnl, funding))| (key, count, pnl, funding))
@@ -7300,7 +7342,10 @@ impl ArgDispatcher {
                 println!("from: {from}");
                 println!("to: {to}");
                 println!("closed_trades: {}", in_window.len());
-                println!("total_pnl: {}", Self::decimal_string(total_pnl));
+                println!(
+                    "total_pnl: {}",
+                    crate::zen::amount_share(total_pnl, total_pnl)
+                );
                 for (key, count, pnl, funding) in &rows {
                     let share = if total_pnl == Decimal::ZERO {
                         Decimal::ZERO
@@ -7311,8 +7356,8 @@ impl ArgDispatcher {
                     };
                     println!(
                         "{key}: trades={count} pnl={} funding={} share_pct={}",
-                        Self::decimal_string(*pnl),
-                        Self::decimal_string(*funding),
+                        crate::zen::amount_share(*pnl, total_pnl),
+                        crate::zen::amount_share(*funding, total_funding),
                         Self::decimal_string(share),
                     );
                 }
@@ -7565,11 +7610,14 @@ impl ArgDispatcher {
                 println!("from: {from}");
                 println!("to: {to}");
                 println!("bucket_count: {}", buckets.len());
-                println!("net_cash_flow: {}", Self::decimal_string(total_net));
+                println!(
+                    "net_cash_flow: {}",
+                    crate::zen::amount_share(total_net, total_net)
+                );
                 for (bucket, (count, net)) in &buckets {
                     println!(
                         "{bucket}: events={count} net_cash_flow={}",
-                        Self::decimal_string(*net)
+                        crate::zen::amount_share(*net, total_net)
                     );
                 }
             }
@@ -8392,8 +8440,14 @@ impl ArgDispatcher {
     ) {
         println!("Bond Metrics");
         println!("============");
-        println!("face_value: {}", Self::decimal_string(input.face_value));
-        println!("market_price: {}", Self::decimal_string(input.market_price));
+        println!(
+            "face_value: {}",
+            crate::zen::amount_share(input.face_value, input.face_value)
+        );
+        println!(
+            "market_price: {}",
+            crate::zen::amount_share(input.market_price, input.face_value)
+        );
         println!(
             "coupon_rate: {}%",
             Self::decimal_string(input.annual_coupon_rate_pct)
@@ -8401,27 +8455,39 @@ impl ArgDispatcher {
         println!("quantity: {}", input.quantity);
         println!(
             "position_face_value: {}",
-            Self::decimal_string(analytics.position_face_value)
+            crate::zen::amount_share(analytics.position_face_value, analytics.position_face_value)
         );
         println!(
             "position_market_value: {}",
-            Self::decimal_string(analytics.position_market_value)
+            crate::zen::amount_share(
+                analytics.position_market_value,
+                analytics.position_face_value,
+            )
         );
         println!(
             "accrued_interest: {}",
-            Self::decimal_string(analytics.accrued_interest_total)
+            crate::zen::amount_share(
+                analytics.accrued_interest_total,
+                analytics.position_face_value,
+            )
         );
         println!(
             "dirty_price: {}",
-            Self::decimal_string(analytics.dirty_price)
+            crate::zen::amount_share(analytics.dirty_price, input.face_value)
         );
         println!(
             "position_dirty_value: {}",
-            Self::decimal_string(analytics.position_dirty_value)
+            crate::zen::amount_share(
+                analytics.position_dirty_value,
+                analytics.position_face_value
+            )
         );
         println!(
             "annual_coupon_income: {}",
-            Self::decimal_string(analytics.annual_coupon_income)
+            crate::zen::amount_share(
+                analytics.annual_coupon_income,
+                analytics.position_face_value
+            )
         );
         println!(
             "current_yield: {}%",
@@ -8436,7 +8502,7 @@ impl ArgDispatcher {
         );
         println!(
             "premium_discount: {} ({}%)",
-            Self::decimal_string(analytics.price_premium_discount),
+            crate::zen::amount_share(analytics.price_premium_discount, input.face_value),
             Self::decimal_string(analytics.price_premium_discount_pct)
         );
     }
@@ -9707,7 +9773,7 @@ impl ArgDispatcher {
             .map_err(|e| CliError::new("transfer_failed", e.to_string()))?;
 
         println!("Transfer completed:");
-        println!("  amount: {amount}");
+        println!("  amount: {}", crate::zen::amount(amount));
         println!("  from:   {from_id}");
         println!("  to:     {to_id}");
         println!("  reason: {reason}");
@@ -9769,7 +9835,7 @@ impl ArgDispatcher {
         println!("  earnings: {earnings_pct}");
         println!("  tax: {tax_pct}");
         println!("  reinvestment: {reinvestment_pct}");
-        println!("  minimum_threshold: {threshold}");
+        println!("  minimum_threshold: {}", crate::zen::amount(threshold));
         Ok(())
     }
 
@@ -9790,15 +9856,30 @@ impl ArgDispatcher {
 
         println!("Distribution executed:");
         println!("  source_account_id: {}", result.source_account_id);
-        println!("  original_amount: {}", result.original_amount);
+        println!(
+            "  original_amount: {}",
+            crate::zen::amount_share(result.original_amount, result.original_amount)
+        );
         println!(
             "  earnings_amount: {}",
-            result.earnings_amount.unwrap_or_default()
+            crate::zen::amount_share(
+                result.earnings_amount.unwrap_or_default(),
+                result.original_amount,
+            )
         );
-        println!("  tax_amount: {}", result.tax_amount.unwrap_or_default());
+        println!(
+            "  tax_amount: {}",
+            crate::zen::amount_share(
+                result.tax_amount.unwrap_or_default(),
+                result.original_amount
+            )
+        );
         println!(
             "  reinvestment_amount: {}",
-            result.reinvestment_amount.unwrap_or_default()
+            crate::zen::amount_share(
+                result.reinvestment_amount.unwrap_or_default(),
+                result.original_amount,
+            )
         );
         println!(
             "  transactions_created: {}",
@@ -9828,6 +9909,7 @@ impl ArgDispatcher {
 
         println!("Distribution History (most recent first):");
         for entry in entries {
+            let basis = entry.original_amount;
             println!(
                 "- at={} trade_id={} amount={} earnings={} tax={} reinvestment={}",
                 entry.distribution_date,
@@ -9835,19 +9917,19 @@ impl ArgDispatcher {
                     .trade_id
                     .map(|id| id.to_string())
                     .unwrap_or_else(|| "N/A".to_string()),
-                entry.original_amount,
+                crate::zen::amount_share(entry.original_amount, basis),
                 entry
                     .earnings_amount
-                    .map(|v| v.to_string())
-                    .unwrap_or_else(|| "0".to_string()),
+                    .map(|v| crate::zen::amount_share(v, basis))
+                    .unwrap_or_else(|| crate::zen::amount_share(Decimal::ZERO, basis)),
                 entry
                     .tax_amount
-                    .map(|v| v.to_string())
-                    .unwrap_or_else(|| "0".to_string()),
+                    .map(|v| crate::zen::amount_share(v, basis))
+                    .unwrap_or_else(|| crate::zen::amount_share(Decimal::ZERO, basis)),
                 entry
                     .reinvestment_amount
-                    .map(|v| v.to_string())
-                    .unwrap_or_else(|| "0".to_string()),
+                    .map(|v| crate::zen::amount_share(v, basis))
+                    .unwrap_or_else(|| crate::zen::amount_share(Decimal::ZERO, basis)),
             );
         }
 
@@ -9869,7 +9951,10 @@ impl ArgDispatcher {
         println!("  earnings_percent: {}", rules.earnings_percent);
         println!("  tax_percent: {}", rules.tax_percent);
         println!("  reinvestment_percent: {}", rules.reinvestment_percent);
-        println!("  minimum_threshold: {}", rules.minimum_threshold);
+        println!(
+            "  minimum_threshold: {}",
+            crate::zen::amount(rules.minimum_threshold)
+        );
         Ok(())
     }
 }
