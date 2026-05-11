@@ -194,7 +194,6 @@ mod tests {
     /// A zero-amount deposit should be rejected like all other zero-amount
     /// financial operations.
     #[test]
-    #[should_panic]
     fn zero_amount_deposit_should_be_rejected() {
         use model::{AccountBalance, AccountBalanceRead, Currency};
         use uuid::Uuid;
@@ -237,7 +236,6 @@ mod tests {
     /// When a non-Filled trade attempts stop modification, the error
     /// should be TradeNotFilled regardless of the price.
     #[test]
-    #[should_panic]
     fn modify_stop_should_check_status_before_price_for_long() {
         use crate::validators::trade::{can_modify_stop, TradeValidationErrorCode};
         use model::TradeCategory;
@@ -263,7 +261,6 @@ mod tests {
 
     /// Same for Short trades.
     #[test]
-    #[should_panic]
     fn modify_stop_should_check_status_before_price_for_short() {
         use crate::validators::trade::{can_modify_stop, TradeValidationErrorCode};
         use model::TradeCategory;
