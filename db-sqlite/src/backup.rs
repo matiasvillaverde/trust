@@ -96,6 +96,8 @@ pub struct BackupTablesV1 {
     pub logs: Vec<LogRow>,
     pub levels: Vec<LevelRow>,
     pub level_changes: Vec<LevelChangeRow>,
+    #[serde(default)]
+    pub trade_events: Vec<TradeEventRow>,
     pub trade_grades: Vec<TradeGradeRow>,
 }
 
@@ -312,6 +314,22 @@ pub struct LevelChangeRow {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Queryable, Insertable)]
+#[diesel(table_name = schema::trade_events)]
+pub struct TradeEventRow {
+    pub id: String,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
+    pub deleted_at: Option<NaiveDateTime>,
+    pub trade_id: String,
+    pub symbol: String,
+    pub event_type: String,
+    pub event_date: NaiveDate,
+    pub severity: String,
+    pub notes: Option<String>,
+    pub source: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Queryable, Insertable)]
 #[diesel(table_name = schema::trade_grades)]
 pub struct TradeGradeRow {
     pub id: String,
@@ -376,6 +394,7 @@ const ALLOWED_TABLES: &[&str] = &[
     "levels",
     "orders",
     "rules",
+    "trade_events",
     "trade_grades",
     "trades",
     "trades_balances",
@@ -405,6 +424,7 @@ fn read_table_count(conn: &mut SqliteConnection, table: &str) -> Result<i64, Bac
 fn clear_all_tables(conn: &mut SqliteConnection) -> Result<u64, BackupError> {
     // Delete children before parents to satisfy FK constraints with FK checks enabled.
     let tables = [
+        "trade_events",
         "trade_grades",
         "logs",
         "transactions",
@@ -449,6 +469,7 @@ fn insert_all(conn: &mut SqliteConnection, tables: &BackupTablesV1) -> Result<u6
     insert_and_add!(schema::logs::table, &tables.logs);
     insert_and_add!(schema::levels::table, &tables.levels);
     insert_and_add!(schema::level_changes::table, &tables.level_changes);
+    insert_and_add!(schema::trade_events::table, &tables.trade_events);
     insert_and_add!(schema::trade_grades::table, &tables.trade_grades);
 
     Ok(inserted)
@@ -487,6 +508,7 @@ fn read_backup_at(
             logs: schema::logs::table.load(conn)?,
             levels: schema::levels::table.load(conn)?,
             level_changes: schema::level_changes::table.load(conn)?,
+            trade_events: schema::trade_events::table.load(conn)?,
             trade_grades: schema::trade_grades::table.load(conn)?,
         },
     })
@@ -637,6 +659,10 @@ fn validate_backup_rows(backup: &BackupEnvelopeV1) -> Result<(), BackupError> {
         validate_uuid_field("level_changes", "id", &row.id)?;
         validate_uuid_field("level_changes", "account_id", &row.account_id)?;
     }
+    for row in &backup.tables.trade_events {
+        validate_uuid_field("trade_events", "id", &row.id)?;
+        validate_uuid_field("trade_events", "trade_id", &row.trade_id)?;
+    }
     for row in &backup.tables.trade_grades {
         validate_uuid_field("trade_grades", "id", &row.id)?;
         validate_uuid_field("trade_grades", "trade_id", &row.trade_id)?;
@@ -678,6 +704,7 @@ pub fn import_backup(
                     "logs",
                     "levels",
                     "level_changes",
+                    "trade_events",
                     "trade_grades",
                 ];
                 for table in tables {
@@ -803,6 +830,7 @@ mod tests {
         let level_id = uuid_text(715);
         let level_change_id = uuid_text(716);
         let trade_grade_id = uuid_text(717);
+        let trade_event_id = uuid_text(718);
 
         let mut account = account_row(account_id.clone(), "uuid-validation");
         account.parent_account_id = Some(parent_account_id);
@@ -963,6 +991,19 @@ mod tests {
                     change_reason: "manual".to_string(),
                     trigger_type: "manual_override".to_string(),
                     changed_at: dt,
+                }],
+                trade_events: vec![TradeEventRow {
+                    id: trade_event_id,
+                    created_at: dt,
+                    updated_at: dt,
+                    deleted_at: None,
+                    trade_id: trade_id.clone(),
+                    symbol: "AAPL".to_string(),
+                    event_type: "earnings".to_string(),
+                    event_date: date,
+                    severity: "high".to_string(),
+                    notes: Some("watch earnings".to_string()),
+                    source: "manual".to_string(),
                 }],
                 trade_grades: vec![TradeGradeRow {
                     id: trade_grade_id,
@@ -1174,6 +1215,18 @@ mod tests {
                 },
             },
             UuidValidationCase {
+                table: "trade_events",
+                field: "id",
+                mutate: |backup| first_row(&mut backup.tables.trade_events).id = invalid_uuid(),
+            },
+            UuidValidationCase {
+                table: "trade_events",
+                field: "trade_id",
+                mutate: |backup| {
+                    first_row(&mut backup.tables.trade_events).trade_id = invalid_uuid();
+                },
+            },
+            UuidValidationCase {
                 table: "trade_grades",
                 field: "id",
                 mutate: |backup| first_row(&mut backup.tables.trade_grades).id = invalid_uuid(),
@@ -1223,6 +1276,7 @@ mod tests {
         let level_id = "00000000-0000-0000-0000-000000000012".to_string();
         let level_change_id = "00000000-0000-0000-0000-000000000013".to_string();
         let trade_grade_id = "00000000-0000-0000-0000-000000000014".to_string();
+        let trade_event_id = "00000000-0000-0000-0000-000000000015".to_string();
 
         diesel::insert_into(schema::accounts::table)
             .values(AccountRow {
@@ -1433,6 +1487,23 @@ mod tests {
                 change_reason: "reason".to_string(),
                 trigger_type: "manual_override".to_string(),
                 changed_at: dt0,
+            })
+            .execute(&mut conn1)
+            .unwrap();
+
+        diesel::insert_into(schema::trade_events::table)
+            .values(TradeEventRow {
+                id: trade_event_id.clone(),
+                created_at: dt0,
+                updated_at: dt0,
+                deleted_at: None,
+                trade_id: trade_id.clone(),
+                symbol: "AAPL".to_string(),
+                event_type: "earnings".to_string(),
+                event_date: t0,
+                severity: "high".to_string(),
+                notes: Some("watch earnings".to_string()),
+                source: "manual".to_string(),
             })
             .execute(&mut conn1)
             .unwrap();

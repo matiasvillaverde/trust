@@ -58,6 +58,8 @@ pub mod rule;
 pub mod strategy;
 /// Trade lifecycle and management
 pub mod trade;
+/// Trade event catalyst types
+pub mod trade_event;
 /// Trade grading types
 pub mod trade_grade;
 /// Trading vehicle (asset) definitions
@@ -74,9 +76,9 @@ pub use database::{
     AccountBalanceRead, AccountBalanceWrite, AccountRead, AccountWrite, AdvisoryRead,
     AdvisoryThresholds, AdvisoryWrite, DatabaseFactory, DistributionRead, DistributionWrite,
     DraftTrade, OrderRead, OrderWrite, ReadBrokerLogsDB, ReadExecutionDB, ReadLevelDB, ReadRuleDB,
-    ReadTradeDB, ReadTradeGradeDB, ReadTradingVehicleDB, ReadTransactionDB, WriteBrokerLogsDB,
-    WriteExecutionDB, WriteLevelDB, WriteRuleDB, WriteTradeDB, WriteTradeGradeDB,
-    WriteTradingVehicleDB, WriteTransactionDB,
+    ReadTradeDB, ReadTradeEventDB, ReadTradeGradeDB, ReadTradingVehicleDB, ReadTransactionDB,
+    WriteBrokerLogsDB, WriteExecutionDB, WriteLevelDB, WriteRuleDB, WriteTradeDB,
+    WriteTradeEventDB, WriteTradeGradeDB, WriteTradingVehicleDB, WriteTransactionDB,
 };
 pub use distribution::{
     DistributionError, DistributionExecutionLeg, DistributionExecutionPlan, DistributionHistory,
@@ -99,6 +101,10 @@ pub use rule::{Rule, RuleLevel, RuleName};
 pub use strategy::Strategy;
 pub use trade::ClosedTradePerformance;
 pub use trade::{Status, Trade, TradeBalance, TradeCategory};
+pub use trade_event::{
+    TradeEvent, TradeEventSeverity, TradeEventSeverityParseError, TradeEventSource,
+    TradeEventSourceParseError, TradeEventType, TradeEventTypeParseError,
+};
 pub use trade_grade::{Grade, TradeGrade};
 pub use trading_vehicle::{FixedIncomeTerms, TradingVehicle, TradingVehicleCategory};
 pub use transaction::{Transaction, TransactionCategory};
