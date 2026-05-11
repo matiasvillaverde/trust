@@ -629,6 +629,7 @@ mod tests {
                     earnings_amount: Some(dec!(3)),
                     tax_amount: Some(dec!(2)),
                     reinvestment_amount: Some(dec!(5)),
+                    insurance_amount: None,
                     distribution_date: Utc::now().naive_utc(),
                     transactions_created: vec![Uuid::new_v4()],
                 }),

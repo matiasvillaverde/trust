@@ -88,6 +88,7 @@ pub enum DistributionSubcommand<'a> {
     Configure(&'a ArgMatches),
     Execute(&'a ArgMatches),
     History(&'a ArgMatches),
+    Insurance(&'a ArgMatches),
     Rules(&'a ArgMatches),
 }
 
@@ -279,6 +280,7 @@ pub fn parse_distribution_subcommand(sub_matches: &ArgMatches) -> DistributionSu
         Some(("configure", sub_sub_matches)) => DistributionSubcommand::Configure(sub_sub_matches),
         Some(("execute", sub_sub_matches)) => DistributionSubcommand::Execute(sub_sub_matches),
         Some(("history", sub_sub_matches)) => DistributionSubcommand::History(sub_sub_matches),
+        Some(("insurance", sub_sub_matches)) => DistributionSubcommand::Insurance(sub_sub_matches),
         Some(("rules", sub_sub_matches)) => DistributionSubcommand::Rules(sub_sub_matches),
         _ => unreachable!("No subcommand provided"),
     }

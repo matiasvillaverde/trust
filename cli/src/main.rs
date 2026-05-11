@@ -149,6 +149,7 @@ fn build_cli() -> Command {
                 .configure_distribution()
                 .execute_distribution()
                 .history()
+                .insurance_status()
                 .show_rules()
                 .build(),
         )

@@ -63,7 +63,7 @@ impl AccountCommandBuilder {
                     Arg::new("type")
                         .long("type")
                         .value_name("TYPE")
-                        .help("Account type: primary|earnings|tax-reserve|reinvestment")
+                        .help("Account type: primary|earnings|tax-reserve|reinvestment|insurance")
                         .required(false),
                 )
                 .arg(
