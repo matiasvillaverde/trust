@@ -815,6 +815,25 @@ impl TrustFacade {
         )
     }
 
+    /// Create a new trade and choose the safety order type.
+    pub fn create_trade_with_safety_order_category(
+        &mut self,
+        trade: DraftTrade,
+        stop_price: Decimal,
+        entry_price: Decimal,
+        target_price: Decimal,
+        safety_order_category: model::OrderCategory,
+    ) -> Result<Trade, Box<dyn std::error::Error>> {
+        commands::trade::create_trade_with_safety_order_category(
+            trade,
+            stop_price,
+            entry_price,
+            target_price,
+            safety_order_category,
+            &mut *self.factory,
+        )
+    }
+
     /// Search for trades by account and status.
     ///
     /// # Arguments

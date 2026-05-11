@@ -18,7 +18,7 @@ use crate::{
     views::TradeView,
 };
 use core::TrustFacade;
-use model::{Account, Currency, DraftTrade, Trade, TradeCategory, TradingVehicle};
+use model::{Account, Currency, DraftTrade, OrderCategory, Trade, TradeCategory, TradingVehicle};
 use rust_decimal::Decimal;
 use std::error::Error;
 
@@ -28,6 +28,7 @@ pub struct TradeDialogBuilder {
     category: Option<TradeCategory>,
     entry_price: Option<Decimal>,
     stop_price: Option<Decimal>,
+    safety_order_category: Option<OrderCategory>,
     currency: Option<Currency>,
     quantity: Option<i64>,
     target_price: Option<Decimal>,
@@ -46,6 +47,7 @@ impl TradeDialogBuilder {
             category: None,
             entry_price: None,
             stop_price: None,
+            safety_order_category: None,
             currency: None,
             quantity: None,
             target_price: None,
@@ -75,11 +77,12 @@ impl TradeDialogBuilder {
             context: self.context.clone(),
         };
 
-        self.result = Some(trust.create_trade(
+        self.result = Some(trust.create_trade_with_safety_order_category(
             draft,
             self.stop_price.unwrap(),
             self.entry_price.unwrap(),
             self.target_price.unwrap(),
+            self.safety_order_category.unwrap_or(OrderCategory::Stop),
         ));
         self
     }
@@ -169,6 +172,28 @@ impl TradeDialogBuilder {
                 Err(_) => println!("Please enter a valid number."),
             },
             Err(error) => println!("Error reading stop price: {error}"),
+        }
+        self
+    }
+
+    pub fn safety_order_category(mut self) -> Self {
+        let mut io = ConsoleDialogIo::default();
+        self = self.safety_order_category_with_io(&mut io);
+        self
+    }
+
+    pub fn safety_order_category_with_io(mut self, io: &mut dyn DialogIo) -> Self {
+        let available_categories = [OrderCategory::Stop, OrderCategory::StopLimit];
+        let labels: Vec<String> = available_categories
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        match io.select_index("Safety order type:", &labels, 0) {
+            Ok(Some(index)) => {
+                self.safety_order_category = available_categories.get(index).copied();
+            }
+            Ok(None) => {}
+            Err(error) => println!("Error selecting safety order type: {error}"),
         }
         self
     }
@@ -333,7 +358,7 @@ mod tests {
     use alpaca_broker::AlpacaBroker;
     use core::TrustFacade;
     use db_sqlite::SqliteDatabase;
-    use model::{Currency, Environment, TradeCategory, TradingVehicleCategory};
+    use model::{Currency, Environment, OrderCategory, TradeCategory, TradingVehicleCategory};
     use rust_decimal::Decimal;
     use rust_decimal_macros::dec;
     use std::collections::VecDeque;
@@ -419,6 +444,7 @@ mod tests {
         assert!(builder.category.is_none());
         assert!(builder.entry_price.is_none());
         assert!(builder.stop_price.is_none());
+        assert!(builder.safety_order_category.is_none());
         assert!(builder.currency.is_none());
         assert!(builder.quantity.is_none());
         assert!(builder.target_price.is_none());
@@ -437,6 +463,7 @@ mod tests {
             category: Some(TradeCategory::Long),
             entry_price: None,
             stop_price: None,
+            safety_order_category: None,
             currency: None,
             quantity: None,
             target_price: None,
@@ -478,6 +505,7 @@ mod tests {
             category: Some(TradeCategory::Long),
             entry_price: Some(dec!(100)),
             stop_price: Some(dec!(95)),
+            safety_order_category: Some(OrderCategory::StopLimit),
             currency: Some(Currency::USD),
             quantity: Some(1),
             target_price: Some(dec!(110)),
@@ -500,6 +528,7 @@ mod tests {
         assert_eq!(trade.category, TradeCategory::Long);
         assert_eq!(trade.currency, Currency::USD);
         assert_eq!(trade.safety_stop.unit_price, dec!(95));
+        assert_eq!(trade.safety_stop.category, OrderCategory::StopLimit);
         assert_eq!(trade.entry.unit_price, dec!(100));
         assert_eq!(trade.target.unit_price, dec!(110));
         assert_eq!(trade.thesis.as_deref(), Some("breakout"));
@@ -520,6 +549,7 @@ mod tests {
             category: Some(TradeCategory::Long),
             entry_price: Some(dec!(100)),
             stop_price: Some(dec!(95)),
+            safety_order_category: None,
             currency: Some(Currency::USD),
             quantity: Some(1),
             target_price: Some(dec!(110)),
@@ -601,6 +631,23 @@ mod tests {
     }
 
     #[test]
+    fn safety_order_category_with_io_sets_stop_limit_and_ignores_cancel() {
+        let mut io = ScriptedIo::with(vec![Ok(Some(1)), Ok(None)], vec![]);
+
+        let builder = TradeDialogBuilder::new().safety_order_category_with_io(&mut io);
+        assert_eq!(
+            builder.safety_order_category,
+            Some(OrderCategory::StopLimit)
+        );
+
+        let unchanged = builder.safety_order_category_with_io(&mut io);
+        assert_eq!(
+            unchanged.safety_order_category,
+            Some(OrderCategory::StopLimit)
+        );
+    }
+
+    #[test]
     fn required_selection_and_price_setters_cover_error_paths() {
         let mut trust = test_trust();
         let account = account_with_usd_deposit(&mut trust, "trade-io-errors", dec!(100));
@@ -633,6 +680,17 @@ mod tests {
         );
         let builder = TradeDialogBuilder::new().stop_price_with_io(&mut stop_error);
         assert!(builder.stop_price.is_none());
+
+        let mut safety_order_error = ScriptedIo::with(
+            vec![Err(IoError::new(
+                ErrorKind::BrokenPipe,
+                "safety order type failed",
+            ))],
+            vec![],
+        );
+        let builder =
+            TradeDialogBuilder::new().safety_order_category_with_io(&mut safety_order_error);
+        assert!(builder.safety_order_category.is_none());
 
         let mut currency_cancel = ScriptedIo::with(vec![Ok(None)], vec![]);
         let builder = TradeDialogBuilder {
@@ -787,6 +845,7 @@ mod tests {
         scripted_push_select(Ok(Some(0)));
         scripted_push_select(Ok(Some(0)));
         scripted_push_select(Ok(Some(0)));
+        scripted_push_select(Ok(Some(1)));
         scripted_push_input(Ok("100".to_string()));
         scripted_push_input(Ok("95".to_string()));
         scripted_push_select(Ok(Some(0)));
@@ -803,6 +862,7 @@ mod tests {
             .category()
             .entry_price()
             .stop_price()
+            .safety_order_category()
             .currency(&mut trust)
             .quantity(&mut trust)
             .target_price()
@@ -826,6 +886,10 @@ mod tests {
         assert_eq!(builder.category, Some(TradeCategory::Long));
         assert_eq!(builder.entry_price, Some(dec!(100)));
         assert_eq!(builder.stop_price, Some(dec!(95)));
+        assert_eq!(
+            builder.safety_order_category,
+            Some(OrderCategory::StopLimit)
+        );
         assert_eq!(builder.currency, Some(Currency::USD));
         assert_eq!(builder.quantity, Some(2));
         assert_eq!(builder.target_price, Some(dec!(110)));

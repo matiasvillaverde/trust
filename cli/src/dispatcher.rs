@@ -53,9 +53,9 @@ use ibkr_broker::IbkrBroker;
 use model::{
     Account, AccountType, BarTimeframe, BrokerKind, Currency, DraftTrade, Environment,
     FixedIncomeTerms, Level, LevelAdjustmentRules, LevelTrigger, MarketDataChannel,
-    MarketSnapshotSource, Mistake, MistakeErrorType, MungerTendency, SessionPlan, SessionPlanClose,
-    SessionRegime, Status, Trade, TradeCategory, TradeEvent, TradeEventSeverity, TradeEventType,
-    TradeGrade, TransactionCategory,
+    MarketSnapshotSource, Mistake, MistakeErrorType, MungerTendency, OrderCategory, SessionPlan,
+    SessionPlanClose, SessionRegime, Status, Trade, TradeCategory, TradeEvent, TradeEventSeverity,
+    TradeEventType, TradeGrade, TransactionCategory,
 };
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
@@ -483,6 +483,7 @@ impl ArgDispatcher {
             || sub_matches.get_one::<String>("category").is_some()
             || sub_matches.get_one::<String>("entry").is_some()
             || sub_matches.get_one::<String>("stop").is_some()
+            || sub_matches.get_one::<String>("safety-order-type").is_some()
             || sub_matches.get_one::<String>("target").is_some()
             || sub_matches.get_one::<String>("quantity").is_some()
     }
@@ -5002,6 +5003,7 @@ impl ArgDispatcher {
                 .category()
                 .entry_price()
                 .stop_price()
+                .safety_order_category()
                 .currency(&mut self.trust)
                 .quantity(&mut self.trust)
                 .target_price()
@@ -5080,6 +5082,28 @@ impl ArgDispatcher {
         let entry_price = Self::parse_decimal_arg(sub_matches, "entry", format)?;
         let stop_price = Self::parse_decimal_arg(sub_matches, "stop", format)?;
         let target_price = Self::parse_decimal_arg(sub_matches, "target", format)?;
+        let safety_order_category = sub_matches
+            .get_one::<String>("safety-order-type")
+            .map(|raw| {
+                let category = OrderCategory::from_str(raw).map_err(|_| {
+                    Self::report_error(
+                        format,
+                        "invalid_safety_order_type",
+                        format!("Invalid --safety-order-type value: {raw}"),
+                    )
+                })?;
+                if matches!(category, OrderCategory::Stop | OrderCategory::StopLimit) {
+                    Ok(category)
+                } else {
+                    Err(Self::report_error(
+                        format,
+                        "invalid_safety_order_type",
+                        format!("Invalid --safety-order-type value: {raw}"),
+                    ))
+                }
+            })
+            .transpose()?
+            .unwrap_or(OrderCategory::Stop);
 
         let quantity = quantity_raw.parse::<i64>().map_err(|_| {
             Self::report_error(
@@ -5123,7 +5147,13 @@ impl ArgDispatcher {
 
         let trade = self
             .trust
-            .create_trade(draft, stop_price, entry_price, target_price)
+            .create_trade_with_safety_order_category(
+                draft,
+                stop_price,
+                entry_price,
+                target_price,
+                safety_order_category,
+            )
             .map_err(|error| {
                 Self::report_error(
                     format,
@@ -9898,8 +9928,8 @@ mod tests {
         Environment, FixedIncomeTerms, Level, LevelAdjustmentRules, LevelDirection, LevelStatus,
         LevelTrigger, MarketBar, MarketDataChannel, MarketDataStreamEvent, MarketQuote,
         MarketSnapshotSource, MarketSnapshotV2, MarketTradeTick, Mistake, MistakeErrorType,
-        MungerTendency, OrderIds, SessionRegime, Status, Trade, TradingVehicleCategory,
-        TransactionCategory,
+        MungerTendency, OrderCategory, OrderIds, SessionRegime, Status, Trade,
+        TradingVehicleCategory, TransactionCategory,
     };
     use rust_decimal::Decimal;
     use rust_decimal_macros::dec;
@@ -10197,6 +10227,7 @@ mod tests {
             .arg(Arg::new("category").long("category"))
             .arg(Arg::new("entry").long("entry"))
             .arg(Arg::new("stop").long("stop"))
+            .arg(Arg::new("safety-order-type").long("safety-order-type"))
             .arg(Arg::new("target").long("target"))
             .arg(Arg::new("quantity").long("quantity"))
             .arg(Arg::new("currency").long("currency"))
@@ -17493,6 +17524,7 @@ mod tests {
         crate::dialogs::scripted_push_select(Ok(Some(0))); // long category
         crate::dialogs::scripted_push_input(Ok("100".to_string()));
         crate::dialogs::scripted_push_input(Ok("95".to_string()));
+        crate::dialogs::scripted_push_select(Ok(Some(1))); // stop-limit safety order
         crate::dialogs::scripted_push_select(Ok(Some(0))); // USD balance
         crate::dialogs::scripted_push_input(Ok("2".to_string()));
         crate::dialogs::scripted_push_input(Ok("110".to_string()));
@@ -17513,6 +17545,7 @@ mod tests {
         assert_eq!(created.len(), 1);
         assert_eq!(created[0].trading_vehicle.symbol, "AAPL");
         assert_eq!(created[0].entry.quantity, 2);
+        assert_eq!(created[0].safety_stop.category, OrderCategory::StopLimit);
         assert_eq!(created[0].thesis.as_deref(), Some("scripted breakout"));
 
         crate::dialogs::scripted_reset();
@@ -17972,6 +18005,8 @@ mod tests {
             "100",
             "--stop",
             "95",
+            "--safety-order-type",
+            "stop-limit",
             "--target",
             "110",
             "--quantity",
@@ -18452,6 +18487,31 @@ mod tests {
             .create_trade(&invalid_currency)
             .expect_err("invalid currency should fail");
         assert!(currency_error.to_string().contains("invalid_currency"));
+
+        let invalid_safety_order_type = trade_matches(&[
+            "--account",
+            &account.name,
+            "--symbol",
+            "AAPL",
+            "--category",
+            "long",
+            "--entry",
+            "100",
+            "--stop",
+            "95",
+            "--safety-order-type",
+            "market",
+            "--target",
+            "110",
+            "--quantity",
+            "1",
+        ]);
+        let safety_order_error = dispatcher
+            .create_trade(&invalid_safety_order_type)
+            .expect_err("invalid safety order type should fail");
+        assert!(safety_order_error
+            .to_string()
+            .contains("invalid_safety_order_type"));
     }
 
     #[test]
@@ -18482,6 +18542,8 @@ mod tests {
             "100",
             "--stop",
             "95",
+            "--safety-order-type",
+            "stop-limit",
             "--target",
             "110",
             "--quantity",
@@ -18536,6 +18598,8 @@ mod tests {
             "100",
             "--stop",
             "95",
+            "--safety-order-type",
+            "stop-limit",
             "--target",
             "110",
             "--quantity",
@@ -18564,6 +18628,7 @@ mod tests {
         assert_eq!(funded.len(), 1);
         assert_eq!(funded[0].trading_vehicle.symbol, "AAPL");
         assert_eq!(funded[0].entry.quantity, 2);
+        assert_eq!(funded[0].safety_stop.category, OrderCategory::StopLimit);
         assert_eq!(funded[0].thesis.as_deref(), Some("breakout"));
     }
 

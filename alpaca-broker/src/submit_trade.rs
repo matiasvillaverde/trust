@@ -8,7 +8,7 @@ use num_decimal::Num;
 use std::str::FromStr;
 use tokio::runtime::Runtime;
 
-use model::{Account, BrokerLog, Order, OrderIds, Trade, TradeCategory};
+use model::{Account, BrokerLog, Order, OrderCategory, OrderIds, Trade, TradeCategory};
 use std::error::Error;
 
 use crate::keys;
@@ -56,11 +56,7 @@ fn extract_ids(order: &AlpacaOrder, trade: &Trade) -> Result<OrderIds, Box<dyn E
     let mut target_id = None;
 
     for leg in &order.legs {
-        let leg_price = match (leg.limit_price.clone(), leg.stop_price.clone()) {
-            (Some(limit_price), None) => limit_price,
-            (None, Some(stop_price)) => stop_price,
-            _ => return Err(format!("No price found for leg: {:?}", leg.id).into()),
-        };
+        let leg_price = leg_match_price(leg)?;
 
         if leg_price.to_string() == trade.target.unit_price.to_string() {
             target_id = Some(leg.id);
@@ -81,6 +77,15 @@ fn extract_ids(order: &AlpacaOrder, trade: &Trade) -> Result<OrderIds, Box<dyn E
     })
 }
 
+fn leg_match_price(leg: &AlpacaOrder) -> Result<Num, Box<dyn Error>> {
+    match (leg.limit_price.clone(), leg.stop_price.clone()) {
+        (Some(limit_price), None) => Ok(limit_price),
+        (None, Some(stop_price)) => Ok(stop_price),
+        (Some(_limit_price), Some(stop_price)) if leg.type_ == Type::StopLimit => Ok(stop_price),
+        _ => Err(format!("No price found for leg: {:?}", leg.id).into()),
+    }
+}
+
 fn new_request(trade: &Trade) -> Result<CreateReq, Box<dyn Error>> {
     let entry = Num::from_str(&trade.entry.unit_price.to_string())
         .map_err(|e| format!("Failed to parse entry price: {e:?}"))?;
@@ -94,7 +99,7 @@ fn new_request(trade: &Trade) -> Result<CreateReq, Box<dyn Error>> {
         type_: Type::Limit,
         limit_price: Some(entry),
         take_profit: Some(TakeProfit::Limit(target)),
-        stop_loss: Some(StopLoss::Stop(stop)),
+        stop_loss: Some(stop_loss(&trade.safety_stop, stop)),
         time_in_force: time_in_force(&trade.entry),
         extended_hours: trade.entry.extended_hours,
         client_order_id: Some(trade.entry.id.to_string()),
@@ -105,6 +110,14 @@ fn new_request(trade: &Trade) -> Result<CreateReq, Box<dyn Error>> {
         side(trade),
         Amount::quantity(trade.entry.quantity),
     ))
+}
+
+fn stop_loss(safety_stop: &Order, stop: Num) -> StopLoss {
+    match safety_stop.category {
+        // Trust stores one safety price, so use it as both the trigger and limit price.
+        OrderCategory::StopLimit => StopLoss::StopLimit(stop.clone(), stop),
+        _ => StopLoss::Stop(stop),
+    }
 }
 
 fn time_in_force(entry: &Order) -> TimeInForce {
@@ -268,6 +281,36 @@ mod tests {
     }
 
     #[test]
+    fn new_request_uses_stop_limit_for_stop_limit_safety_orders() {
+        let trade = Trade {
+            safety_stop: Order {
+                unit_price: dec!(10.27),
+                category: OrderCategory::StopLimit,
+                ..Default::default()
+            },
+            entry: Order {
+                unit_price: dec!(13.22),
+                ..Default::default()
+            },
+            target: Order {
+                unit_price: dec!(15.03),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let order_req = new_request(&trade).unwrap();
+
+        assert_eq!(
+            order_req.stop_loss.unwrap(),
+            StopLoss::StopLimit(
+                Num::from_str("10.27").unwrap(),
+                Num::from_str("10.27").unwrap()
+            )
+        );
+    }
+
+    #[test]
     fn test_extract_ids_stop_order() {
         // Create a sample AlpacaOrder with a Stop type
         let entry = default();
@@ -295,6 +338,35 @@ mod tests {
         // Check that the stop ID is correct and the target ID is a new UUID
         assert_eq!(result.stop, "8654f70e-3b42-4014-a9ac-5a7101989aad");
         assert_eq!(result.entry, "b6b12dc0-8e21-4d2e-8315-907d3116a6b8");
+        assert_eq!(result.target, "90e41b1e-9089-444d-9f68-c204a4d32914");
+    }
+
+    #[test]
+    fn extract_ids_accepts_stop_limit_leg() {
+        let mut entry = default();
+        let leg = entry
+            .legs
+            .get_mut(1)
+            .expect("fixture should include a safety stop leg");
+        leg.type_ = Type::StopLimit;
+        leg.limit_price = Some(Num::from_str("12.51").expect("valid limit price"));
+
+        let trade = Trade {
+            safety_stop: Order {
+                unit_price: dec!(12.52),
+                category: OrderCategory::StopLimit,
+                ..Default::default()
+            },
+            target: Order {
+                unit_price: dec!(12.58),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let result = extract_ids(&entry, &trade).unwrap();
+
+        assert_eq!(result.stop, "8654f70e-3b42-4014-a9ac-5a7101989aad");
         assert_eq!(result.target, "90e41b1e-9089-444d-9f68-c204a4d32914");
     }
 
