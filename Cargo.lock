@@ -9,6 +9,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
+name = "advisor"
+version = "0.3.5"
+dependencies = [
+ "keyring",
+ "reqwest",
+ "thiserror 1.0.69",
+ "trust-model",
+]
+
+[[package]]
 name = "ahash"
 version = "0.7.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -488,6 +498,7 @@ dependencies = [
 name = "core"
 version = "0.3.5"
 dependencies = [
+ "advisor",
  "argon2",
  "chrono",
  "db-sqlite",
@@ -2717,6 +2728,7 @@ dependencies = [
 name = "trust-cli"
 version = "0.3.5"
 dependencies = [
+ "advisor",
  "alpaca-broker",
  "broker-sync",
  "chrono",

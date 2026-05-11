@@ -30,6 +30,7 @@ use crate::dialogs::{
 use crate::dialogs::{RuleDialogBuilder, RuleRemoveDialogBuilder};
 use crate::protected_keyword;
 use crate::trading_vehicle_import;
+use advisor::{AdvisorConfig, AdvisorConfigUpdate, CalendarProvider};
 use alpaca_broker::AlpacaBroker;
 use chrono::{DateTime, Datelike, Days, NaiveDate, Utc};
 use clap::ArgMatches;
@@ -132,6 +133,59 @@ impl Display for CliError {
 }
 
 impl std::error::Error for CliError {}
+
+fn advisor_provider_config_requested(matches: &ArgMatches) -> bool {
+    bool_arg_present(matches, "show")
+        || string_arg_present(matches, "calendar-provider")
+        || string_arg_present(matches, "calendar-api-key")
+        || string_arg_present(matches, "claude-api-key")
+}
+
+fn advisor_threshold_config_requested(matches: &ArgMatches) -> bool {
+    string_arg_present(matches, "account")
+        || string_arg_present(matches, "sector-limit")
+        || string_arg_present(matches, "asset-class-limit")
+        || string_arg_present(matches, "single-position-limit")
+        || string_arg_present(matches, "confirm-protected")
+}
+
+fn string_arg_present(matches: &ArgMatches, key: &str) -> bool {
+    matches.try_get_one::<String>(key).ok().flatten().is_some()
+}
+
+fn bool_arg_present(matches: &ArgMatches, key: &str) -> bool {
+    matches
+        .try_get_one::<bool>(key)
+        .ok()
+        .flatten()
+        .copied()
+        .unwrap_or(false)
+}
+
+fn advisor_config_update_from_matches(
+    matches: &ArgMatches,
+) -> Result<AdvisorConfigUpdate, CliError> {
+    let calendar_provider = matches
+        .get_one::<String>("calendar-provider")
+        .map(|value| {
+            CalendarProvider::from_str(value)
+                .map_err(|e| CliError::new("invalid_calendar_provider", e.to_string()))
+        })
+        .transpose()?;
+
+    Ok(AdvisorConfigUpdate {
+        calendar_provider,
+        calendar_api_key: matches.get_one::<String>("calendar-api-key").cloned(),
+        claude_api_key: matches.get_one::<String>("claude-api-key").cloned(),
+    })
+}
+
+fn print_advisor_provider_config(config: &AdvisorConfig) {
+    println!("Advisor configuration:");
+    println!("Calendar provider: {}", config.calendar_provider);
+    println!("Calendar API key: {}", config.calendar_api_key_display());
+    println!("Claude API key: {}", config.claude_api_key_display());
+}
 
 pub struct ArgDispatcher {
     trust: TrustFacade,
@@ -7667,21 +7721,32 @@ impl ArgDispatcher {
     }
 
     fn advisor_configure(&mut self, sub_matches: &ArgMatches) -> Result<(), CliError> {
-        self.ensure_protected_keyword(sub_matches, ReportOutputFormat::Text, "advisor configure")?;
-        let account_id = Uuid::parse_str(sub_matches.get_one::<String>("account").unwrap())
-            .map_err(|_| CliError::new("invalid_uuid", "Invalid --account UUID"))?;
+        let provider_mode = advisor_provider_config_requested(sub_matches);
+        let threshold_mode = advisor_threshold_config_requested(sub_matches);
+        if provider_mode && threshold_mode {
+            return Err(CliError::new(
+                "advisor_configure_mode_conflict",
+                "Advisor provider keys and concentration thresholds must be configured separately",
+            ));
+        }
+        if provider_mode {
+            return Self::advisor_provider_configure(sub_matches);
+        }
+        self.advisor_thresholds_configure(sub_matches)
+    }
+
+    fn advisor_thresholds_configure(&mut self, sub_matches: &ArgMatches) -> Result<(), CliError> {
+        let account_id = Self::parse_uuid_arg(sub_matches, "account", ReportOutputFormat::Text)?;
         let sector_limit =
-            Decimal::from_str_exact(sub_matches.get_one::<String>("sector-limit").unwrap())
-                .map_err(|_| CliError::new("invalid_decimal", "Invalid --sector-limit"))?;
+            Self::parse_decimal_arg(sub_matches, "sector-limit", ReportOutputFormat::Text)?;
         let asset_class_limit =
-            Decimal::from_str_exact(sub_matches.get_one::<String>("asset-class-limit").unwrap())
-                .map_err(|_| CliError::new("invalid_decimal", "Invalid --asset-class-limit"))?;
-        let single_position_limit = Decimal::from_str_exact(
-            sub_matches
-                .get_one::<String>("single-position-limit")
-                .unwrap(),
-        )
-        .map_err(|_| CliError::new("invalid_decimal", "Invalid --single-position-limit"))?;
+            Self::parse_decimal_arg(sub_matches, "asset-class-limit", ReportOutputFormat::Text)?;
+        let single_position_limit = Self::parse_decimal_arg(
+            sub_matches,
+            "single-position-limit",
+            ReportOutputFormat::Text,
+        )?;
+        self.ensure_protected_keyword(sub_matches, ReportOutputFormat::Text, "advisor configure")?;
 
         self.trust
             .configure_advisory_thresholds(
@@ -7694,6 +7759,26 @@ impl ArgDispatcher {
             )
             .map_err(|e| CliError::new("advisor_configure_failed", e.to_string()))?;
         println!("Advisor thresholds configured for account {account_id}");
+        Ok(())
+    }
+
+    fn advisor_provider_configure(sub_matches: &ArgMatches) -> Result<(), CliError> {
+        let update = advisor_config_update_from_matches(sub_matches)?;
+        if !update.is_empty() {
+            update
+                .apply()
+                .map_err(|e| CliError::new("advisor_configure_failed", e.to_string()))?;
+        }
+        if sub_matches.get_flag("show") || update.is_empty() {
+            let config = AdvisorConfig::read()
+                .map_err(|e| CliError::new("advisor_configure_failed", e.to_string()))?;
+            print_advisor_provider_config(&config);
+        } else {
+            let config = AdvisorConfig::read()
+                .map_err(|e| CliError::new("advisor_configure_failed", e.to_string()))?;
+            println!("Advisor provider configuration updated.");
+            print_advisor_provider_config(&config);
+        }
         Ok(())
     }
 
@@ -8466,6 +8551,14 @@ mod tests {
             .arg(Arg::new("sector-limit").long("sector-limit"))
             .arg(Arg::new("asset-class-limit").long("asset-class-limit"))
             .arg(Arg::new("single-position-limit").long("single-position-limit"))
+            .arg(Arg::new("calendar-provider").long("calendar-provider"))
+            .arg(Arg::new("calendar-api-key").long("calendar-api-key"))
+            .arg(Arg::new("claude-api-key").long("claude-api-key"))
+            .arg(
+                Arg::new("show")
+                    .long("show")
+                    .action(clap::ArgAction::SetTrue),
+            )
             .get_matches_from(argv)
     }
 
@@ -13548,6 +13641,31 @@ mod tests {
             .advisor_configure(&bad_decimal)
             .expect_err("invalid decimal should fail");
         assert!(error.to_string().contains("invalid_decimal"));
+
+        let bad_provider = advisor_configure_matches(&["--calendar-provider", "bad"]);
+        let error = dispatcher
+            .advisor_configure(&bad_provider)
+            .expect_err("invalid provider should fail");
+        assert!(error.to_string().contains("invalid_calendar_provider"));
+
+        let mixed_modes = advisor_configure_matches(&[
+            "--calendar-api-key",
+            "secret",
+            "--account",
+            &account.id.to_string(),
+            "--sector-limit",
+            "40",
+            "--asset-class-limit",
+            "40",
+            "--single-position-limit",
+            "25",
+        ]);
+        let error = dispatcher
+            .advisor_configure(&mixed_modes)
+            .expect_err("mixed config modes should fail");
+        assert!(error
+            .to_string()
+            .contains("advisor_configure_mode_conflict"));
 
         let check_bad_decimal = advisor_check_matches(&[
             "--account",
