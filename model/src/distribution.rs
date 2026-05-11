@@ -16,6 +16,8 @@ pub struct DistributionRules {
     pub tax_percent: Decimal,
     /// Percentage for reinvestment allocation (0-1)  
     pub reinvestment_percent: Decimal,
+    /// Percentage for insurance reserve allocation (0-1)
+    pub insurance_percent: Decimal,
     /// Minimum profit threshold for distribution
     pub minimum_threshold: Decimal,
     /// Hash used to protect rule updates
@@ -39,6 +41,8 @@ pub struct DistributionResult {
     pub tax_amount: Option<Decimal>,
     /// Amount allocated to reinvestment (optional if percentage is 0)
     pub reinvestment_amount: Option<Decimal>,
+    /// Amount allocated to insurance reserve (optional if percentage is 0)
+    pub insurance_amount: Option<Decimal>,
     /// Timestamp when distribution was executed
     pub distribution_date: NaiveDateTime,
     /// Transaction IDs created for this distribution
@@ -64,6 +68,8 @@ pub struct DistributionHistory {
     pub tax_amount: Option<Decimal>,
     /// Distributed reinvestment amount
     pub reinvestment_amount: Option<Decimal>,
+    /// Distributed insurance reserve amount
+    pub insurance_amount: Option<Decimal>,
     /// Row creation timestamp
     pub created_at: NaiveDateTime,
     /// Row update timestamp
@@ -108,6 +114,8 @@ pub struct DistributionExecutionPlan {
     pub tax_amount: Option<Decimal>,
     /// Amounts written to history (for audit/reporting).
     pub reinvestment_amount: Option<Decimal>,
+    /// Amounts written to history (for audit/reporting).
+    pub insurance_amount: Option<Decimal>,
 }
 
 /// Error types for distribution operations
@@ -168,6 +176,7 @@ impl DistributionRules {
         earnings_percent: Decimal,
         tax_percent: Decimal,
         reinvestment_percent: Decimal,
+        insurance_percent: Decimal,
         minimum_threshold: Decimal,
     ) -> Self {
         let now = Utc::now().naive_utc();
@@ -177,6 +186,7 @@ impl DistributionRules {
             earnings_percent,
             tax_percent,
             reinvestment_percent,
+            insurance_percent,
             minimum_threshold,
             configuration_password_hash: String::new(),
             created_at: now,
@@ -198,6 +208,7 @@ impl DistributionRules {
             Decimal::new(30, 2),  // 30%
             Decimal::new(25, 2),  // 25%
             Decimal::new(45, 2),  // 45%
+            Decimal::ZERO,        // 0%
             Decimal::new(500, 0), // $500 minimum
         )
     }
@@ -208,6 +219,7 @@ impl DistributionRules {
         if self.earnings_percent < Decimal::ZERO
             || self.tax_percent < Decimal::ZERO
             || self.reinvestment_percent < Decimal::ZERO
+            || self.insurance_percent < Decimal::ZERO
         {
             return Err(DistributionError::InvalidPercentage);
         }
@@ -216,6 +228,7 @@ impl DistributionRules {
         if self.earnings_percent > Decimal::ONE
             || self.tax_percent > Decimal::ONE
             || self.reinvestment_percent > Decimal::ONE
+            || self.insurance_percent > Decimal::ONE
         {
             return Err(DistributionError::InvalidPercentage);
         }
@@ -225,6 +238,7 @@ impl DistributionRules {
             .earnings_percent
             .checked_add(self.tax_percent)
             .and_then(|sum| sum.checked_add(self.reinvestment_percent))
+            .and_then(|sum| sum.checked_add(self.insurance_percent))
             .ok_or(DistributionError::InvalidPercentageSum)?;
         if total != Decimal::ONE {
             return Err(DistributionError::InvalidPercentageSum);
@@ -258,6 +272,9 @@ impl DistributionRules {
         let reinvestment_amount = profit
             .checked_mul(self.reinvestment_percent)
             .ok_or(DistributionError::InvalidPercentage)?;
+        let insurance_amount = profit
+            .checked_mul(self.insurance_percent)
+            .ok_or(DistributionError::InvalidPercentage)?;
 
         Ok(DistributionResult {
             source_account_id: self.account_id,
@@ -274,6 +291,11 @@ impl DistributionRules {
             },
             reinvestment_amount: if reinvestment_amount > Decimal::ZERO {
                 Some(reinvestment_amount)
+            } else {
+                None
+            },
+            insurance_amount: if insurance_amount > Decimal::ZERO {
+                Some(insurance_amount)
             } else {
                 None
             },
@@ -294,6 +316,7 @@ mod tests {
             Decimal::new(30, 2),  // 0.30
             Decimal::new(25, 2),  // 0.25
             Decimal::new(45, 2),  // 0.45
+            Decimal::ZERO,        // 0.00
             Decimal::new(500, 0), // $500 minimum
         );
 
@@ -307,6 +330,7 @@ mod tests {
             Decimal::new(30, 2), // 0.30
             Decimal::new(25, 2), // 0.25
             Decimal::new(50, 2), // 0.50 - sums to 105%
+            Decimal::ZERO,
             Decimal::new(500, 0),
         );
 
@@ -323,6 +347,7 @@ mod tests {
             Decimal::new(-10, 2), // -0.10 (negative)
             Decimal::new(55, 2),  // 0.55
             Decimal::new(45, 2),  // 0.45
+            Decimal::ZERO,
             Decimal::new(500, 0),
         );
 
@@ -336,6 +361,7 @@ mod tests {
             Decimal::new(150, 2), // 1.50 (150%)
             Decimal::new(25, 2),  // 0.25
             Decimal::new(25, 2),  // 0.25
+            Decimal::ZERO,
             Decimal::new(500, 0),
         );
 
@@ -349,6 +375,7 @@ mod tests {
             Decimal::new(30, 2),  // 0.30
             Decimal::new(25, 2),  // 0.25
             Decimal::new(45, 2),  // 0.45
+            Decimal::ZERO,        // 0.00
             Decimal::new(500, 0), // $500 minimum
         );
 
@@ -362,7 +389,29 @@ mod tests {
         assert_eq!(distribution.earnings_amount, Some(Decimal::new(600, 0))); // 30% of $2000
         assert_eq!(distribution.tax_amount, Some(Decimal::new(500, 0))); // 25% of $2000
         assert_eq!(distribution.reinvestment_amount, Some(Decimal::new(900, 0)));
+        assert_eq!(distribution.insurance_amount, None);
         // 45% of $2000
+    }
+
+    #[test]
+    fn test_calculate_distribution_with_insurance_allocation() {
+        let rules = DistributionRules::new(
+            Uuid::new_v4(),
+            Decimal::new(30, 2),
+            Decimal::new(25, 2),
+            Decimal::new(35, 2),
+            Decimal::new(10, 2),
+            Decimal::new(500, 0),
+        );
+
+        let distribution = rules
+            .calculate_distribution(Decimal::new(2000, 0))
+            .expect("insurance allocation should calculate");
+
+        assert_eq!(distribution.earnings_amount, Some(Decimal::new(600, 0)));
+        assert_eq!(distribution.tax_amount, Some(Decimal::new(500, 0)));
+        assert_eq!(distribution.reinvestment_amount, Some(Decimal::new(700, 0)));
+        assert_eq!(distribution.insurance_amount, Some(Decimal::new(200, 0)));
     }
 
     #[test]
@@ -373,6 +422,7 @@ mod tests {
             Decimal::ZERO,
             Decimal::new(25, 2),
             Decimal::new(75, 2),
+            Decimal::ZERO,
             Decimal::new(500, 0),
         );
 
@@ -387,6 +437,7 @@ mod tests {
                     distribution.earnings_amount,
                     distribution.tax_amount,
                     distribution.reinvestment_amount,
+                    distribution.insurance_amount,
                     distribution.transactions_created.is_empty(),
                 )
             });
@@ -399,6 +450,7 @@ mod tests {
                 None,
                 Some(Decimal::new(500, 0)),
                 Some(Decimal::new(1500, 0)),
+                None,
                 true,
             ))
         );
@@ -411,6 +463,7 @@ mod tests {
             Decimal::new(30, 2),
             Decimal::new(25, 2),
             Decimal::new(45, 2),
+            Decimal::ZERO,
             Decimal::new(500, 0), // $500 minimum
         );
 
@@ -427,6 +480,7 @@ mod tests {
             Decimal::new(30, 2),
             Decimal::new(25, 2),
             Decimal::new(45, 2),
+            Decimal::ZERO,
             Decimal::new(500, 0),
         );
 
@@ -443,6 +497,7 @@ mod tests {
             Decimal::new(30, 2),
             Decimal::new(25, 2),
             Decimal::new(45, 2),
+            Decimal::ZERO,
             Decimal::new(500, 0),
         );
 
@@ -462,7 +517,10 @@ mod tests {
         assert_eq!(rules.account_id, account_id);
 
         // Default percentages should sum to 100%
-        let total = rules.earnings_percent + rules.tax_percent + rules.reinvestment_percent;
+        let total = rules.earnings_percent
+            + rules.tax_percent
+            + rules.reinvestment_percent
+            + rules.insurance_percent;
         assert_eq!(total, Decimal::ONE);
     }
 

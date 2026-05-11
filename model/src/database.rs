@@ -759,7 +759,44 @@ pub trait DistributionWrite {
         reinvestment_percent: Decimal,
         minimum_threshold: Decimal,
         configuration_password_hash: &str,
-    ) -> Result<DistributionRules, Box<dyn Error>>;
+    ) -> Result<DistributionRules, Box<dyn Error>> {
+        self.create_or_update_with_insurance(
+            account_id,
+            earnings_percent,
+            tax_percent,
+            reinvestment_percent,
+            Decimal::ZERO,
+            minimum_threshold,
+            configuration_password_hash,
+        )
+    }
+
+    /// Creates or updates distribution rules for an account, including insurance allocation.
+    #[allow(clippy::too_many_arguments)]
+    fn create_or_update_with_insurance(
+        &mut self,
+        account_id: Uuid,
+        earnings_percent: Decimal,
+        tax_percent: Decimal,
+        reinvestment_percent: Decimal,
+        insurance_percent: Decimal,
+        minimum_threshold: Decimal,
+        configuration_password_hash: &str,
+    ) -> Result<DistributionRules, Box<dyn Error>> {
+        if insurance_percent != Decimal::ZERO {
+            return Err(
+                "insurance distribution is not supported by this database implementation".into(),
+            );
+        }
+        self.create_or_update(
+            account_id,
+            earnings_percent,
+            tax_percent,
+            reinvestment_percent,
+            minimum_threshold,
+            configuration_password_hash,
+        )
+    }
 
     /// Persists an execution event for distribution audit/history.
     #[allow(clippy::too_many_arguments)]
@@ -772,7 +809,48 @@ pub trait DistributionWrite {
         earnings_amount: Option<Decimal>,
         tax_amount: Option<Decimal>,
         reinvestment_amount: Option<Decimal>,
-    ) -> Result<DistributionHistory, Box<dyn Error>>;
+    ) -> Result<DistributionHistory, Box<dyn Error>> {
+        self.create_history_with_insurance(
+            source_account_id,
+            trade_id,
+            original_amount,
+            distribution_date,
+            earnings_amount,
+            tax_amount,
+            reinvestment_amount,
+            None,
+        )
+    }
+
+    /// Persists an execution event for distribution audit/history, including insurance.
+    #[allow(clippy::too_many_arguments)]
+    fn create_history_with_insurance(
+        &mut self,
+        source_account_id: Uuid,
+        trade_id: Option<Uuid>,
+        original_amount: Decimal,
+        distribution_date: chrono::NaiveDateTime,
+        earnings_amount: Option<Decimal>,
+        tax_amount: Option<Decimal>,
+        reinvestment_amount: Option<Decimal>,
+        insurance_amount: Option<Decimal>,
+    ) -> Result<DistributionHistory, Box<dyn Error>> {
+        if insurance_amount.is_some() {
+            return Err(
+                "insurance distribution history is not supported by this database implementation"
+                    .into(),
+            );
+        }
+        self.create_history(
+            source_account_id,
+            trade_id,
+            original_amount,
+            distribution_date,
+            earnings_amount,
+            tax_amount,
+            reinvestment_amount,
+        )
+    }
 
     /// Executes all distribution transfers and writes a history row atomically.
     ///
