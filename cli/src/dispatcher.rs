@@ -400,7 +400,22 @@ impl ArgDispatcher {
     }
 
     fn is_valid_protected_keyword(expected: &str, provided: &str) -> bool {
-        provided == expected
+        if expected.is_empty() || provided.is_empty() {
+            return false;
+        }
+
+        let expected_bytes = expected.as_bytes();
+        let provided_bytes = provided.as_bytes();
+        let max_len = expected_bytes.len().max(provided_bytes.len());
+        let mut diff = expected_bytes.len() ^ provided_bytes.len();
+
+        for index in 0..max_len {
+            let expected_byte = expected_bytes.get(index).copied().unwrap_or_default();
+            let provided_byte = provided_bytes.get(index).copied().unwrap_or_default();
+            diff |= usize::from(expected_byte ^ provided_byte);
+        }
+
+        diff == 0
     }
 
     pub fn new_sqlite() -> Self {
@@ -1037,7 +1052,15 @@ impl ArgDispatcher {
             ));
         }
 
-        self.trust.authorize_protected_mutation();
+        self.trust
+            .authorize_protected_mutation(provided, &expected)
+            .map_err(|_| {
+                Self::report_error(
+                    format,
+                    "protected_keyword_invalid",
+                    format!("Invalid protected keyword for {operation}."),
+                )
+            })?;
         Ok(())
     }
 

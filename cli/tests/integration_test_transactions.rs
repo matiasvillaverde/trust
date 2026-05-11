@@ -871,8 +871,7 @@ fn test_deposit_negative_fails() {
 }
 
 #[test]
-fn test_deposit_zero_succeeds() {
-    // The validator allows amount >= 0 for deposits (is_sign_negative check)
+fn test_deposit_zero_fails() {
     let mut trust = new_facade(NoOpBroker);
     let account = trust
         .create_account("acc", "d", model::Environment::Paper, dec!(20), dec!(10))
@@ -884,10 +883,7 @@ fn test_deposit_zero_succeeds() {
         dec!(0),
         &Currency::USD,
     );
-    assert!(
-        result.is_ok(),
-        "zero deposit should be allowed by current validation"
-    );
+    assert!(result.is_err(), "zero deposit should be rejected");
 }
 
 #[test]

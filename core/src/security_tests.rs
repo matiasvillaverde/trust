@@ -1,10 +1,7 @@
 //! Security and correctness tests for Trust core.
 //!
-//! Each test asserts the **correct** behavior.  Since the bugs are unfixed,
-//! the correct assertion fails — so tests are marked `#[should_panic]`.
-//!
-//! When you fix a bug, its test will stop panicking and the `#[should_panic]`
-//! will cause a test failure — that's your signal to remove the annotation.
+//! Each test asserts the expected fixed behavior directly so these regressions
+//! fail loudly if any of the security guarantees are weakened.
 
 #[cfg(test)]
 #[allow(
@@ -89,13 +86,11 @@ mod tests {
     }
 
     // ===============================================================
-    // 1. PROTECTED MODE BYPASS — no password required
+    // 1. PROTECTED MODE BYPASS - no password required
     // ===============================================================
 
-    /// Protected mutations should require a password.  Currently
-    /// `authorize_protected_mutation()` needs no credentials at all.
+    /// Protected mutations should require valid credentials.
     #[test]
-    #[should_panic]
     fn protected_mode_should_require_password() {
         use crate::TrustFacade;
         use model::{Currency, Environment, TransactionCategory};
@@ -108,8 +103,10 @@ mod tests {
             .unwrap();
 
         facade.enable_protected_mode();
-        // Call authorize without any password — this should fail but doesn't.
-        facade.authorize_protected_mutation();
+        assert!(
+            facade.authorize_protected_mutation("", "").is_err(),
+            "Blank protected credentials should be rejected"
+        );
 
         let result = facade.create_transaction(
             &account,
@@ -125,7 +122,6 @@ mod tests {
     }
 
     /// Confirm that without calling authorize, operations are blocked.
-    /// (This is already correct behavior — no should_panic needed.)
     #[test]
     fn protected_mode_blocks_without_authorize() {
         use crate::TrustFacade;
@@ -151,7 +147,6 @@ mod tests {
 
     /// Re-authorization should require credentials each time.
     #[test]
-    #[should_panic]
     fn protected_mode_re_authorization_should_require_credentials() {
         use crate::TrustFacade;
         use model::{Currency, Environment, TransactionCategory};
@@ -165,16 +160,21 @@ mod tests {
 
         facade.enable_protected_mode();
 
-        // Second authorization without credentials should fail.
-        facade.authorize_protected_mutation();
+        facade
+            .authorize_protected_mutation("correct-secret", "correct-secret")
+            .unwrap();
         let _ = facade.create_transaction(
             &account,
             &TransactionCategory::Deposit,
             dec!(10),
             &Currency::USD,
         );
-        // Now try again — should require credentials again.
-        facade.authorize_protected_mutation();
+        assert!(
+            facade
+                .authorize_protected_mutation("wrong-secret", "correct-secret")
+                .is_err(),
+            "Re-authorization should reject invalid credentials"
+        );
         let result = facade.create_transaction(
             &account,
             &TransactionCategory::Deposit,
@@ -194,7 +194,6 @@ mod tests {
     /// A zero-amount deposit should be rejected like all other zero-amount
     /// financial operations.
     #[test]
-    #[should_panic]
     fn zero_amount_deposit_should_be_rejected() {
         use model::{AccountBalance, AccountBalanceRead, Currency};
         use uuid::Uuid;
@@ -237,7 +236,6 @@ mod tests {
     /// When a non-Filled trade attempts stop modification, the error
     /// should be TradeNotFilled regardless of the price.
     #[test]
-    #[should_panic]
     fn modify_stop_should_check_status_before_price_for_long() {
         use crate::validators::trade::{can_modify_stop, TradeValidationErrorCode};
         use model::TradeCategory;
@@ -263,7 +261,6 @@ mod tests {
 
     /// Same for Short trades.
     #[test]
-    #[should_panic]
     fn modify_stop_should_check_status_before_price_for_short() {
         use crate::validators::trade::{can_modify_stop, TradeValidationErrorCode};
         use model::TradeCategory;
@@ -295,28 +292,19 @@ mod tests {
     /// that hashing the same password twice produces DIFFERENT results
     /// (which Argon2 does, but SHA-256 doesn't).
     #[test]
-    #[should_panic]
     fn password_hash_should_be_salted() {
-        use sha2::{Digest, Sha256};
-
         let password = "my_secure_password";
-
-        // Reproduce the legacy hashing logic from core/src/lib.rs:1977-1987
-        let hash = |p: &str| {
-            let mut h = Sha256::new();
-            h.update(p.as_bytes());
-            format!("{:x}", h.finalize())
-        };
-
-        let h1 = hash(password);
-        let h2 = hash(password);
+        let h1 = crate::hash_distribution_password(password).unwrap();
+        let h2 = crate::hash_distribution_password(password).unwrap();
 
         // CORRECT behavior: hashing same password twice should produce
-        // different results (salted).  Legacy SHA-256 fails this.
+        // different results (salted).
         assert_ne!(
             h1, h2,
-            "Password hash should be salted — same input must produce different output"
+            "Password hash should be salted - same input must produce different output"
         );
+        assert!(h1.starts_with("$argon2"));
+        assert!(h2.starts_with("$argon2"));
     }
 
     // ===============================================================

@@ -80,7 +80,7 @@ pub fn can_transfer_deposit(
     account_id: Uuid,
     database: &mut dyn AccountBalanceRead,
 ) -> TransactionValidationResult {
-    if amount.is_sign_negative() {
+    if amount <= dec!(0) {
         Err(Box::new(TransactionValidationError {
             code: TransactionValidationErrorCode::AmountOfDepositMustBePositive,
             message: "Amount of deposit must be positive".to_string(),
@@ -392,7 +392,7 @@ mod tests {
         };
 
         assert!(
-            can_transfer_deposit(dec!(0), &currency, account_id, &mut existing_balance).is_ok()
+            can_transfer_deposit(dec!(1), &currency, account_id, &mut existing_balance).is_ok()
         );
 
         let mut missing_balance = BalanceReadStub { balance: None };
@@ -410,6 +410,20 @@ mod tests {
             }),
         };
         let error = can_transfer_deposit(dec!(-1), &currency, account_id, &mut existing_balance)
+            .unwrap_err();
+        assert_eq!(
+            error.code,
+            TransactionValidationErrorCode::AmountOfDepositMustBePositive
+        );
+
+        let mut existing_balance = BalanceReadStub {
+            balance: Some(AccountBalance {
+                account_id,
+                currency,
+                ..Default::default()
+            }),
+        };
+        let error = can_transfer_deposit(dec!(0), &currency, account_id, &mut existing_balance)
             .unwrap_err();
         assert_eq!(
             error.code,

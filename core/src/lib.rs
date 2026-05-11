@@ -56,7 +56,6 @@ use model::{
 use rand_core::OsRng;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
-use sha2::{Digest, Sha256};
 use uuid::Uuid;
 use {
     services::leveling::{
@@ -290,6 +289,25 @@ impl std::fmt::Debug for TrustFacade {
     }
 }
 
+fn protected_keyword_matches(expected: &str, provided: &str) -> bool {
+    if expected.is_empty() || provided.is_empty() {
+        return false;
+    }
+
+    let expected_bytes = expected.as_bytes();
+    let provided_bytes = provided.as_bytes();
+    let max_len = expected_bytes.len().max(provided_bytes.len());
+    let mut diff = expected_bytes.len() ^ provided_bytes.len();
+
+    for index in 0..max_len {
+        let expected_byte = expected_bytes.get(index).copied().unwrap_or_default();
+        let provided_byte = provided_bytes.get(index).copied().unwrap_or_default();
+        diff |= usize::from(expected_byte ^ provided_byte);
+    }
+
+    diff == 0
+}
+
 /// Trust is the main entry point for interacting with the core library.
 /// It is a facade that provides a simple interface for interacting with the
 /// core library.
@@ -320,9 +338,20 @@ impl TrustFacade {
         self.protected_mode = true;
     }
 
-    /// Authorizes exactly one protected mutation operation.
-    pub fn authorize_protected_mutation(&mut self) {
+    /// Authorizes exactly one protected mutation operation with the protected keyword.
+    pub fn authorize_protected_mutation(
+        &mut self,
+        provided_keyword: &str,
+        expected_keyword: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        if !self.protected_mode {
+            return Ok(());
+        }
+        if !protected_keyword_matches(expected_keyword, provided_keyword) {
+            return Err("Protected mutation authorization failed".into());
+        }
         self.protected_authorized = true;
+        Ok(())
     }
 
     fn consume_protected_authorization(
@@ -1979,20 +2008,8 @@ fn verify_distribution_password(
             .verify_password(password.as_bytes(), &parsed)
             .is_ok())
     } else {
-        Ok(hash_distribution_password_legacy_sha256(password)? == stored_hash)
+        Ok(false)
     }
-}
-
-fn hash_distribution_password_legacy_sha256(
-    password: &str,
-) -> Result<String, Box<dyn std::error::Error>> {
-    if password.trim().len() < 8 {
-        return Err("Distribution password must be at least 8 characters".into());
-    }
-    let mut hasher = Sha256::new();
-    hasher.update(password.as_bytes());
-    let digest = hasher.finalize();
-    Ok(format!("{digest:x}"))
 }
 
 #[cfg(test)]
@@ -2290,17 +2307,18 @@ mod tests {
     #[test]
     fn distribution_password_hashes_verify_and_reject_weak_inputs() {
         assert!(hash_distribution_password("short").is_err());
-        assert!(hash_distribution_password_legacy_sha256("short").is_err());
 
         let password = "correct horse battery staple";
         let argon_hash = hash_distribution_password(password).unwrap();
+        let second_argon_hash = hash_distribution_password(password).unwrap();
         assert!(argon_hash.starts_with("$argon2"));
+        assert!(second_argon_hash.starts_with("$argon2"));
+        assert_ne!(argon_hash, second_argon_hash);
         assert!(verify_distribution_password(password, &argon_hash).unwrap());
         assert!(!verify_distribution_password("wrong password", &argon_hash).unwrap());
 
-        let legacy_hash = hash_distribution_password_legacy_sha256(password).unwrap();
-        assert!(verify_distribution_password(password, &legacy_hash).unwrap());
-        assert!(!verify_distribution_password("wrong password", &legacy_hash).unwrap());
+        let legacy_sha256_hash = "cbe6beb26479b568e48058e254b7c50b8d0fef2bd635a0f024ee3f80d1a7084d";
+        assert!(!verify_distribution_password(password, legacy_sha256_hash).unwrap());
         assert!(!verify_distribution_password(password, "$argon2id$invalid").unwrap());
     }
 

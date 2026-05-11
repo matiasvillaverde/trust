@@ -1410,7 +1410,9 @@ fn bug_046_protected_authorization_consumed_once() {
     let mut trust = TrustFacade::new(Box::new(db), Box::new(NoOpBroker));
     trust.enable_protected_mode();
 
-    trust.authorize_protected_mutation();
+    trust
+        .authorize_protected_mutation("secret", "secret")
+        .unwrap();
     trust
         .create_account("test", "test", Environment::Paper, dec!(20), dec!(10))
         .unwrap();
@@ -1428,7 +1430,9 @@ fn bug_047_protected_authorization_consumed_on_failure() {
     let db = SqliteDatabase::new_in_memory();
     let mut trust = TrustFacade::new(Box::new(db), Box::new(NoOpBroker));
     trust.enable_protected_mode();
-    trust.authorize_protected_mutation();
+    trust
+        .authorize_protected_mutation("secret", "secret")
+        .unwrap();
 
     // Create first account
     trust
@@ -1436,7 +1440,9 @@ fn bug_047_protected_authorization_consumed_on_failure() {
         .unwrap();
 
     // Authorization is consumed. Authorize again.
-    trust.authorize_protected_mutation();
+    trust
+        .authorize_protected_mutation("secret", "secret")
+        .unwrap();
 
     let account = trust.search_account("test").unwrap();
     // Try an operation that will fail (e.g., deposit into non-existent currency balance record issue)

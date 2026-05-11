@@ -321,7 +321,9 @@ fn test_core_protected_mode_blocks_level_mutation_without_authorization() {
 #[test]
 fn test_core_protected_mode_allows_single_authorized_level_mutation() {
     let mut trust = create_protected_trust();
-    trust.authorize_protected_mutation();
+    trust
+        .authorize_protected_mutation("secret", "secret")
+        .unwrap();
     let account = trust
         .create_account(
             "level-core-authorized",
@@ -332,7 +334,9 @@ fn test_core_protected_mode_allows_single_authorized_level_mutation() {
         )
         .expect("authorized account create");
 
-    trust.authorize_protected_mutation();
+    trust
+        .authorize_protected_mutation("secret", "secret")
+        .unwrap();
     let changed = trust.change_level(account.id, 2, "risk control", LevelTrigger::ManualReview);
     assert!(changed.is_ok(), "authorized level mutation should succeed");
 
@@ -390,7 +394,9 @@ fn test_funding_rejects_quantity_above_level_adjusted_limit() {
 #[test]
 fn test_level_adjustment_rules_update_requires_authorization_in_protected_mode() {
     let mut trust = create_protected_trust();
-    trust.authorize_protected_mutation();
+    trust
+        .authorize_protected_mutation("secret", "secret")
+        .unwrap();
     let account = trust
         .create_account(
             "level-rules-protected",
@@ -408,7 +414,9 @@ fn test_level_adjustment_rules_update_requires_authorization_in_protected_mode()
         "rules mutation should require explicit authorization"
     );
 
-    trust.authorize_protected_mutation();
+    trust
+        .authorize_protected_mutation("secret", "secret")
+        .unwrap();
     let with_auth = trust.set_level_adjustment_rules(account.id, &rules);
     assert!(
         with_auth.is_ok(),

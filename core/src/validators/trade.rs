@@ -64,6 +64,16 @@ pub fn can_cancel_submitted(trade: &Trade) -> TradeValidationResult {
 }
 
 pub fn can_modify_stop(trade: &Trade, new_price_stop: Decimal) -> TradeValidationResult {
+    if trade.status != Status::Filled {
+        return Err(Box::new(TradeValidationError {
+            code: TradeValidationErrorCode::TradeNotFilled,
+            message: format!(
+                "Trade with id {} is not filled, cannot be modified",
+                trade.id
+            ),
+        }));
+    }
+
     if trade.category == TradeCategory::Long && trade.safety_stop.unit_price > new_price_stop
         || trade.category == TradeCategory::Short && trade.safety_stop.unit_price < new_price_stop
     {
@@ -76,16 +86,7 @@ pub fn can_modify_stop(trade: &Trade, new_price_stop: Decimal) -> TradeValidatio
         }));
     }
 
-    match trade.status {
-        Status::Filled => Ok(()),
-        _ => Err(Box::new(TradeValidationError {
-            code: TradeValidationErrorCode::TradeNotFilled,
-            message: format!(
-                "Trade with id {} is not filled, cannot be modified",
-                trade.id
-            ),
-        })),
-    }
+    Ok(())
 }
 
 pub fn can_modify_target(trade: &Trade) -> TradeValidationResult {
@@ -249,8 +250,35 @@ mod tests {
             status: Status::Canceled,
             ..Default::default()
         };
-        let result = can_modify_stop(&trade, dec!(10));
-        assert!(result.is_err());
+        let error = can_modify_stop(&trade, dec!(10)).unwrap_err();
+        assert_eq!(error.code, TradeValidationErrorCode::TradeNotFilled);
+    }
+
+    #[test]
+    fn test_validate_modify_stop_not_filled_prioritizes_status_over_price() {
+        let long_trade = Trade {
+            status: Status::Submitted,
+            category: TradeCategory::Long,
+            safety_stop: model::Order {
+                unit_price: dec!(10),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let long_error = can_modify_stop(&long_trade, dec!(9)).unwrap_err();
+        assert_eq!(long_error.code, TradeValidationErrorCode::TradeNotFilled);
+
+        let short_trade = Trade {
+            status: Status::Submitted,
+            category: TradeCategory::Short,
+            safety_stop: model::Order {
+                unit_price: dec!(10),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let short_error = can_modify_stop(&short_trade, dec!(11)).unwrap_err();
+        assert_eq!(short_error.code, TradeValidationErrorCode::TradeNotFilled);
     }
 
     #[test]
