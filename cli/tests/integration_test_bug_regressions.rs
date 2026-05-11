@@ -144,7 +144,7 @@ fn create_new_long_trade(trust: &mut TrustFacade, account: &Account) -> Trade {
     let draft = DraftTrade {
         account: account.clone(),
         trading_vehicle,
-        quantity: 500,
+        quantity: 500.into(),
         currency: Currency::USD,
         category: TradeCategory::Long,
         thesis: None,

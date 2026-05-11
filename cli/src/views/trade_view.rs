@@ -19,15 +19,16 @@ pub struct TradeView {
 impl TradeView {
     fn new(trade: Trade, account_name: &str) -> TradeView {
         let entry_price = trade.entry.unit_price;
+        let category = trade.trading_vehicle.category;
         TradeView {
             trading_vehicle: trade.trading_vehicle.clone().symbol,
             category: trade.category.to_string(),
             account: crate::views::uppercase_first(account_name),
             currency: trade.currency.to_string(),
-            quantity: trade.entry.quantity.to_string(),
-            stop_price: crate::zen::price_relative_to(trade.safety_stop.unit_price, entry_price),
-            entry_price: crate::zen::price_relative_to(entry_price, entry_price),
-            target_price: crate::zen::price_relative_to(trade.target.unit_price, entry_price),
+            quantity: crate::display_precision::format_quantity(category, trade.entry.quantity),
+            stop_price: format_trade_price(category, trade.safety_stop.unit_price, entry_price),
+            entry_price: format_trade_price(category, entry_price, entry_price),
+            target_price: format_trade_price(category, trade.target.unit_price, entry_price),
             status: trade.status.to_string(),
         }
     }
@@ -47,6 +48,18 @@ impl TradeView {
         let mut table = Table::new(views);
         table.with(Style::modern());
         println!("{table}");
+    }
+}
+
+fn format_trade_price(
+    category: model::TradingVehicleCategory,
+    value: rust_decimal::Decimal,
+    basis: rust_decimal::Decimal,
+) -> String {
+    if crate::zen::is_enabled() {
+        crate::zen::price_relative_to(value, basis)
+    } else {
+        crate::display_precision::format_price(category, value)
     }
 }
 
@@ -98,7 +111,7 @@ mod tests {
         let mut trade = Trade::default();
         trade.trading_vehicle.symbol = "tsla".to_string();
         trade.category = TradeCategory::Short;
-        trade.entry.quantity = 20;
+        trade.entry.quantity = 20.into();
         trade.safety_stop.unit_price = dec!(250);
         trade.entry.unit_price = dec!(200);
         trade.target.unit_price = dec!(150);
@@ -109,9 +122,9 @@ mod tests {
         assert_eq!(view.category, "short");
         assert_eq!(view.account, "Paper");
         assert_eq!(view.quantity, "20");
-        assert_eq!(view.stop_price, "250");
-        assert_eq!(view.entry_price, "200");
-        assert_eq!(view.target_price, "150");
+        assert_eq!(view.stop_price, "250.00");
+        assert_eq!(view.entry_price, "200.00");
+        assert_eq!(view.target_price, "150.00");
         assert_eq!(view.status, "submitted");
     }
 

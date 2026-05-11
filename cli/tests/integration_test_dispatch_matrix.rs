@@ -107,7 +107,7 @@ fn seed_account_with_open_trade(database_url: &str) -> Uuid {
             DraftTrade {
                 account: account.clone(),
                 trading_vehicle: vehicle,
-                quantity: 5,
+                quantity: 5.into(),
                 category: TradeCategory::Long,
                 currency: Currency::USD,
                 thesis: Some("matrix".to_string()),

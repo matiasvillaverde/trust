@@ -252,7 +252,7 @@ fn create_trade(
     let draft = DraftTrade {
         account: account.clone(),
         trading_vehicle: trading_vehicle.clone(),
-        quantity,
+        quantity: quantity.into(),
         currency: Currency::USD,
         category,
         thesis: thesis.map(ToString::to_string),
@@ -351,7 +351,7 @@ fn order_stop_filled(trade: &Trade, average_price: Decimal) -> Order {
 fn order_target_accepted(trade: &Trade) -> Order {
     let mut target = trade.target.clone();
     target.status = OrderStatus::Accepted;
-    target.filled_quantity = 0;
+    target.filled_quantity = 0.into();
     target.average_filled_price = None;
     target
 }
@@ -359,7 +359,7 @@ fn order_target_accepted(trade: &Trade) -> Order {
 fn order_stop_held(trade: &Trade) -> Order {
     let mut stop = trade.safety_stop.clone();
     stop.status = OrderStatus::Held;
-    stop.filled_quantity = 0;
+    stop.filled_quantity = 0.into();
     stop.average_filled_price = None;
     stop
 }
@@ -367,7 +367,7 @@ fn order_stop_held(trade: &Trade) -> Order {
 fn order_stop_canceled(trade: &Trade) -> Order {
     let mut stop = trade.safety_stop.clone();
     stop.status = OrderStatus::Canceled;
-    stop.filled_quantity = 0;
+    stop.filled_quantity = 0.into();
     stop.average_filled_price = None;
     stop
 }
@@ -689,7 +689,7 @@ fn test_case_15_maximum_quantity_with_rules_enforces_risk_cap() {
         .calculate_maximum_quantity(account.id, dec!(40), dec!(38), &Currency::USD)
         .expect("maximum quantity");
 
-    assert_eq!(quantity, 500);
+    assert_eq!(quantity, dec!(500));
 }
 
 #[test]
@@ -702,7 +702,7 @@ fn test_case_16_maximum_quantity_without_rules_uses_available_div_entry() {
         .calculate_maximum_quantity(account.id, dec!(40), dec!(38), &Currency::USD)
         .expect("maximum quantity no rules");
 
-    assert_eq!(quantity, 25);
+    assert_eq!(quantity, dec!(25));
 }
 
 #[test]
@@ -1997,7 +1997,7 @@ fn test_case_50_performance_stats_include_only_closed_trades_and_are_correct() {
 fn order_target_canceled(trade: &Trade) -> Order {
     let mut target = trade.target.clone();
     target.status = OrderStatus::Canceled;
-    target.filled_quantity = 0;
+    target.filled_quantity = 0.into();
     target.average_filled_price = None;
     target
 }
@@ -2798,12 +2798,11 @@ fn test_case_200_high_frequency_sync_lifecycle_101_trades_per_day_for_365_days()
                     ..Trade::default()
                 };
                 synthetic_trade.entry.unit_price = entry;
-                synthetic_trade.entry.quantity = u64::try_from(quantity).expect("quantity u64");
+                synthetic_trade.entry.quantity = Decimal::from(quantity);
                 synthetic_trade.safety_stop.unit_price = stop;
-                synthetic_trade.safety_stop.quantity =
-                    u64::try_from(quantity).expect("quantity u64");
+                synthetic_trade.safety_stop.quantity = Decimal::from(quantity);
                 synthetic_trade.target.unit_price = target;
-                synthetic_trade.target.quantity = u64::try_from(quantity).expect("quantity u64");
+                synthetic_trade.target.quantity = Decimal::from(quantity);
                 synthetic_trade.sector = Some(sector_value);
                 synthetic_trade.asset_class = Some(asset_class_value);
                 synthetic_trade.balance.funding = funding;

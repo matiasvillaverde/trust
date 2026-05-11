@@ -57,7 +57,6 @@ use model::{
     SessionPlanClose, SessionRegime, Status, Trade, TradeCategory, TradeEvent, TradeEventSeverity,
     TradeEventType, TradeGrade, TransactionCategory,
 };
-use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use serde_json::{json, Value};
@@ -88,7 +87,7 @@ struct TradePreviewArgs {
 struct TradeHypothesisArgs {
     preview: TradePreviewArgs,
     target_price: Decimal,
-    quantity: i64,
+    quantity: Decimal,
 }
 
 #[derive(Debug, Clone)]
@@ -3859,18 +3858,18 @@ impl ArgDispatcher {
     fn parse_positive_quantity_arg(
         sub_matches: &ArgMatches,
         format: ReportOutputFormat,
-    ) -> Result<i64, CliError> {
+    ) -> Result<Decimal, CliError> {
         let quantity_raw = sub_matches.get_one::<String>("quantity").ok_or_else(|| {
             Self::report_error(format, "missing_argument", "Missing argument --quantity")
         })?;
-        let quantity = quantity_raw.parse::<i64>().map_err(|_| {
+        let quantity = Decimal::from_str(quantity_raw).map_err(|_| {
             Self::report_error(
                 format,
                 "invalid_quantity",
-                format!("Invalid integer quantity: {quantity_raw}"),
+                format!("Invalid decimal quantity: {quantity_raw}"),
             )
         })?;
-        if quantity <= 0 {
+        if quantity <= Decimal::ZERO {
             return Err(Self::report_error(
                 format,
                 "invalid_quantity",
@@ -3889,27 +3888,26 @@ impl ArgDispatcher {
     }
 
     fn size_preview_levels(
-        base_quantity: i64,
+        base_quantity: Decimal,
         current_level: u8,
         risk_per_share: Decimal,
     ) -> Vec<Value> {
         (0_u8..=4_u8)
             .map(|level| {
                 let multiplier = Level::multiplier_for_level(level).unwrap_or(Decimal::ZERO);
-                let quantity = Decimal::from(base_quantity)
+                let quantity = base_quantity
                     .checked_mul(multiplier)
-                    .and_then(|value| value.to_i64())
-                    .unwrap_or(0)
-                    .max(0);
+                    .unwrap_or(Decimal::ZERO)
+                    .max(Decimal::ZERO);
                 let risk_amount = risk_per_share
-                    .checked_mul(Decimal::from(quantity))
+                    .checked_mul(quantity)
                     .unwrap_or(Decimal::ZERO);
 
                 json!({
                     "level": level,
                     "description": Level::level_description(level),
                     "multiplier": Self::decimal_string(multiplier),
-                    "quantity": quantity,
+                    "quantity": Self::decimal_string(quantity),
                     "risk_amount": Self::decimal_string(risk_amount),
                     "current": level == current_level,
                 })
@@ -3919,8 +3917,8 @@ impl ArgDispatcher {
 
     fn trade_size_preview_text_lines(
         preview: &TradePreviewArgs,
-        base_quantity: i64,
-        final_quantity: i64,
+        base_quantity: Decimal,
+        final_quantity: Decimal,
         level_multiplier: Decimal,
         levels: &[Value],
     ) -> Vec<String> {
@@ -3960,7 +3958,7 @@ impl ArgDispatcher {
                 "L{} ({}x): qty {} | risk {} {}{}",
                 item["level"].as_u64().unwrap_or(0),
                 item["multiplier"].as_str().unwrap_or("0"),
-                item["quantity"].as_i64().unwrap_or(0),
+                item["quantity"].as_str().unwrap_or("0"),
                 if crate::zen::is_enabled() {
                     "hidden"
                 } else {
@@ -3977,10 +3975,10 @@ impl ArgDispatcher {
     fn trade_size_preview_payload(
         preview: &TradePreviewArgs,
         risk_per_share: Decimal,
-        base_quantity: i64,
+        base_quantity: Decimal,
         current_level: u8,
         current_multiplier: Decimal,
-        current_quantity: i64,
+        current_quantity: Decimal,
         levels: Vec<Value>,
     ) -> Value {
         json!({
@@ -3995,10 +3993,10 @@ impl ArgDispatcher {
                 "entry_price": Self::decimal_string(preview.entry_price),
                 "stop_price": Self::decimal_string(preview.stop_price),
                 "risk_per_share": Self::decimal_string(risk_per_share),
-                "base_quantity": base_quantity,
+                "base_quantity": Self::decimal_string(base_quantity),
                 "current_level": current_level,
                 "current_multiplier": Self::decimal_string(current_multiplier),
-                "current_quantity": current_quantity,
+                "current_quantity": Self::decimal_string(current_quantity),
                 "levels": levels,
             }
         })
@@ -4946,7 +4944,7 @@ impl ArgDispatcher {
             .map(|value| value.abs())
             .unwrap_or(Decimal::ZERO);
         risk_per_share
-            .checked_mul(Decimal::from(trade.entry.quantity))
+            .checked_mul(trade.entry.quantity)
             .and_then(|risk| risk.checked_mul(dec!(100)))
             .and_then(|risk_pct| risk_pct.checked_div(account_balance))
             .unwrap_or(Decimal::ZERO)
@@ -5129,14 +5127,14 @@ impl ArgDispatcher {
             .transpose()?
             .unwrap_or(OrderCategory::Stop);
 
-        let quantity = quantity_raw.parse::<i64>().map_err(|_| {
+        let quantity = Decimal::from_str(quantity_raw).map_err(|_| {
             Self::report_error(
                 format,
                 "invalid_quantity",
-                format!("Invalid integer quantity: {quantity_raw}"),
+                format!("Invalid decimal quantity: {quantity_raw}"),
             )
         })?;
-        if quantity <= 0 {
+        if quantity <= Decimal::ZERO {
             return Err(Self::report_error(
                 format,
                 "invalid_quantity",
@@ -5550,7 +5548,10 @@ impl ArgDispatcher {
                         trade.status,
                         trade.trading_vehicle.symbol,
                         trade.category,
-                        trade.entry.quantity,
+                        crate::display_precision::format_quantity(
+                            trade.trading_vehicle.category,
+                            trade.entry.quantity
+                        ),
                         trade.updated_at
                     );
                 }
@@ -5614,7 +5615,10 @@ impl ArgDispatcher {
                         trade.id,
                         trade.status,
                         trade.trading_vehicle.symbol,
-                        trade.entry.quantity,
+                        crate::display_precision::format_quantity(
+                            trade.trading_vehicle.category,
+                            trade.entry.quantity
+                        ),
                         trade.updated_at
                     );
                 }
@@ -10690,7 +10694,7 @@ mod tests {
                 model::DraftTrade {
                     account: account.clone(),
                     trading_vehicle: vehicle,
-                    quantity: 2,
+                    quantity: 2.into(),
                     category: model::TradeCategory::Long,
                     currency: Currency::USD,
                     thesis: Some("breakout".to_string()),
@@ -15252,12 +15256,12 @@ mod tests {
 
     #[test]
     fn test_size_preview_levels_marks_current_level_and_scales_risk() {
-        let levels = ArgDispatcher::size_preview_levels(100, 3, dec!(2.5));
+        let levels = ArgDispatcher::size_preview_levels(dec!(100), 3, dec!(2.5));
         assert_eq!(levels.len(), 5);
-        assert_eq!(levels[0]["quantity"], 10);
-        assert_eq!(levels[2]["quantity"], 50);
+        assert_eq!(levels[0]["quantity"], "10");
+        assert_eq!(levels[2]["quantity"], "50");
         assert_eq!(levels[3]["current"], true);
-        assert_eq!(levels[4]["quantity"], 150);
+        assert_eq!(levels[4]["quantity"], "150");
         assert_eq!(levels[4]["risk_amount"], "375");
     }
 
@@ -15269,9 +15273,14 @@ mod tests {
             stop_price: dec!(190),
             currency: Currency::USD,
         };
-        let levels = ArgDispatcher::size_preview_levels(100, 4, dec!(10));
-        let lines =
-            ArgDispatcher::trade_size_preview_text_lines(&preview, 100, 150, dec!(1.5), &levels);
+        let levels = ArgDispatcher::size_preview_levels(dec!(100), 4, dec!(10));
+        let lines = ArgDispatcher::trade_size_preview_text_lines(
+            &preview,
+            dec!(100),
+            dec!(150),
+            dec!(1.5),
+            &levels,
+        );
 
         assert_eq!(lines[0], "Position Size Preview");
         assert!(lines[3].contains("Risk/Share: 10 USD"));
@@ -15304,7 +15313,7 @@ mod tests {
                 currency: Currency::USD,
             },
             target_price: dec!(48),
-            quantity: 100,
+            quantity: 100.into(),
         };
         let report = TradeHypothesisReport {
             available_capital: Decimal::ZERO,
@@ -15338,7 +15347,7 @@ mod tests {
                 currency: Currency::USD,
             },
             target_price: dec!(48),
-            quantity: 100,
+            quantity: 100.into(),
         };
         let report = TradeHypothesisReport {
             available_capital: dec!(50_000),
@@ -15372,7 +15381,7 @@ mod tests {
                 model::DraftTrade {
                     account: account.clone(),
                     trading_vehicle: vehicle,
-                    quantity: 10,
+                    quantity: 10.into(),
                     category: model::TradeCategory::Long,
                     currency: Currency::USD,
                     thesis: None,
@@ -16406,7 +16415,7 @@ mod tests {
                 model::DraftTrade {
                     account: account.clone(),
                     trading_vehicle: vehicle,
-                    quantity: 1,
+                    quantity: 1.into(),
                     category: model::TradeCategory::Long,
                     currency: Currency::USD,
                     thesis: None,
@@ -17629,7 +17638,7 @@ mod tests {
             .expect("new trades should load");
         assert_eq!(created.len(), 1);
         assert_eq!(created[0].trading_vehicle.symbol, "AAPL");
-        assert_eq!(created[0].entry.quantity, 2);
+        assert_eq!(created[0].entry.quantity, dec!(2));
         assert_eq!(created[0].safety_stop.category, OrderCategory::StopLimit);
         assert_eq!(created[0].thesis.as_deref(), Some("scripted breakout"));
 
@@ -17703,7 +17712,7 @@ mod tests {
                     model::DraftTrade {
                         account: account.clone(),
                         trading_vehicle: vehicle.clone(),
-                        quantity: 1,
+                        quantity: 1.into(),
                         category: model::TradeCategory::Long,
                         currency: Currency::USD,
                         thesis: Some(format!("{setup} thesis")),
@@ -18061,7 +18070,7 @@ mod tests {
                 model::DraftTrade {
                     account,
                     trading_vehicle: vehicle,
-                    quantity: 1,
+                    quantity: 1.into(),
                     category: model::TradeCategory::Long,
                     currency: Currency::USD,
                     thesis: None,
@@ -18712,9 +18721,104 @@ mod tests {
             .expect("funded trades should load");
         assert_eq!(funded.len(), 1);
         assert_eq!(funded[0].trading_vehicle.symbol, "AAPL");
-        assert_eq!(funded[0].entry.quantity, 2);
+        assert_eq!(funded[0].entry.quantity, dec!(2));
         assert_eq!(funded[0].safety_stop.category, OrderCategory::StopLimit);
         assert_eq!(funded[0].thesis.as_deref(), Some("breakout"));
+    }
+
+    #[test]
+    fn test_create_trade_non_interactive_supports_crypto_and_ibkr_bonds() {
+        let mut dispatcher = test_dispatcher();
+        let (account, _vehicle) = seed_account_and_vehicle(&mut dispatcher);
+        dispatcher
+            .trust
+            .create_trading_vehicle("BTCUSD", None, &TradingVehicleCategory::Crypto, "alpaca")
+            .expect("crypto vehicle");
+        dispatcher
+            .trust
+            .create_trading_vehicle("9128285M8", None, &TradingVehicleCategory::Bond, "ibkr")
+            .expect("bond vehicle");
+        dispatcher
+            .trust
+            .create_trading_vehicle("ALPBOND", None, &TradingVehicleCategory::Bond, "alpaca")
+            .expect("alpaca bond vehicle");
+
+        let crypto = trade_matches(&[
+            "--account",
+            &account.name,
+            "--symbol",
+            "btcusd",
+            "--category",
+            "long",
+            "--entry",
+            "68123.45",
+            "--stop",
+            "65000",
+            "--target",
+            "72000",
+            "--quantity",
+            "0.00012345",
+        ]);
+        dispatcher
+            .create_trade(&crypto)
+            .expect("crypto trade should create");
+
+        let bond = trade_matches(&[
+            "--account",
+            &account.name,
+            "--symbol",
+            "9128285M8",
+            "--category",
+            "long",
+            "--entry",
+            "98.750",
+            "--stop",
+            "96.000",
+            "--target",
+            "101.250",
+            "--quantity",
+            "1.5",
+        ]);
+        dispatcher
+            .create_trade(&bond)
+            .expect("IBKR bond trade should create");
+
+        let alpaca_bond = trade_matches(&[
+            "--account",
+            &account.name,
+            "--symbol",
+            "ALPBOND",
+            "--category",
+            "long",
+            "--entry",
+            "98.750",
+            "--stop",
+            "96.000",
+            "--target",
+            "101.250",
+            "--quantity",
+            "1",
+        ]);
+        let error = dispatcher
+            .create_trade(&alpaca_bond)
+            .expect_err("Alpaca bond trade should be rejected");
+        assert!(error.to_string().contains("trade_create_failed"));
+        assert!(error
+            .to_string()
+            .contains("Bonds are not supported by Alpaca"));
+
+        let new_trades = dispatcher
+            .trust
+            .search_trades(account.id, Status::New)
+            .expect("new trades");
+        assert!(new_trades
+            .iter()
+            .any(|trade| trade.trading_vehicle.symbol == "BTCUSD"
+                && trade.entry.quantity == dec!(0.00012345)));
+        assert!(new_trades
+            .iter()
+            .any(|trade| trade.trading_vehicle.symbol == "9128285M8"
+                && trade.entry.quantity == dec!(1.5)));
     }
 
     #[test]
@@ -18854,7 +18958,7 @@ mod tests {
                     model::DraftTrade {
                         account: many_account.clone(),
                         trading_vehicle: many_vehicle.clone(),
-                        quantity: 1,
+                        quantity: 1.into(),
                         category: model::TradeCategory::Long,
                         currency: Currency::USD,
                         thesis: Some(format!("setup-{index}")),
@@ -20175,7 +20279,7 @@ mod tests {
                 model::DraftTrade {
                     account: account.clone(),
                     trading_vehicle: vehicle,
-                    quantity: 1,
+                    quantity: 1.into(),
                     category: model::TradeCategory::Long,
                     currency: Currency::USD,
                     thesis: Some("t".to_string()),
@@ -20537,7 +20641,7 @@ mod tests {
                 model::DraftTrade {
                     account: account.clone(),
                     trading_vehicle: trade.trading_vehicle.clone(),
-                    quantity: 1,
+                    quantity: 1.into(),
                     category: model::TradeCategory::Long,
                     currency: Currency::USD,
                     thesis: Some("loss sample".to_string()),
@@ -20600,7 +20704,7 @@ mod tests {
                 model::DraftTrade {
                     account: account.clone(),
                     trading_vehicle: trade.trading_vehicle.clone(),
-                    quantity: 1,
+                    quantity: 1.into(),
                     category: model::TradeCategory::Long,
                     currency: Currency::USD,
                     thesis: Some("open concentration".to_string()),

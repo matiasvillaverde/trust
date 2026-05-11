@@ -135,7 +135,7 @@ fn test_performance_report_with_trades() {
     let draft_trade = model::DraftTrade {
         account: account.clone(),
         trading_vehicle: trading_vehicle.clone(),
-        quantity: 10,
+        quantity: 10.into(),
         category: TradeCategory::Long,
         currency: Currency::USD,
         thesis: Some("Test winning trade".to_string()),

@@ -118,7 +118,7 @@ fn seed_closed_trade_with_grade(database_url: &str) -> (Uuid, Uuid) {
             DraftTrade {
                 account: account.clone(),
                 trading_vehicle: vehicle,
-                quantity: 10,
+                quantity: 10.into(),
                 category: TradeCategory::Long,
                 currency: Currency::USD,
                 thesis: Some("test thesis".to_string()),
@@ -236,7 +236,7 @@ fn seed_canceled_trade_without_exit_fill(database_url: &str) -> Uuid {
             DraftTrade {
                 account: account.clone(),
                 trading_vehicle: vehicle,
-                quantity: 10,
+                quantity: 10.into(),
                 category: TradeCategory::Long,
                 currency: Currency::USD,
                 thesis: Some("cancel test".to_string()),

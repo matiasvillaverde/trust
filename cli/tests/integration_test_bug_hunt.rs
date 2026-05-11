@@ -105,7 +105,7 @@ fn create_long_draft(account: &Account, tv: &model::TradingVehicle, qty: i64) ->
     DraftTrade {
         account: account.clone(),
         trading_vehicle: tv.clone(),
-        quantity: qty,
+        quantity: qty.into(),
         currency: Currency::USD,
         category: TradeCategory::Long,
         thesis: None,
@@ -119,7 +119,7 @@ fn create_short_draft(account: &Account, tv: &model::TradingVehicle, qty: i64) -
     DraftTrade {
         account: account.clone(),
         trading_vehicle: tv.clone(),
-        quantity: qty,
+        quantity: qty.into(),
         currency: Currency::USD,
         category: TradeCategory::Short,
         thesis: None,
@@ -1128,7 +1128,7 @@ fn bug_033_max_quantity_with_zero_entry_price() {
     // Entry price = 0 should cause division by zero
     let result = trust.calculate_maximum_quantity(account.id, dec!(0), dec!(0), &Currency::USD);
     assert!(
-        result.is_err() || result.unwrap() == 0,
+        result.is_err() || result.unwrap() == Decimal::ZERO,
         "BUG: Zero entry price should return error or zero quantity"
     );
 }
@@ -1141,7 +1141,7 @@ fn bug_034_max_quantity_with_entry_equals_stop() {
     // Entry == Stop means zero risk per share
     let result = trust.calculate_maximum_quantity(account.id, dec!(100), dec!(100), &Currency::USD);
     assert!(
-        result.is_err() || result.unwrap() == 0,
+        result.is_err() || result.unwrap() == Decimal::ZERO,
         "BUG: Entry==Stop (zero risk) should return error or zero quantity"
     );
 }
@@ -1159,7 +1159,7 @@ fn bug_035_max_quantity_with_very_small_price_difference() {
         "Small price difference should still calculate"
     );
     let qty = result.unwrap();
-    assert!(qty >= 0, "Quantity should be non-negative");
+    assert!(qty >= Decimal::ZERO, "Quantity should be non-negative");
 }
 
 #[test]
@@ -1170,7 +1170,7 @@ fn bug_036_max_quantity_with_negative_entry_price() {
     let result =
         trust.calculate_maximum_quantity(account.id, dec!(-100), dec!(-110), &Currency::USD);
     assert!(
-        result.is_err() || result.unwrap() == 0,
+        result.is_err() || result.unwrap() == Decimal::ZERO,
         "BUG: Negative prices should return error or zero"
     );
 }
@@ -2503,7 +2503,7 @@ fn bug_093_trade_in_eur_with_usd_balance_only() {
     let draft = DraftTrade {
         account: account.clone(),
         trading_vehicle: tv,
-        quantity: 100,
+        quantity: 100.into(),
         currency: Currency::EUR,
         category: TradeCategory::Long,
         thesis: None,
@@ -2585,7 +2585,7 @@ fn bug_095_trade_with_all_metadata() {
     let draft = DraftTrade {
         account: account.clone(),
         trading_vehicle: tv,
-        quantity: 100,
+        quantity: 100.into(),
         currency: Currency::USD,
         category: TradeCategory::Long,
         thesis: Some("Test thesis".to_string()),
@@ -2618,7 +2618,7 @@ fn bug_096_trade_with_empty_metadata_strings() {
     let draft = DraftTrade {
         account: account.clone(),
         trading_vehicle: tv,
-        quantity: 100,
+        quantity: 100.into(),
         currency: Currency::USD,
         category: TradeCategory::Long,
         thesis: Some("".to_string()),
@@ -4175,7 +4175,7 @@ fn bug_167_trade_thesis_over_200_chars() {
     let draft = DraftTrade {
         account: account.clone(),
         trading_vehicle: tv,
-        quantity: 100,
+        quantity: 100.into(),
         currency: Currency::USD,
         category: TradeCategory::Long,
         thesis: Some(long_thesis),
@@ -4199,7 +4199,7 @@ fn bug_168_trade_sector_very_long() {
     let draft = DraftTrade {
         account: account.clone(),
         trading_vehicle: tv,
-        quantity: 100,
+        quantity: 100.into(),
         currency: Currency::USD,
         category: TradeCategory::Long,
         thesis: None,
@@ -4241,7 +4241,7 @@ fn bug_170_max_quantity_entry_equals_stop() {
     // Entry == stop: zero risk per share
     let result = trust.calculate_maximum_quantity(account.id, dec!(100), dec!(100), &Currency::USD);
     if let Ok(qty) = &result {
-        if *qty > 0 {
+        if *qty > Decimal::ZERO {
             println!("BUG: calculate_maximum_quantity returns positive qty ({}) when entry==stop (infinite position)", qty);
         }
     }
@@ -4256,7 +4256,7 @@ fn bug_171_max_quantity_stop_above_entry() {
     let result = trust.calculate_maximum_quantity(account.id, dec!(110), dec!(100), &Currency::USD);
     // Negative risk per share for a long trade
     if let Ok(qty) = &result {
-        if *qty > 0 {
+        if *qty > Decimal::ZERO {
             println!("BUG: calculate_maximum_quantity returns positive qty ({}) when stop > entry (inverted risk)", qty);
         }
     }

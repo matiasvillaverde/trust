@@ -191,7 +191,7 @@ fn test_risk_rules() {
         .calculate_maximum_quantity(account.id, dec!(40), dec!(38), &Currency::USD)
         .unwrap();
 
-    assert_eq!(quantity, 500);
+    assert_eq!(quantity, dec!(500));
 }
 
 #[test]

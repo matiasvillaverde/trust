@@ -88,7 +88,7 @@ fn create_submitted_trade(trust: &mut TrustFacade, account: &Account) -> Trade {
     let draft = DraftTrade {
         account: account.clone(),
         trading_vehicle: tv,
-        quantity: 500,
+        quantity: 500.into(),
         currency: Currency::USD,
         category: TradeCategory::Long,
         thesis: None,
@@ -385,7 +385,7 @@ impl Broker for WrongOrderIdBroker {
         let fake_entry = Order {
             id: Uuid::new_v4(), // Wrong ID
             broker_order_id: Some(Uuid::new_v4().to_string()),
-            filled_quantity: 500,
+            filled_quantity: 500.into(),
             average_filled_price: Some(dec!(40)),
             status: OrderStatus::Filled,
             filled_at: Some(now()),
@@ -444,7 +444,7 @@ impl Broker for DuplicateOrderIdBroker {
             id: trade.entry.id, // Same ID
             broker_order_id: Some(Uuid::new_v4().to_string()),
             status: OrderStatus::Filled,
-            filled_quantity: 500,
+            filled_quantity: 500.into(),
             average_filled_price: Some(dec!(40)),
             filled_at: Some(now()),
             ..Default::default()
@@ -939,7 +939,7 @@ fn test_submit_failure_trade_stays_funded() {
     let draft = DraftTrade {
         account: account.clone(),
         trading_vehicle: tv,
-        quantity: 500,
+        quantity: 500.into(),
         currency: Currency::USD,
         category: TradeCategory::Long,
         thesis: None,
@@ -983,7 +983,7 @@ fn test_submit_failure_can_cancel_funded_trade() {
     let draft = DraftTrade {
         account: account.clone(),
         trading_vehicle: tv,
-        quantity: 500,
+        quantity: 500.into(),
         currency: Currency::USD,
         category: TradeCategory::Long,
         thesis: None,
@@ -1065,7 +1065,7 @@ fn test_broker_cancel_fails_trade_stays_funded() {
     let draft = DraftTrade {
         account: account.clone(),
         trading_vehicle: tv,
-        quantity: 500,
+        quantity: 500.into(),
         currency: Currency::USD,
         category: TradeCategory::Long,
         thesis: None,
@@ -1212,7 +1212,7 @@ fn test_cannot_over_risk_when_total_in_trade_is_zero() {
     let draft = DraftTrade {
         account: account.clone(),
         trading_vehicle: tv,
-        quantity: 1000, // 1000 * 40 = 40000 required
+        quantity: 1000.into(), // 1000 * 40 = 40000 required
         currency: Currency::USD,
         category: TradeCategory::Long,
         thesis: None,
@@ -1254,7 +1254,7 @@ fn test_can_fund_second_trade_within_available_balance() {
     let draft = DraftTrade {
         account: account.clone(),
         trading_vehicle: tv,
-        quantity: 250, // 250 * 40 = 10000 required, within 30000 available
+        quantity: 250.into(), // 250 * 40 = 10000 required, within 30000 available
         currency: Currency::USD,
         category: TradeCategory::Long,
         thesis: None,
@@ -1293,7 +1293,7 @@ fn test_total_available_is_exact_gatekeeper_for_funding() {
     let draft = DraftTrade {
         account: account.clone(),
         trading_vehicle: tv,
-        quantity: 300,
+        quantity: 300.into(),
         currency: Currency::USD,
         category: TradeCategory::Long,
         thesis: None,
@@ -1320,7 +1320,7 @@ fn test_total_available_is_exact_gatekeeper_for_funding() {
     let draft = DraftTrade {
         account: account.clone(),
         trading_vehicle: tv,
-        quantity: 500, // 500 * 40 = 20000, but only 18000 available
+        quantity: 500.into(), // 500 * 40 = 20000, but only 18000 available
         currency: Currency::USD,
         category: TradeCategory::Long,
         thesis: None,

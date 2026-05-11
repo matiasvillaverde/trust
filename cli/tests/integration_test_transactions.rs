@@ -75,7 +75,7 @@ fn setup_submitted_trade(trust: &mut TrustFacade, account: &Account) -> Trade {
     let draft = DraftTrade {
         account: account.clone(),
         trading_vehicle: tv,
-        quantity: 500,
+        quantity: 500.into(),
         currency: Currency::USD,
         category: TradeCategory::Long,
         thesis: None,
@@ -371,7 +371,7 @@ fn test_fund_trade_creates_fund_trade_transaction_with_correct_amount() {
     let draft = DraftTrade {
         account: account.clone(),
         trading_vehicle: tv,
-        quantity: 500,
+        quantity: 500.into(),
         currency: Currency::USD,
         category: TradeCategory::Long,
         thesis: None,
@@ -411,7 +411,7 @@ fn test_cancel_funded_trade_returns_exact_funded_amount() {
     let draft = DraftTrade {
         account: account.clone(),
         trading_vehicle: tv,
-        quantity: 500,
+        quantity: 500.into(),
         currency: Currency::USD,
         category: TradeCategory::Long,
         thesis: None,
@@ -1129,7 +1129,7 @@ fn test_two_trades_funded_simultaneously_correct_balances() {
         let draft = DraftTrade {
             account: account.clone(),
             trading_vehicle: tv,
-            quantity: 500,
+            quantity: 500.into(),
             currency: Currency::USD,
             category: TradeCategory::Long,
             thesis: None,
@@ -1298,7 +1298,7 @@ fn test_short_trade_funded_at_stop_price() {
     let draft = DraftTrade {
         account: account.clone(),
         trading_vehicle: tv,
-        quantity: 100,
+        quantity: 100.into(),
         currency: Currency::USD,
         category: TradeCategory::Short,
         thesis: None,
@@ -1445,7 +1445,7 @@ fn test_accounting_identity_after_funding_trade() {
     let draft = DraftTrade {
         account: account.clone(),
         trading_vehicle: tv,
-        quantity: 500,
+        quantity: 500.into(),
         currency: Currency::USD,
         category: TradeCategory::Long,
         thesis: None,
@@ -1550,7 +1550,7 @@ fn test_cannot_withdraw_funds_locked_in_trade() {
     let draft = DraftTrade {
         account: account.clone(),
         trading_vehicle: tv,
-        quantity: 500,
+        quantity: 500.into(),
         currency: Currency::USD,
         category: TradeCategory::Long,
         thesis: None,

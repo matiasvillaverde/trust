@@ -121,7 +121,7 @@ fn seed_trade(database_url: &str, name: &str, symbol: &str, funded: bool) -> (Uu
             DraftTrade {
                 account: account.clone(),
                 trading_vehicle: vehicle,
-                quantity: 5,
+                quantity: 5.into(),
                 category: TradeCategory::Long,
                 currency: Currency::USD,
                 thesis: Some("dispatcher-commands".to_string()),

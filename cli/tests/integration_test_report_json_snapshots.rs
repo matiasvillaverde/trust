@@ -122,7 +122,7 @@ fn seed_snapshot_dataset(database_url: &str) -> Uuid {
             DraftTrade {
                 account: account.clone(),
                 trading_vehicle: stock,
-                quantity: 7,
+                quantity: 7.into(),
                 category: TradeCategory::Long,
                 currency: Currency::USD,
                 sector: Some("Technology".to_string()),
@@ -142,7 +142,7 @@ fn seed_snapshot_dataset(database_url: &str) -> Uuid {
             DraftTrade {
                 account: account.clone(),
                 trading_vehicle: etf,
-                quantity: 4,
+                quantity: 4.into(),
                 category: TradeCategory::Long,
                 currency: Currency::USD,
                 sector: Some("Healthcare".to_string()),

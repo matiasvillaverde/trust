@@ -76,7 +76,7 @@ fn create_new_trade(
     let draft = DraftTrade {
         account: account.clone(),
         trading_vehicle: vehicle,
-        quantity,
+        quantity: quantity.into(),
         currency: Currency::USD,
         category: TradeCategory::Long,
         thesis: None,
@@ -356,8 +356,8 @@ fn test_level_adjusted_quantity_changes_with_level() {
     let sized_l3 = trust
         .calculate_level_adjusted_quantity(account.id, dec!(40), dec!(38), &Currency::USD)
         .expect("size L3");
-    assert_eq!(sized_l3.base_quantity, 500);
-    assert_eq!(sized_l3.final_quantity, 500);
+    assert_eq!(sized_l3.base_quantity, dec!(500));
+    assert_eq!(sized_l3.final_quantity, dec!(500));
     assert_eq!(sized_l3.level_multiplier, dec!(1));
 
     trust
@@ -367,8 +367,8 @@ fn test_level_adjusted_quantity_changes_with_level() {
     let sized_l2 = trust
         .calculate_level_adjusted_quantity(account.id, dec!(40), dec!(38), &Currency::USD)
         .expect("size L2");
-    assert_eq!(sized_l2.base_quantity, 500);
-    assert_eq!(sized_l2.final_quantity, 250);
+    assert_eq!(sized_l2.base_quantity, dec!(500));
+    assert_eq!(sized_l2.final_quantity, dec!(250));
     assert_eq!(sized_l2.level_multiplier, dec!(0.5));
 }
 

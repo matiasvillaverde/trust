@@ -1090,7 +1090,7 @@ impl OrderWrite for FailingOrderWrite {
     fn create(
         &mut self,
         _trading_vehicle: &TradingVehicle,
-        _quantity: i64,
+        _quantity: Decimal,
         _price: Decimal,
         _currency: &Currency,
         _action: &OrderAction,
@@ -1302,7 +1302,7 @@ impl OrderWrite for FailingAccountRead {
     fn create(
         &mut self,
         _trading_vehicle: &TradingVehicle,
-        _quantity: i64,
+        _quantity: Decimal,
         _price: Decimal,
         _currency: &Currency,
         _action: &OrderAction,

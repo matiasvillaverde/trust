@@ -15,7 +15,6 @@ use crate::views::{AccountBalanceView, TradeBalanceView, TradeView, TransactionV
 use core::services::{AdvisoryAlertLevel, TradeProposal};
 use core::TrustFacade;
 use model::{Account, AccountBalance, Status, Trade, TradeBalance, Transaction};
-use rust_decimal::Decimal;
 use std::error::Error;
 use std::io::ErrorKind;
 
@@ -64,7 +63,7 @@ impl FundingDialogBuilder {
             sector: trade.sector.clone(),
             asset_class: trade.asset_class.clone(),
             entry_price: trade.entry.unit_price,
-            quantity: Decimal::from(trade.entry.quantity),
+            quantity: trade.entry.quantity,
         });
 
         match advisory {
@@ -361,7 +360,7 @@ mod tests {
         let draft = DraftTrade {
             account: account.clone(),
             trading_vehicle: vehicle,
-            quantity: 10,
+            quantity: 10.into(),
             currency: Currency::USD,
             category: TradeCategory::Long,
             thesis: None,
@@ -609,7 +608,7 @@ mod tests {
                 DraftTrade {
                     account: account.clone(),
                     trading_vehicle: hedge_vehicle,
-                    quantity: 100,
+                    quantity: 100.into(),
                     currency: Currency::USD,
                     category: TradeCategory::Long,
                     thesis: None,
@@ -635,7 +634,7 @@ mod tests {
                 DraftTrade {
                     account: account.clone(),
                     trading_vehicle: proposal_vehicle,
-                    quantity: 10,
+                    quantity: 10.into(),
                     currency: Currency::USD,
                     category: TradeCategory::Long,
                     thesis: None,

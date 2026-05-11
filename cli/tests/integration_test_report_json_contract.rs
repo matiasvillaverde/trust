@@ -114,7 +114,7 @@ fn seed_account_with_open_and_closed_trade(database_url: &str) -> Uuid {
             DraftTrade {
                 account: account.clone(),
                 trading_vehicle: vehicle,
-                quantity: 5,
+                quantity: 5.into(),
                 category: TradeCategory::Long,
                 currency: Currency::USD,
                 sector: Some("Technology".to_string()),
@@ -223,7 +223,7 @@ fn seed_account_with_closed_performance_series(
                 DraftTrade {
                     account: account.clone(),
                     trading_vehicle: vehicle.clone(),
-                    quantity: 10,
+                    quantity: 10.into(),
                     category: TradeCategory::Long,
                     currency: Currency::USD,
                     sector: Some("Technology".to_string()),
