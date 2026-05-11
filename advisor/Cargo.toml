@@ -1,0 +1,11 @@
+[package]
+name = "advisor"
+version = { workspace = true }
+edition = "2021"
+license = "GPL-3.0-only"
+
+[dependencies]
+model = { package = "trust-model", path = "../model", version = "0.3.2" }
+keyring = { workspace = true }
+reqwest = { workspace = true }
+thiserror = { workspace = true }

@@ -22,6 +22,7 @@ alpaca-broker = { path = "../alpaca-broker", version = "0.3.2" }
 ibkr-broker = { path = "../ibkr-broker", version = "0.3.2" }
 db-sqlite = { path = "../db-sqlite", version = "0.3.2" }
 broker-sync = { path = "../broker-sync", version = "0.3.2" }
+advisor = { path = "../advisor", version = "0.3.2" }
 
 clap = {workspace = true}
 dialoguer = {workspace = true}

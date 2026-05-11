@@ -1,0 +1,83 @@
+//! AI-powered advisory integration scaffolding for Trust.
+//!
+//! This crate owns external advisory configuration and future HTTP-backed
+//! advisory features. The catalyst, correlation, and regime modules are stubs
+//! until their issue-specific implementations land.
+
+#![deny(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::panic,
+    clippy::float_arithmetic,
+    clippy::arithmetic_side_effects,
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cognitive_complexity,
+    clippy::too_many_lines
+)]
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
+#![warn(missing_docs, rust_2018_idioms, missing_debug_implementations)]
+
+/// Catalyst-calendar advisory scaffolding.
+pub mod catalyst;
+/// Keychain-backed advisor configuration.
+pub mod config;
+/// Correlation advisory scaffolding.
+pub mod correlation;
+/// Advisor crate error types.
+pub mod error;
+/// Market-regime advisory scaffolding.
+pub mod regime;
+
+pub use config::{AdvisorConfig, AdvisorConfigUpdate, CalendarProvider};
+pub use error::AdvisorError;
+
+/// Entry point for future external advisory integrations.
+#[derive(Debug)]
+pub struct Advisor {
+    config: AdvisorConfig,
+    client: reqwest::blocking::Client,
+}
+
+impl Advisor {
+    /// Build an advisor client from an explicit redacted configuration status.
+    pub fn new(config: AdvisorConfig) -> Result<Self, AdvisorError> {
+        let client = reqwest::blocking::Client::builder().build()?;
+        Ok(Self { config, client })
+    }
+
+    /// Build an advisor client from keychain-backed configuration.
+    pub fn from_keychain() -> Result<Self, AdvisorError> {
+        Self::new(AdvisorConfig::read()?)
+    }
+
+    /// Return the redacted configuration currently attached to this advisor.
+    pub fn config(&self) -> &AdvisorConfig {
+        &self.config
+    }
+
+    /// Return the shared HTTP client for future advisory modules.
+    pub fn http_client(&self) -> &reqwest::blocking::Client {
+        &self.client
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn advisor_builds_from_explicit_config() {
+        let config = AdvisorConfig {
+            calendar_provider: CalendarProvider::Fmp,
+            calendar_api_key_configured: true,
+            claude_api_key_configured: false,
+        };
+
+        let advisor = Advisor::new(config.clone()).unwrap();
+
+        assert_eq!(advisor.config(), &config);
+    }
+}

@@ -21,6 +21,7 @@ tracing = {workspace = true}
 argon2 = {workspace = true}
 password-hash = {workspace = true}
 rand_core = {workspace = true}
+advisor = { path = "../advisor", version = "0.3.2", optional = true }
 
 [dev-dependencies]
 db-sqlite = { path = "../db-sqlite", version = "0.3.2" }
