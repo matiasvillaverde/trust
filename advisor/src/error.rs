@@ -1,4 +1,5 @@
 use chrono::NaiveDate;
+use rust_decimal::Decimal;
 use thiserror::Error;
 
 /// Error type for advisor crate configuration and stub advisory features.
@@ -28,6 +29,23 @@ pub enum AdvisorError {
     #[error("calendar API response error: {message}")]
     CalendarResponse {
         /// Human-readable response parsing error.
+        message: String,
+    },
+    /// A correlation threshold was outside the supported 0-1 range.
+    #[error(
+        "invalid correlation threshold {value}; expected a value greater than 0 and at most 1"
+    )]
+    InvalidCorrelationThreshold {
+        /// Invalid threshold supplied by the caller.
+        value: Decimal,
+    },
+    /// Broker market-data retrieval failed.
+    #[error("advisor broker data error: {0}")]
+    BrokerData(String),
+    /// Decimal calculation failed due to invalid input or overflow.
+    #[error("advisor calculation error: {message}")]
+    Calculation {
+        /// Human-readable calculation failure.
         message: String,
     },
     /// The system keychain could not be read or written.
