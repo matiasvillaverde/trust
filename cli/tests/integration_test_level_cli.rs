@@ -622,16 +622,16 @@ fn test_trade_size_preview_json_contract() {
     let payload = parse_stdout_json(&output);
     assert_eq!(payload["report"], "trade_size_preview");
     assert_eq!(payload["scope"]["account_id"], account_id.to_string());
-    assert_eq!(payload["data"]["base_quantity"], 500);
+    assert_eq!(payload["data"]["base_quantity"], "500");
     assert_eq!(payload["data"]["current_level"], 3);
     assert_eq!(payload["data"]["current_multiplier"], "1");
-    assert_eq!(payload["data"]["current_quantity"], 500);
+    assert_eq!(payload["data"]["current_quantity"], "500");
     assert_eq!(payload["data"]["risk_per_share"], "2");
     let levels = payload["data"]["levels"].as_array().expect("levels array");
     assert_eq!(levels.len(), 5);
     assert_eq!(levels[2]["level"], 2);
-    assert_eq!(levels[2]["quantity"], 250);
-    assert_eq!(levels[4]["quantity"], 750);
+    assert_eq!(levels[2]["quantity"], "250");
+    assert_eq!(levels[4]["quantity"], "750");
 }
 
 #[test]
@@ -666,7 +666,7 @@ fn test_trade_hypothesis_json_contract() {
     let payload = parse_stdout_json(&output);
     assert_eq!(payload["report"], "trade_hypothesis");
     assert_eq!(payload["scope"]["account_id"], account_id.to_string());
-    assert_eq!(payload["data"]["quantity"], 100);
+    assert_eq!(payload["data"]["quantity"], "100");
     assert_eq!(payload["data"]["available_capital"], "50000");
     assert_eq!(payload["data"]["capital_required"], "4000");
     assert_eq!(payload["data"]["capital_required_pct_of_available"], "8");
