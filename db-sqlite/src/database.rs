@@ -1,7 +1,7 @@
 use crate::workers::{
     AccountBalanceDB, AccountDB, AdvisoryDB, BrokerLogDB, DistributionDB, WorkerExecution,
-    WorkerLevel, WorkerOrder, WorkerRule, WorkerTrade, WorkerTradeEvent, WorkerTradeGrade,
-    WorkerTradingVehicle, WorkerTransaction,
+    WorkerLevel, WorkerMistake, WorkerOrder, WorkerRule, WorkerTrade, WorkerTradeEvent,
+    WorkerTradeGrade, WorkerTradingVehicle, WorkerTransaction,
 };
 use crate::{backup, backup::ImportOptions};
 use diesel::prelude::*;
@@ -13,12 +13,12 @@ use model::{
     database::{AccountWrite, WriteAccountBalanceDB},
     Account, AccountBalanceRead, AccountBalanceWrite, AccountRead, Currency, DatabaseFactory,
     DistributionRead, DistributionWrite, Execution, Level, LevelAdjustmentRules, LevelChange,
-    Order, OrderAction, OrderCategory, OrderRead, OrderWrite, ReadExecutionDB, ReadLevelDB,
-    ReadRuleDB, ReadTradeDB, ReadTradeEventDB, ReadTradeGradeDB, ReadTradingVehicleDB,
-    ReadTransactionDB, Rule, RuleName, Trade, TradeBalance, TradeEvent, TradeGrade, TradingVehicle,
-    TradingVehicleCategory, Transaction, TransactionCategory, WriteExecutionDB, WriteLevelDB,
-    WriteRuleDB, WriteTradeDB, WriteTradeEventDB, WriteTradeGradeDB, WriteTradingVehicleDB,
-    WriteTransactionDB,
+    Mistake, Order, OrderAction, OrderCategory, OrderRead, OrderWrite, ReadExecutionDB,
+    ReadLevelDB, ReadMistakeDB, ReadRuleDB, ReadTradeDB, ReadTradeEventDB, ReadTradeGradeDB,
+    ReadTradingVehicleDB, ReadTransactionDB, Rule, RuleName, Trade, TradeBalance, TradeEvent,
+    TradeGrade, TradingVehicle, TradingVehicleCategory, Transaction, TransactionCategory,
+    WriteExecutionDB, WriteLevelDB, WriteMistakeDB, WriteRuleDB, WriteTradeDB, WriteTradeEventDB,
+    WriteTradeGradeDB, WriteTradingVehicleDB, WriteTransactionDB,
 };
 use rust_decimal::Decimal;
 use std::error::Error;
@@ -148,6 +148,14 @@ impl DatabaseFactory for SqliteDatabase {
         Box::new(SqliteDatabase::new_from(self.connection.clone()))
     }
     fn trading_vehicle_write(&self) -> Box<dyn WriteTradingVehicleDB> {
+        Box::new(SqliteDatabase::new_from(self.connection.clone()))
+    }
+
+    fn mistake_read(&self) -> Box<dyn ReadMistakeDB> {
+        Box::new(SqliteDatabase::new_from(self.connection.clone()))
+    }
+
+    fn mistake_write(&self) -> Box<dyn WriteMistakeDB> {
         Box::new(SqliteDatabase::new_from(self.connection.clone()))
     }
 
@@ -457,6 +465,32 @@ impl WriteTransactionDB for SqliteDatabase {
 
             Ok((withdrawal_tx, deposit_tx))
         })
+    }
+}
+
+impl ReadMistakeDB for SqliteDatabase {
+    fn read_mistakes_for_trade(&mut self, trade_id: Uuid) -> Result<Vec<Mistake>, Box<dyn Error>> {
+        WorkerMistake::read_for_trade(&mut lock_connection_or_exit(&self.connection), trade_id)
+    }
+
+    fn read_mistakes_for_account_in_period(
+        &mut self,
+        account_id: Uuid,
+        start_at: chrono::NaiveDateTime,
+        end_at: chrono::NaiveDateTime,
+    ) -> Result<Vec<Mistake>, Box<dyn Error>> {
+        WorkerMistake::read_for_account_in_period(
+            &mut lock_connection_or_exit(&self.connection),
+            account_id,
+            start_at,
+            end_at,
+        )
+    }
+}
+
+impl WriteMistakeDB for SqliteDatabase {
+    fn create_mistake(&mut self, mistake: &Mistake) -> Result<Mistake, Box<dyn Error>> {
+        WorkerMistake::create(&mut lock_connection_or_exit(&self.connection), mistake)
     }
 }
 
@@ -899,8 +933,9 @@ mod tests {
     use super::*;
     use chrono::{Duration, NaiveDate, Utc};
     use model::{
-        Account, Environment, ExecutionSide, ExecutionSource, Grade, LevelTrigger, RuleLevel,
-        RuleName, TradeCategory, TradeEventSeverity, TradeEventSource, TradeEventType,
+        Account, Environment, ExecutionSide, ExecutionSource, Grade, LevelTrigger,
+        MistakeErrorType, MungerTendency, RuleLevel, RuleName, TradeCategory, TradeEventSeverity,
+        TradeEventSource, TradeEventType,
     };
     use rust_decimal_macros::dec;
     use std::path::PathBuf;
@@ -1026,6 +1061,26 @@ mod tests {
             severity: TradeEventSeverity::High,
             notes: Some("fixture event".to_string()),
             source: TradeEventSource::Manual,
+        }
+    }
+
+    fn mistake_for(trade: &Trade) -> Mistake {
+        let now = Utc::now().naive_utc();
+        Mistake {
+            id: Uuid::new_v4(),
+            created_at: now,
+            updated_at: now,
+            deleted_at: None,
+            trade_id: trade.id,
+            bias_tags: vec![
+                MungerTendency::InconsistencyAvoidance,
+                MungerTendency::DeprivalSuperreaction,
+            ],
+            lollapalooza: true,
+            error_type: MistakeErrorType::Commission,
+            rule_violated: Some("move_stop_only_to_reduce_risk".to_string()),
+            counterfactual_r: dec!(1.75),
+            lesson: "Pre-commit stop movement criteria before entry.".to_string(),
         }
     }
 
@@ -1354,7 +1409,36 @@ mod tests {
             .iter()
             .any(|entry| entry.id == grade.id));
 
+        assert_mistake_facade(database, account, trade);
         assert_trade_event_facade(database, trade);
+    }
+
+    fn assert_mistake_facade(database: &SqliteDatabase, account: &Account, trade: &Trade) {
+        let mistake = database
+            .mistake_write()
+            .create_mistake(&mistake_for(trade))
+            .expect("mistake should write");
+        let window = Duration::seconds(1);
+        let start_at = mistake
+            .created_at
+            .checked_sub_signed(window)
+            .expect("mistake timestamp should support start window");
+        let end_at = mistake
+            .created_at
+            .checked_add_signed(window)
+            .expect("mistake timestamp should support end window");
+        assert!(database
+            .mistake_read()
+            .read_mistakes_for_trade(trade.id)
+            .expect("trade mistakes should read")
+            .iter()
+            .any(|entry| entry.id == mistake.id));
+        assert!(database
+            .mistake_read()
+            .read_mistakes_for_account_in_period(account.id, start_at, end_at)
+            .expect("account period mistakes should read")
+            .iter()
+            .any(|entry| entry.id == mistake.id));
     }
 
     fn assert_trade_event_facade(database: &SqliteDatabase, trade: &Trade) {

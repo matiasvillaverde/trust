@@ -6,11 +6,11 @@ use model::{
     AdvisoryRead, AdvisoryThresholds, AdvisoryWrite, BrokerLog, Currency, DatabaseFactory,
     DistributionHistory, DistributionRead, DistributionRules, DistributionWrite, Execution, Grade,
     Level, LevelAdjustmentRules, LevelChange, Order, OrderAction, OrderCategory, OrderRead,
-    OrderWrite, ReadBrokerLogsDB, ReadExecutionDB, ReadLevelDB, ReadRuleDB, ReadTradeDB,
-    ReadTradeEventDB, ReadTradeGradeDB, ReadTradingVehicleDB, ReadTransactionDB, Rule, RuleLevel,
-    RuleName, Status, Trade, TradeBalance, TradeEvent, TradeGrade, TradingVehicle,
+    OrderWrite, ReadBrokerLogsDB, ReadExecutionDB, ReadLevelDB, ReadMistakeDB, ReadRuleDB,
+    ReadTradeDB, ReadTradeEventDB, ReadTradeGradeDB, ReadTradingVehicleDB, ReadTransactionDB, Rule,
+    RuleLevel, RuleName, Status, Trade, TradeBalance, TradeEvent, TradeGrade, TradingVehicle,
     TradingVehicleCategory, Transaction, TransactionCategory, WriteBrokerLogsDB, WriteExecutionDB,
-    WriteLevelDB, WriteRuleDB, WriteTradeDB, WriteTradeEventDB, WriteTradeGradeDB,
+    WriteLevelDB, WriteMistakeDB, WriteRuleDB, WriteTradeDB, WriteTradeEventDB, WriteTradeGradeDB,
     WriteTradingVehicleDB, WriteTransactionDB,
 };
 use rust_decimal::Decimal;
@@ -278,6 +278,14 @@ impl DatabaseFactory for ReadFailureFactory {
 
     fn execution_write(&self) -> Box<dyn WriteExecutionDB> {
         panic!("execution_write should not be called")
+    }
+
+    fn mistake_read(&self) -> Box<dyn ReadMistakeDB> {
+        panic!("mistake_read should not be called")
+    }
+
+    fn mistake_write(&self) -> Box<dyn WriteMistakeDB> {
+        panic!("mistake_write should not be called")
     }
 
     fn trade_event_read(&self) -> Box<dyn ReadTradeEventDB> {
@@ -1504,6 +1512,33 @@ impl ReadExecutionDB for FailingAccountRead {
 impl WriteExecutionDB for FailingAccountRead {
     fn upsert_execution(&mut self, _execution: &Execution) -> Result<Execution, Box<dyn Error>> {
         Err("execution write failed".into())
+    }
+}
+
+impl ReadMistakeDB for FailingAccountRead {
+    fn read_mistakes_for_trade(
+        &mut self,
+        _trade_id: Uuid,
+    ) -> Result<Vec<model::Mistake>, Box<dyn Error>> {
+        Err("mistake read failed".into())
+    }
+
+    fn read_mistakes_for_account_in_period(
+        &mut self,
+        _account_id: Uuid,
+        _start_at: chrono::NaiveDateTime,
+        _end_at: chrono::NaiveDateTime,
+    ) -> Result<Vec<model::Mistake>, Box<dyn Error>> {
+        Err("mistake read failed".into())
+    }
+}
+
+impl WriteMistakeDB for FailingAccountRead {
+    fn create_mistake(
+        &mut self,
+        _mistake: &model::Mistake,
+    ) -> Result<model::Mistake, Box<dyn Error>> {
+        Err("mistake write failed".into())
     }
 }
 
