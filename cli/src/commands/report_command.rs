@@ -289,6 +289,35 @@ impl ReportCommandBuilder {
         );
         self
     }
+
+    pub fn tax(mut self) -> Self {
+        self.subcommands.push(
+            Command::new("tax")
+                .about("Calculate realized gains tax summaries for closed trades")
+                .arg(
+                    Arg::new("account")
+                        .long("account")
+                        .value_name("ACCOUNT_ID_OR_NAME")
+                        .help("Filter by account ID or name")
+                        .required(false),
+                )
+                .arg(
+                    Arg::new("short-term-rate")
+                        .long("short-term-rate")
+                        .value_name("PERCENT")
+                        .help("Override short-term capital gains tax rate, e.g. 35 for 35%")
+                        .required(false),
+                )
+                .arg(
+                    Arg::new("long-term-rate")
+                        .long("long-term-rate")
+                        .value_name("PERCENT")
+                        .help("Override long-term capital gains tax rate, e.g. 15 for 15%")
+                        .required(false),
+                ),
+        );
+        self
+    }
 }
 
 impl Default for ReportCommandBuilder {
@@ -315,6 +344,7 @@ mod tests {
             .timeline()
             .bias_summary()
             .wash_sales()
+            .tax()
             .build();
         for name in [
             "performance",
@@ -328,6 +358,7 @@ mod tests {
             "timeline",
             "bias-summary",
             "wash-sales",
+            "tax",
         ] {
             assert!(cmd.get_subcommands().any(|c| c.get_name() == name));
         }
@@ -566,6 +597,36 @@ mod tests {
         assert_eq!(
             sub.get_one::<String>("account").map(String::as_str),
             Some("paper-main")
+        );
+    }
+
+    #[test]
+    fn report_tax_parses_optional_rates() {
+        let cmd = ReportCommandBuilder::new().tax().build();
+        let matches = cmd
+            .try_get_matches_from([
+                "report",
+                "tax",
+                "--account",
+                "paper-main",
+                "--short-term-rate",
+                "35",
+                "--long-term-rate",
+                "15",
+            ])
+            .expect("tax should parse");
+        let sub = matches.subcommand_matches("tax").expect("tax subcommand");
+        assert_eq!(
+            sub.get_one::<String>("account").map(String::as_str),
+            Some("paper-main")
+        );
+        assert_eq!(
+            sub.get_one::<String>("short-term-rate").map(String::as_str),
+            Some("35")
+        );
+        assert_eq!(
+            sub.get_one::<String>("long-term-rate").map(String::as_str),
+            Some("15")
         );
     }
 }

@@ -45,7 +45,8 @@ use core::services::leveling::{
     LevelProgressReport,
 };
 use core::services::{
-    AdvisoryThresholds, TradeProposal, WashSaleMatch, WashSaleReplacementAdjustment, WashSaleReport,
+    AdvisoryThresholds, TaxAccountSummary, TaxRateOverrides, TaxReport, TaxTradeLine,
+    TradeProposal, WashSaleMatch, WashSaleReplacementAdjustment, WashSaleReport,
 };
 use core::TrustFacade;
 use db_sqlite::SqliteDatabase;
@@ -289,6 +290,7 @@ struct BenchmarkReportCommand;
 struct TimelineReportCommand;
 struct BiasSummaryReportCommand;
 struct WashSalesReportCommand;
+struct TaxReportCommand;
 
 impl MarketDataCommandHandler for MarketDataSnapshotCommand {
     fn execute(
@@ -474,6 +476,17 @@ impl ReportCommandHandler for WashSalesReportCommand {
         format: ReportOutputFormat,
     ) -> Result<(), CliError> {
         dispatcher.wash_sales_report(sub_matches, format)
+    }
+}
+
+impl ReportCommandHandler for TaxReportCommand {
+    fn execute(
+        &self,
+        dispatcher: &mut ArgDispatcher,
+        sub_matches: &ArgMatches,
+        format: ReportOutputFormat,
+    ) -> Result<(), CliError> {
+        dispatcher.tax_report(sub_matches, format)
     }
 }
 
@@ -751,6 +764,7 @@ impl ArgDispatcher {
         static TIMELINE: TimelineReportCommand = TimelineReportCommand;
         static BIAS_SUMMARY: BiasSummaryReportCommand = BiasSummaryReportCommand;
         static WASH_SALES: WashSalesReportCommand = WashSalesReportCommand;
+        static TAX: TaxReportCommand = TaxReportCommand;
 
         match subcommand {
             ReportSubcommand::Performance(sub_matches) => (&PERFORMANCE, sub_matches),
@@ -764,6 +778,7 @@ impl ArgDispatcher {
             ReportSubcommand::Timeline(sub_matches) => (&TIMELINE, sub_matches),
             ReportSubcommand::BiasSummary(sub_matches) => (&BIAS_SUMMARY, sub_matches),
             ReportSubcommand::WashSales(sub_matches) => (&WASH_SALES, sub_matches),
+            ReportSubcommand::Tax(sub_matches) => (&TAX, sub_matches),
         }
     }
 
@@ -963,6 +978,39 @@ impl ArgDispatcher {
                         format!("Invalid decimal value for --{key}: {raw}"),
                     )
                 })
+            })
+            .transpose()
+    }
+
+    fn parse_optional_percent_arg(
+        sub_matches: &ArgMatches,
+        key: &'static str,
+        format: ReportOutputFormat,
+    ) -> Result<Option<Decimal>, CliError> {
+        Self::parse_optional_decimal_arg(sub_matches, key, format)?
+            .map(|value| {
+                if value < Decimal::ZERO {
+                    return Err(Self::report_error(
+                        format,
+                        "invalid_percentage",
+                        format!("Invalid percentage for --{key}: value cannot be negative"),
+                    ));
+                }
+                let rate = value.checked_div(dec!(100)).ok_or_else(|| {
+                    Self::report_error(
+                        format,
+                        "invalid_percentage",
+                        format!("Invalid percentage for --{key}: {value}"),
+                    )
+                })?;
+                if rate > Decimal::ONE {
+                    return Err(Self::report_error(
+                        format,
+                        "invalid_percentage",
+                        format!("Invalid percentage for --{key}: value cannot exceed 100"),
+                    ));
+                }
+                Ok(rate)
             })
             .transpose()
     }
@@ -7535,6 +7583,133 @@ impl ArgDispatcher {
         })
     }
 
+    fn tax_report(
+        &mut self,
+        sub_matches: &ArgMatches,
+        format: ReportOutputFormat,
+    ) -> Result<(), CliError> {
+        let account_id = if let Some(raw) = sub_matches.get_one::<String>("account") {
+            Some(self.resolve_account_arg(raw, format)?.id)
+        } else {
+            None
+        };
+        let rate_overrides = TaxRateOverrides {
+            short_term: Self::parse_optional_percent_arg(sub_matches, "short-term-rate", format)?,
+            long_term: Self::parse_optional_percent_arg(sub_matches, "long-term-rate", format)?,
+        };
+        let report = self
+            .trust
+            .tax_report(account_id, rate_overrides)
+            .map_err(|error| Self::report_error(format, "report_failed", error.to_string()))?;
+
+        match format {
+            ReportOutputFormat::Text => Self::print_tax_text(&report, account_id),
+            ReportOutputFormat::Json => {
+                let account_trade_count = report
+                    .account_summaries
+                    .iter()
+                    .try_fold(0usize, |acc, summary| acc.checked_add(summary.trade_count))
+                    .unwrap_or(usize::MAX);
+                let payload = json!({
+                    "report": "tax",
+                    "format_version": 1,
+                    "generated_at": Utc::now().to_rfc3339(),
+                    "scope": {
+                        "account_id": account_id.map(|id| id.to_string()),
+                        "short_term_rate_override": rate_overrides.short_term.map(Self::decimal_string),
+                        "long_term_rate_override": rate_overrides.long_term.map(Self::decimal_string),
+                    },
+                    "data": {
+                        "scanned_trade_count": report.scanned_trade_count,
+                        "taxable_trade_count": report.taxable_trade_count,
+                        "unclassified_trade_count": report.unclassified_trade_count,
+                        "wash_sale_adjustment_count": report.wash_sale_adjustment_count,
+                        "gross_realized_gain": Self::decimal_string(report.gross_realized_gain),
+                        "gross_realized_loss": Self::decimal_string(report.gross_realized_loss),
+                        "wash_sale_disallowed_loss": Self::decimal_string(report.wash_sale_disallowed_loss),
+                        "replacement_basis_adjustment": Self::decimal_string(report.replacement_basis_adjustment),
+                        "short_term_taxable_gain": Self::decimal_string(report.short_term_taxable_gain),
+                        "long_term_taxable_gain": Self::decimal_string(report.long_term_taxable_gain),
+                        "net_taxable_gain": Self::decimal_string(report.net_taxable_gain),
+                        "estimated_gross_tax_liability": Self::decimal_string(report.estimated_gross_tax_liability),
+                        "estimated_net_tax_liability": Self::decimal_string(report.estimated_net_tax_liability),
+                        "accounts": report.account_summaries.iter().map(Self::tax_account_summary_json).collect::<Vec<Value>>(),
+                        "trades": report.trades.iter().map(Self::tax_trade_line_json).collect::<Vec<Value>>(),
+                    },
+                    "consistency": {
+                        "account_trade_count_matches_total": account_trade_count == report.taxable_trade_count,
+                        "net_gain_matches_components": report.short_term_taxable_gain
+                            .checked_add(report.long_term_taxable_gain)
+                            .map(|value| value == report.net_taxable_gain)
+                            .unwrap_or(false),
+                    }
+                });
+                Self::print_json(&payload)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn print_tax_text(report: &TaxReport, account_id: Option<Uuid>) {
+        println!("Tax report");
+        println!("==========");
+        match account_id {
+            Some(id) => println!("account_id: {id}"),
+            None => println!("account_id: all"),
+        }
+        println!("closed_trades_scanned: {}", report.scanned_trade_count);
+        println!("classified_trades: {}", report.taxable_trade_count);
+        println!(
+            "net_taxable_gain: {}",
+            Self::decimal_string(report.net_taxable_gain)
+        );
+        println!(
+            "estimated_net_tax_liability: {}",
+            Self::decimal_string(report.estimated_net_tax_liability)
+        );
+        println!(
+            "wash_sale_disallowed_loss: {}",
+            Self::decimal_string(report.wash_sale_disallowed_loss)
+        );
+    }
+
+    fn tax_account_summary_json(summary: &TaxAccountSummary) -> Value {
+        json!({
+            "account_id": summary.account_id.to_string(),
+            "short_term_rate": Self::decimal_string(summary.short_term_rate),
+            "long_term_rate": Self::decimal_string(summary.long_term_rate),
+            "trade_count": summary.trade_count,
+            "gross_realized_gain": Self::decimal_string(summary.gross_realized_gain),
+            "gross_realized_loss": Self::decimal_string(summary.gross_realized_loss),
+            "wash_sale_disallowed_loss": Self::decimal_string(summary.wash_sale_disallowed_loss),
+            "replacement_basis_adjustment": Self::decimal_string(summary.replacement_basis_adjustment),
+            "short_term_taxable_gain": Self::decimal_string(summary.short_term_taxable_gain),
+            "long_term_taxable_gain": Self::decimal_string(summary.long_term_taxable_gain),
+            "net_taxable_gain": Self::decimal_string(summary.net_taxable_gain),
+            "estimated_gross_tax_liability": Self::decimal_string(summary.estimated_gross_tax_liability),
+            "estimated_net_tax_liability": Self::decimal_string(summary.estimated_net_tax_liability),
+        })
+    }
+
+    fn tax_trade_line_json(line: &TaxTradeLine) -> Value {
+        json!({
+            "account_id": line.account_id.to_string(),
+            "trade_id": line.trade_id.to_string(),
+            "symbol": line.symbol.clone(),
+            "opened_date": line.opened_date.to_string(),
+            "closed_date": line.closed_date.to_string(),
+            "holding_days": line.holding_days,
+            "holding_period": line.holding_period.as_str(),
+            "realized_gain_loss": Self::decimal_string(line.realized_gain_loss),
+            "wash_sale_disallowed_loss": Self::decimal_string(line.wash_sale_disallowed_loss),
+            "replacement_basis_adjustment": Self::decimal_string(line.replacement_basis_adjustment),
+            "taxable_gain_loss": Self::decimal_string(line.taxable_gain_loss),
+            "tax_rate": Self::decimal_string(line.tax_rate),
+            "estimated_tax_liability": Self::decimal_string(line.estimated_tax_liability),
+        })
+    }
+
     #[allow(clippy::too_many_lines)]
     fn benchmark_report(
         &mut self,
@@ -12170,6 +12345,7 @@ mod tests {
                 "--days",
                 "7",
             ],
+            vec!["report", "tax", "--account", invalid_account],
         ];
 
         for argv in commands {
@@ -12184,6 +12360,7 @@ mod tests {
                 .benchmark()
                 .timeline()
                 .bias_summary()
+                .tax()
                 .build()
                 .get_matches_from(argv);
 
@@ -21228,6 +21405,18 @@ mod tests {
         dispatcher
             .dispatch_report(&timeline_text)
             .expect("timeline text should dispatch");
+
+        let tax_json = ReportCommandBuilder::new().tax().build().get_matches_from([
+            "report",
+            "--format",
+            "json",
+            "tax",
+            "--account",
+            &account_id,
+        ]);
+        dispatcher
+            .dispatch_report(&tax_json)
+            .expect("tax json should dispatch");
 
         let benchmark = ReportCommandBuilder::new()
             .benchmark()
