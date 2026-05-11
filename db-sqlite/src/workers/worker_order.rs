@@ -20,14 +20,13 @@ impl WorkerOrder {
         connection: &mut SqliteConnection,
         unit_price: Decimal,
         currency: &Currency,
-        quantity: i64,
+        quantity: Decimal,
         action: &OrderAction,
         category: &OrderCategory,
         trading_vehicle: &TradingVehicle,
     ) -> Result<Order, Box<dyn Error>> {
         let new_order = NewOrder {
-            #[allow(clippy::cast_possible_truncation)]
-            quantity: quantity as i32,
+            quantity: quantity.to_string(),
             unit_price: unit_price.to_string(),
             category: category.to_string(),
             currency: currency.to_string(),
@@ -70,8 +69,7 @@ impl WorkerOrder {
                 orders::updated_at.eq(now),
                 orders::broker_order_id.eq(order.broker_order_id.clone()),
                 orders::status.eq(order.status.to_string()),
-                #[allow(clippy::cast_possible_truncation)]
-                orders::filled_quantity.eq(Some(order.filled_quantity as i32)),
+                orders::filled_quantity.eq(Some(order.filled_quantity.to_string())),
                 orders::average_filled_price
                     .eq(order.average_filled_price.map(|price| price.to_string())),
                 orders::submitted_at.eq(order.submitted_at),
@@ -176,7 +174,7 @@ struct OrderSQLite {
     deleted_at: Option<NaiveDateTime>,
     unit_price: String,
     currency: String,
-    quantity: i32,
+    quantity: String,
     category: String,
     trading_vehicle_id: String,
     action: String,
@@ -184,7 +182,7 @@ struct OrderSQLite {
     time_in_force: String,
     trailing_percentage: Option<String>,
     trailing_price: Option<String>,
-    filled_quantity: Option<i32>,
+    filled_quantity: Option<String>,
     average_filled_price: Option<String>,
     extended_hours: bool,
     submitted_at: Option<NaiveDateTime>,
@@ -209,8 +207,9 @@ impl TryFrom<OrderSQLite> for Order {
                 .map_err(|_| ConversionError::new("unit_price", "Failed to parse unit price"))?,
             currency: Currency::from_str(&value.currency)
                 .map_err(|_| ConversionError::new("currency", "Failed to parse currency"))?,
-            #[allow(clippy::cast_sign_loss)]
-            quantity: (value.quantity as i64).max(0) as u64,
+            quantity: Decimal::from_str(&value.quantity)
+                .map_err(|_| ConversionError::new("quantity", "Failed to parse quantity"))?
+                .max(Decimal::ZERO),
             action: OrderAction::from_str(&value.action)
                 .map_err(|_| ConversionError::new("action", "Failed to parse order action"))?,
             category: OrderCategory::from_str(&value.category)
@@ -229,8 +228,16 @@ impl TryFrom<OrderSQLite> for Order {
             trailing_price: value
                 .trailing_price
                 .and_then(|p| Decimal::from_str(&p).ok()),
-            #[allow(clippy::cast_sign_loss)]
-            filled_quantity: (value.filled_quantity.unwrap_or(0) as i64).max(0) as u64,
+            filled_quantity: value
+                .filled_quantity
+                .as_deref()
+                .map(Decimal::from_str)
+                .transpose()
+                .map_err(|_| {
+                    ConversionError::new("filled_quantity", "Failed to parse filled quantity")
+                })?
+                .unwrap_or(Decimal::ZERO)
+                .max(Decimal::ZERO),
             average_filled_price: value
                 .average_filled_price
                 .and_then(|p| Decimal::from_str(&p).ok()),
@@ -261,7 +268,7 @@ struct NewOrder {
     deleted_at: Option<NaiveDateTime>,
     unit_price: String,
     currency: String,
-    quantity: i32,
+    quantity: String,
     category: String,
     trading_vehicle_id: String,
     action: String,
@@ -269,7 +276,7 @@ struct NewOrder {
     time_in_force: String,
     trailing_percentage: Option<String>,
     trailing_price: Option<String>,
-    filled_quantity: Option<i32>,
+    filled_quantity: Option<String>,
     average_filled_price: Option<String>,
     extended_hours: bool,
     submitted_at: Option<NaiveDateTime>,
@@ -290,7 +297,7 @@ impl Default for NewOrder {
             deleted_at: None,
             unit_price: dec!(0).to_string(),
             currency: Currency::default().to_string(),
-            quantity: 0,
+            quantity: Decimal::ZERO.to_string(),
             category: OrderCategory::Limit.to_string(),
             trading_vehicle_id: Uuid::new_v4().to_string(),
             action: OrderAction::Buy.to_string(),
@@ -348,7 +355,7 @@ mod tests {
             conn,
             dec!(150.00),
             &Currency::USD,
-            100,
+            dec!(100),
             &OrderAction::Buy,
             &OrderCategory::Limit,
             &trading_vehicle,
@@ -366,7 +373,7 @@ mod tests {
             deleted_at: None,
             unit_price: "150.25".to_string(),
             currency: Currency::USD.to_string(),
-            quantity: 100,
+            quantity: "100".to_string(),
             category: OrderCategory::Limit.to_string(),
             trading_vehicle_id: Uuid::new_v4().to_string(),
             action: OrderAction::Buy.to_string(),
@@ -374,7 +381,7 @@ mod tests {
             time_in_force: TimeInForce::UntilCanceled.to_string(),
             trailing_percentage: Some("1.5".to_string()),
             trailing_price: Some("2.5".to_string()),
-            filled_quantity: Some(10),
+            filled_quantity: Some("10".to_string()),
             average_filled_price: Some("151.25".to_string()),
             extended_hours: true,
             submitted_at: Some(now),
@@ -401,7 +408,7 @@ mod tests {
             &mut conn,
             dec!(150.00),
             &Currency::USD,
-            100,
+            dec!(100),
             &OrderAction::Buy,
             &OrderCategory::Limit,
             &trading_vehicle,
@@ -409,7 +416,7 @@ mod tests {
         .expect("Error creating order");
 
         assert_eq!(order.unit_price, dec!(150.00));
-        assert_eq!(order.quantity, 100);
+        assert_eq!(order.quantity, dec!(100));
         assert_eq!(order.action, OrderAction::Buy);
         assert_eq!(order.category, OrderCategory::Limit);
         assert_eq!(order.trading_vehicle_id, trading_vehicle.id);
@@ -428,7 +435,7 @@ mod tests {
             &mut conn,
             dec!(95.00),
             &Currency::USD,
-            100,
+            dec!(100),
             &OrderAction::Sell,
             &OrderCategory::StopLimit,
             &trading_vehicle,
@@ -451,7 +458,7 @@ mod tests {
             &mut conn,
             dec!(150.00),
             &Currency::USD,
-            100,
+            dec!(100),
             &OrderAction::Buy,
             &OrderCategory::Limit,
             &trading_vehicle,
@@ -491,7 +498,7 @@ mod tests {
     fn persist_fill_details(conn: &mut SqliteConnection, filled: &Order) -> Order {
         let mut filled_snapshot = filled.clone();
         filled_snapshot.status = OrderStatus::Filled;
-        filled_snapshot.filled_quantity = 100;
+        filled_snapshot.filled_quantity = dec!(100);
         filled_snapshot.average_filled_price = Some(dec!(151.25));
         filled_snapshot.category = OrderCategory::Market;
         let updated = WorkerOrder::update(conn, &filled_snapshot).expect("order update");
@@ -518,7 +525,7 @@ mod tests {
     fn assert_persisted_fill_details(order: &Order) {
         assert_eq!(order.status, OrderStatus::Filled);
         assert_eq!(order.category, OrderCategory::Market);
-        assert_eq!(order.filled_quantity, 100);
+        assert_eq!(order.filled_quantity, dec!(100));
         assert_eq!(order.average_filled_price, Some(dec!(151.25)));
     }
 
@@ -550,18 +557,18 @@ mod tests {
     #[test]
     fn order_sqlite_conversion_clamps_negative_quantities_and_ignores_invalid_optional_prices() {
         let row = OrderSQLite {
-            quantity: -10,
+            quantity: "-10".to_string(),
             trailing_percentage: Some("not-a-decimal".to_string()),
             trailing_price: Some("still-not-decimal".to_string()),
-            filled_quantity: Some(-5),
+            filled_quantity: Some("-5".to_string()),
             average_filled_price: Some("bad-price".to_string()),
             ..base_sqlite_order()
         };
 
         let order = Order::try_from(row).expect("lossy optional values should not fail");
 
-        assert_eq!(order.quantity, 0);
-        assert_eq!(order.filled_quantity, 0);
+        assert_eq!(order.quantity, Decimal::ZERO);
+        assert_eq!(order.filled_quantity, Decimal::ZERO);
         assert_eq!(order.trailing_percent, None);
         assert_eq!(order.trailing_price, None);
         assert_eq!(order.average_filled_price, None);

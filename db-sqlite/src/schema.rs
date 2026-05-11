@@ -186,7 +186,7 @@ diesel::table! {
         deleted_at -> Nullable<Timestamp>,
         unit_price -> Text,
         currency -> Text,
-        quantity -> Integer,
+        quantity -> Text,
         category -> Text,
         trading_vehicle_id -> Text,
         action -> Text,
@@ -194,7 +194,7 @@ diesel::table! {
         time_in_force -> Text,
         trailing_percentage -> Nullable<Text>,
         trailing_price -> Nullable<Text>,
-        filled_quantity -> Nullable<Integer>,
+        filled_quantity -> Nullable<Text>,
         average_filled_price -> Nullable<Text>,
         extended_hours -> Bool,
         submitted_at -> Nullable<Timestamp>,
@@ -298,6 +298,7 @@ diesel::table! {
         sector -> Nullable<Text>,
         asset_class -> Nullable<Text>,
         context -> Nullable<Text>,
+        settlement_date -> Nullable<Date>,
     }
 }
 
