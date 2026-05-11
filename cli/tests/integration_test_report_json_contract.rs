@@ -2,8 +2,8 @@ use chrono::{NaiveDate, NaiveDateTime};
 use core::TrustFacade;
 use db_sqlite::SqliteDatabase;
 use model::{
-    Currency, DatabaseFactory, DraftTrade, Environment, Order, OrderStatus, Status, TradeCategory,
-    TradingVehicleCategory,
+    Account, Currency, DatabaseFactory, DraftTrade, Environment, Order, OrderStatus, Status,
+    TradeCategory, TradingVehicle, TradingVehicleCategory,
 };
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
@@ -434,6 +434,212 @@ fn seed_account_with_wash_sale(database_url: &str) -> Uuid {
     account.id
 }
 
+struct TaxSeedTradeSpec {
+    trading_vehicle: TradingVehicle,
+    quantity: Decimal,
+    entry_price: Decimal,
+    stop_price: Decimal,
+    target_price: Decimal,
+    status: Status,
+    entry_at: NaiveDateTime,
+    exit_at: NaiveDateTime,
+    exit_price: Decimal,
+    total_performance: Decimal,
+    thesis: &'static str,
+}
+
+fn seed_closed_tax_trade(
+    database_url: &str,
+    trust: &mut TrustFacade,
+    account: &Account,
+    spec: TaxSeedTradeSpec,
+) {
+    let trade = trust
+        .create_trade(
+            DraftTrade {
+                account: account.clone(),
+                trading_vehicle: spec.trading_vehicle,
+                quantity: spec.quantity,
+                category: TradeCategory::Long,
+                currency: Currency::USD,
+                sector: Some("Technology".to_string()),
+                asset_class: Some("Stocks".to_string()),
+                thesis: Some(spec.thesis.to_string()),
+                context: None,
+            },
+            spec.entry_price,
+            spec.stop_price,
+            spec.target_price,
+        )
+        .expect("create tax trade");
+    let (funded, _, _, _) = trust.fund_trade(&trade).expect("fund tax trade");
+    persist_filled_order(
+        database_url,
+        &funded.entry,
+        spec.quantity,
+        spec.entry_price,
+        spec.entry_at,
+    );
+    let exit_order = if spec.status == Status::ClosedTarget {
+        &funded.target
+    } else {
+        &funded.safety_stop
+    };
+    persist_filled_order(
+        database_url,
+        exit_order,
+        spec.quantity,
+        spec.exit_price,
+        spec.exit_at,
+    );
+
+    let database = SqliteDatabase::new(database_url);
+    let closed = database
+        .trade_write()
+        .update_trade_status(spec.status, &funded)
+        .expect("close tax trade");
+    let capital_out_market = funded
+        .balance
+        .funding
+        .checked_add(spec.total_performance)
+        .expect("tax trade capital out");
+    database
+        .trade_balance_write()
+        .update_trade_balance(
+            &closed,
+            funded.balance.funding,
+            dec!(0),
+            capital_out_market,
+            dec!(0),
+            spec.total_performance,
+        )
+        .expect("persist tax trade balance");
+}
+
+fn seed_account_with_tax_scenarios(database_url: &str) -> Uuid {
+    let database = SqliteDatabase::new(database_url);
+    let mut trust = TrustFacade::new(Box::new(database), Box::new(alpaca_broker::AlpacaBroker));
+
+    let account = trust
+        .create_account(
+            "Tax Report Account",
+            "tax report contract test",
+            Environment::Paper,
+            dec!(25.0),
+            dec!(10.0),
+        )
+        .expect("create account");
+    trust
+        .create_transaction(
+            &account,
+            &model::TransactionCategory::Deposit,
+            dec!(50000),
+            &Currency::USD,
+        )
+        .expect("deposit funds");
+
+    let aapl = trust
+        .create_trading_vehicle(
+            "AAPL",
+            Some("US0378331005"),
+            &TradingVehicleCategory::Stock,
+            "alpaca",
+        )
+        .expect("create AAPL vehicle");
+    seed_closed_tax_trade(
+        database_url,
+        &mut trust,
+        &account,
+        TaxSeedTradeSpec {
+            trading_vehicle: aapl,
+            quantity: dec!(10),
+            entry_price: dec!(100),
+            stop_price: dec!(90),
+            target_price: dec!(110),
+            status: Status::ClosedTarget,
+            entry_at: report_test_datetime(2026, 1, 1),
+            exit_at: report_test_datetime(2026, 2, 1),
+            exit_price: dec!(110),
+            total_performance: dec!(100),
+            thesis: "short-term gain",
+        },
+    );
+
+    let msft = trust
+        .create_trading_vehicle(
+            "MSFT",
+            Some("US5949181045"),
+            &TradingVehicleCategory::Stock,
+            "alpaca",
+        )
+        .expect("create MSFT vehicle");
+    seed_closed_tax_trade(
+        database_url,
+        &mut trust,
+        &account,
+        TaxSeedTradeSpec {
+            trading_vehicle: msft,
+            quantity: dec!(10),
+            entry_price: dec!(100),
+            stop_price: dec!(90),
+            target_price: dec!(120),
+            status: Status::ClosedTarget,
+            entry_at: report_test_datetime(2024, 1, 1),
+            exit_at: report_test_datetime(2025, 1, 3),
+            exit_price: dec!(120),
+            total_performance: dec!(200),
+            thesis: "long-term gain",
+        },
+    );
+
+    let tsla = trust
+        .create_trading_vehicle(
+            "TSLA",
+            Some("US88160R1014"),
+            &TradingVehicleCategory::Stock,
+            "alpaca",
+        )
+        .expect("create TSLA vehicle");
+    seed_closed_tax_trade(
+        database_url,
+        &mut trust,
+        &account,
+        TaxSeedTradeSpec {
+            trading_vehicle: tsla.clone(),
+            quantity: dec!(10),
+            entry_price: dec!(100),
+            stop_price: dec!(90),
+            target_price: dec!(120),
+            status: Status::ClosedStopLoss,
+            entry_at: report_test_datetime(2026, 1, 5),
+            exit_at: report_test_datetime(2026, 1, 10),
+            exit_price: dec!(90),
+            total_performance: dec!(-100),
+            thesis: "wash sale loss",
+        },
+    );
+    seed_closed_tax_trade(
+        database_url,
+        &mut trust,
+        &account,
+        TaxSeedTradeSpec {
+            trading_vehicle: tsla,
+            quantity: dec!(5),
+            entry_price: dec!(95),
+            stop_price: dec!(88),
+            target_price: dec!(140),
+            status: Status::ClosedTarget,
+            entry_at: report_test_datetime(2026, 1, 20),
+            exit_at: report_test_datetime(2026, 2, 20),
+            exit_price: dec!(140),
+            total_performance: dec!(225),
+            thesis: "wash sale replacement",
+        },
+    );
+
+    account.id
+}
+
 #[test]
 fn test_risk_report_json_math_consistency() {
     let database_url = format!("file:test_risk_report_json_{}.db", Uuid::new_v4().simple());
@@ -736,6 +942,68 @@ fn test_wash_sales_report_json_flags_loss_trade_and_basis_adjustment() {
     let adjustment = adjustments.first().expect("one replacement adjustment");
     assert_eq!(adjustment["basis_adjustment"], "50");
     assert_eq!(adjustment["adjusted_cost_basis"], "525");
+}
+
+#[test]
+fn test_tax_report_json_classifies_terms_and_applies_wash_sales() {
+    let database_url = format!("file:test_tax_report_json_{}.db", Uuid::new_v4().simple());
+    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let account_id = seed_account_with_tax_scenarios(&database_url);
+
+    let output = run_report(
+        &database_url,
+        &[
+            "report",
+            "tax",
+            "--format",
+            "json",
+            "--account",
+            &account_id.to_string(),
+            "--short-term-rate",
+            "30",
+            "--long-term-rate",
+            "15",
+        ],
+    );
+
+    assert!(output.status.success(), "tax report should succeed");
+
+    let payload = parse_stdout_json(&output);
+    assert_report_envelope(&payload, "tax");
+    assert_eq!(payload["scope"]["account_id"], account_id.to_string());
+    assert_eq!(payload["scope"]["short_term_rate_override"], "0.3");
+    assert_eq!(payload["scope"]["long_term_rate_override"], "0.15");
+    assert_eq!(payload["data"]["taxable_trade_count"], 4);
+    assert_eq!(payload["data"]["wash_sale_adjustment_count"], 1);
+    assert_eq!(payload["data"]["gross_realized_gain"], "525");
+    assert_eq!(payload["data"]["gross_realized_loss"], "-100");
+    assert_eq!(payload["data"]["wash_sale_disallowed_loss"], "50");
+    assert_eq!(payload["data"]["replacement_basis_adjustment"], "50");
+    assert_eq!(payload["data"]["short_term_taxable_gain"], "225");
+    assert_eq!(payload["data"]["long_term_taxable_gain"], "200");
+    assert_eq!(payload["data"]["net_taxable_gain"], "425");
+    assert_eq!(payload["data"]["estimated_net_tax_liability"], "97.5");
+    assert_eq!(
+        payload["consistency"]["account_trade_count_matches_total"],
+        true
+    );
+
+    let trades = payload["data"]["trades"]
+        .as_array()
+        .expect("tax trades should be an array");
+    assert!(trades
+        .iter()
+        .any(|trade| trade["symbol"] == "MSFT" && trade["holding_period"] == "long_term"));
+    assert!(trades.iter().any(|trade| {
+        trade["symbol"] == "TSLA"
+            && trade["wash_sale_disallowed_loss"] == "50"
+            && trade["taxable_gain_loss"] == "-50"
+    }));
+    assert!(trades.iter().any(|trade| {
+        trade["symbol"] == "TSLA"
+            && trade["replacement_basis_adjustment"] == "50"
+            && trade["taxable_gain_loss"] == "175"
+    }));
 }
 
 #[test]

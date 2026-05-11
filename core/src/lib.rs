@@ -32,8 +32,8 @@
 
 use crate::services::{
     AdvisoryHistoryEntry, AdvisoryResult, AdvisoryThresholds, FundTransferService,
-    PortfolioAdvisoryStatus, ProfitDistributionService, TradeProposal, WashSaleReport,
-    WashSaleService,
+    PortfolioAdvisoryStatus, ProfitDistributionService, TaxRateOverrides, TaxRates, TaxReport,
+    TaxService, TradeProposal, WashSaleReport, WashSaleService,
 };
 use advisor::{
     CalendarCredentials, CatalystScanRequest, CatalystScanResult, CatalystScanner,
@@ -70,7 +70,7 @@ use {
         DefaultLevelTransitionPolicy, LevelEvaluationOutcome, LevelPerformanceSnapshot,
         LevelingService,
     },
-    std::collections::HashMap,
+    std::collections::{BTreeMap, HashMap},
     std::error::Error as StdError,
 };
 
@@ -1262,6 +1262,23 @@ impl TrustFacade {
         WashSaleService::detect(&trades).map_err(|error| Box::new(error) as Box<dyn StdError>)
     }
 
+    /// Calculate realized-gains tax lines and account summaries.
+    ///
+    /// Rates default to the account's configured distribution tax percentage
+    /// when present, falling back to the account tax percentage. Optional
+    /// overrides apply across every account in the report.
+    pub fn tax_report(
+        &mut self,
+        account_id: Option<Uuid>,
+        rate_overrides: TaxRateOverrides,
+    ) -> Result<TaxReport, Box<dyn std::error::Error>> {
+        let trades = self.search_all_trades_for_tax(account_id)?;
+        let wash_sales = WashSaleService::detect(&trades)?;
+        let rates = self.tax_rates_for_scope(account_id, rate_overrides)?;
+        TaxService::calculate(&trades, &rates, &wash_sales)
+            .map_err(|error| Box::new(error) as Box<dyn StdError>)
+    }
+
     fn search_all_trades_for_tax(
         &mut self,
         account_id: Option<Uuid>,
@@ -1288,6 +1305,32 @@ impl TrustFacade {
             all_trades.append(&mut status_trades);
         }
         Ok(())
+    }
+
+    fn tax_rates_for_scope(
+        &mut self,
+        account_id: Option<Uuid>,
+        overrides: TaxRateOverrides,
+    ) -> Result<BTreeMap<Uuid, TaxRates>, Box<dyn std::error::Error>> {
+        let accounts = if let Some(id) = account_id {
+            vec![self.factory.account_read().id(id)?]
+        } else {
+            self.search_all_accounts()?
+        };
+
+        let mut rates = BTreeMap::new();
+        for account in accounts {
+            let configured_tax_rate =
+                if let Some(rules) = self.cached_distribution_rules(account.id)? {
+                    rules.tax_percent
+                } else {
+                    normalize_account_tax_rate(account.taxes_percentage)?
+                };
+            let short_term = overrides.short_term.unwrap_or(configured_tax_rate);
+            let long_term = overrides.long_term.unwrap_or(configured_tax_rate);
+            rates.insert(account.id, TaxRates::new(short_term, long_term)?);
+        }
+        Ok(rates)
     }
 
     // Trade Steps
@@ -2291,6 +2334,22 @@ impl TrustFacade {
 
         Ok((earnings_account, tax_account, reinvestment_account))
     }
+}
+
+fn normalize_account_tax_rate(rate: Decimal) -> Result<Decimal, Box<dyn std::error::Error>> {
+    if rate < Decimal::ZERO {
+        return Err("Account tax percentage cannot be negative".into());
+    }
+    let normalized = if rate > Decimal::ONE {
+        rate.checked_div(dec!(100))
+            .ok_or("Account tax percentage normalization overflow")?
+    } else {
+        rate
+    };
+    if normalized > Decimal::ONE {
+        return Err("Account tax percentage cannot exceed 100%".into());
+    }
+    Ok(normalized)
 }
 
 fn hash_distribution_password(password: &str) -> Result<String, Box<dyn std::error::Error>> {
