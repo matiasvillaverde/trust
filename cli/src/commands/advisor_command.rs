@@ -1,4 +1,4 @@
-use clap::{Arg, Command};
+use clap::{Arg, ArgAction, Command};
 
 pub struct AdvisorCommandBuilder {
     command: Command,
@@ -22,35 +22,59 @@ impl AdvisorCommandBuilder {
     pub fn configure(mut self) -> Self {
         self.subcommands.push(
             Command::new("configure")
-                .about("Configure advisory thresholds for an account")
+                .about("Configure advisory thresholds or external advisor providers")
                 .arg(
                     Arg::new("account")
                         .long("account")
                         .value_name("ACCOUNT_ID")
-                        .required(true),
+                        .required(false),
                 )
                 .arg(
                     Arg::new("sector-limit")
                         .long("sector-limit")
                         .value_name("PERCENT")
-                        .required(true),
+                        .required(false),
                 )
                 .arg(
                     Arg::new("asset-class-limit")
                         .long("asset-class-limit")
                         .value_name("PERCENT")
-                        .required(true),
+                        .required(false),
                 )
                 .arg(
                     Arg::new("single-position-limit")
                         .long("single-position-limit")
                         .value_name("PERCENT")
-                        .required(true),
+                        .required(false),
                 )
                 .arg(
                     Arg::new("confirm-protected")
                         .long("confirm-protected")
                         .value_name("KEYWORD")
+                        .required(false),
+                )
+                .arg(
+                    Arg::new("calendar-provider")
+                        .long("calendar-provider")
+                        .value_name("PROVIDER")
+                        .required(false),
+                )
+                .arg(
+                    Arg::new("calendar-api-key")
+                        .long("calendar-api-key")
+                        .value_name("KEY")
+                        .required(false),
+                )
+                .arg(
+                    Arg::new("claude-api-key")
+                        .long("claude-api-key")
+                        .value_name("KEY")
+                        .required(false),
+                )
+                .arg(
+                    Arg::new("show")
+                        .long("show")
+                        .action(ArgAction::SetTrue)
                         .required(false),
                 ),
         );
@@ -104,7 +128,7 @@ mod tests {
     #[test]
     fn configure_parses() {
         let cmd = AdvisorCommandBuilder::new().configure().build();
-        let result = cmd.try_get_matches_from([
+        let thresholds = cmd.clone().try_get_matches_from([
             "advisor",
             "configure",
             "--account",
@@ -116,7 +140,18 @@ mod tests {
             "--single-position-limit",
             "15",
         ]);
-        assert!(result.is_ok());
+        assert!(thresholds.is_ok());
+
+        let provider = cmd.try_get_matches_from([
+            "advisor",
+            "configure",
+            "--calendar-provider",
+            "fmp",
+            "--calendar-api-key",
+            "secret",
+            "--show",
+        ]);
+        assert!(provider.is_ok());
     }
 
     #[test]
