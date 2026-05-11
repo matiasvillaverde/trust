@@ -2,7 +2,7 @@ use crate::{
     Account, AccountBalance, AccountType, BrokerKind, BrokerLog, Currency,
     DistributionExecutionPlan, DistributionHistory, DistributionRules, Environment, Execution,
     Level, LevelAdjustmentRules, LevelChange, Order, OrderAction, OrderCategory, Rule, RuleLevel,
-    RuleName, Status, Trade, TradeBalance, TradeCategory, TradeGrade, TradingVehicle,
+    RuleName, Status, Trade, TradeBalance, TradeCategory, TradeEvent, TradeGrade, TradingVehicle,
     TradingVehicleCategory, Transaction, TransactionCategory,
 };
 use rust_decimal::Decimal;
@@ -61,6 +61,10 @@ pub trait DatabaseFactory {
     fn execution_read(&self) -> Box<dyn ReadExecutionDB>;
     /// Returns a writer for execution data operations
     fn execution_write(&self) -> Box<dyn WriteExecutionDB>;
+    /// Returns a reader for trade event data operations
+    fn trade_event_read(&self) -> Box<dyn ReadTradeEventDB>;
+    /// Returns a writer for trade event data operations
+    fn trade_event_write(&self) -> Box<dyn WriteTradeEventDB>;
     /// Returns a reader for trade grade data operations
     fn trade_grade_read(&self) -> Box<dyn ReadTradeGradeDB>;
     /// Returns a writer for trade grade data operations
@@ -571,6 +575,24 @@ pub trait ReadBrokerLogsDB {
     /// Retrieves all logs associated with a specific trade
     fn read_all_logs_for_trade(&mut self, trade_id: Uuid)
         -> Result<Vec<BrokerLog>, Box<dyn Error>>;
+}
+
+/// Trait for reading trade event catalysts from the database.
+pub trait ReadTradeEventDB {
+    /// Read active event catalysts for a trade.
+    fn read_trade_events_for_trade(
+        &mut self,
+        trade_id: Uuid,
+    ) -> Result<Vec<TradeEvent>, Box<dyn Error>>;
+}
+
+/// Trait for writing trade event catalysts to the database.
+pub trait WriteTradeEventDB {
+    /// Persist a new event catalyst for a trade.
+    fn create_trade_event(&mut self, event: &TradeEvent) -> Result<TradeEvent, Box<dyn Error>>;
+
+    /// Soft-delete a trade event by identifier.
+    fn delete_trade_event(&mut self, event_id: Uuid) -> Result<(), Box<dyn Error>>;
 }
 
 /// Trait for reading trade grades from the database.

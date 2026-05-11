@@ -206,6 +206,22 @@ diesel::table! {
 }
 
 diesel::table! {
+    trade_events (id) {
+        id -> Text,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        deleted_at -> Nullable<Timestamp>,
+        trade_id -> Text,
+        symbol -> Text,
+        event_type -> Text,
+        event_date -> Date,
+        severity -> Text,
+        notes -> Nullable<Text>,
+        source -> Text,
+    }
+}
+
+diesel::table! {
     trade_grades (id) {
         id -> Text,
         created_at -> Timestamp,
@@ -318,6 +334,7 @@ diesel::joinable!(levels -> accounts (account_id));
 diesel::joinable!(logs -> trades (trade_id));
 diesel::joinable!(orders -> trading_vehicles (trading_vehicle_id));
 diesel::joinable!(rules -> accounts (account_id));
+diesel::joinable!(trade_events -> trades (trade_id));
 diesel::joinable!(trade_grades -> trades (trade_id));
 diesel::joinable!(trades -> accounts (account_id));
 diesel::joinable!(trades -> trades_balances (balance_id));
@@ -338,6 +355,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     logs,
     orders,
     rules,
+    trade_events,
     trade_grades,
     trades,
     trades_balances,

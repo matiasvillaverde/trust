@@ -7,10 +7,11 @@ use model::{
     DistributionHistory, DistributionRead, DistributionRules, DistributionWrite, Execution, Grade,
     Level, LevelAdjustmentRules, LevelChange, Order, OrderAction, OrderCategory, OrderRead,
     OrderWrite, ReadBrokerLogsDB, ReadExecutionDB, ReadLevelDB, ReadRuleDB, ReadTradeDB,
-    ReadTradeGradeDB, ReadTradingVehicleDB, ReadTransactionDB, Rule, RuleLevel, RuleName, Status,
-    Trade, TradeBalance, TradeGrade, TradingVehicle, TradingVehicleCategory, Transaction,
-    TransactionCategory, WriteBrokerLogsDB, WriteExecutionDB, WriteLevelDB, WriteRuleDB,
-    WriteTradeDB, WriteTradeGradeDB, WriteTradingVehicleDB, WriteTransactionDB,
+    ReadTradeEventDB, ReadTradeGradeDB, ReadTradingVehicleDB, ReadTransactionDB, Rule, RuleLevel,
+    RuleName, Status, Trade, TradeBalance, TradeEvent, TradeGrade, TradingVehicle,
+    TradingVehicleCategory, Transaction, TransactionCategory, WriteBrokerLogsDB, WriteExecutionDB,
+    WriteLevelDB, WriteRuleDB, WriteTradeDB, WriteTradeEventDB, WriteTradeGradeDB,
+    WriteTradingVehicleDB, WriteTransactionDB,
 };
 use rust_decimal::Decimal;
 use std::cell::Cell;
@@ -277,6 +278,14 @@ impl DatabaseFactory for ReadFailureFactory {
 
     fn execution_write(&self) -> Box<dyn WriteExecutionDB> {
         panic!("execution_write should not be called")
+    }
+
+    fn trade_event_read(&self) -> Box<dyn ReadTradeEventDB> {
+        panic!("trade_event_read should not be called")
+    }
+
+    fn trade_event_write(&self) -> Box<dyn WriteTradeEventDB> {
+        panic!("trade_event_write should not be called")
     }
 
     fn trade_grade_read(&self) -> Box<dyn ReadTradeGradeDB> {
@@ -1495,6 +1504,25 @@ impl ReadExecutionDB for FailingAccountRead {
 impl WriteExecutionDB for FailingAccountRead {
     fn upsert_execution(&mut self, _execution: &Execution) -> Result<Execution, Box<dyn Error>> {
         Err("execution write failed".into())
+    }
+}
+
+impl ReadTradeEventDB for FailingAccountRead {
+    fn read_trade_events_for_trade(
+        &mut self,
+        _trade_id: Uuid,
+    ) -> Result<Vec<TradeEvent>, Box<dyn Error>> {
+        Err("trade event read failed".into())
+    }
+}
+
+impl WriteTradeEventDB for FailingAccountRead {
+    fn create_trade_event(&mut self, _event: &TradeEvent) -> Result<TradeEvent, Box<dyn Error>> {
+        Err("trade event write failed".into())
+    }
+
+    fn delete_trade_event(&mut self, _event_id: Uuid) -> Result<(), Box<dyn Error>> {
+        Err("trade event write failed".into())
     }
 }
 

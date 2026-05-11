@@ -1,7 +1,7 @@
 use crate::workers::{
     AccountBalanceDB, AccountDB, AdvisoryDB, BrokerLogDB, DistributionDB, WorkerExecution,
-    WorkerLevel, WorkerOrder, WorkerRule, WorkerTrade, WorkerTradeGrade, WorkerTradingVehicle,
-    WorkerTransaction,
+    WorkerLevel, WorkerOrder, WorkerRule, WorkerTrade, WorkerTradeEvent, WorkerTradeGrade,
+    WorkerTradingVehicle, WorkerTransaction,
 };
 use crate::{backup, backup::ImportOptions};
 use diesel::prelude::*;
@@ -14,10 +14,11 @@ use model::{
     Account, AccountBalanceRead, AccountBalanceWrite, AccountRead, Currency, DatabaseFactory,
     DistributionRead, DistributionWrite, Execution, Level, LevelAdjustmentRules, LevelChange,
     Order, OrderAction, OrderCategory, OrderRead, OrderWrite, ReadExecutionDB, ReadLevelDB,
-    ReadRuleDB, ReadTradeDB, ReadTradeGradeDB, ReadTradingVehicleDB, ReadTransactionDB, Rule,
-    RuleName, Trade, TradeBalance, TradeGrade, TradingVehicle, TradingVehicleCategory, Transaction,
-    TransactionCategory, WriteExecutionDB, WriteLevelDB, WriteRuleDB, WriteTradeDB,
-    WriteTradeGradeDB, WriteTradingVehicleDB, WriteTransactionDB,
+    ReadRuleDB, ReadTradeDB, ReadTradeEventDB, ReadTradeGradeDB, ReadTradingVehicleDB,
+    ReadTransactionDB, Rule, RuleName, Trade, TradeBalance, TradeEvent, TradeGrade, TradingVehicle,
+    TradingVehicleCategory, Transaction, TransactionCategory, WriteExecutionDB, WriteLevelDB,
+    WriteRuleDB, WriteTradeDB, WriteTradeEventDB, WriteTradeGradeDB, WriteTradingVehicleDB,
+    WriteTransactionDB,
 };
 use rust_decimal::Decimal;
 use std::error::Error;
@@ -147,6 +148,14 @@ impl DatabaseFactory for SqliteDatabase {
         Box::new(SqliteDatabase::new_from(self.connection.clone()))
     }
     fn trading_vehicle_write(&self) -> Box<dyn WriteTradingVehicleDB> {
+        Box::new(SqliteDatabase::new_from(self.connection.clone()))
+    }
+
+    fn trade_event_read(&self) -> Box<dyn ReadTradeEventDB> {
+        Box::new(SqliteDatabase::new_from(self.connection.clone()))
+    }
+
+    fn trade_event_write(&self) -> Box<dyn WriteTradeEventDB> {
         Box::new(SqliteDatabase::new_from(self.connection.clone()))
     }
 
@@ -448,6 +457,25 @@ impl WriteTransactionDB for SqliteDatabase {
 
             Ok((withdrawal_tx, deposit_tx))
         })
+    }
+}
+
+impl ReadTradeEventDB for SqliteDatabase {
+    fn read_trade_events_for_trade(
+        &mut self,
+        trade_id: Uuid,
+    ) -> Result<Vec<TradeEvent>, Box<dyn Error>> {
+        WorkerTradeEvent::read_for_trade(&mut lock_connection_or_exit(&self.connection), trade_id)
+    }
+}
+
+impl WriteTradeEventDB for SqliteDatabase {
+    fn create_trade_event(&mut self, event: &TradeEvent) -> Result<TradeEvent, Box<dyn Error>> {
+        WorkerTradeEvent::create(&mut lock_connection_or_exit(&self.connection), event)
+    }
+
+    fn delete_trade_event(&mut self, event_id: Uuid) -> Result<(), Box<dyn Error>> {
+        WorkerTradeEvent::delete(&mut lock_connection_or_exit(&self.connection), event_id)
     }
 }
 
@@ -869,10 +897,10 @@ impl WriteExecutionDB for SqliteDatabase {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::{Duration, Utc};
+    use chrono::{Duration, NaiveDate, Utc};
     use model::{
         Account, Environment, ExecutionSide, ExecutionSource, Grade, LevelTrigger, RuleLevel,
-        RuleName, TradeCategory,
+        RuleName, TradeCategory, TradeEventSeverity, TradeEventSource, TradeEventType,
     };
     use rust_decimal_macros::dec;
     use std::path::PathBuf;
@@ -981,6 +1009,23 @@ mod tests {
             risk_weight_permille: 300,
             execution_weight_permille: 250,
             documentation_weight_permille: 200,
+        }
+    }
+
+    fn trade_event_for(trade: &Trade) -> TradeEvent {
+        let now = Utc::now().naive_utc();
+        TradeEvent {
+            id: Uuid::new_v4(),
+            created_at: now,
+            updated_at: now,
+            deleted_at: None,
+            trade_id: trade.id,
+            symbol: trade.trading_vehicle.symbol.clone(),
+            event_type: TradeEventType::Earnings,
+            event_date: NaiveDate::from_ymd_opt(2026, 1, 20).expect("fixture date should be valid"),
+            severity: TradeEventSeverity::High,
+            notes: Some("fixture event".to_string()),
+            source: TradeEventSource::Manual,
         }
     }
 
@@ -1308,6 +1353,27 @@ mod tests {
             .expect("account grades should read")
             .iter()
             .any(|entry| entry.id == grade.id));
+
+        let event = database
+            .trade_event_write()
+            .create_trade_event(&trade_event_for(trade))
+            .expect("trade event should write");
+        assert!(database
+            .trade_event_read()
+            .read_trade_events_for_trade(trade.id)
+            .expect("trade events should read")
+            .iter()
+            .any(|entry| entry.id == event.id));
+        database
+            .trade_event_write()
+            .delete_trade_event(event.id)
+            .expect("trade event should delete");
+        assert!(!database
+            .trade_event_read()
+            .read_trade_events_for_trade(trade.id)
+            .expect("trade events should read after delete")
+            .iter()
+            .any(|entry| entry.id == event.id));
     }
 
     #[test]
