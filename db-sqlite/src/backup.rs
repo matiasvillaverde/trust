@@ -97,6 +97,8 @@ pub struct BackupTablesV1 {
     pub levels: Vec<LevelRow>,
     pub level_changes: Vec<LevelChangeRow>,
     #[serde(default)]
+    pub mistakes: Vec<MistakeRow>,
+    #[serde(default)]
     pub trade_events: Vec<TradeEventRow>,
     pub trade_grades: Vec<TradeGradeRow>,
 }
@@ -314,6 +316,22 @@ pub struct LevelChangeRow {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Queryable, Insertable)]
+#[diesel(table_name = schema::mistakes)]
+pub struct MistakeRow {
+    pub id: String,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
+    pub deleted_at: Option<NaiveDateTime>,
+    pub trade_id: String,
+    pub bias_tags: String,
+    pub lollapalooza: bool,
+    pub error_type: String,
+    pub rule_violated: Option<String>,
+    pub counterfactual_r: String,
+    pub lesson: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Queryable, Insertable)]
 #[diesel(table_name = schema::trade_events)]
 pub struct TradeEventRow {
     pub id: String,
@@ -392,6 +410,7 @@ const ALLOWED_TABLES: &[&str] = &[
     "logs",
     "level_changes",
     "levels",
+    "mistakes",
     "orders",
     "rules",
     "trade_events",
@@ -424,6 +443,7 @@ fn read_table_count(conn: &mut SqliteConnection, table: &str) -> Result<i64, Bac
 fn clear_all_tables(conn: &mut SqliteConnection) -> Result<u64, BackupError> {
     // Delete children before parents to satisfy FK constraints with FK checks enabled.
     let tables = [
+        "mistakes",
         "trade_events",
         "trade_grades",
         "logs",
@@ -469,6 +489,7 @@ fn insert_all(conn: &mut SqliteConnection, tables: &BackupTablesV1) -> Result<u6
     insert_and_add!(schema::logs::table, &tables.logs);
     insert_and_add!(schema::levels::table, &tables.levels);
     insert_and_add!(schema::level_changes::table, &tables.level_changes);
+    insert_and_add!(schema::mistakes::table, &tables.mistakes);
     insert_and_add!(schema::trade_events::table, &tables.trade_events);
     insert_and_add!(schema::trade_grades::table, &tables.trade_grades);
 
@@ -508,6 +529,7 @@ fn read_backup_at(
             logs: schema::logs::table.load(conn)?,
             levels: schema::levels::table.load(conn)?,
             level_changes: schema::level_changes::table.load(conn)?,
+            mistakes: schema::mistakes::table.load(conn)?,
             trade_events: schema::trade_events::table.load(conn)?,
             trade_grades: schema::trade_grades::table.load(conn)?,
         },
@@ -659,6 +681,10 @@ fn validate_backup_rows(backup: &BackupEnvelopeV1) -> Result<(), BackupError> {
         validate_uuid_field("level_changes", "id", &row.id)?;
         validate_uuid_field("level_changes", "account_id", &row.account_id)?;
     }
+    for row in &backup.tables.mistakes {
+        validate_uuid_field("mistakes", "id", &row.id)?;
+        validate_uuid_field("mistakes", "trade_id", &row.trade_id)?;
+    }
     for row in &backup.tables.trade_events {
         validate_uuid_field("trade_events", "id", &row.id)?;
         validate_uuid_field("trade_events", "trade_id", &row.trade_id)?;
@@ -704,6 +730,7 @@ pub fn import_backup(
                     "logs",
                     "levels",
                     "level_changes",
+                    "mistakes",
                     "trade_events",
                     "trade_grades",
                 ];
@@ -831,6 +858,7 @@ mod tests {
         let level_change_id = uuid_text(716);
         let trade_grade_id = uuid_text(717);
         let trade_event_id = uuid_text(718);
+        let mistake_id = uuid_text(719);
 
         let mut account = account_row(account_id.clone(), "uuid-validation");
         account.parent_account_id = Some(parent_account_id);
@@ -991,6 +1019,19 @@ mod tests {
                     change_reason: "manual".to_string(),
                     trigger_type: "manual_override".to_string(),
                     changed_at: dt,
+                }],
+                mistakes: vec![MistakeRow {
+                    id: mistake_id,
+                    created_at: dt,
+                    updated_at: dt,
+                    deleted_at: None,
+                    trade_id: trade_id.clone(),
+                    bias_tags: "5,14".to_string(),
+                    lollapalooza: true,
+                    error_type: "commission".to_string(),
+                    rule_violated: Some("risk_rule".to_string()),
+                    counterfactual_r: "1.25".to_string(),
+                    lesson: "Follow the rule.".to_string(),
                 }],
                 trade_events: vec![TradeEventRow {
                     id: trade_event_id,
@@ -1215,6 +1256,16 @@ mod tests {
                 },
             },
             UuidValidationCase {
+                table: "mistakes",
+                field: "id",
+                mutate: |backup| first_row(&mut backup.tables.mistakes).id = invalid_uuid(),
+            },
+            UuidValidationCase {
+                table: "mistakes",
+                field: "trade_id",
+                mutate: |backup| first_row(&mut backup.tables.mistakes).trade_id = invalid_uuid(),
+            },
+            UuidValidationCase {
                 table: "trade_events",
                 field: "id",
                 mutate: |backup| first_row(&mut backup.tables.trade_events).id = invalid_uuid(),
@@ -1277,6 +1328,7 @@ mod tests {
         let level_change_id = "00000000-0000-0000-0000-000000000013".to_string();
         let trade_grade_id = "00000000-0000-0000-0000-000000000014".to_string();
         let trade_event_id = "00000000-0000-0000-0000-000000000015".to_string();
+        let mistake_id = "00000000-0000-0000-0000-000000000016".to_string();
 
         diesel::insert_into(schema::accounts::table)
             .values(AccountRow {
@@ -1487,6 +1539,23 @@ mod tests {
                 change_reason: "reason".to_string(),
                 trigger_type: "manual_override".to_string(),
                 changed_at: dt0,
+            })
+            .execute(&mut conn1)
+            .unwrap();
+
+        diesel::insert_into(schema::mistakes::table)
+            .values(MistakeRow {
+                id: mistake_id.clone(),
+                created_at: dt0,
+                updated_at: dt0,
+                deleted_at: None,
+                trade_id: trade_id.clone(),
+                bias_tags: "5,14".to_string(),
+                lollapalooza: true,
+                error_type: "commission".to_string(),
+                rule_violated: Some("risk_rule".to_string()),
+                counterfactual_r: "1.25".to_string(),
+                lesson: "Follow the rule.".to_string(),
             })
             .execute(&mut conn1)
             .unwrap();
