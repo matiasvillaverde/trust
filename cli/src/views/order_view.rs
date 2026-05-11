@@ -18,10 +18,10 @@ pub struct OrderView {
 impl OrderView {
     fn new(order: Order) -> OrderView {
         OrderView {
-            unit_price: order.unit_price.to_string(),
+            unit_price: crate::zen::amount(order.unit_price),
             average_filled_price: order
                 .average_filled_price
-                .map(|d| d.to_string())
+                .map(crate::zen::amount)
                 .unwrap_or_default(),
             quantity: order.quantity.to_string(),
             category: order.category.to_string(),
@@ -58,6 +58,7 @@ mod tests {
 
     #[test]
     fn new_maps_optional_and_scalar_fields() {
+        crate::zen::set_enabled(false);
         let order = Order {
             unit_price: dec!(101.25),
             average_filled_price: Some(dec!(100.75)),
@@ -82,7 +83,23 @@ mod tests {
     }
 
     #[test]
+    fn new_hides_prices_in_zen_mode() {
+        crate::zen::set_enabled(true);
+        let order = Order {
+            unit_price: dec!(101.25),
+            average_filled_price: Some(dec!(100.75)),
+            ..Default::default()
+        };
+
+        let view = OrderView::new(order);
+        assert_eq!(view.unit_price, "hidden");
+        assert_eq!(view.average_filled_price, "hidden");
+        crate::zen::set_enabled(false);
+    }
+
+    #[test]
     fn display_orders_runs_for_smoke_coverage() {
+        crate::zen::set_enabled(false);
         OrderView::display_orders(vec![Order::default()]);
     }
 }

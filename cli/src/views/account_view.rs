@@ -50,12 +50,13 @@ pub struct AccountBalanceView {
 
 impl AccountBalanceView {
     fn new(balance: AccountBalance, account_name: &str) -> AccountBalanceView {
+        let basis = balance.total_balance;
         AccountBalanceView {
             account_name: crate::views::uppercase_first(account_name),
-            total_balance: balance.total_balance.to_string(),
-            total_available: balance.total_available.to_string(),
-            total_in_trade: balance.total_in_trade.to_string(),
-            taxed: balance.taxed.to_string(),
+            total_balance: crate::zen::amount_share(balance.total_balance, basis),
+            total_available: crate::zen::amount_share(balance.total_available, basis),
+            total_in_trade: crate::zen::amount_share(balance.total_in_trade, basis),
+            taxed: crate::zen::amount_share(balance.taxed, basis),
             currency: balance.currency.to_string(),
         }
     }
@@ -103,6 +104,7 @@ mod tests {
 
     #[test]
     fn account_balance_view_new_formats_and_capitalizes() {
+        crate::zen::set_enabled(false);
         let balance = AccountBalance {
             total_balance: dec!(1000),
             total_available: dec!(900),
@@ -120,7 +122,27 @@ mod tests {
     }
 
     #[test]
+    fn account_balance_view_new_uses_percentages_in_zen_mode() {
+        crate::zen::set_enabled(true);
+        let balance = AccountBalance {
+            total_balance: dec!(1000),
+            total_available: dec!(900),
+            total_in_trade: dec!(100),
+            taxed: dec!(10),
+            ..Default::default()
+        };
+
+        let view = AccountBalanceView::new(balance, "main");
+        assert_eq!(view.total_balance, "100.0%");
+        assert_eq!(view.total_available, "90.0%");
+        assert_eq!(view.total_in_trade, "10.0%");
+        assert_eq!(view.taxed, "1.0%");
+        crate::zen::set_enabled(false);
+    }
+
+    #[test]
     fn display_functions_run_for_smoke_coverage() {
+        crate::zen::set_enabled(false);
         AccountView::display_account(Account::default());
         AccountView::display_accounts(vec![Account::default()]);
         AccountBalanceView::display_balances(vec![AccountBalance::default()], "primary");

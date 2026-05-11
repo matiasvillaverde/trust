@@ -16,13 +16,13 @@ impl RiskView {
         // Display account equity
         println!(
             "Total Account Equity: {}",
-            Self::format_currency(account_equity)
+            Self::format_currency_share(account_equity, account_equity)
         );
 
         // Display capital at risk
         println!(
             "Capital at Risk: {} ({}% of account)",
-            Self::format_currency(total_capital_at_risk),
+            Self::format_currency_share(total_capital_at_risk, account_equity),
             Self::calculate_percentage(total_capital_at_risk, account_equity)
         );
 
@@ -32,7 +32,7 @@ impl RiskView {
             .unwrap_or(dec!(0));
         println!(
             "Safe Capital: {} ({}% of account)",
-            Self::format_currency(safe_capital),
+            Self::format_currency_share(safe_capital, account_equity),
             Self::calculate_percentage(safe_capital, account_equity)
         );
 
@@ -47,7 +47,7 @@ impl RiskView {
                 println!(
                     "{}: {} ({}%) - Funded {}, {}",
                     position.symbol,
-                    Self::format_currency(position.capital_amount),
+                    Self::format_currency_share(position.capital_amount, account_equity),
                     position_percentage,
                     funded_date,
                     Self::format_status(&position.status)
@@ -63,10 +63,14 @@ impl RiskView {
     }
 
     fn format_currency(amount: Decimal) -> String {
-        if amount >= dec!(0) {
-            format!("${amount:.2}")
+        crate::zen::currency(amount)
+    }
+
+    fn format_currency_share(amount: Decimal, basis: Decimal) -> String {
+        if crate::zen::is_enabled() {
+            crate::zen::percentage_of(amount, basis)
         } else {
-            format!("-${:.2}", amount.abs())
+            Self::format_currency(amount)
         }
     }
 
@@ -141,12 +145,24 @@ mod tests {
 
     #[test]
     fn format_currency_covers_positive_and_negative_values() {
+        crate::zen::set_enabled(false);
         assert_eq!(RiskView::format_currency(dec!(1500.5)), "$1500.50");
         assert_eq!(RiskView::format_currency(dec!(-1500.5)), "-$1500.50");
     }
 
     #[test]
+    fn format_currency_share_uses_percentage_in_zen_mode() {
+        crate::zen::set_enabled(true);
+        assert_eq!(
+            RiskView::format_currency_share(dec!(1500), dec!(10000)),
+            "15.0%"
+        );
+        crate::zen::set_enabled(false);
+    }
+
+    #[test]
     fn calculate_percentage_handles_zero_and_regular_totals() {
+        crate::zen::set_enabled(false);
         assert_eq!(RiskView::calculate_percentage(dec!(10), dec!(0)), "0.0");
         assert_eq!(RiskView::calculate_percentage(dec!(25), dec!(200)), "12.5");
     }
@@ -167,6 +183,7 @@ mod tests {
 
     #[test]
     fn display_renders_without_panicking_for_positions_and_empty_state() {
+        crate::zen::set_enabled(false);
         let positions = vec![OpenPosition {
             trade_id: Uuid::new_v4(),
             symbol: "AAPL".to_string(),

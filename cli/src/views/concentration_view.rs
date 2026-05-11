@@ -1,4 +1,5 @@
 use core::calculators_concentration::{ConcentrationAnalysis, ConcentrationGroup, WarningLevel};
+use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 
 pub struct ConcentrationView;
@@ -21,7 +22,7 @@ impl ConcentrationView {
         // Display sector concentration
         if !sector_analysis.groups.is_empty() {
             println!("By Sector:");
-            Self::display_groups(&sector_analysis.groups);
+            Self::display_groups(&sector_analysis.groups, sector_analysis.total_risk);
 
             if !sector_analysis.concentration_warnings.is_empty() {
                 println!();
@@ -32,7 +33,10 @@ impl ConcentrationView {
         // Display asset class concentration
         if !asset_class_analysis.groups.is_empty() {
             println!("\nBy Asset Class:");
-            Self::display_groups(&asset_class_analysis.groups);
+            Self::display_groups(
+                &asset_class_analysis.groups,
+                asset_class_analysis.total_risk,
+            );
 
             if !asset_class_analysis.concentration_warnings.is_empty() {
                 println!();
@@ -43,21 +47,23 @@ impl ConcentrationView {
         // Display total risk summary
         if sector_analysis.total_risk > dec!(0) {
             println!(
-                "\nTotal Capital at Risk: ${:.2}",
-                sector_analysis.total_risk
+                "\nTotal Capital at Risk: {}",
+                crate::zen::currency_share(sector_analysis.total_risk, sector_analysis.total_risk)
             );
         }
 
         println!();
     }
 
-    fn display_groups(groups: &[ConcentrationGroup]) {
+    fn display_groups(groups: &[ConcentrationGroup], total_risk: Decimal) {
         // Sort groups by current open risk (descending)
         let mut sorted_groups = groups.to_vec();
         sorted_groups.sort_by_key(|group| std::cmp::Reverse(group.current_open_risk));
 
         for group in sorted_groups {
-            let pnl_display = if group.realized_pnl >= dec!(0) {
+            let pnl_display = if crate::zen::is_enabled() {
+                crate::zen::signed_percentage_of(group.realized_pnl, group.total_capital_deployed)
+            } else if group.realized_pnl >= dec!(0) {
                 format!("+${:.2}", group.realized_pnl)
             } else {
                 format!("-${:.2}", group.realized_pnl.abs())
@@ -79,18 +85,26 @@ impl ConcentrationView {
             } else {
                 format!("{pnl_percentage:.1}%")
             };
+            let deployed_display = if crate::zen::is_enabled() {
+                crate::zen::amount_share(group.total_capital_deployed, group.total_capital_deployed)
+            } else {
+                format!("${:.2}", group.total_capital_deployed)
+            };
 
             println!(
-                "{}: {} trades, ${:.2} deployed, {} P&L ({})",
+                "{}: {} trades, {} deployed, {} P&L ({})",
                 group.name,
                 group.trade_count,
-                group.total_capital_deployed,
+                deployed_display,
                 pnl_display,
                 pnl_percentage_display
             );
 
             if group.current_open_risk > dec!(0) {
-                println!("  └─ Current open risk: ${:.2}", group.current_open_risk);
+                println!(
+                    "  └─ Current open risk: {}",
+                    crate::zen::currency_share(group.current_open_risk, total_risk)
+                );
             }
         }
     }
@@ -147,6 +161,7 @@ mod tests {
 
     #[test]
     fn display_groups_and_warnings_handle_positive_negative_and_zero_deployed() {
+        crate::zen::set_enabled(false);
         let groups = vec![
             group("Tech", dec!(500), dec!(100)),
             group("Energy", dec!(0), dec!(-30)),
@@ -168,12 +183,13 @@ mod tests {
             },
         ];
 
-        ConcentrationView::display_groups(&groups);
+        ConcentrationView::display_groups(&groups, dec!(510));
         ConcentrationView::display_warnings(&warnings);
     }
 
     #[test]
     fn display_handles_open_only_and_all_modes() {
+        crate::zen::set_enabled(false);
         let sector_analysis = ConcentrationAnalysis {
             groups: vec![group("Tech", dec!(250), dec!(50))],
             total_risk: dec!(250),
@@ -209,5 +225,13 @@ mod tests {
             },
             false,
         );
+    }
+
+    #[test]
+    fn display_groups_use_percentages_in_zen_mode() {
+        crate::zen::set_enabled(true);
+        let groups = vec![group("Tech", dec!(500), dec!(100))];
+        ConcentrationView::display_groups(&groups, dec!(1000));
+        crate::zen::set_enabled(false);
     }
 }
