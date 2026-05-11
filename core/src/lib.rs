@@ -55,9 +55,9 @@ use model::{
     DatabaseFactory, DistributionHistory, DistributionResult, DistributionRules, DraftTrade,
     Environment, Execution, Level, LevelAdjustmentRules, LevelChange, LevelTrigger, MarketBar,
     MarketDataChannel, MarketDataStreamEvent, MarketSnapshot, MarketSnapshotSource,
-    MarketSnapshotV2, Order, Rule, RuleLevel, RuleName, Status, Trade, TradeBalance, TradeEvent,
-    TradeEventSeverity, TradeEventSource, TradeEventType, TradingVehicle, TradingVehicleCategory,
-    Transaction, TransactionCategory,
+    MarketSnapshotV2, Mistake, Order, Rule, RuleLevel, RuleName, Status, Trade, TradeBalance,
+    TradeEvent, TradeEventSeverity, TradeEventSource, TradeEventType, TradingVehicle,
+    TradingVehicleCategory, Transaction, TransactionCategory,
 };
 use rand_core::OsRng;
 use rust_decimal::Decimal;
@@ -837,6 +837,26 @@ impl TrustFacade {
         self.factory
             .trade_event_read()
             .read_trade_events_for_trade(trade_id)
+    }
+
+    /// Persist a post-trade mistake review for a closed, graded trade.
+    pub fn create_mistake(
+        &mut self,
+        mistake: Mistake,
+    ) -> Result<Mistake, Box<dyn std::error::Error>> {
+        self.read_trade(mistake.trade_id)?;
+        self.factory.mistake_write().create_mistake(&mistake)
+    }
+
+    /// Read active post-trade mistakes for a trade.
+    pub fn mistakes_for_trade(
+        &mut self,
+        trade_id: Uuid,
+    ) -> Result<Vec<Mistake>, Box<dyn std::error::Error>> {
+        self.read_trade(trade_id)?;
+        self.factory
+            .mistake_read()
+            .read_mistakes_for_trade(trade_id)
     }
 
     /// Scan external calendar catalysts for a trade and persist returned events.

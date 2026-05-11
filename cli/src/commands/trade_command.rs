@@ -491,6 +491,21 @@ impl TradeCommandBuilder {
         self
     }
 
+    pub fn autopsy(mut self) -> Self {
+        self.subcommands.push(
+            Command::new("autopsy")
+                .about("Record a structured post-trade mistake review")
+                .arg(
+                    Arg::new("trade-id")
+                        .long("trade-id")
+                        .value_name("UUID")
+                        .help("Closed, graded trade UUID")
+                        .required(true),
+                ),
+        );
+        self
+    }
+
     pub fn events(mut self) -> Self {
         self.subcommands.push(
             Command::new("events")
@@ -583,6 +598,7 @@ mod tests {
             .hypothesis()
             .advisor()
             .events()
+            .autopsy()
             .build()
     }
 
@@ -609,6 +625,7 @@ mod tests {
             "hypothesis",
             "advisor",
             "events",
+            "autopsy",
         ] {
             assert!(cmd.get_subcommands().any(|c| c.get_name() == name));
         }
@@ -864,6 +881,7 @@ mod tests {
         );
 
         let list = cmd
+            .clone()
             .try_get_matches_from([
                 "trade",
                 "events",
@@ -878,5 +896,19 @@ mod tests {
             .subcommand_matches("events")
             .expect("events subcommand");
         assert!(events_sub.subcommand_matches("list").is_some());
+    }
+
+    #[test]
+    fn trade_autopsy_parses_required_trade_id() {
+        let cmd = TradeCommandBuilder::new().autopsy().build();
+        let autopsy = cmd
+            .try_get_matches_from([
+                "trade",
+                "autopsy",
+                "--trade-id",
+                "00000000-0000-0000-0000-000000000001",
+            ])
+            .expect("trade autopsy should parse");
+        assert!(autopsy.subcommand_matches("autopsy").is_some());
     }
 }
