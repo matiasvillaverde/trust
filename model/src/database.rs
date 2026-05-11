@@ -1,9 +1,9 @@
 use crate::{
     Account, AccountBalance, AccountType, BrokerKind, BrokerLog, Currency,
     DistributionExecutionPlan, DistributionHistory, DistributionRules, Environment, Execution,
-    Level, LevelAdjustmentRules, LevelChange, Order, OrderAction, OrderCategory, Rule, RuleLevel,
-    RuleName, Status, Trade, TradeBalance, TradeCategory, TradeEvent, TradeGrade, TradingVehicle,
-    TradingVehicleCategory, Transaction, TransactionCategory,
+    Level, LevelAdjustmentRules, LevelChange, Mistake, Order, OrderAction, OrderCategory, Rule,
+    RuleLevel, RuleName, Status, Trade, TradeBalance, TradeCategory, TradeEvent, TradeGrade,
+    TradingVehicle, TradingVehicleCategory, Transaction, TransactionCategory,
 };
 use rust_decimal::Decimal;
 use uuid::Uuid;
@@ -61,6 +61,10 @@ pub trait DatabaseFactory {
     fn execution_read(&self) -> Box<dyn ReadExecutionDB>;
     /// Returns a writer for execution data operations
     fn execution_write(&self) -> Box<dyn WriteExecutionDB>;
+    /// Returns a reader for mistake data operations
+    fn mistake_read(&self) -> Box<dyn ReadMistakeDB>;
+    /// Returns a writer for mistake data operations
+    fn mistake_write(&self) -> Box<dyn WriteMistakeDB>;
     /// Returns a reader for trade event data operations
     fn trade_event_read(&self) -> Box<dyn ReadTradeEventDB>;
     /// Returns a writer for trade event data operations
@@ -575,6 +579,26 @@ pub trait ReadBrokerLogsDB {
     /// Retrieves all logs associated with a specific trade
     fn read_all_logs_for_trade(&mut self, trade_id: Uuid)
         -> Result<Vec<BrokerLog>, Box<dyn Error>>;
+}
+
+/// Trait for reading post-trade mistakes from the database.
+pub trait ReadMistakeDB {
+    /// Read active mistakes for a trade.
+    fn read_mistakes_for_trade(&mut self, trade_id: Uuid) -> Result<Vec<Mistake>, Box<dyn Error>>;
+
+    /// Read active mistakes for an account within an inclusive creation-time period.
+    fn read_mistakes_for_account_in_period(
+        &mut self,
+        account_id: Uuid,
+        start_at: chrono::NaiveDateTime,
+        end_at: chrono::NaiveDateTime,
+    ) -> Result<Vec<Mistake>, Box<dyn Error>>;
+}
+
+/// Trait for writing post-trade mistakes to the database.
+pub trait WriteMistakeDB {
+    /// Persist a new mistake for a trade.
+    fn create_mistake(&mut self, mistake: &Mistake) -> Result<Mistake, Box<dyn Error>>;
 }
 
 /// Trait for reading trade event catalysts from the database.

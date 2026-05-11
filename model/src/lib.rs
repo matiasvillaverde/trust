@@ -50,6 +50,8 @@ pub mod fee_activity;
 pub mod level;
 /// Market data types
 pub mod market_data;
+/// Post-trade mistake and bias analysis types
+pub mod mistake;
 /// Order types and order management
 pub mod order;
 /// Risk management rules and enforcement
@@ -75,10 +77,11 @@ pub use currency::Currency;
 pub use database::{
     AccountBalanceRead, AccountBalanceWrite, AccountRead, AccountWrite, AdvisoryRead,
     AdvisoryThresholds, AdvisoryWrite, DatabaseFactory, DistributionRead, DistributionWrite,
-    DraftTrade, OrderRead, OrderWrite, ReadBrokerLogsDB, ReadExecutionDB, ReadLevelDB, ReadRuleDB,
-    ReadTradeDB, ReadTradeEventDB, ReadTradeGradeDB, ReadTradingVehicleDB, ReadTransactionDB,
-    WriteBrokerLogsDB, WriteExecutionDB, WriteLevelDB, WriteRuleDB, WriteTradeDB,
-    WriteTradeEventDB, WriteTradeGradeDB, WriteTradingVehicleDB, WriteTransactionDB,
+    DraftTrade, OrderRead, OrderWrite, ReadBrokerLogsDB, ReadExecutionDB, ReadLevelDB,
+    ReadMistakeDB, ReadRuleDB, ReadTradeDB, ReadTradeEventDB, ReadTradeGradeDB,
+    ReadTradingVehicleDB, ReadTransactionDB, WriteBrokerLogsDB, WriteExecutionDB, WriteLevelDB,
+    WriteMistakeDB, WriteRuleDB, WriteTradeDB, WriteTradeEventDB, WriteTradeGradeDB,
+    WriteTradingVehicleDB, WriteTransactionDB,
 };
 pub use distribution::{
     DistributionError, DistributionExecutionLeg, DistributionExecutionPlan, DistributionHistory,
@@ -95,6 +98,11 @@ pub use level::{
 pub use market_data::{
     BarTimeframe, MarketBar, MarketDataChannel, MarketDataStreamEvent, MarketQuote, MarketSnapshot,
     MarketSnapshotSource, MarketSnapshotV2, MarketTradeTick,
+};
+pub use mistake::{
+    format_munger_tendencies, parse_munger_tendencies, Mistake, MistakeErrorType,
+    MistakeErrorTypeParseError, MungerTendency, MungerTendencyListParseError,
+    MungerTendencyParseError,
 };
 pub use order::{Order, OrderAction, OrderCategory, OrderStatus, TimeInForce};
 pub use rule::{Rule, RuleLevel, RuleName};

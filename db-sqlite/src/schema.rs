@@ -162,6 +162,22 @@ diesel::table! {
 }
 
 diesel::table! {
+    mistakes (id) {
+        id -> Text,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        deleted_at -> Nullable<Timestamp>,
+        trade_id -> Text,
+        bias_tags -> Text,
+        lollapalooza -> Bool,
+        error_type -> Text,
+        rule_violated -> Nullable<Text>,
+        counterfactual_r -> Text,
+        lesson -> Text,
+    }
+}
+
+diesel::table! {
     orders (id) {
         id -> Text,
         broker_order_id -> Nullable<Text>,
@@ -332,6 +348,7 @@ diesel::joinable!(level_adjustment_rules -> accounts (account_id));
 diesel::joinable!(level_changes -> accounts (account_id));
 diesel::joinable!(levels -> accounts (account_id));
 diesel::joinable!(logs -> trades (trade_id));
+diesel::joinable!(mistakes -> trades (trade_id));
 diesel::joinable!(orders -> trading_vehicles (trading_vehicle_id));
 diesel::joinable!(rules -> accounts (account_id));
 diesel::joinable!(trade_events -> trades (trade_id));
@@ -353,6 +370,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     level_changes,
     levels,
     logs,
+    mistakes,
     orders,
     rules,
     trade_events,
