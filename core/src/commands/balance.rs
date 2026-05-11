@@ -783,6 +783,7 @@ mod tests {
             category: TradeCategory::Long,
             status,
             currency: Currency::USD,
+            settlement_date: None,
             safety_stop: model::Order::default(),
             entry: model::Order::default(),
             target: model::Order::default(),
@@ -837,7 +838,7 @@ mod tests {
     ) -> Order {
         database
             .order_write()
-            .create(vehicle, 10, price, &Currency::USD, &action, &category)
+            .create(vehicle, dec!(10), price, &Currency::USD, &action, &category)
             .expect("order should be created")
     }
 
@@ -872,7 +873,7 @@ mod tests {
         let draft = DraftTrade {
             account: account.clone(),
             trading_vehicle: vehicle,
-            quantity: 10,
+            quantity: 10.into(),
             currency: Currency::USD,
             category: TradeCategory::Long,
             thesis: Some("balance recalculation test".to_string()),

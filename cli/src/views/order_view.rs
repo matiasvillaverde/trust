@@ -1,4 +1,4 @@
-use model::Order;
+use model::{Order, TradingVehicleCategory};
 use tabled::settings::style::Style;
 use tabled::Table;
 use tabled::Tabled;
@@ -17,13 +17,25 @@ pub struct OrderView {
 
 impl OrderView {
     fn new(order: Order) -> OrderView {
+        let precision =
+            crate::display_precision::DisplayPrecision::for_category(TradingVehicleCategory::Stock);
         OrderView {
-            unit_price: crate::zen::amount(order.unit_price),
+            unit_price: if crate::zen::is_enabled() {
+                crate::zen::amount(order.unit_price)
+            } else {
+                precision.format_price(order.unit_price)
+            },
             average_filled_price: order
                 .average_filled_price
-                .map(crate::zen::amount)
+                .map(|price| {
+                    if crate::zen::is_enabled() {
+                        crate::zen::amount(price)
+                    } else {
+                        precision.format_price(price)
+                    }
+                })
                 .unwrap_or_default(),
-            quantity: order.quantity.to_string(),
+            quantity: precision.format_quantity(order.quantity),
             category: order.category.to_string(),
             action: order.action.to_string(),
             time_in_force: order.time_in_force.to_string(),
@@ -62,7 +74,7 @@ mod tests {
         let order = Order {
             unit_price: dec!(101.25),
             average_filled_price: Some(dec!(100.75)),
-            quantity: 10,
+            quantity: 10.into(),
             category: OrderCategory::Limit,
             action: OrderAction::Buy,
             time_in_force: TimeInForce::UntilCanceled,

@@ -54,7 +54,7 @@ fn test_cancel_of_funded_trade() {
     let trade = DraftTrade {
         account: account.clone(),
         trading_vehicle: tv,
-        quantity: 500,
+        quantity: 500.into(),
         currency: Currency::USD,
         category: TradeCategory::Long,
         thesis: None,

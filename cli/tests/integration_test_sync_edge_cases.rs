@@ -86,7 +86,7 @@ fn create_submitted_trade(
     let draft = DraftTrade {
         account: account.clone(),
         trading_vehicle: tv,
-        quantity: quantity as i64,
+        quantity: Decimal::from(quantity),
         currency: Currency::USD,
         category: TradeCategory::Long,
         thesis: None,
@@ -841,7 +841,7 @@ fn test_short_trade_entry_equals_stop_rejected() {
     let draft = DraftTrade {
         account: account.clone(),
         trading_vehicle: tv,
-        quantity: 100,
+        quantity: 100.into(),
         currency: Currency::USD,
         category: TradeCategory::Short,
         thesis: None,
@@ -904,7 +904,7 @@ fn test_short_trade_level_adjustment_skipped() {
     let draft = DraftTrade {
         account: account.clone(),
         trading_vehicle: tv,
-        quantity: 1000,
+        quantity: 1000.into(),
         currency: Currency::USD,
         category: TradeCategory::Short,
         thesis: None,
@@ -984,7 +984,7 @@ fn test_modify_stop_not_filled_rejected() {
     let draft = DraftTrade {
         account: account.clone(),
         trading_vehicle: tv,
-        quantity: 500,
+        quantity: 500.into(),
         currency: Currency::USD,
         category: TradeCategory::Long,
         thesis: None,
@@ -1100,7 +1100,7 @@ fn test_trade_exceeding_risk_per_trade_rejected() {
     let draft = DraftTrade {
         account: account.clone(),
         trading_vehicle: tv,
-        quantity: 500, // Risk = (40-38)*500 = 1000, way above 200 limit
+        quantity: 500.into(), // Risk = (40-38)*500 = 1000, way above 200 limit
         currency: Currency::USD,
         category: TradeCategory::Long,
         thesis: None,
@@ -1135,7 +1135,7 @@ fn test_trade_at_exact_risk_limit_accepted() {
     let draft = DraftTrade {
         account: account.clone(),
         trading_vehicle: tv,
-        quantity: 500,
+        quantity: 500.into(),
         currency: Currency::USD,
         category: TradeCategory::Long,
         thesis: None,
@@ -1168,7 +1168,7 @@ fn test_trade_with_zero_quantity_rejected() {
     let draft = DraftTrade {
         account: account.clone(),
         trading_vehicle: tv,
-        quantity: 0,
+        quantity: 0.into(),
         currency: Currency::USD,
         category: TradeCategory::Long,
         thesis: None,

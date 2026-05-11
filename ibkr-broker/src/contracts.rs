@@ -100,11 +100,8 @@ pub(crate) fn sec_type_for_category(
     match category {
         TradingVehicleCategory::Stock | TradingVehicleCategory::Etf => Ok("STK"),
         TradingVehicleCategory::Bond => Ok("BOND"),
-        TradingVehicleCategory::Crypto | TradingVehicleCategory::Fiat => Err(format!(
-            "IBKR broker currently supports stock, ETF, and bond orders only, got '{}'",
-            category
-        )
-        .into()),
+        TradingVehicleCategory::Crypto => Ok("CRYPTO"),
+        TradingVehicleCategory::Fiat => Ok("CASH"),
         _ => Err("IBKR broker does not support this trading vehicle category".into()),
     }
 }
@@ -165,7 +162,14 @@ mod tests {
             sec_type_for_category(TradingVehicleCategory::Bond).expect("bond"),
             "BOND"
         );
-        assert!(sec_type_for_category(TradingVehicleCategory::Crypto).is_err());
+        assert_eq!(
+            sec_type_for_category(TradingVehicleCategory::Crypto).expect("crypto"),
+            "CRYPTO"
+        );
+        assert_eq!(
+            sec_type_for_category(TradingVehicleCategory::Fiat).expect("fiat"),
+            "CASH"
+        );
     }
 
     #[test]

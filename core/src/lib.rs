@@ -730,7 +730,7 @@ impl TrustFacade {
         entry_price: Decimal,
         stop_price: Decimal,
         currency: &Currency,
-    ) -> Result<i64, Box<dyn std::error::Error>> {
+    ) -> Result<Decimal, Box<dyn std::error::Error>> {
         let adjusted = QuantityCalculator::maximum_quantity_with_level(
             account_id,
             entry_price,
@@ -765,7 +765,7 @@ impl TrustFacade {
         entry_price: Decimal,
         stop_price: Decimal,
         target_price: Decimal,
-        quantity: i64,
+        quantity: Decimal,
         currency: &Currency,
     ) -> Result<TradeHypothesis, Box<dyn std::error::Error>> {
         TradeHypothesisCalculator::calculate(
@@ -1532,7 +1532,7 @@ impl TrustFacade {
             Some(value) if value > Decimal::ZERO => value,
             _ => Decimal::ZERO,
         };
-        let qty = Decimal::from(trade.entry.quantity);
+        let qty = trade.entry.quantity;
         let risk_amount = risk_per_share.checked_mul(qty).unwrap_or(Decimal::ZERO);
         let r_multiple = if risk_amount > Decimal::ZERO {
             trade
@@ -2408,7 +2408,7 @@ mod tests {
                 DraftTrade {
                     account: account.clone(),
                     trading_vehicle: vehicle,
-                    quantity: 10,
+                    quantity: 10.into(),
                     currency: Currency::USD,
                     category: model::TradeCategory::Long,
                     thesis: Some("Breakout after consolidation".to_string()),
@@ -2842,7 +2842,7 @@ mod tests {
                 DraftTrade {
                     account: account.clone(),
                     trading_vehicle: vehicle,
-                    quantity: 10,
+                    quantity: 10.into(),
                     currency: Currency::USD,
                     category: model::TradeCategory::Long,
                     thesis: None,

@@ -153,7 +153,7 @@ fn trade_notional(trade: &Trade) -> Decimal {
     trade
         .entry
         .unit_price
-        .checked_mul(Decimal::from(trade.entry.quantity))
+        .checked_mul(trade.entry.quantity)
         .unwrap_or(Decimal::ZERO)
 }
 
@@ -478,7 +478,7 @@ mod tests {
         trade.sector = sector.map(str::to_string);
         trade.asset_class = asset_class.map(str::to_string);
         trade.entry.unit_price = notional;
-        trade.entry.quantity = 1;
+        trade.entry.quantity = 1.into();
         trade
     }
 
@@ -517,7 +517,7 @@ mod tests {
         open.sector = Some("technology".to_string());
         open.asset_class = Some("stocks".to_string());
         open.entry.unit_price = dec!(100);
-        open.entry.quantity = 100;
+        open.entry.quantity = 100.into();
 
         let proposal = TradeProposal {
             account_id: Uuid::new_v4(),

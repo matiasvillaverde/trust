@@ -314,7 +314,7 @@ mod tests {
         trade.status = status;
         trade.category = TradeCategory::Long;
         trade.entry.unit_price = dec!(100);
-        trade.entry.quantity = 10;
+        trade.entry.quantity = 10.into();
         trade.safety_stop.unit_price = dec!(90);
         trade
     }

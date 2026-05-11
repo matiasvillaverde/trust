@@ -100,16 +100,22 @@ fn new_request(trade: &Trade) -> Result<CreateReq, Box<dyn Error>> {
         limit_price: Some(entry),
         take_profit: Some(TakeProfit::Limit(target)),
         stop_loss: Some(stop_loss(&trade.safety_stop, stop)),
-        time_in_force: time_in_force(&trade.entry),
+        time_in_force: time_in_force(trade),
         extended_hours: trade.entry.extended_hours,
         client_order_id: Some(trade.entry.id.to_string()),
         ..Default::default()
     }
     .init(
-        trade.trading_vehicle.symbol.to_uppercase(),
+        crate::alpaca_order_symbol(trade),
         side(trade),
-        Amount::quantity(trade.entry.quantity),
+        quantity_amount(trade.entry.quantity)?,
     ))
+}
+
+fn quantity_amount(quantity: rust_decimal::Decimal) -> Result<Amount, Box<dyn Error>> {
+    let quantity = Num::from_str(&quantity.to_string())
+        .map_err(|e| format!("Failed to parse quantity: {e:?}"))?;
+    Ok(Amount::quantity(quantity))
 }
 
 fn stop_loss(safety_stop: &Order, stop: Num) -> StopLoss {
@@ -120,8 +126,17 @@ fn stop_loss(safety_stop: &Order, stop: Num) -> StopLoss {
     }
 }
 
-fn time_in_force(entry: &Order) -> TimeInForce {
-    match entry.time_in_force {
+fn time_in_force(trade: &Trade) -> TimeInForce {
+    if trade.trading_vehicle.category == model::TradingVehicleCategory::Crypto
+        && matches!(
+            trade.entry.time_in_force,
+            model::TimeInForce::UntilMarketClose | model::TimeInForce::UntilMarketOpen
+        )
+    {
+        return TimeInForce::UntilCanceled;
+    }
+
+    match trade.entry.time_in_force {
         model::TimeInForce::Day => TimeInForce::Day,
         model::TimeInForce::UntilCanceled => TimeInForce::UntilCanceled,
         model::TimeInForce::UntilMarketClose => TimeInForce::UntilMarketClose,
@@ -139,7 +154,7 @@ pub fn side(trade: &Trade) -> Side {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use apca::api::v2::order::{Amount, Class, Side, Type};
+    use apca::api::v2::order::{Class, Side, Type};
     use rust_decimal_macros::dec;
     use uuid::Uuid;
 
@@ -272,11 +287,14 @@ mod tests {
         );
         assert_eq!(
             order_req.symbol.to_string(),
-            trade.trading_vehicle.symbol.to_uppercase()
+            crate::alpaca_order_symbol(&trade)
         );
         assert_eq!(order_req.side, side(&trade));
-        assert_eq!(order_req.amount, Amount::quantity(trade.entry.quantity));
-        assert_eq!(order_req.time_in_force, time_in_force(&trade.entry));
+        assert_eq!(
+            order_req.amount,
+            quantity_amount(trade.entry.quantity).expect("quantity should parse")
+        );
+        assert_eq!(order_req.time_in_force, time_in_force(&trade));
         assert_eq!(order_req.extended_hours, trade.entry.extended_hours);
     }
 
@@ -432,20 +450,35 @@ mod tests {
 
     #[test]
     fn time_in_force_maps_all_supported_variants() {
-        let mut entry = Order {
-            time_in_force: model::TimeInForce::Day,
+        let mut trade = Trade {
+            entry: Order {
+                time_in_force: model::TimeInForce::Day,
+                ..Default::default()
+            },
             ..Default::default()
         };
-        assert_eq!(time_in_force(&entry), TimeInForce::Day);
+        assert_eq!(time_in_force(&trade), TimeInForce::Day);
 
-        entry.time_in_force = model::TimeInForce::UntilCanceled;
-        assert_eq!(time_in_force(&entry), TimeInForce::UntilCanceled);
+        trade.entry.time_in_force = model::TimeInForce::UntilCanceled;
+        assert_eq!(time_in_force(&trade), TimeInForce::UntilCanceled);
 
-        entry.time_in_force = model::TimeInForce::UntilMarketClose;
-        assert_eq!(time_in_force(&entry), TimeInForce::UntilMarketClose);
+        trade.entry.time_in_force = model::TimeInForce::UntilMarketClose;
+        assert_eq!(time_in_force(&trade), TimeInForce::UntilMarketClose);
 
-        entry.time_in_force = model::TimeInForce::UntilMarketOpen;
-        assert_eq!(time_in_force(&entry), TimeInForce::UntilMarketOpen);
+        trade.entry.time_in_force = model::TimeInForce::UntilMarketOpen;
+        assert_eq!(time_in_force(&trade), TimeInForce::UntilMarketOpen);
+    }
+
+    #[test]
+    fn crypto_orders_use_twenty_four_seven_time_in_force() {
+        let mut trade = Trade::default();
+        trade.trading_vehicle.category = model::TradingVehicleCategory::Crypto;
+        trade.entry.time_in_force = model::TimeInForce::UntilMarketOpen;
+
+        assert_eq!(time_in_force(&trade), TimeInForce::UntilCanceled);
+
+        trade.entry.time_in_force = model::TimeInForce::UntilMarketClose;
+        assert_eq!(time_in_force(&trade), TimeInForce::UntilCanceled);
     }
 
     #[test]

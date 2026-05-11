@@ -73,7 +73,7 @@ fn test_concentration_report_with_trades() {
     let draft_trade = DraftTrade {
         account: account.clone(),
         trading_vehicle: vehicle.clone(),
-        quantity: 10,
+        quantity: 10.into(),
         category: TradeCategory::Long,
         currency: Currency::USD,
         sector: Some("Technology".to_string()),
@@ -100,7 +100,7 @@ fn test_concentration_report_with_trades() {
     let draft_trade2 = DraftTrade {
         account: account.clone(),
         trading_vehicle: vehicle.clone(),
-        quantity: 10,
+        quantity: 10.into(),
         category: TradeCategory::Long,
         currency: Currency::USD,
         sector: Some("Healthcare".to_string()),

@@ -326,9 +326,9 @@ fn trade_for(acc: &Account) -> Trade {
     t.entry.unit_price = dec!(100);
     t.target.unit_price = dec!(110);
     t.safety_stop.unit_price = dec!(95);
-    t.entry.quantity = 10;
-    t.target.quantity = 10;
-    t.safety_stop.quantity = 10;
+    t.entry.quantity = 10.into();
+    t.target.quantity = 10.into();
+    t.safety_stop.quantity = 10.into();
     t.entry.time_in_force = TimeInForce::UntilCanceled;
     t.target.time_in_force = TimeInForce::UntilCanceled;
     t.safety_stop.time_in_force = TimeInForce::UntilCanceled;
@@ -503,9 +503,9 @@ fn should_reject_zero_quantity_orders() {
 
     let a = account();
     let mut t = trade_for(&a);
-    t.entry.quantity = 0;
-    t.target.quantity = 0;
-    t.safety_stop.quantity = 0;
+    t.entry.quantity = 0.into();
+    t.target.quantity = 0.into();
+    t.safety_stop.quantity = 0.into();
 
     with_mock_gateway(&server, || {
         let broker = IbkrBroker;

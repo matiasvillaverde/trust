@@ -71,7 +71,7 @@ fn create_trade(
     let trade = DraftTrade {
         account: account.clone(),
         trading_vehicle: tv,
-        quantity: 500,
+        quantity: 500.into(),
         currency: Currency::USD,
         category: TradeCategory::Long,
         thesis: None,
@@ -156,24 +156,24 @@ fn assert_entry_accepted(trade: &Trade, trust: &mut TrustFacade) {
     assert_eq!(trade.status, Status::Submitted);
 
     // Assert Entry
-    assert_eq!(trade.entry.quantity, 500);
+    assert_eq!(trade.entry.quantity, dec!(500));
     assert_eq!(trade.entry.unit_price, dec!(40));
     assert_eq!(trade.entry.average_filled_price, None);
-    assert_eq!(trade.entry.filled_quantity, 0);
+    assert_eq!(trade.entry.filled_quantity, dec!(0));
     assert_eq!(trade.entry.status, OrderStatus::Accepted);
 
     // Assert Target
-    assert_eq!(trade.target.quantity, 500);
+    assert_eq!(trade.target.quantity, dec!(500));
     assert_eq!(trade.target.unit_price, dec!(50));
     assert_eq!(trade.target.average_filled_price, None);
-    assert_eq!(trade.target.filled_quantity, 0);
+    assert_eq!(trade.target.filled_quantity, dec!(0));
     assert_eq!(trade.target.status, OrderStatus::Held);
 
     // Assert Stop
-    assert_eq!(trade.safety_stop.quantity, 500);
+    assert_eq!(trade.safety_stop.quantity, dec!(500));
     assert_eq!(trade.safety_stop.unit_price, dec!(38));
     assert_eq!(trade.target.average_filled_price, None);
-    assert_eq!(trade.safety_stop.filled_quantity, 0);
+    assert_eq!(trade.safety_stop.filled_quantity, dec!(0));
     assert_eq!(trade.safety_stop.status, OrderStatus::Held);
 
     // Assert Account Overview
@@ -233,24 +233,24 @@ fn assert_entry_filled(trade: &Trade, trust: &mut TrustFacade) {
     assert_eq!(trade.status, Status::Filled);
 
     // Assert Entry
-    assert_eq!(trade.entry.quantity, 500);
+    assert_eq!(trade.entry.quantity, dec!(500));
     assert_eq!(trade.entry.unit_price, dec!(40));
     assert_eq!(trade.entry.average_filled_price, Some(dec!(39.9)));
-    assert_eq!(trade.entry.filled_quantity, 500);
+    assert_eq!(trade.entry.filled_quantity, dec!(500));
     assert_eq!(trade.entry.status, OrderStatus::Filled);
 
     // Assert Target
-    assert_eq!(trade.target.quantity, 500);
+    assert_eq!(trade.target.quantity, dec!(500));
     assert_eq!(trade.target.unit_price, dec!(50));
     assert_eq!(trade.target.average_filled_price, None);
-    assert_eq!(trade.target.filled_quantity, 0);
+    assert_eq!(trade.target.filled_quantity, dec!(0));
     assert_eq!(trade.target.status, OrderStatus::Accepted);
 
     // Assert Stop
-    assert_eq!(trade.safety_stop.quantity, 500);
+    assert_eq!(trade.safety_stop.quantity, dec!(500));
     assert_eq!(trade.safety_stop.unit_price, dec!(38));
     assert_eq!(trade.target.average_filled_price, None);
-    assert_eq!(trade.safety_stop.filled_quantity, 0);
+    assert_eq!(trade.safety_stop.filled_quantity, dec!(0));
     assert_eq!(trade.safety_stop.status, OrderStatus::Held);
 
     // The average filled price is less than the unit price, so the remaining money that was
@@ -374,24 +374,24 @@ fn assert_target_filled(trade: &Trade, trust: &mut TrustFacade) {
     assert_eq!(trade.status, Status::ClosedTarget);
 
     // Assert Entry
-    assert_eq!(trade.entry.quantity, 500);
+    assert_eq!(trade.entry.quantity, dec!(500));
     assert_eq!(trade.entry.unit_price, dec!(40));
     assert_eq!(trade.entry.average_filled_price, Some(dec!(39.9)));
-    assert_eq!(trade.entry.filled_quantity, 500);
+    assert_eq!(trade.entry.filled_quantity, dec!(500));
     assert_eq!(trade.entry.status, OrderStatus::Filled);
 
     // Assert Target
-    assert_eq!(trade.target.quantity, 500);
+    assert_eq!(trade.target.quantity, dec!(500));
     assert_eq!(trade.target.unit_price, dec!(50));
     assert_eq!(trade.target.average_filled_price, Some(dec!(52.9)));
-    assert_eq!(trade.target.filled_quantity, 500);
+    assert_eq!(trade.target.filled_quantity, dec!(500));
     assert_eq!(trade.target.status, OrderStatus::Filled);
 
     // Assert Stop
-    assert_eq!(trade.safety_stop.quantity, 500);
+    assert_eq!(trade.safety_stop.quantity, dec!(500));
     assert_eq!(trade.safety_stop.unit_price, dec!(38));
     assert_eq!(trade.safety_stop.average_filled_price, None);
-    assert_eq!(trade.safety_stop.filled_quantity, 0);
+    assert_eq!(trade.safety_stop.filled_quantity, dec!(0));
     assert_eq!(trade.safety_stop.status, OrderStatus::Canceled);
 
     // Assert Account Overview
@@ -446,24 +446,24 @@ fn assert_stop_filled(trade: &Trade, trust: &mut TrustFacade) {
     assert_eq!(trade.status, Status::ClosedStopLoss);
 
     // Assert Entry
-    assert_eq!(trade.entry.quantity, 500);
+    assert_eq!(trade.entry.quantity, dec!(500));
     assert_eq!(trade.entry.unit_price, dec!(40));
     assert_eq!(trade.entry.average_filled_price, Some(dec!(39.9)));
-    assert_eq!(trade.entry.filled_quantity, 500);
+    assert_eq!(trade.entry.filled_quantity, dec!(500));
     assert_eq!(trade.entry.status, OrderStatus::Filled);
 
     // Assert Target
-    assert_eq!(trade.target.quantity, 500);
+    assert_eq!(trade.target.quantity, dec!(500));
     assert_eq!(trade.target.unit_price, dec!(50));
     assert_eq!(trade.target.average_filled_price, None);
-    assert_eq!(trade.target.filled_quantity, 0);
+    assert_eq!(trade.target.filled_quantity, dec!(0));
     assert_eq!(trade.target.status, OrderStatus::Canceled);
 
     // Assert Stop
-    assert_eq!(trade.safety_stop.quantity, 500);
+    assert_eq!(trade.safety_stop.quantity, dec!(500));
     assert_eq!(trade.safety_stop.unit_price, dec!(38));
     assert_eq!(trade.safety_stop.average_filled_price, Some(dec!(39)));
-    assert_eq!(trade.safety_stop.filled_quantity, 500);
+    assert_eq!(trade.safety_stop.filled_quantity, dec!(500));
     assert_eq!(trade.safety_stop.status, OrderStatus::Filled);
 
     // Assert Account Overview
@@ -494,10 +494,10 @@ fn test_trade_stop_filled_slippage() {
     assert_eq!(trade.status, Status::ClosedStopLoss);
 
     // Assert Stop
-    assert_eq!(trade.safety_stop.quantity, 500);
+    assert_eq!(trade.safety_stop.quantity, dec!(500));
     assert_eq!(trade.safety_stop.unit_price, dec!(38));
     assert_eq!(trade.safety_stop.average_filled_price, Some(dec!(30.2)));
-    assert_eq!(trade.safety_stop.filled_quantity, 500);
+    assert_eq!(trade.safety_stop.filled_quantity, dec!(500));
     assert_eq!(trade.safety_stop.status, OrderStatus::Filled);
 
     // Assert Account Overview
@@ -544,18 +544,18 @@ fn test_trade_close() {
     assert_eq!(trade.status, Status::Canceled); // The trade is still filled, but the target was changed to a market order
 
     // Assert Entry
-    assert_eq!(trade.entry.quantity, 500);
+    assert_eq!(trade.entry.quantity, dec!(500));
     assert_eq!(trade.entry.unit_price, dec!(40));
     assert_eq!(trade.entry.average_filled_price, Some(dec!(39.9)));
-    assert_eq!(trade.entry.filled_quantity, 500);
+    assert_eq!(trade.entry.filled_quantity, dec!(500));
     assert_eq!(trade.entry.status, OrderStatus::Filled);
 
     // Assert Target
-    assert_eq!(trade.target.quantity, 500);
+    assert_eq!(trade.target.quantity, dec!(500));
     assert_eq!(trade.target.unit_price, dec!(50));
     assert_eq!(trade.target.average_filled_price, None);
     assert_eq!(trade.target.category, OrderCategory::Market);
-    assert_eq!(trade.target.filled_quantity, 0);
+    assert_eq!(trade.target.filled_quantity, dec!(0));
     assert_eq!(trade.target.status, OrderStatus::PendingNew);
 }
 
@@ -739,7 +739,7 @@ impl BrokerResponse {
         let entry = Order {
             id: trade.entry.id,
             broker_order_id: Some("b6b12dc0-8e21-4d2e-8315-907d3116a6b8".to_string()),
-            filled_quantity: 0,
+            filled_quantity: 0.into(),
             average_filled_price: None,
             status: OrderStatus::Accepted,
             filled_at: None,
@@ -751,7 +751,7 @@ impl BrokerResponse {
         let target = Order {
             id: trade.target.id,
             broker_order_id: Some("b6b12dc0-8e21-4d2e-8315-907d3116a6b8".to_string()),
-            filled_quantity: 0,
+            filled_quantity: 0.into(),
             average_filled_price: None,
             status: OrderStatus::Held,
             filled_at: None,
@@ -763,7 +763,7 @@ impl BrokerResponse {
         let stop = Order {
             id: trade.safety_stop.id,
             broker_order_id: Some("b6b12dc0-8e21-4d2e-8315-907d3116a6b8".to_string()),
-            filled_quantity: 0,
+            filled_quantity: 0.into(),
             average_filled_price: None,
             status: OrderStatus::Held,
             filled_at: None,
@@ -779,7 +779,7 @@ impl BrokerResponse {
         let entry = Order {
             id: trade.entry.id,
             broker_order_id: Some("b6b12dc0-8e21-4d2e-8315-907d3116a6b8".to_string()),
-            filled_quantity: 500,
+            filled_quantity: 500.into(),
             average_filled_price: Some(dec!(39.9)),
             status: OrderStatus::Filled,
             filled_at: Some(Utc::now().naive_utc()),
@@ -791,7 +791,7 @@ impl BrokerResponse {
         let target = Order {
             id: trade.target.id,
             broker_order_id: Some("b6b12dc0-8e21-4d2e-8315-907d3116a6b8".to_string()),
-            filled_quantity: 0,
+            filled_quantity: 0.into(),
             average_filled_price: None,
             status: OrderStatus::Accepted,
             filled_at: None,
@@ -803,7 +803,7 @@ impl BrokerResponse {
         let stop = Order {
             id: trade.safety_stop.id,
             broker_order_id: Some("b6b12dc0-8e21-4d2e-8315-907d3116a6b8".to_string()),
-            filled_quantity: 0,
+            filled_quantity: 0.into(),
             average_filled_price: None,
             status: OrderStatus::Held,
             filled_at: None,
@@ -819,7 +819,7 @@ impl BrokerResponse {
         let entry = Order {
             id: trade.entry.id,
             broker_order_id: Some("b6b12dc0-8e21-4d2e-8315-907d3116a6b8".to_string()),
-            filled_quantity: 500,
+            filled_quantity: 500.into(),
             average_filled_price: Some(dec!(39.9)),
             status: OrderStatus::Filled,
             filled_at: Some(Utc::now().naive_utc()),
@@ -831,7 +831,7 @@ impl BrokerResponse {
         let target = Order {
             id: trade.target.id,
             broker_order_id: Some("b6b12dc0-8e21-4d2e-8315-907d3116a6b8".to_string()),
-            filled_quantity: 500,
+            filled_quantity: 500.into(),
             average_filled_price: Some(dec!(52.9)),
             status: OrderStatus::Filled,
             filled_at: Some(Utc::now().naive_utc()),
@@ -843,7 +843,7 @@ impl BrokerResponse {
         let stop = Order {
             id: trade.safety_stop.id,
             broker_order_id: Some("b6b12dc0-8e21-4d2e-8315-907d3116a6b8".to_string()),
-            filled_quantity: 0,
+            filled_quantity: 0.into(),
             average_filled_price: None,
             status: OrderStatus::Canceled,
             filled_at: None,
@@ -859,7 +859,7 @@ impl BrokerResponse {
         let entry = Order {
             id: trade.entry.id,
             broker_order_id: Some("b6b12dc0-8e21-4d2e-8315-907d3116a6b8".to_string()),
-            filled_quantity: 500,
+            filled_quantity: 500.into(),
             average_filled_price: Some(dec!(39.9)),
             status: OrderStatus::Filled,
             filled_at: Some(Utc::now().naive_utc()),
@@ -871,7 +871,7 @@ impl BrokerResponse {
         let target = Order {
             id: trade.target.id,
             broker_order_id: Some("b6b12dc0-8e21-4d2e-8315-907d3116a6b8".to_string()),
-            filled_quantity: 0,
+            filled_quantity: 0.into(),
             average_filled_price: None,
             status: OrderStatus::Canceled,
             filled_at: None,
@@ -883,7 +883,7 @@ impl BrokerResponse {
         let stop = Order {
             id: trade.safety_stop.id,
             broker_order_id: Some("b6b12dc0-8e21-4d2e-8315-907d3116a6b8".to_string()),
-            filled_quantity: 500,
+            filled_quantity: 500.into(),
             average_filled_price: Some(dec!(39)),
             status: OrderStatus::Filled,
             filled_at: Some(Utc::now().naive_utc()),
@@ -899,7 +899,7 @@ impl BrokerResponse {
         let entry = Order {
             id: trade.entry.id,
             broker_order_id: Some("b6b12dc0-8e21-4d2e-8315-907d3116a6b8".to_string()),
-            filled_quantity: 500,
+            filled_quantity: 500.into(),
             average_filled_price: Some(dec!(39.9)),
             status: OrderStatus::Filled,
             filled_at: Some(Utc::now().naive_utc()),
@@ -911,7 +911,7 @@ impl BrokerResponse {
         let stop = Order {
             id: trade.safety_stop.id,
             broker_order_id: Some("b6b12dc0-8e21-4d2e-8315-907d3116a6b8".to_string()),
-            filled_quantity: 500,
+            filled_quantity: 500.into(),
             average_filled_price: Some(dec!(30.2)),
             status: OrderStatus::Filled,
             filled_at: Some(Utc::now().naive_utc()),
@@ -1076,7 +1076,7 @@ fn test_short_trade_funding_with_better_entry_execution() {
     let draft_trade = DraftTrade {
         account: account.clone(),
         trading_vehicle: tv,
-        quantity: 2,
+        quantity: 2.into(),
         currency: Currency::USD,
         category: TradeCategory::Short,
         thesis: None,

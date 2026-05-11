@@ -216,7 +216,7 @@ mod tests {
         trade.entry.unit_price = dec!(100);
         trade.safety_stop.unit_price = dec!(95);
         trade.target.unit_price = dec!(110);
-        trade.safety_stop.quantity = 10;
+        trade.safety_stop.quantity = 10.into();
         trade.balance.funding = dec!(1000);
         trade.balance.capital_in_market =
             if matches!(status, Status::Filled | Status::PartiallyFilled) {

@@ -44,6 +44,7 @@ mod command_routing;
 mod commands;
 mod dialogs;
 mod dispatcher;
+mod display_precision;
 mod exporters;
 mod protected_keyword;
 #[cfg(test)]

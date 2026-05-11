@@ -263,7 +263,7 @@ mod tests {
         trade.entry.unit_price = dec!(100);
         trade.safety_stop.unit_price = dec!(95);
         trade.target.unit_price = dec!(110);
-        trade.entry.quantity = 10;
+        trade.entry.quantity = 10.into();
         trade
     }
 

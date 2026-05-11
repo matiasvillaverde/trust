@@ -5,7 +5,9 @@ use apca::api::v2::order::{
 };
 use apca::Client;
 use model::{Account, BrokerLog, Order, Trade, TradeCategory};
+use num_decimal::Num;
 use std::error::Error;
+use std::str::FromStr;
 use tokio::runtime::Runtime;
 use uuid::Uuid;
 
@@ -30,7 +32,7 @@ pub fn close(trade: &Trade, account: &Account) -> Result<(Order, BrokerLog), Box
         .block_on(cancel_target(&client, target_order_id))?;
 
     // 2. Submit a market order to close the trade.
-    let request = new_request(trade);
+    let request = new_request(trade)?;
     let alpaca_order = Runtime::new()
         .map_err(|e| Box::new(e) as Box<dyn Error>)?
         .block_on(submit_market_order(client, request))?;
@@ -85,8 +87,8 @@ fn map_close_order_from_alpaca(
     crate::order_mapper::map_close_order(alpaca_order, trade.target.clone())
 }
 
-fn new_request(trade: &Trade) -> CreateReq {
-    CreateReqInit {
+fn new_request(trade: &Trade) -> Result<CreateReq, Box<dyn Error>> {
+    Ok(CreateReqInit {
         class: Class::Simple,
         type_: Type::Market,
         time_in_force: TimeInForce::UntilCanceled,
@@ -94,10 +96,16 @@ fn new_request(trade: &Trade) -> CreateReq {
         ..Default::default()
     }
     .init(
-        trade.trading_vehicle.symbol.to_uppercase(),
+        crate::alpaca_order_symbol(trade),
         side(trade),
-        Amount::quantity(trade.entry.quantity),
-    )
+        quantity_amount(trade.entry.quantity)?,
+    ))
+}
+
+fn quantity_amount(quantity: rust_decimal::Decimal) -> Result<Amount, Box<dyn Error>> {
+    let quantity = Num::from_str(&quantity.to_string())
+        .map_err(|e| format!("Failed to parse quantity: {e:?}"))?;
+    Ok(Amount::quantity(quantity))
 }
 
 pub fn side(trade: &Trade) -> Side {
@@ -110,7 +118,7 @@ pub fn side(trade: &Trade) -> Side {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use apca::api::v2::order::{Amount, Class, Side, Type};
+    use apca::api::v2::order::{Class, Side, Type};
     use chrono::{DateTime, Utc};
     use model::{Account, OrderCategory, OrderStatus, Trade};
 
@@ -158,17 +166,20 @@ mod tests {
         let trade = Trade::default();
 
         // Call the new_request function with the sample trade object
-        let order_req = new_request(&trade);
+        let order_req = new_request(&trade).expect("close request should build");
 
         // Check if the returned OrderReq object has the correct values
         assert_eq!(order_req.class, Class::Simple);
         assert_eq!(order_req.type_, Type::Market);
         assert_eq!(
             order_req.symbol.to_string(),
-            trade.trading_vehicle.symbol.to_uppercase()
+            crate::alpaca_order_symbol(&trade)
         );
         assert_eq!(order_req.side, Side::Sell);
-        assert_eq!(order_req.amount, Amount::quantity(trade.entry.quantity));
+        assert_eq!(
+            order_req.amount,
+            quantity_amount(trade.entry.quantity).expect("quantity should parse")
+        );
         assert_eq!(order_req.time_in_force, TimeInForce::UntilCanceled);
         assert_eq!(order_req.extended_hours, trade.target.extended_hours);
     }
@@ -187,7 +198,7 @@ mod tests {
             ..Default::default()
         };
 
-        let order_req = new_request(&trade);
+        let order_req = new_request(&trade).expect("close request should build");
 
         assert!(order_req.extended_hours);
     }

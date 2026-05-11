@@ -73,7 +73,7 @@ pub mod transaction;
 
 // Re-export the types from the model crate.
 pub use account::{Account, AccountBalance, AccountHierarchyError, AccountType, Environment};
-pub use broker::{Broker, BrokerLog, OrderIds};
+pub use broker::{Broker, BrokerError, BrokerLog, OrderIds};
 pub use broker_kind::{BrokerKind, BrokerKindParseError};
 pub use currency::Currency;
 pub use database::{

@@ -191,7 +191,7 @@ pub fn transfer_to_fill_trade(
         .average_filled_price
         .ok_or("Entry order has no average filled price")?;
     let total = average_price
-        .checked_mul(Decimal::from(trade.entry.quantity))
+        .checked_mul(trade.entry.quantity)
         .ok_or_else(|| {
             format!(
                 "Arithmetic overflow in multiplication: {} * {}",
@@ -208,7 +208,7 @@ pub fn transfer_to_fill_trade(
     let entry_total = trade
         .entry
         .unit_price
-        .checked_mul(Decimal::from(trade.entry.quantity))
+        .checked_mul(trade.entry.quantity)
         .ok_or_else(|| {
             format!(
                 "Arithmetic overflow in multiplication: {} * {}",
@@ -362,7 +362,7 @@ pub fn transfer_to_close_target(
         .average_filled_price
         .ok_or("Target order has no average filled price")?;
     let total = average_price
-        .checked_mul(Decimal::from(trade.entry.quantity))
+        .checked_mul(trade.entry.quantity)
         .ok_or_else(|| {
             format!(
                 "Arithmetic overflow in multiplication: {} * {}",
@@ -407,7 +407,7 @@ pub fn transfer_to_close_stop(
         .average_filled_price
         .ok_or("Safety stop order has no average filled price")?;
     let total = average_price
-        .checked_mul(Decimal::from(trade.entry.quantity))
+        .checked_mul(trade.entry.quantity)
         .ok_or_else(|| {
             format!(
                 "Arithmetic overflow in multiplication: {} * {}",
@@ -423,7 +423,7 @@ pub fn transfer_to_close_stop(
     let planned_total = trade
         .safety_stop
         .unit_price
-        .checked_mul(Decimal::from(trade.entry.quantity))
+        .checked_mul(trade.entry.quantity)
         .ok_or_else(|| {
             format!(
                 "Arithmetic overflow in multiplication: {} * {}",
@@ -750,7 +750,7 @@ mod tests {
             entry: Order {
                 average_filled_price: Some(Decimal::MAX),
                 unit_price: dec!(-1),
-                quantity: 1,
+                quantity: 1.into(),
                 ..Order::default()
             },
             balance: TradeBalance {

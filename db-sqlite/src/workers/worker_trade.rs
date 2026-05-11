@@ -1,6 +1,6 @@
 use crate::error::{ConversionError, IntoDomainModel};
 use crate::schema::{trades, trades_balances};
-use chrono::{NaiveDateTime, Utc};
+use chrono::{NaiveDate, NaiveDateTime, Utc};
 use diesel::prelude::*;
 use model::ClosedTradePerformance;
 use model::{Currency, DraftTrade, Status};
@@ -29,6 +29,10 @@ impl WorkerTrade {
         let now = Utc::now().naive_utc();
 
         let balance = WorkerTrade::create_balance(connection, &draft.currency, now)?;
+        let settlement_date = Some(Trade::default_settlement_date_for_category(
+            draft.trading_vehicle.category,
+            now.date(),
+        ));
 
         let new_trade = NewTrade {
             id,
@@ -48,6 +52,7 @@ impl WorkerTrade {
             sector: draft.sector.clone(),
             asset_class: draft.asset_class.clone(),
             context: draft.context.clone(),
+            settlement_date,
         };
 
         let trade = diesel::insert_into(trades::table)
@@ -371,6 +376,7 @@ struct TradeSQLite {
     sector: Option<String>,
     asset_class: Option<String>,
     context: Option<String>,
+    settlement_date: Option<NaiveDate>,
 }
 
 impl TradeSQLite {
@@ -430,6 +436,7 @@ impl TradeSQLite {
                 .map_err(|_| ConversionError::new("status", "Failed to parse trade status"))?,
             currency: Currency::from_str(&self.currency)
                 .map_err(|_| ConversionError::new("currency", "Failed to parse currency"))?,
+            settlement_date: self.settlement_date,
             safety_stop,
             entry,
             target: targets,
@@ -465,6 +472,7 @@ struct NewTrade {
     sector: Option<String>,
     asset_class: Option<String>,
     context: Option<String>,
+    settlement_date: Option<NaiveDate>,
 }
 
 #[derive(Debug, Queryable, Identifiable, AsChangeset, Insertable)]
@@ -589,19 +597,39 @@ mod tests {
         symbol: &str,
         currency: Currency,
     ) -> Trade {
+        create_trade_with_category(
+            connection,
+            account,
+            symbol,
+            currency,
+            TradingVehicleCategory::Stock,
+        )
+    }
+
+    fn create_trade_with_category(
+        connection: &mut SqliteConnection,
+        account: &Account,
+        symbol: &str,
+        currency: Currency,
+        vehicle_category: TradingVehicleCategory,
+    ) -> Trade {
         let vehicle = WorkerTradingVehicle::create(
             connection,
             symbol,
             Some(symbol),
-            &TradingVehicleCategory::Stock,
-            "alpaca",
+            &vehicle_category,
+            if vehicle_category == TradingVehicleCategory::Bond {
+                "ibkr"
+            } else {
+                "alpaca"
+            },
         )
         .expect("trading vehicle should be created");
         let stop = WorkerOrder::create(
             connection,
             dec!(90),
             &currency,
-            10,
+            dec!(10),
             &OrderAction::Sell,
             &OrderCategory::Stop,
             &vehicle,
@@ -611,7 +639,7 @@ mod tests {
             connection,
             dec!(100),
             &currency,
-            10,
+            dec!(10),
             &OrderAction::Buy,
             &OrderCategory::Limit,
             &vehicle,
@@ -621,7 +649,7 @@ mod tests {
             connection,
             dec!(120),
             &currency,
-            10,
+            dec!(10),
             &OrderAction::Sell,
             &OrderCategory::Limit,
             &vehicle,
@@ -630,7 +658,7 @@ mod tests {
         let draft = DraftTrade {
             account: account.clone(),
             trading_vehicle: vehicle,
-            quantity: 10,
+            quantity: 10.into(),
             currency,
             category: TradeCategory::Long,
             thesis: Some("breakout continuation".to_string()),
@@ -641,6 +669,36 @@ mod tests {
 
         WorkerTrade::create(connection, draft, &stop, &entry, &target)
             .expect("trade should be created")
+    }
+
+    #[test]
+    fn create_sets_default_settlement_date_by_asset_category() {
+        let (database, connection) = create_database_with_connection();
+        let account = create_account(&database, "trade-settlement-account");
+        let mut connection = connection
+            .lock()
+            .expect("connection lock should be acquired");
+
+        for (category, symbol) in [
+            (TradingVehicleCategory::Stock, "SETTLESTK"),
+            (TradingVehicleCategory::Crypto, "SETTLEBTC"),
+            (TradingVehicleCategory::Bond, "SETTLEBND"),
+        ] {
+            let trade = create_trade_with_category(
+                &mut connection,
+                &account,
+                symbol,
+                Currency::USD,
+                category,
+            );
+            assert_eq!(
+                trade.settlement_date,
+                Some(Trade::default_settlement_date_for_category(
+                    category,
+                    trade.created_at.date()
+                ))
+            );
+        }
     }
 
     fn set_trade_state(
@@ -703,6 +761,7 @@ mod tests {
             sector: trade.sector.clone(),
             asset_class: trade.asset_class.clone(),
             context: trade.context.clone(),
+            settlement_date: trade.settlement_date,
         }
     }
 
@@ -1095,7 +1154,7 @@ mod tests {
         let draft = DraftTrade {
             account,
             trading_vehicle: trade.trading_vehicle.clone(),
-            quantity: 10,
+            quantity: 10.into(),
             currency: trade.currency,
             category: trade.category,
             thesis: trade.thesis.clone(),

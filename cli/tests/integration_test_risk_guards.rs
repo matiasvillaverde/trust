@@ -179,7 +179,7 @@ fn create_trade_for_security(
             DraftTrade {
                 account: account.clone(),
                 trading_vehicle: tv,
-                quantity,
+                quantity: quantity.into(),
                 currency: Currency::USD,
                 category: trade_category,
                 thesis: None,
@@ -214,7 +214,7 @@ fn create_trade(
     let draft = DraftTrade {
         account: account.clone(),
         trading_vehicle: tv,
-        quantity,
+        quantity: quantity.into(),
         currency: Currency::USD,
         category,
         thesis: None,
@@ -386,7 +386,7 @@ fn trade_with_negative_quantity_must_be_rejected() {
     let draft = DraftTrade {
         account,
         trading_vehicle: tv,
-        quantity: -100,
+        quantity: (-100).into(),
         currency: Currency::USD,
         category: TradeCategory::Long,
         thesis: None,

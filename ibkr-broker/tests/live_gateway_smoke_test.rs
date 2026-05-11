@@ -105,9 +105,9 @@ fn preview_trade(
     trade.trading_vehicle.symbol = symbol.to_string();
     trade.trading_vehicle.category = category;
     trade.trading_vehicle.exchange = Some("SMART".to_string());
-    trade.entry.quantity = 1;
-    trade.target.quantity = 1;
-    trade.safety_stop.quantity = 1;
+    trade.entry.quantity = 1.into();
+    trade.target.quantity = 1.into();
+    trade.safety_stop.quantity = 1.into();
     trade.entry.currency = Currency::USD;
     trade.target.currency = Currency::USD;
     trade.safety_stop.currency = Currency::USD;

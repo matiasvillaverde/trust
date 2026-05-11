@@ -31,9 +31,9 @@
 #![warn(missing_docs, rust_2018_idioms, missing_debug_implementations)]
 
 use model::{
-    Account, BarTimeframe, Broker, BrokerKind, BrokerLog, Environment, MarketBar,
+    Account, BarTimeframe, Broker, BrokerError, BrokerKind, BrokerLog, Environment, MarketBar,
     MarketDataChannel, MarketDataStreamEvent, MarketQuote, MarketTradeTick, Order, OrderIds,
-    Status, Trade,
+    Status, Trade, TradingVehicleCategory,
 };
 use std::error::Error;
 
@@ -61,7 +61,53 @@ fn ensure_trade_account(trade: &Trade, account: &Account) -> Result<(), Box<dyn 
     if trade.account_id != account.id {
         return Err("Trade account does not match broker account".into());
     }
+    match trade.trading_vehicle.category {
+        TradingVehicleCategory::Stock
+        | TradingVehicleCategory::Etf
+        | TradingVehicleCategory::Crypto => {}
+        TradingVehicleCategory::Bond => {
+            return Err(BrokerError::unsupported_asset_class(
+                BrokerKind::Alpaca,
+                trade.trading_vehicle.category,
+                "Bonds are not supported by Alpaca. Use IBKR for bond trading.",
+            )
+            .into());
+        }
+        TradingVehicleCategory::Fiat => {
+            return Err(BrokerError::unsupported_asset_class(
+                BrokerKind::Alpaca,
+                trade.trading_vehicle.category,
+                "Fiat spot trading is not supported by Alpaca trade submission.",
+            )
+            .into());
+        }
+        _ => {
+            return Err(BrokerError::unsupported_asset_class(
+                BrokerKind::Alpaca,
+                trade.trading_vehicle.category,
+                "Unsupported Alpaca asset class.",
+            )
+            .into());
+        }
+    }
     Ok(())
+}
+
+pub(crate) fn alpaca_order_symbol(trade: &Trade) -> String {
+    let symbol = trade.trading_vehicle.symbol.trim().to_uppercase();
+    if trade.trading_vehicle.category != TradingVehicleCategory::Crypto || symbol.contains('/') {
+        return symbol;
+    }
+
+    for quote in ["USDT", "USD", "BTC"] {
+        if let Some(base) = symbol.strip_suffix(quote) {
+            if !base.is_empty() {
+                return format!("{base}/{quote}");
+            }
+        }
+    }
+
+    symbol
 }
 
 /// Generic Broker API
@@ -214,7 +260,10 @@ impl AlpacaBroker {
 mod tests {
     use super::AlpacaBroker;
     use chrono::{TimeZone, Utc};
-    use model::{Account, BarTimeframe, Broker, MarketDataChannel, Trade};
+    use model::{
+        Account, BarTimeframe, Broker, BrokerError, MarketDataChannel, Trade,
+        TradingVehicleCategory,
+    };
     use rust_decimal_macros::dec;
     use uuid::Uuid;
 
@@ -231,6 +280,20 @@ mod tests {
         assert!(error
             .to_string()
             .contains("Trade account does not match broker account"));
+    }
+
+    #[test]
+    fn alpaca_order_symbol_preserves_equities_and_normalizes_crypto_pairs() {
+        let mut trade = Trade::default();
+        trade.trading_vehicle.symbol = "aapl".to_string();
+        assert_eq!(super::alpaca_order_symbol(&trade), "AAPL");
+
+        trade.trading_vehicle.category = TradingVehicleCategory::Crypto;
+        trade.trading_vehicle.symbol = "btcusd".to_string();
+        assert_eq!(super::alpaca_order_symbol(&trade), "BTC/USD");
+
+        trade.trading_vehicle.symbol = "ETH/USDT".to_string();
+        assert_eq!(super::alpaca_order_symbol(&trade), "ETH/USDT");
     }
 
     #[test]
@@ -300,6 +363,33 @@ mod tests {
             .expect_err("account mismatch should fail before I/O");
 
         assert_account_mismatch(err);
+    }
+
+    #[test]
+    fn broker_submit_trade_rejects_bonds_with_typed_error_before_credentials() {
+        let broker = AlpacaBroker;
+        let account = Account::default();
+        let mut trade = Trade {
+            account_id: account.id,
+            ..Trade::default()
+        };
+        trade.trading_vehicle.category = TradingVehicleCategory::Bond;
+
+        let err = broker
+            .submit_trade(&trade, &account)
+            .expect_err("bond trade should fail before I/O");
+
+        assert!(err
+            .to_string()
+            .contains("Bonds are not supported by Alpaca"));
+        assert!(matches!(
+            err.downcast_ref::<BrokerError>(),
+            Some(BrokerError::UnsupportedAssetClass {
+                broker: model::BrokerKind::Alpaca,
+                category: TradingVehicleCategory::Bond,
+                ..
+            })
+        ));
     }
 
     #[test]

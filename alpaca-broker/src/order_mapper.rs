@@ -3,7 +3,6 @@ use chrono::DateTime;
 use chrono::NaiveDateTime;
 use chrono::Utc;
 use model::{Order, OrderCategory, OrderStatus, Status, Trade};
-use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 use std::error::Error;
 use std::str::FromStr;
@@ -99,7 +98,7 @@ fn has_recent_unfill(order_id: uuid::Uuid, updated_orders: &[Order]) -> bool {
         .any(|order| order.id == order_id && order.status != OrderStatus::Filled)
 }
 
-fn filled_quantity_to_u64(quantity: &num_decimal::Num) -> Result<u64, Box<dyn Error>> {
+fn filled_quantity_to_decimal(quantity: &num_decimal::Num) -> Result<Decimal, Box<dyn Error>> {
     let value = Decimal::from_str(&quantity.to_string())
         .map_err(|e| format!("Failed to parse filled quantity: {e}"))?;
 
@@ -107,13 +106,7 @@ fn filled_quantity_to_u64(quantity: &num_decimal::Num) -> Result<u64, Box<dyn Er
         return Err("Filled quantity cannot be negative".into());
     }
 
-    if !value.is_integer() {
-        return Err("Filled quantity must be a whole number".into());
-    }
-
-    value
-        .to_u64()
-        .ok_or("Failed to convert filled quantity to u64".into())
+    Ok(value)
 }
 
 pub fn map_trade_status(trade: &Trade, updated_orders: &[Order]) -> Status {
@@ -166,7 +159,7 @@ fn map(alpaca_order: &AlpacaOrder, order: Order) -> Result<Order, Box<dyn Error>
     }
 
     let mut order = order;
-    order.filled_quantity = filled_quantity_to_u64(&alpaca_order.filled_quantity)?;
+    order.filled_quantity = filled_quantity_to_decimal(&alpaca_order.filled_quantity)?;
     order.average_filled_price = alpaca_order
         .average_fill_price
         .clone()
@@ -322,7 +315,7 @@ mod tests {
         let order = result.first().expect("Expected at least one order");
         assert_eq!(order.status, OrderStatus::Filled);
         assert!(order.filled_at.is_some());
-        assert_eq!(order.filled_quantity, 100);
+        assert_eq!(order.filled_quantity, dec!(100));
         assert_eq!(order.average_filled_price, Some(dec!(10)));
     }
 
@@ -373,14 +366,14 @@ mod tests {
         let entry_order = result.first().expect("Expected entry order");
         assert_eq!(entry_order.status, OrderStatus::Filled);
         assert!(entry_order.filled_at.is_some());
-        assert_eq!(entry_order.filled_quantity, 100);
+        assert_eq!(entry_order.filled_quantity, dec!(100));
         assert_eq!(entry_order.average_filled_price, Some(dec!(11)));
 
         // Target
         let target_order = result.get(1).expect("Expected target order");
         assert_eq!(target_order.status, OrderStatus::Filled);
         assert!(target_order.filled_at.is_some());
-        assert_eq!(target_order.filled_quantity, 100);
+        assert_eq!(target_order.filled_quantity, dec!(100));
         assert_eq!(target_order.average_filled_price, Some(dec!(10)));
     }
 
@@ -431,14 +424,14 @@ mod tests {
         let entry_order = result.first().expect("Expected entry order");
         assert_eq!(entry_order.status, OrderStatus::Filled);
         assert!(entry_order.filled_at.is_some());
-        assert_eq!(entry_order.filled_quantity, 100);
+        assert_eq!(entry_order.filled_quantity, dec!(100));
         assert_eq!(entry_order.average_filled_price, Some(dec!(9)));
 
         // Stop
         let stop_order = result.get(1).expect("Expected stop order");
         assert_eq!(stop_order.status, OrderStatus::Filled);
         assert!(stop_order.filled_at.is_some());
-        assert_eq!(stop_order.filled_quantity, 100);
+        assert_eq!(stop_order.filled_quantity, dec!(100));
         assert_eq!(stop_order.average_filled_price, Some(dec!(10)));
     }
 
@@ -719,7 +712,7 @@ mod tests {
     }
 
     #[test]
-    fn map_rejects_fractional_filled_quantity() {
+    fn map_accepts_fractional_filled_quantity() {
         let alpaca_order = AlpacaOrder {
             filled_quantity: Num::from_str("1.5").unwrap(),
             ..default()
@@ -733,9 +726,9 @@ mod tests {
             ..Default::default()
         };
 
-        let error = map(&alpaca_order, order).expect_err("fractional share count is unsupported");
+        let mapped = map(&alpaca_order, order).expect("fractional filled quantity is supported");
 
-        assert_eq!(error.to_string(), "Filled quantity must be a whole number");
+        assert_eq!(mapped.filled_quantity, dec!(1.5));
     }
 
     #[test]
@@ -801,7 +794,7 @@ mod tests {
 
         let mapped_order = map(&alpaca_order, order);
 
-        assert_eq!(mapped_order.unwrap().filled_quantity, 10);
+        assert_eq!(mapped_order.unwrap().filled_quantity, dec!(10));
     }
 
     #[test]

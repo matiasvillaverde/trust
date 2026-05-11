@@ -221,7 +221,7 @@ pub struct OrderRow {
     pub deleted_at: Option<NaiveDateTime>,
     pub unit_price: String,
     pub currency: String,
-    pub quantity: i32,
+    pub quantity: String,
     pub category: String,
     pub trading_vehicle_id: String,
     pub action: String,
@@ -229,7 +229,7 @@ pub struct OrderRow {
     pub time_in_force: String,
     pub trailing_percentage: Option<String>,
     pub trailing_price: Option<String>,
-    pub filled_quantity: Option<i32>,
+    pub filled_quantity: Option<String>,
     pub average_filled_price: Option<String>,
     pub extended_hours: bool,
     pub submitted_at: Option<NaiveDateTime>,
@@ -274,6 +274,7 @@ pub struct TradeRow {
     pub sector: Option<String>,
     pub asset_class: Option<String>,
     pub context: Option<String>,
+    pub settlement_date: Option<NaiveDate>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Queryable, Insertable)]
@@ -986,7 +987,7 @@ mod tests {
                     deleted_at: None,
                     unit_price: "10".to_string(),
                     currency: "USD".to_string(),
-                    quantity: 1,
+                    quantity: "1".to_string(),
                     category: "limit".to_string(),
                     trading_vehicle_id: trading_vehicle_id.clone(),
                     action: "buy".to_string(),
@@ -1033,6 +1034,7 @@ mod tests {
                     sector: None,
                     asset_class: None,
                     context: None,
+                    settlement_date: Some(date),
                 }],
                 logs: vec![LogRow {
                     id: log_id,
@@ -1460,7 +1462,7 @@ mod tests {
             deleted_at: None,
             unit_price: "10.0".to_string(),
             currency: "USD".to_string(),
-            quantity: 1,
+            quantity: "1".to_string(),
             category: category.to_string(),
             trading_vehicle_id: tv_id.clone(),
             action: "buy".to_string(),
@@ -1522,6 +1524,7 @@ mod tests {
                 sector: Some("tech".to_string()),
                 asset_class: Some("equity".to_string()),
                 context: Some("context".to_string()),
+                settlement_date: Some(t0),
             })
             .execute(&mut conn1)
             .unwrap();

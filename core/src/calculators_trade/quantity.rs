@@ -1,6 +1,7 @@
 use model::{Currency, DatabaseFactory, RuleName};
-use rust_decimal::{prelude::ToPrimitive, Decimal};
+use rust_decimal::{Decimal, RoundingStrategy};
 use rust_decimal_macros::dec;
+use std::str::FromStr;
 use uuid::Uuid;
 
 use crate::calculators_account::AccountCapitalAvailable;
@@ -8,11 +9,13 @@ use crate::calculators_trade::RiskCalculator;
 
 pub struct QuantityCalculator;
 
+const MAX_QUANTITY_DECIMAL_PLACES: u32 = 8;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct LevelAdjustedQuantity {
-    pub base_quantity: i64,
+    pub base_quantity: Decimal,
     pub level_multiplier: Decimal,
-    pub final_quantity: i64,
+    pub final_quantity: Decimal,
 }
 
 impl QuantityCalculator {
@@ -22,7 +25,7 @@ impl QuantityCalculator {
         stop_price: Decimal,
         currency: &Currency,
         database: &mut dyn DatabaseFactory,
-    ) -> Result<i64, Box<dyn std::error::Error>> {
+    ) -> Result<Decimal, Box<dyn std::error::Error>> {
         let total_available = AccountCapitalAvailable::calculate(
             account_id,
             currency,
@@ -48,7 +51,7 @@ impl QuantityCalculator {
                     let risk_decimal = Decimal::from_f32_retain(risk)
                         .ok_or_else(|| format!("Failed to convert risk {risk} to Decimal"))?;
                     if risk_per_month < risk_decimal {
-                        return Ok(0); // No capital to risk this month, so quantity is 0. AKA: No trade.
+                        return Ok(Decimal::ZERO); // No capital to risk this month, so quantity is 0. AKA: No trade.
                     } else {
                         let risk_per_trade = QuantityCalculator::max_quantity_per_trade(
                             total_available,
@@ -70,7 +73,7 @@ impl QuantityCalculator {
             .into());
         }
         if total_available <= dec!(0.0) {
-            return Ok(0);
+            return Ok(Decimal::ZERO);
         }
         let max_quantity = total_available.checked_div(entry_price).ok_or_else(|| {
             format!("Division by zero or overflow: {total_available} / {entry_price}")
@@ -80,9 +83,7 @@ impl QuantityCalculator {
         } else {
             max_quantity
         };
-        max_quantity
-            .to_i64()
-            .ok_or_else(|| format!("Cannot convert {max_quantity} to i64").into())
+        Ok(Self::conservative_quantity(max_quantity))
     }
 
     pub fn maximum_quantity_with_level(
@@ -105,13 +106,18 @@ impl QuantityCalculator {
         })
     }
 
-    fn apply_multiplier_to_quantity(quantity: i64, multiplier: Decimal) -> i64 {
-        let base = Decimal::from(quantity);
-        let adjusted = match base.checked_mul(multiplier) {
+    fn apply_multiplier_to_quantity(quantity: Decimal, multiplier: Decimal) -> Decimal {
+        let adjusted = match quantity.checked_mul(multiplier) {
             Some(value) => value,
-            None => return 0,
+            None => return Decimal::ZERO,
         };
-        adjusted.to_i64().unwrap_or(0).max(0)
+        Self::conservative_quantity(adjusted)
+    }
+
+    fn conservative_quantity(quantity: Decimal) -> Decimal {
+        quantity
+            .max(Decimal::ZERO)
+            .round_dp_with_strategy(MAX_QUANTITY_DECIMAL_PLACES, RoundingStrategy::ToZero)
     }
 
     fn max_quantity_per_trade(
@@ -119,13 +125,13 @@ impl QuantityCalculator {
         entry_price: Decimal,
         stop_price: Decimal,
         risk: f32,
-    ) -> i64 {
+    ) -> Decimal {
         if available <= dec!(0.0) {
-            return 0;
+            return Decimal::ZERO;
         }
 
         let Some(raw_price_diff) = entry_price.checked_sub(stop_price) else {
-            return 0; // Entry price must be greater than stop price
+            return Decimal::ZERO; // Entry price must be greater than stop price
         };
         let price_diff = if raw_price_diff < dec!(0) {
             raw_price_diff
@@ -135,39 +141,39 @@ impl QuantityCalculator {
             raw_price_diff
         };
 
-        if price_diff <= dec!(0.0) || risk <= 0.0 {
-            return 0;
+        if price_diff <= dec!(0.0) || !risk.is_finite() || risk <= 0.0 {
+            return Decimal::ZERO;
         }
 
         let Some(max_quantity) = available.checked_div(entry_price) else {
-            return 0; // Division overflow
+            return Decimal::ZERO; // Division overflow
         };
 
         let Some(max_risk) = max_quantity.checked_mul(price_diff) else {
-            return 0; // Multiplication overflow
+            return Decimal::ZERO; // Multiplication overflow
         };
 
-        let Some(risk_decimal) = Decimal::from_f32_retain(risk) else {
-            return 0; // Failed to convert risk to Decimal
+        let Ok(risk_decimal) = Decimal::from_str(&risk.to_string()) else {
+            return Decimal::ZERO; // Failed to convert risk to Decimal
         };
 
         let Some(risk_percent) = risk_decimal.checked_div(dec!(100.0)) else {
-            return 0; // Division overflow
+            return Decimal::ZERO; // Division overflow
         };
 
         let Some(risk_capital) = available.checked_mul(risk_percent) else {
-            return 0; // Multiplication overflow
+            return Decimal::ZERO; // Multiplication overflow
         };
 
         if risk_capital >= max_risk {
             // The risk capital is greater than the max risk, so return the max quantity
-            max_quantity.to_i64().unwrap_or(0)
+            Self::conservative_quantity(max_quantity)
         } else {
             // The risk capital is less than the max risk, so return the max quantity based on the risk capital
             let Some(risk_per_trade) = risk_capital.checked_div(price_diff) else {
-                return 0; // Division overflow
+                return Decimal::ZERO; // Division overflow
             };
-            risk_per_trade.to_i64().unwrap_or(0) // We round down to the nearest integer
+            Self::conservative_quantity(risk_per_trade)
         }
     }
 }
@@ -242,7 +248,7 @@ mod tests {
 
         assert_eq!(
             QuantityCalculator::max_quantity_per_trade(available, entry_price, stop_price, risk),
-            40
+            dec!(40)
         );
     }
 
@@ -256,7 +262,7 @@ mod tests {
 
         assert_eq!(
             QuantityCalculator::max_quantity_per_trade(available, entry_price, stop_price, risk),
-            1
+            dec!(1)
         );
     }
 
@@ -269,7 +275,7 @@ mod tests {
 
         assert_eq!(
             QuantityCalculator::max_quantity_per_trade(available, entry_price, stop_price, risk),
-            100
+            dec!(100)
         );
     }
 
@@ -282,7 +288,7 @@ mod tests {
 
         assert_eq!(
             QuantityCalculator::max_quantity_per_trade(available, entry_price, stop_price, risk),
-            100
+            dec!(100)
         );
     }
 
@@ -295,7 +301,25 @@ mod tests {
 
         assert_eq!(
             QuantityCalculator::max_quantity_per_trade(available, entry_price, stop_price, risk),
-            99
+            dec!(99.9)
+        );
+    }
+
+    #[test]
+    fn test_max_quantity_per_trade_rounds_down_to_fundable_decimal_quantity() {
+        let quantity = QuantityCalculator::max_quantity_per_trade(
+            dec!(169_940),
+            dec!(169),
+            dec!(151.7113),
+            1.0,
+        );
+
+        assert_eq!(quantity, dec!(98.29541839));
+        assert!(
+            quantity
+                .checked_mul(dec!(17.2887))
+                .expect("risk should fit")
+                <= dec!(1699.40)
         );
     }
 
@@ -303,19 +327,19 @@ mod tests {
     fn test_max_quantity_per_trade_rejects_non_positive_inputs() {
         assert_eq!(
             QuantityCalculator::max_quantity_per_trade(dec!(0), dec!(100), dec!(90), 2.0),
-            0
+            dec!(0)
         );
         assert_eq!(
             QuantityCalculator::max_quantity_per_trade(dec!(10_000), dec!(100), dec!(100), 2.0),
-            0
+            dec!(0)
         );
         assert_eq!(
             QuantityCalculator::max_quantity_per_trade(dec!(10_000), dec!(100), dec!(90), 0.0),
-            0
+            dec!(0)
         );
         assert_eq!(
             QuantityCalculator::max_quantity_per_trade(dec!(10_000), dec!(100), dec!(90), -1.0),
-            0
+            dec!(0)
         );
     }
 
@@ -323,19 +347,23 @@ mod tests {
     fn test_max_quantity_per_trade_uses_absolute_stop_distance() {
         assert_eq!(
             QuantityCalculator::max_quantity_per_trade(dec!(10_000), dec!(90), dec!(100), 2.0),
-            20
+            dec!(20)
         );
     }
 
     #[test]
     fn test_max_quantity_per_trade_returns_zero_for_decimal_overflow_paths() {
+        let capped_by_risk =
+            QuantityCalculator::max_quantity_per_trade(Decimal::MAX, dec!(1), dec!(0), 2.0);
         assert_eq!(
-            QuantityCalculator::max_quantity_per_trade(Decimal::MAX, dec!(1), dec!(0), 2.0),
-            0
+            capped_by_risk,
+            Decimal::MAX
+                .checked_mul(dec!(0.02))
+                .expect("risk cap should fit")
         );
         assert_eq!(
             QuantityCalculator::max_quantity_per_trade(dec!(10_000), dec!(0), dec!(-1), 2.0),
-            0
+            dec!(0)
         );
         assert_eq!(
             QuantityCalculator::max_quantity_per_trade(
@@ -344,43 +372,43 @@ mod tests {
                 Decimal::MIN,
                 2.0,
             ),
-            0
+            dec!(0)
         );
         assert_eq!(
             QuantityCalculator::max_quantity_per_trade(Decimal::MAX, dec!(1), dec!(-1), 2.0),
-            0
+            dec!(0)
         );
         assert_eq!(
             QuantityCalculator::max_quantity_per_trade(Decimal::MAX, dec!(1), dec!(0), 200.0),
-            0
+            dec!(0)
         );
         assert_eq!(
             QuantityCalculator::max_quantity_per_trade(dec!(10_000), dec!(100), dec!(90), f32::NAN),
-            0
+            dec!(0)
         );
     }
 
     #[test]
-    fn test_apply_multiplier_to_quantity_rounds_down() {
+    fn test_apply_multiplier_to_quantity_preserves_fractional_results() {
         assert_eq!(
-            QuantityCalculator::apply_multiplier_to_quantity(101, dec!(0.5)),
-            50
+            QuantityCalculator::apply_multiplier_to_quantity(dec!(101), dec!(0.5)),
+            dec!(50.5)
         );
         assert_eq!(
-            QuantityCalculator::apply_multiplier_to_quantity(101, dec!(1.5)),
-            151
+            QuantityCalculator::apply_multiplier_to_quantity(dec!(101), dec!(1.5)),
+            dec!(151.5)
         );
     }
 
     #[test]
     fn test_apply_multiplier_to_quantity_saturates_invalid_results_to_zero() {
         assert_eq!(
-            QuantityCalculator::apply_multiplier_to_quantity(i64::MAX, Decimal::MAX),
-            0
+            QuantityCalculator::apply_multiplier_to_quantity(Decimal::MAX, Decimal::MAX),
+            dec!(0)
         );
         assert_eq!(
-            QuantityCalculator::apply_multiplier_to_quantity(100, dec!(-1.5)),
-            0
+            QuantityCalculator::apply_multiplier_to_quantity(dec!(100), dec!(-1.5)),
+            dec!(0)
         );
     }
 
@@ -399,7 +427,7 @@ mod tests {
         )
         .expect("quantity should calculate");
 
-        assert_eq!(quantity, 4);
+        assert_eq!(quantity, dec!(4));
     }
 
     #[test]
@@ -436,7 +464,7 @@ mod tests {
         )
         .expect("quantity should calculate");
 
-        assert_eq!(quantity, 0);
+        assert_eq!(quantity, dec!(0));
     }
 
     #[test]
@@ -458,21 +486,21 @@ mod tests {
     }
 
     #[test]
-    fn test_maximum_quantity_without_rules_reports_i64_conversion_overflow() {
+    fn test_maximum_quantity_without_rules_preserves_fractional_quantity() {
         let mut database = SqliteDatabase::new_in_memory();
-        let account = create_test_account(&mut database, "quantity-i64-overflow");
-        create_test_deposit(&mut database, &account, Decimal::MAX);
+        let account = create_test_account(&mut database, "quantity-fractional");
+        create_test_deposit(&mut database, &account, dec!(100));
 
-        let error = QuantityCalculator::maximum_quantity(
+        let quantity = QuantityCalculator::maximum_quantity(
             account.id,
-            dec!(1),
+            dec!(40000),
             Decimal::ZERO,
             &Currency::USD,
             &mut database,
         )
-        .expect_err("oversized quantity should fail");
+        .expect("fractional quantity should calculate");
 
-        assert!(error.to_string().contains("Cannot convert"));
+        assert_eq!(quantity, dec!(0.0025));
     }
 
     #[test]
@@ -517,7 +545,7 @@ mod tests {
         )
         .expect("quantity should calculate");
 
-        assert_eq!(quantity, 20);
+        assert_eq!(quantity, dec!(20));
     }
 
     #[test]
@@ -537,7 +565,7 @@ mod tests {
         )
         .expect("quantity should calculate");
 
-        assert_eq!(quantity, 0);
+        assert_eq!(quantity, dec!(0));
     }
 
     #[test]
@@ -556,7 +584,7 @@ mod tests {
         )
         .expect("quantity should calculate");
 
-        assert_eq!(quantity, 0);
+        assert_eq!(quantity, dec!(0));
     }
 
     #[test]
@@ -588,9 +616,9 @@ mod tests {
         assert_eq!(
             quantity,
             LevelAdjustedQuantity {
-                base_quantity: 4,
+                base_quantity: 4.into(),
                 level_multiplier: dec!(1.5),
-                final_quantity: 6,
+                final_quantity: 6.into(),
             }
         );
     }

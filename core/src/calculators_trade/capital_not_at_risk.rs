@@ -50,7 +50,7 @@ impl TradeCapitalNotAtRisk {
                             trade.entry.unit_price, risk_per_share
                         )
                     })?
-                    .checked_mul(Decimal::from(trade.entry.quantity))
+                    .checked_mul(trade.entry.quantity)
                     .ok_or_else(|| {
                         format!(
                             "Arithmetic overflow in multiplication: {} * {}",

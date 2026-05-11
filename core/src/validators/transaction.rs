@@ -261,12 +261,12 @@ mod tests {
             status: Status::Funded,
             entry: Order {
                 unit_price: dec!(10),
-                quantity: 6,
+                quantity: 6.into(),
                 ..Default::default()
             },
             safety_stop: Order {
                 unit_price: dec!(15),
-                quantity: 6,
+                quantity: 6.into(),
                 ..Default::default()
             },
             ..Default::default()

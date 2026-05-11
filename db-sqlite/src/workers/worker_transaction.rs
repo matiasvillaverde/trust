@@ -449,7 +449,7 @@ mod tests {
             .order_write()
             .create(
                 &vehicle,
-                10,
+                dec!(10),
                 dec!(90),
                 &Currency::USD,
                 &OrderAction::Sell,
@@ -460,7 +460,7 @@ mod tests {
             .order_write()
             .create(
                 &vehicle,
-                10,
+                dec!(10),
                 dec!(100),
                 &Currency::USD,
                 &OrderAction::Buy,
@@ -471,7 +471,7 @@ mod tests {
             .order_write()
             .create(
                 &vehicle,
-                10,
+                dec!(10),
                 dec!(120),
                 &Currency::USD,
                 &OrderAction::Sell,
@@ -481,7 +481,7 @@ mod tests {
         let draft = DraftTrade {
             account: account.clone(),
             trading_vehicle: vehicle,
-            quantity: 10,
+            quantity: 10.into(),
             currency: Currency::USD,
             category: TradeCategory::Long,
             thesis: None,

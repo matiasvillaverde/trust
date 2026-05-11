@@ -30,7 +30,7 @@ pub struct TradeDialogBuilder {
     stop_price: Option<Decimal>,
     safety_order_category: Option<OrderCategory>,
     currency: Option<Currency>,
-    quantity: Option<i64>,
+    quantity: Option<Decimal>,
     target_price: Option<Decimal>,
     thesis: Option<String>,
     sector: Option<String>,
@@ -241,7 +241,11 @@ impl TradeDialogBuilder {
             ),
             Err(error) => {
                 println!("Error calculating maximum quantity {error}");
-                (0, rust_decimal::Decimal::ONE, 0)
+                (
+                    rust_decimal::Decimal::ZERO,
+                    rust_decimal::Decimal::ONE,
+                    rust_decimal::Decimal::ZERO,
+                )
             }
         };
 
@@ -250,11 +254,11 @@ impl TradeDialogBuilder {
         println!("Maximum quantity (level-adjusted): {maximum}");
 
         match io.input_text("Quantity", false) {
-            Ok(raw) => match raw.parse::<i64>() {
+            Ok(raw) => match raw.parse::<Decimal>() {
                 Ok(parsed) if parsed > maximum => {
                     println!("Please enter a number below your maximum allowed");
                 }
-                Ok(0) => println!("Please enter a number above 0"),
+                Ok(parsed) if parsed <= Decimal::ZERO => println!("Please enter a number above 0"),
                 Ok(parsed) => self.quantity = Some(parsed),
                 Err(_) => println!("Please enter a valid number."),
             },
@@ -507,7 +511,7 @@ mod tests {
             stop_price: Some(dec!(95)),
             safety_order_category: Some(OrderCategory::StopLimit),
             currency: Some(Currency::USD),
-            quantity: Some(1),
+            quantity: Some(dec!(1)),
             target_price: Some(dec!(110)),
             thesis: Some("breakout".to_string()),
             sector: Some("technology".to_string()),
@@ -551,7 +555,7 @@ mod tests {
             stop_price: Some(dec!(95)),
             safety_order_category: None,
             currency: Some(Currency::USD),
-            quantity: Some(1),
+            quantity: Some(dec!(1)),
             target_price: Some(dec!(110)),
             thesis: None,
             sector: None,
@@ -613,7 +617,7 @@ mod tests {
         assert_eq!(builder.entry_price, Some(dec!(100)));
         assert_eq!(builder.stop_price, Some(dec!(95)));
         assert_eq!(builder.currency, Some(Currency::USD));
-        assert_eq!(builder.quantity, Some(2));
+        assert_eq!(builder.quantity, Some(dec!(2)));
         assert_eq!(builder.target_price, Some(dec!(110)));
         assert_eq!(builder.thesis.as_deref(), Some("breakout"));
         assert_eq!(builder.sector.as_deref(), Some("technology"));
@@ -891,7 +895,7 @@ mod tests {
             Some(OrderCategory::StopLimit)
         );
         assert_eq!(builder.currency, Some(Currency::USD));
-        assert_eq!(builder.quantity, Some(2));
+        assert_eq!(builder.quantity, Some(dec!(2)));
         assert_eq!(builder.target_price, Some(dec!(110)));
         assert_eq!(builder.thesis.as_deref(), Some("breakout"));
         assert_eq!(builder.sector.as_deref(), Some("technology"));

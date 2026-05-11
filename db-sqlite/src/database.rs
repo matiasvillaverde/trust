@@ -370,7 +370,7 @@ impl OrderWrite for SqliteDatabase {
     fn create(
         &mut self,
         trading_vehicle: &TradingVehicle,
-        quantity: i64,
+        quantity: Decimal,
         price: Decimal,
         currency: &Currency,
         action: &OrderAction,
@@ -1020,7 +1020,7 @@ mod tests {
     ) -> Order {
         database
             .order_write()
-            .create(vehicle, 10, price, &Currency::USD, &action, &category)
+            .create(vehicle, dec!(10), price, &Currency::USD, &action, &category)
             .expect("order should be created")
     }
 
@@ -1050,7 +1050,7 @@ mod tests {
         let draft = DraftTrade {
             account: account.clone(),
             trading_vehicle: vehicle,
-            quantity: 10,
+            quantity: 10.into(),
             currency: Currency::USD,
             category: TradeCategory::Long,
             thesis: Some("database facade route".to_string()),

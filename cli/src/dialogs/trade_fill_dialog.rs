@@ -272,7 +272,7 @@ mod tests {
         let draft = DraftTrade {
             account: account.clone(),
             trading_vehicle: vehicle,
-            quantity: 10,
+            quantity: 10.into(),
             currency: Currency::USD,
             category: TradeCategory::Long,
             thesis: None,

@@ -51,6 +51,7 @@ pub mod read_transaction_db_mocks {
                 updated_at: now,
                 deleted_at: None,
                 currency: Currency::USD,
+                settlement_date: None,
                 status: Status::default(),
                 trading_vehicle: TradingVehicle::default(),
                 safety_stop: MockDatabase::order(
@@ -86,7 +87,7 @@ pub mod read_transaction_db_mocks {
         ) -> Order {
             Order {
                 unit_price: amount,
-                quantity,
+                quantity: quantity.into(),
                 category,
                 action,
                 ..Default::default()
