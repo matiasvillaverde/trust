@@ -34,6 +34,11 @@ use crate::services::{
     AdvisoryHistoryEntry, AdvisoryResult, AdvisoryThresholds, FundTransferService,
     PortfolioAdvisoryStatus, ProfitDistributionService, TradeProposal,
 };
+use advisor::{
+    CalendarCredentials, CatalystScanRequest, CatalystScanResult, CatalystScanner,
+    CorrelationAdvisory, CorrelationCalculator, CorrelationConfig, CorrelationRequest,
+    RegimeConfig, RegimeFilter, RegimeRequest, RegimeSnapshot,
+};
 use argon2::{
     password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2,
@@ -50,8 +55,9 @@ use model::{
     DatabaseFactory, DistributionHistory, DistributionResult, DistributionRules, DraftTrade,
     Environment, Execution, Level, LevelAdjustmentRules, LevelChange, LevelTrigger, MarketBar,
     MarketDataChannel, MarketDataStreamEvent, MarketSnapshot, MarketSnapshotSource,
-    MarketSnapshotV2, Order, Rule, RuleLevel, RuleName, Status, Trade, TradeBalance,
-    TradingVehicle, TradingVehicleCategory, Transaction, TransactionCategory,
+    MarketSnapshotV2, Order, Rule, RuleLevel, RuleName, Status, Trade, TradeBalance, TradeEvent,
+    TradeEventSeverity, TradeEventSource, TradeEventType, TradingVehicle, TradingVehicleCategory,
+    Transaction, TransactionCategory,
 };
 use rand_core::OsRng;
 use rust_decimal::Decimal;
@@ -787,6 +793,83 @@ impl TrustFacade {
         self.factory
             .trade_read()
             .read_trades_with_status(account_id, status)
+    }
+
+    /// Read a trade by its identifier.
+    pub fn read_trade(&mut self, trade_id: Uuid) -> Result<Trade, Box<dyn std::error::Error>> {
+        self.factory.trade_read().read_trade(trade_id)
+    }
+
+    /// Persist a manually entered catalyst event for a trade.
+    pub fn create_trade_event(
+        &mut self,
+        trade_id: Uuid,
+        event_type: TradeEventType,
+        event_date: chrono::NaiveDate,
+        severity: TradeEventSeverity,
+        notes: Option<String>,
+    ) -> Result<TradeEvent, Box<dyn std::error::Error>> {
+        let trade = self.read_trade(trade_id)?;
+        let now = chrono::Utc::now().naive_utc();
+        let event = TradeEvent {
+            id: Uuid::new_v4(),
+            created_at: now,
+            updated_at: now,
+            deleted_at: None,
+            trade_id,
+            symbol: trade.trading_vehicle.symbol,
+            event_type,
+            event_date,
+            severity,
+            notes,
+            source: TradeEventSource::Manual,
+        };
+
+        self.factory.trade_event_write().create_trade_event(&event)
+    }
+
+    /// Read active catalyst events for a trade.
+    pub fn trade_events_for_trade(
+        &mut self,
+        trade_id: Uuid,
+    ) -> Result<Vec<TradeEvent>, Box<dyn std::error::Error>> {
+        self.read_trade(trade_id)?;
+        self.factory
+            .trade_event_read()
+            .read_trade_events_for_trade(trade_id)
+    }
+
+    /// Scan external calendar catalysts for a trade and persist returned events.
+    pub fn scan_trade_catalysts(
+        &mut self,
+        request: &CatalystScanRequest,
+        credentials: CalendarCredentials,
+    ) -> Result<CatalystScanResult, Box<dyn std::error::Error>> {
+        let scanner = CatalystScanner::new(credentials);
+        let mut writer = self.factory.trade_event_write();
+        Ok(scanner.scan(request, &mut *writer)?)
+    }
+
+    /// Compute broker-bar correlation advisory data for a candidate trade.
+    pub fn correlation_advisory(
+        &mut self,
+        request: &CorrelationRequest,
+        account: &Account,
+        config: CorrelationConfig,
+    ) -> Result<CorrelationAdvisory, Box<dyn std::error::Error>> {
+        let calculator = CorrelationCalculator::new(config)?;
+        Ok(calculator.analyze(request, &*self.broker, account)?)
+    }
+
+    /// Compute broker-bar market-regime advisory data.
+    pub fn regime_advisory(
+        &mut self,
+        request: &RegimeRequest,
+        account: &Account,
+        config: RegimeConfig,
+    ) -> Result<RegimeSnapshot, Box<dyn std::error::Error>> {
+        let filter = RegimeFilter::new(config)?;
+        Ok(filter.evaluate(request, &*self.broker, account)?)
     }
 
     /// Fetch historical market bars from the configured broker market-data API.
@@ -1885,6 +1968,14 @@ impl TrustFacade {
             created_at: chrono::Utc::now().naive_utc(),
         });
         Ok(result)
+    }
+
+    /// Return advisory thresholds for an account, falling back to defaults when unset.
+    pub fn advisory_thresholds(
+        &mut self,
+        account_id: Uuid,
+    ) -> Result<AdvisoryThresholds, Box<dyn std::error::Error>> {
+        self.advisory_thresholds_for_account(account_id)
     }
 
     /// Return current portfolio advisory status.

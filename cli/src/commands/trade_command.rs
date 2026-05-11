@@ -440,6 +440,122 @@ impl TradeCommandBuilder {
         );
         self
     }
+
+    pub fn advisor(mut self) -> Self {
+        self.subcommands.push(
+            Command::new("advisor")
+                .about("Evaluate pre-trade catalyst, correlation, and regime checks")
+                .arg(
+                    Arg::new("trade-id")
+                        .long("trade-id")
+                        .value_name("UUID")
+                        .help("Trade UUID")
+                        .required(true),
+                )
+                .arg(
+                    Arg::new("format")
+                        .long("format")
+                        .value_name("FORMAT")
+                        .help("Output format")
+                        .value_parser(["human", "text", "json"])
+                        .default_value("human"),
+                )
+                .arg(
+                    Arg::new("hold-days")
+                        .long("hold-days")
+                        .value_name("DAYS")
+                        .help("Expected hold window for catalyst checks")
+                        .default_value("30"),
+                )
+                .arg(
+                    Arg::new("hold-through")
+                        .long("hold-through")
+                        .help("Allow high-severity catalysts inside the next three days")
+                        .action(clap::ArgAction::SetTrue),
+                )
+                .arg(
+                    Arg::new("setup")
+                        .long("setup")
+                        .value_name("SETUP")
+                        .help("Setup type for regime permissions")
+                        .value_parser(["breakout", "mean-reversion"])
+                        .default_value("breakout"),
+                )
+                .arg(
+                    Arg::new("breadth-universe")
+                        .long("breadth-universe")
+                        .value_name("SYMBOLS")
+                        .help("Comma-separated symbols for optional breadth analysis"),
+                ),
+        );
+        self
+    }
+
+    pub fn events(mut self) -> Self {
+        self.subcommands.push(
+            Command::new("events")
+                .about("Manage trade catalyst events")
+                .arg_required_else_help(true)
+                .subcommand(
+                    Command::new("add")
+                        .about("Add a manual catalyst event to a trade")
+                        .arg(
+                            Arg::new("trade-id")
+                                .long("trade-id")
+                                .value_name("UUID")
+                                .help("Trade UUID")
+                                .required(true),
+                        )
+                        .arg(
+                            Arg::new("type")
+                                .long("type")
+                                .value_name("TYPE")
+                                .help("Event type: earnings, fed, cpi, nfp, ex-dividend, guidance, other")
+                                .required(true),
+                        )
+                        .arg(
+                            Arg::new("date")
+                                .long("date")
+                                .value_name("YYYY-MM-DD")
+                                .help("Event date")
+                                .required(true),
+                        )
+                        .arg(
+                            Arg::new("severity")
+                                .long("severity")
+                                .value_name("SEVERITY")
+                                .help("Event severity: low, medium, high")
+                                .required(true),
+                        )
+                        .arg(
+                            Arg::new("notes")
+                                .long("notes")
+                                .value_name("TEXT")
+                                .help("Optional event notes"),
+                        ),
+                )
+                .subcommand(
+                    Command::new("list")
+                        .about("List catalyst events for a trade")
+                        .arg(
+                            Arg::new("trade-id")
+                                .long("trade-id")
+                                .value_name("UUID")
+                                .help("Trade UUID")
+                                .required(true),
+                        )
+                        .arg(
+                            Arg::new("format")
+                                .long("format")
+                                .value_name("FORMAT")
+                                .help("Output format")
+                                .value_parser(["human", "text", "json"])
+                                .default_value("human"),
+                        ),
+                ),
+        );
+        self
+    }
 }
 
 #[cfg(test)]
@@ -465,6 +581,8 @@ mod tests {
             .manually_close()
             .size_preview()
             .hypothesis()
+            .advisor()
+            .events()
             .build()
     }
 
@@ -489,6 +607,8 @@ mod tests {
             "manually-close",
             "size-preview",
             "hypothesis",
+            "advisor",
+            "events",
         ] {
             assert!(cmd.get_subcommands().any(|c| c.get_name() == name));
         }
@@ -690,5 +810,73 @@ mod tests {
                 .map(String::as_str),
             Some("json")
         );
+    }
+
+    #[test]
+    fn trade_advisor_and_events_parse_required_fields() {
+        let cmd = TradeCommandBuilder::new().advisor().events().build();
+        let advisor = cmd
+            .clone()
+            .try_get_matches_from([
+                "trade",
+                "advisor",
+                "--trade-id",
+                "00000000-0000-0000-0000-000000000001",
+                "--hold-through",
+                "--setup",
+                "mean-reversion",
+                "--format",
+                "json",
+            ])
+            .expect("trade advisor should parse");
+        let advisor_sub = advisor
+            .subcommand_matches("advisor")
+            .expect("advisor subcommand");
+        assert!(advisor_sub.get_flag("hold-through"));
+        assert_eq!(
+            advisor_sub.get_one::<String>("setup").map(String::as_str),
+            Some("mean-reversion")
+        );
+
+        let add = cmd
+            .clone()
+            .try_get_matches_from([
+                "trade",
+                "events",
+                "add",
+                "--trade-id",
+                "00000000-0000-0000-0000-000000000001",
+                "--type",
+                "Earnings",
+                "--date",
+                "2026-04-24",
+                "--severity",
+                "High",
+            ])
+            .expect("trade events add should parse");
+        let events_sub = add.subcommand_matches("events").expect("events subcommand");
+        let add_sub = events_sub
+            .subcommand_matches("add")
+            .expect("add subcommand");
+        assert_eq!(
+            add_sub.get_one::<String>("type").map(String::as_str),
+            Some("Earnings")
+        );
+
+        let list = cmd
+            .try_get_matches_from([
+                "trade",
+                "events",
+                "list",
+                "--trade-id",
+                "00000000-0000-0000-0000-000000000001",
+                "--format",
+                "json",
+            ])
+            .expect("trade events list should parse");
+        let events_sub = list
+            .subcommand_matches("events")
+            .expect("events subcommand");
+        assert!(events_sub.subcommand_matches("list").is_some());
     }
 }
