@@ -1,7 +1,5 @@
 use crate::contracts::{listing_exchange, sec_type_for_vehicle};
-use crate::parsing::{
-    decimal_field_optional_any, parse_ibkr_datetime, string_field_optional, u64_field_optional_any,
-};
+use crate::parsing::{decimal_field_optional_any, parse_ibkr_datetime, string_field_optional};
 use chrono::Utc;
 use model::{Order, OrderStatus, Status, TimeInForce, Trade, TradeCategory};
 use rust_decimal::Decimal;
@@ -39,7 +37,7 @@ pub(crate) fn build_bracket_orders(
             "side": entry_side(trade.category),
             "ticker": symbol,
             "tif": tif,
-            "quantity": trade.entry.quantity,
+            "quantity": trade.entry.quantity.to_string(),
         }),
         json!({
             "acctId": account_id,
@@ -55,7 +53,7 @@ pub(crate) fn build_bracket_orders(
             "side": exit_side,
             "ticker": symbol,
             "tif": tif_string(trade.target.time_in_force),
-            "quantity": trade.target.quantity,
+            "quantity": trade.target.quantity.to_string(),
             "isClose": true,
         }),
         json!({
@@ -72,7 +70,7 @@ pub(crate) fn build_bracket_orders(
             "side": exit_side,
             "ticker": symbol,
             "tif": tif_string(trade.safety_stop.time_in_force),
-            "quantity": trade.safety_stop.quantity,
+            "quantity": trade.safety_stop.quantity.to_string(),
             "isClose": true,
         }),
     ])
@@ -84,7 +82,7 @@ pub(crate) fn validate_bracket_trade(trade: &Trade) -> Result<(), Box<dyn Error>
         ("target", &trade.target),
         ("safety stop", &trade.safety_stop),
     ] {
-        if order.quantity == 0 {
+        if order.quantity <= Decimal::ZERO {
             return Err(format!("IBKR {label} order quantity must be greater than zero").into());
         }
         if order.unit_price <= Decimal::ZERO {
@@ -112,7 +110,7 @@ pub(crate) fn build_close_order(
         "side": exit_side(trade.category),
         "ticker": trade.trading_vehicle.symbol.to_uppercase(),
         "tif": tif_string(trade.target.time_in_force),
-        "quantity": trade.target.quantity,
+        "quantity": trade.target.quantity.to_string(),
         "isClose": true,
     }))
 }
@@ -144,7 +142,7 @@ pub(crate) fn build_modify_order(
         "side": exit_side(trade.category),
         "ticker": trade.trading_vehicle.symbol.to_uppercase(),
         "tif": tif_string(order.time_in_force),
-        "quantity": order.quantity,
+        "quantity": order.quantity.to_string(),
         "isClose": true,
     }))
 }
@@ -171,7 +169,7 @@ pub(crate) fn map_live_order(base: &Order, live_order: &Value) -> Result<Order, 
     order.status = map_ibkr_order_status(&status_text)?;
 
     if let Some(filled_quantity) =
-        u64_field_optional_any(live_order, &["filledQuantity", "filled_qty"])
+        decimal_field_optional_any(live_order, &["filledQuantity", "filled_qty"])
     {
         order.filled_quantity = filled_quantity;
     }

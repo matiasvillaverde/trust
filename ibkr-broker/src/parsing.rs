@@ -80,6 +80,7 @@ pub(crate) fn u64_field_optional(value: &Value, key: &str) -> Option<u64> {
     u64_from_value(value.get(key))
 }
 
+#[cfg(test)]
 pub(crate) fn u64_field_optional_any(value: &Value, keys: &[&str]) -> Option<u64> {
     keys.iter().find_map(|key| u64_field_optional(value, key))
 }

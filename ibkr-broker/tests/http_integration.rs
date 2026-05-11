@@ -367,9 +367,9 @@ fn trade() -> Trade {
     trade.trading_vehicle.symbol = "AAPL".to_string();
     trade.trading_vehicle.category = TradingVehicleCategory::Stock;
     trade.trading_vehicle.exchange = Some("SMART".to_string());
-    trade.entry.quantity = 10;
-    trade.target.quantity = 10;
-    trade.safety_stop.quantity = 10;
+    trade.entry.quantity = 10.into();
+    trade.target.quantity = 10.into();
+    trade.safety_stop.quantity = 10.into();
     trade.entry.unit_price = dec!(100);
     trade.target.unit_price = dec!(110);
     trade.safety_stop.unit_price = dec!(95);
@@ -532,7 +532,7 @@ fn create_ibkr_test_trade_with_prices(
             DraftTrade {
                 account: account.clone(),
                 trading_vehicle: vehicle,
-                quantity,
+                quantity: quantity.into(),
                 currency: Currency::USD,
                 category: TradeCategory::Long,
                 thesis: Some("IBKR risk e2e".to_string()),

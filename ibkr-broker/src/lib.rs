@@ -424,9 +424,9 @@ mod tests {
         trade.entry.unit_price = dec!(100);
         trade.target.unit_price = dec!(110);
         trade.safety_stop.unit_price = dec!(95);
-        trade.entry.quantity = 10;
-        trade.target.quantity = 10;
-        trade.safety_stop.quantity = 10;
+        trade.entry.quantity = 10.into();
+        trade.target.quantity = 10.into();
+        trade.safety_stop.quantity = 10.into();
         trade.entry.currency = Currency::USD;
         trade.target.currency = Currency::USD;
         trade.safety_stop.currency = Currency::USD;
@@ -704,7 +704,7 @@ mod tests {
         assert_eq!(close.get("cOID"), Some(&json!("manual-close-ref")));
         assert_eq!(close.get("orderType"), Some(&json!("MKT")));
         assert_eq!(close.get("side"), Some(&json!("SELL")));
-        assert_eq!(close.get("quantity"), Some(&json!(10)));
+        assert_eq!(close.get("quantity"), Some(&json!("10")));
 
         let modify_target =
             build_modify_order(&trade, "U1234567", "265598", &trade.target, dec!(111.25))
@@ -726,7 +726,7 @@ mod tests {
     #[test]
     fn validate_bracket_trade_rejects_zero_quantity_and_price() {
         let mut zero_quantity = sample_trade();
-        zero_quantity.entry.quantity = 0;
+        zero_quantity.entry.quantity = 0.into();
         let quantity_error =
             validate_bracket_trade(&zero_quantity).expect_err("zero quantity rejected");
         assert!(quantity_error.to_string().contains("quantity"));
@@ -751,7 +751,7 @@ mod tests {
 
         let mapped = map_live_order(&trade.entry, &live_order).expect("mapped");
         assert_eq!(mapped.status, OrderStatus::Filled);
-        assert_eq!(mapped.filled_quantity, 10);
+        assert_eq!(mapped.filled_quantity, dec!(10));
         assert_eq!(mapped.average_filled_price, Some(dec!(101.25)));
         assert!(mapped.filled_at.is_some());
     }
