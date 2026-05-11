@@ -30,7 +30,10 @@ use crate::dialogs::{
 use crate::dialogs::{RuleDialogBuilder, RuleRemoveDialogBuilder};
 use crate::protected_keyword;
 use crate::trading_vehicle_import;
-use advisor::{AdvisorConfig, AdvisorConfigUpdate, CalendarProvider};
+use advisor::{
+    AdvisorConfig, AdvisorConfigUpdate, CalendarCredentials, CalendarProvider, CatalystScanRequest,
+    CorrelationConfig, CorrelationRequest, PositionHeat, RegimeConfig, RegimeRequest,
+};
 use alpaca_broker::AlpacaBroker;
 use chrono::{DateTime, Datelike, Days, NaiveDate, Utc};
 use clap::ArgMatches;
@@ -47,7 +50,8 @@ use ibkr_broker::IbkrBroker;
 use model::{
     Account, AccountType, BarTimeframe, BrokerKind, Currency, DraftTrade, Environment,
     FixedIncomeTerms, Level, LevelAdjustmentRules, LevelTrigger, MarketDataChannel,
-    MarketSnapshotSource, Status, Trade, TradeCategory, TransactionCategory,
+    MarketSnapshotSource, Status, Trade, TradeCategory, TradeEvent, TradeEventSeverity,
+    TradeEventType, TransactionCategory,
 };
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
@@ -95,6 +99,12 @@ struct TradeHypothesisReport {
     max_gain: Decimal,
     max_gain_pct_of_available: Option<Decimal>,
     risk_reward_ratio: Option<Decimal>,
+}
+
+#[derive(Debug, Clone)]
+struct TradeAdvisorCheck {
+    status: &'static str,
+    payload: Value,
 }
 
 #[derive(Debug)]
@@ -640,6 +650,10 @@ impl ArgDispatcher {
             TradeSubcommand::Hypothesis(sub_sub_matches) => {
                 self.trade_hypothesis(sub_sub_matches, Self::parse_report_format(sub_sub_matches))?
             }
+            TradeSubcommand::Advisor(sub_sub_matches) => {
+                self.trade_advisor(sub_sub_matches, Self::parse_report_format(sub_sub_matches))?
+            }
+            TradeSubcommand::Events(sub_sub_matches) => self.trade_events(sub_sub_matches)?,
         }
         Ok(())
     }
@@ -3991,6 +4005,563 @@ impl ArgDispatcher {
                 "risk_reward_ratio": report.risk_reward_ratio.map(Self::decimal_string),
             }
         })
+    }
+
+    fn trade_advisor(
+        &mut self,
+        sub_matches: &ArgMatches,
+        format: ReportOutputFormat,
+    ) -> Result<(), CliError> {
+        let trade_id = Self::parse_uuid_arg(sub_matches, "trade-id", format)?;
+        let hold_days = Self::parse_hold_days(sub_matches, format)?;
+        let hold_through = sub_matches.get_flag("hold-through");
+        let setup = sub_matches
+            .get_one::<String>("setup")
+            .map(String::as_str)
+            .unwrap_or("breakout");
+        let today = Utc::now().date_naive();
+        let end_date = today
+            .checked_add_days(Days::new(hold_days))
+            .ok_or_else(|| {
+                Self::report_error(format, "invalid_hold_days", "--hold-days is too large")
+            })?;
+
+        let trade = self.trust.read_trade(trade_id).map_err(|error| {
+            Self::report_error(
+                format,
+                "trade_not_found",
+                format!("Trade {trade_id} not found: {error}"),
+            )
+        })?;
+        let account = self.account_by_id(trade.account_id, format)?;
+        let catalyst_scan_warning = self.scan_trade_catalysts(&trade, today, end_date);
+        let events = self
+            .trust
+            .trade_events_for_trade(trade.id)
+            .map_err(|error| {
+                Self::report_error(
+                    format,
+                    "trade_events_unavailable",
+                    format!("Failed to load trade events: {error}"),
+                )
+            })?;
+
+        let catalyst = Self::trade_advisor_catalyst_check(
+            &events,
+            today,
+            hold_days,
+            hold_through,
+            catalyst_scan_warning,
+        );
+        let correlation = self.trade_advisor_correlation_check(&trade, &account);
+        let regime = self.trade_advisor_regime_check(&trade, &account, setup, sub_matches);
+        let verdict = Self::trade_advisor_verdict(&[&catalyst, &correlation, &regime]);
+
+        match format {
+            ReportOutputFormat::Text => {
+                println!("Trade advisor");
+                println!("Trade: {} {}", trade.id, trade.trading_vehicle.symbol);
+                println!("Verdict: {verdict}");
+                println!("Catalyst: {}", catalyst.status);
+                println!("Correlation: {}", correlation.status);
+                println!("Regime: {}", regime.status);
+            }
+            ReportOutputFormat::Json => {
+                let payload = json!({
+                    "trade_id": trade.id.to_string(),
+                    "verdict": verdict,
+                    "catalyst": catalyst.payload,
+                    "correlation": correlation.payload,
+                    "regime": regime.payload,
+                });
+                Self::print_json(&payload)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn trade_events(&mut self, sub_matches: &ArgMatches) -> Result<(), CliError> {
+        match sub_matches.subcommand() {
+            Some(("add", add_matches)) => self.trade_events_add(add_matches),
+            Some(("list", list_matches)) => {
+                self.trade_events_list(list_matches, Self::parse_report_format(list_matches))
+            }
+            _ => unreachable!("No trade events subcommand provided"),
+        }
+    }
+
+    fn trade_events_add(&mut self, sub_matches: &ArgMatches) -> Result<(), CliError> {
+        let format = ReportOutputFormat::Text;
+        let trade_id = Self::parse_uuid_arg(sub_matches, "trade-id", format)?;
+        let event_type = Self::parse_trade_event_type(sub_matches, format)?;
+        let event_date = Self::parse_date_arg(sub_matches, "date", format)?;
+        let severity = Self::parse_trade_event_severity(sub_matches, format)?;
+        let notes = sub_matches.get_one::<String>("notes").cloned();
+
+        let event = self
+            .trust
+            .create_trade_event(trade_id, event_type, event_date, severity, notes)
+            .map_err(|error| {
+                Self::report_error(
+                    format,
+                    "trade_event_create_failed",
+                    format!("Failed to add trade event: {error}"),
+                )
+            })?;
+
+        println!("Trade event added: {}", event.id);
+        println!(
+            "{} {} {} {}",
+            event.symbol,
+            Self::trade_event_type_label(event.event_type),
+            event.event_date,
+            Self::trade_event_severity_label(event.severity)
+        );
+        Ok(())
+    }
+
+    fn trade_events_list(
+        &mut self,
+        sub_matches: &ArgMatches,
+        format: ReportOutputFormat,
+    ) -> Result<(), CliError> {
+        let trade_id = Self::parse_uuid_arg(sub_matches, "trade-id", format)?;
+        let events = self
+            .trust
+            .trade_events_for_trade(trade_id)
+            .map_err(|error| {
+                Self::report_error(
+                    format,
+                    "trade_events_unavailable",
+                    format!("Failed to load trade events: {error}"),
+                )
+            })?;
+        let today = Utc::now().date_naive();
+
+        match format {
+            ReportOutputFormat::Text => {
+                println!("Trade events: {}", events.len());
+                for event in &events {
+                    println!(
+                        "{} {} {} {} {}",
+                        event.id,
+                        event.symbol,
+                        Self::trade_event_type_label(event.event_type),
+                        event.event_date,
+                        Self::trade_event_severity_label(event.severity)
+                    );
+                }
+            }
+            ReportOutputFormat::Json => {
+                let payload = json!({
+                    "trade_id": trade_id.to_string(),
+                    "events": events
+                        .iter()
+                        .map(|event| Self::trade_event_payload(event, today))
+                        .collect::<Vec<Value>>(),
+                });
+                Self::print_json(&payload)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn scan_trade_catalysts(
+        &mut self,
+        trade: &Trade,
+        start_date: NaiveDate,
+        end_date: NaiveDate,
+    ) -> Option<String> {
+        let credentials = match CalendarCredentials::read() {
+            Ok(credentials) => credentials,
+            Err(error) => return Some(format!("calendar credentials unavailable: {error}")),
+        };
+        let request = CatalystScanRequest::new(
+            trade.id,
+            trade.trading_vehicle.symbol.clone(),
+            start_date,
+            end_date,
+        );
+        match self.trust.scan_trade_catalysts(&request, credentials) {
+            Ok(result) => result.warning,
+            Err(error) => Some(format!("calendar scan failed: {error}")),
+        }
+    }
+
+    fn trade_advisor_catalyst_check(
+        events: &[TradeEvent],
+        today: NaiveDate,
+        hold_days: u64,
+        hold_through: bool,
+        scan_warning: Option<String>,
+    ) -> TradeAdvisorCheck {
+        let mut blocked = false;
+        let mut warning = false;
+        for event in events {
+            let days_away = event.event_date.signed_duration_since(today).num_days();
+            let in_hold_window =
+                days_away >= 0 && u64::try_from(days_away).is_ok_and(|days| days <= hold_days);
+            if !in_hold_window {
+                continue;
+            }
+            match event.severity {
+                TradeEventSeverity::High if days_away <= 3 && !hold_through => blocked = true,
+                TradeEventSeverity::High | TradeEventSeverity::Medium => warning = true,
+                TradeEventSeverity::Low => {}
+            }
+        }
+
+        let status = if blocked {
+            "BLOCKED"
+        } else if warning {
+            "WARNING"
+        } else if scan_warning.is_some() {
+            "SKIPPED"
+        } else {
+            "OK"
+        };
+
+        TradeAdvisorCheck {
+            status,
+            payload: json!({
+                "events": events
+                    .iter()
+                    .map(|event| Self::trade_event_payload(event, today))
+                    .collect::<Vec<Value>>(),
+                "status": status,
+                "warning": scan_warning,
+            }),
+        }
+    }
+
+    fn trade_advisor_correlation_check(
+        &mut self,
+        trade: &Trade,
+        account: &Account,
+    ) -> TradeAdvisorCheck {
+        let account_balance = match self.trust.search_balance(account.id, &trade.currency) {
+            Ok(balance) => balance.total_balance,
+            Err(error) => {
+                return Self::skipped_advisor_check(
+                    "correlation",
+                    format!("account balance unavailable: {error}"),
+                );
+            }
+        };
+        let mut open_trades = Self::open_trades_for_scope(&mut self.trust, Some(account.id));
+        open_trades.retain(|open_trade| open_trade.id != trade.id);
+        let portfolio_symbols = Self::unique_trade_symbols(&open_trades);
+        let mut heat = open_trades
+            .iter()
+            .map(|open_trade| {
+                PositionHeat::new(
+                    open_trade.trading_vehicle.symbol.clone(),
+                    Self::trade_risk_heat_pct(open_trade, account_balance),
+                )
+            })
+            .collect::<Vec<PositionHeat>>();
+        heat.push(PositionHeat::new(
+            trade.trading_vehicle.symbol.clone(),
+            Self::trade_risk_heat_pct(trade, account_balance),
+        ));
+
+        let request =
+            CorrelationRequest::new(trade.trading_vehicle.symbol.clone(), portfolio_symbols)
+                .with_position_heat(heat);
+        let advisory =
+            match self
+                .trust
+                .correlation_advisory(&request, account, CorrelationConfig::default())
+            {
+                Ok(advisory) => advisory,
+                Err(error) => {
+                    return Self::skipped_advisor_check(
+                        "correlation",
+                        format!("correlation data unavailable: {error}"),
+                    );
+                }
+            };
+        let risk_cap = self
+            .trust
+            .advisory_thresholds(account.id)
+            .map(|thresholds| thresholds.single_position_limit_pct)
+            .unwrap_or_else(|_| AdvisoryThresholds::default().single_position_limit_pct);
+        let status = if advisory.heat_adjusted_pct > risk_cap {
+            "BLOCKED"
+        } else if advisory.max_corr > dec!(0.70) {
+            "WARNING"
+        } else {
+            "OK"
+        };
+
+        TradeAdvisorCheck {
+            status,
+            payload: json!({
+                "max_corr": Self::decimal_string(advisory.max_corr),
+                "corr_with": advisory.corr_with,
+                "cluster": advisory.cluster,
+                "heat_adjusted_pct": Self::decimal_string(advisory.heat_adjusted_pct),
+                "status": status,
+            }),
+        }
+    }
+
+    fn trade_advisor_regime_check(
+        &mut self,
+        _trade: &Trade,
+        account: &Account,
+        setup: &str,
+        sub_matches: &ArgMatches,
+    ) -> TradeAdvisorCheck {
+        let breadth_universe =
+            Self::parse_optional_symbol_list(sub_matches.get_one::<String>("breadth-universe"));
+        let request = RegimeRequest::default().with_breadth_universe(breadth_universe);
+        let snapshot = match self
+            .trust
+            .regime_advisory(&request, account, RegimeConfig::default())
+        {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                return Self::skipped_advisor_check(
+                    "regime",
+                    format!("regime data unavailable: {error}"),
+                );
+            }
+        };
+        let permitted = match setup {
+            "mean-reversion" => snapshot.mean_reversion_permitted,
+            _ => snapshot.breakouts_permitted,
+        };
+        let status = if permitted { "OK" } else { "BLOCKED" };
+
+        TradeAdvisorCheck {
+            status,
+            payload: json!({
+                "vol": Self::vol_regime_label(snapshot.vol_regime),
+                "trend": Self::trend_regime_label(snapshot.trend_regime),
+                "breadth": snapshot.breadth_regime.map(Self::breadth_regime_label),
+                "composite": Self::composite_regime_label(snapshot.composite),
+                "breakouts_permitted": snapshot.breakouts_permitted,
+                "status": status,
+            }),
+        }
+    }
+
+    fn skipped_advisor_check(kind: &'static str, warning: String) -> TradeAdvisorCheck {
+        let payload = match kind {
+            "correlation" => json!({
+                "max_corr": null,
+                "corr_with": null,
+                "cluster": null,
+                "heat_adjusted_pct": null,
+                "status": "SKIPPED",
+                "warning": warning,
+            }),
+            "regime" => json!({
+                "vol": null,
+                "trend": null,
+                "breadth": null,
+                "composite": null,
+                "breakouts_permitted": null,
+                "status": "SKIPPED",
+                "warning": warning,
+            }),
+            _ => json!({
+                "status": "SKIPPED",
+                "warning": warning,
+            }),
+        };
+        TradeAdvisorCheck {
+            status: "SKIPPED",
+            payload,
+        }
+    }
+
+    fn trade_advisor_verdict(checks: &[&TradeAdvisorCheck]) -> &'static str {
+        if checks.iter().any(|check| check.status == "BLOCKED") {
+            return "NO_TRADE";
+        }
+        if checks.iter().any(|check| check.status == "WARNING") {
+            return "CAUTION";
+        }
+        "PROCEED"
+    }
+
+    fn trade_event_payload(event: &TradeEvent, today: NaiveDate) -> Value {
+        json!({
+            "id": event.id.to_string(),
+            "trade_id": event.trade_id.to_string(),
+            "symbol": event.symbol,
+            "type": Self::trade_event_type_label(event.event_type),
+            "date": event.event_date.to_string(),
+            "severity": Self::trade_event_severity_label(event.severity),
+            "source": event.source.to_string(),
+            "notes": event.notes,
+            "days_away": event.event_date.signed_duration_since(today).num_days(),
+        })
+    }
+
+    fn parse_hold_days(
+        sub_matches: &ArgMatches,
+        format: ReportOutputFormat,
+    ) -> Result<u64, CliError> {
+        let raw = sub_matches
+            .get_one::<String>("hold-days")
+            .map(String::as_str)
+            .unwrap_or("30");
+        raw.parse::<u64>().map_err(|_| {
+            Self::report_error(
+                format,
+                "invalid_hold_days",
+                format!("Invalid --hold-days value: {raw}"),
+            )
+        })
+    }
+
+    fn parse_date_arg(
+        sub_matches: &ArgMatches,
+        key: &'static str,
+        format: ReportOutputFormat,
+    ) -> Result<NaiveDate, CliError> {
+        let raw = sub_matches.get_one::<String>(key).ok_or_else(|| {
+            Self::report_error(
+                format,
+                "missing_argument",
+                format!("Missing argument --{key}"),
+            )
+        })?;
+        NaiveDate::parse_from_str(raw, "%Y-%m-%d").map_err(|_| {
+            Self::report_error(
+                format,
+                "invalid_date",
+                format!("Invalid --{key} date: {raw}. Use YYYY-MM-DD."),
+            )
+        })
+    }
+
+    fn parse_trade_event_type(
+        sub_matches: &ArgMatches,
+        format: ReportOutputFormat,
+    ) -> Result<TradeEventType, CliError> {
+        let raw = sub_matches.get_one::<String>("type").ok_or_else(|| {
+            Self::report_error(format, "missing_argument", "Missing argument --type")
+        })?;
+        TradeEventType::from_str(raw).map_err(|_| {
+            Self::report_error(
+                format,
+                "invalid_trade_event_type",
+                format!("Invalid --type value: {raw}"),
+            )
+        })
+    }
+
+    fn parse_trade_event_severity(
+        sub_matches: &ArgMatches,
+        format: ReportOutputFormat,
+    ) -> Result<TradeEventSeverity, CliError> {
+        let raw = sub_matches.get_one::<String>("severity").ok_or_else(|| {
+            Self::report_error(format, "missing_argument", "Missing argument --severity")
+        })?;
+        TradeEventSeverity::from_str(raw).map_err(|_| {
+            Self::report_error(
+                format,
+                "invalid_trade_event_severity",
+                format!("Invalid --severity value: {raw}"),
+            )
+        })
+    }
+
+    fn unique_trade_symbols(trades: &[Trade]) -> Vec<String> {
+        let mut symbols = trades
+            .iter()
+            .map(|trade| trade.trading_vehicle.symbol.clone())
+            .collect::<Vec<String>>();
+        symbols.sort();
+        symbols.dedup();
+        symbols
+    }
+
+    fn trade_risk_heat_pct(trade: &Trade, account_balance: Decimal) -> Decimal {
+        if account_balance <= Decimal::ZERO {
+            return Decimal::ZERO;
+        }
+        let risk_per_share = trade
+            .entry
+            .unit_price
+            .checked_sub(trade.safety_stop.unit_price)
+            .map(|value| value.abs())
+            .unwrap_or(Decimal::ZERO);
+        risk_per_share
+            .checked_mul(Decimal::from(trade.entry.quantity))
+            .and_then(|risk| risk.checked_mul(dec!(100)))
+            .and_then(|risk_pct| risk_pct.checked_div(account_balance))
+            .unwrap_or(Decimal::ZERO)
+    }
+
+    fn parse_optional_symbol_list(raw: Option<&String>) -> Vec<String> {
+        raw.map(|symbols| {
+            symbols
+                .split(',')
+                .map(str::trim)
+                .filter(|symbol| !symbol.is_empty())
+                .map(str::to_ascii_uppercase)
+                .collect::<Vec<String>>()
+        })
+        .unwrap_or_default()
+    }
+
+    fn trade_event_type_label(event_type: TradeEventType) -> &'static str {
+        match event_type {
+            TradeEventType::Earnings => "Earnings",
+            TradeEventType::Fed => "Fed",
+            TradeEventType::Cpi => "CPI",
+            TradeEventType::Nfp => "NFP",
+            TradeEventType::ExDividend => "ExDividend",
+            TradeEventType::Guidance => "Guidance",
+            TradeEventType::Other => "Other",
+        }
+    }
+
+    fn trade_event_severity_label(severity: TradeEventSeverity) -> &'static str {
+        match severity {
+            TradeEventSeverity::Low => "Low",
+            TradeEventSeverity::Medium => "Medium",
+            TradeEventSeverity::High => "High",
+        }
+    }
+
+    fn vol_regime_label(regime: advisor::VolRegime) -> &'static str {
+        match regime {
+            advisor::VolRegime::Calm => "Calm",
+            advisor::VolRegime::Normal => "Normal",
+            advisor::VolRegime::Elevated => "Elevated",
+        }
+    }
+
+    fn trend_regime_label(regime: advisor::TrendRegime) -> &'static str {
+        match regime {
+            advisor::TrendRegime::Choppy => "Choppy",
+            advisor::TrendRegime::Trending => "Trending",
+            advisor::TrendRegime::StrongTrend => "StrongTrend",
+        }
+    }
+
+    fn breadth_regime_label(regime: advisor::BreadthRegime) -> &'static str {
+        match regime {
+            advisor::BreadthRegime::Broad => "Broad",
+            advisor::BreadthRegime::Narrow => "Narrow",
+        }
+    }
+
+    fn composite_regime_label(regime: advisor::CompositeRegime) -> &'static str {
+        match regime {
+            advisor::CompositeRegime::CalmTrending => "Calm",
+            advisor::CompositeRegime::NormalTrending => "Normal",
+            advisor::CompositeRegime::ElevatedTrending => "Elevated",
+            advisor::CompositeRegime::Choppy => "Choppy",
+            advisor::CompositeRegime::ElevatedChoppy => "ElevatedChoppy",
+            advisor::CompositeRegime::NarrowBreadth => "NarrowBreadth",
+        }
     }
 
     #[allow(clippy::too_many_lines)]
@@ -8137,6 +8708,7 @@ mod tests {
     use super::BondInventoryStats;
     use super::CliError;
     use super::ReportOutputFormat;
+    use super::TradeAdvisorCheck;
     use super::TradeHypothesisArgs;
     use super::TradeHypothesisReport;
     use super::TradePreviewArgs;
@@ -8149,7 +8721,7 @@ mod tests {
         TradingVehicleCommandBuilder, TransactionCommandBuilder,
     };
     use alpaca_broker::AlpacaBroker;
-    use chrono::NaiveDate;
+    use chrono::{Days, NaiveDate};
     use chrono::{TimeZone, Utc};
     use clap::{Arg, Command};
     use core::calculators_concentration::{ConcentrationGroup, ConcentrationWarning, WarningLevel};
@@ -8168,6 +8740,7 @@ mod tests {
     };
     use rust_decimal::Decimal;
     use rust_decimal_macros::dec;
+    use serde_json::json;
     use std::error::Error;
     use uuid::Uuid;
 
@@ -8472,6 +9045,27 @@ mod tests {
             .arg(Arg::new("sector").long("sector"))
             .arg(Arg::new("asset-class").long("asset-class"))
             .arg(Arg::new("context").long("context"))
+            .get_matches_from(argv)
+    }
+
+    fn trade_event_add_matches(args: &[&str]) -> clap::ArgMatches {
+        let mut argv: Vec<&str> = vec!["test"];
+        argv.extend_from_slice(args);
+        Command::new("test")
+            .arg(Arg::new("trade-id").long("trade-id"))
+            .arg(Arg::new("type").long("type"))
+            .arg(Arg::new("date").long("date"))
+            .arg(Arg::new("severity").long("severity"))
+            .arg(Arg::new("notes").long("notes"))
+            .get_matches_from(argv)
+    }
+
+    fn trade_event_list_matches(args: &[&str]) -> clap::ArgMatches {
+        let mut argv: Vec<&str> = vec!["test"];
+        argv.extend_from_slice(args);
+        Command::new("test")
+            .arg(Arg::new("trade-id").long("trade-id"))
+            .arg(Arg::new("format").long("format"))
             .get_matches_from(argv)
     }
 
@@ -15953,6 +16547,108 @@ mod tests {
         assert!(zero_error
             .to_string()
             .contains("Quantity must be greater than 0"));
+    }
+
+    #[test]
+    fn test_trade_events_add_persists_and_list_json_path_runs() {
+        let mut dispatcher = test_dispatcher();
+        let (_account, trade) = seed_new_trade(&mut dispatcher);
+        let event_date = Utc::now()
+            .date_naive()
+            .checked_add_days(Days::new(14))
+            .expect("event date");
+        let trade_id = trade.id.to_string();
+        let date = event_date.to_string();
+        let add_matches = trade_event_add_matches(&[
+            "--trade-id",
+            &trade_id,
+            "--type",
+            "Earnings",
+            "--date",
+            &date,
+            "--severity",
+            "High",
+            "--notes",
+            "post-close earnings",
+        ]);
+
+        dispatcher
+            .trade_events_add(&add_matches)
+            .expect("event add should succeed");
+
+        let events = dispatcher
+            .trust
+            .trade_events_for_trade(trade.id)
+            .expect("events should be persisted");
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_type, model::TradeEventType::Earnings);
+        assert_eq!(events[0].severity, model::TradeEventSeverity::High);
+        assert_eq!(events[0].notes.as_deref(), Some("post-close earnings"));
+
+        let list_matches = trade_event_list_matches(&["--trade-id", &trade_id, "--format", "json"]);
+        dispatcher
+            .trade_events_list(&list_matches, ReportOutputFormat::Json)
+            .expect("event list JSON should succeed");
+    }
+
+    #[test]
+    fn test_trade_advisor_json_contract_and_verdict_logic_for_high_catalyst() {
+        let mut dispatcher = test_dispatcher();
+        let (_account, trade) = seed_new_trade(&mut dispatcher);
+        let today = Utc::now().date_naive();
+        let event_date = today.checked_add_days(Days::new(2)).expect("event date");
+        let _event = dispatcher
+            .trust
+            .create_trade_event(
+                trade.id,
+                model::TradeEventType::Earnings,
+                event_date,
+                model::TradeEventSeverity::High,
+                None,
+            )
+            .expect("seed event");
+        let events = dispatcher
+            .trust
+            .trade_events_for_trade(trade.id)
+            .expect("read events");
+
+        let catalyst = ArgDispatcher::trade_advisor_catalyst_check(&events, today, 30, false, None);
+        let correlation = TradeAdvisorCheck {
+            status: "OK",
+            payload: json!({
+                "max_corr": "0.12",
+                "corr_with": "MSFT",
+                "cluster": null,
+                "heat_adjusted_pct": "1.5",
+                "status": "OK",
+            }),
+        };
+        let regime = TradeAdvisorCheck {
+            status: "OK",
+            payload: json!({
+                "vol": "Normal",
+                "trend": "Trending",
+                "breadth": null,
+                "composite": "Normal",
+                "breakouts_permitted": true,
+                "status": "OK",
+            }),
+        };
+        let verdict = ArgDispatcher::trade_advisor_verdict(&[&catalyst, &correlation, &regime]);
+        let payload = json!({
+            "trade_id": trade.id.to_string(),
+            "verdict": verdict,
+            "catalyst": catalyst.payload,
+            "correlation": correlation.payload,
+            "regime": regime.payload,
+        });
+
+        assert_eq!(payload["verdict"], "NO_TRADE");
+        assert_eq!(payload["catalyst"]["status"], "BLOCKED");
+        assert_eq!(payload["catalyst"]["events"][0]["type"], "Earnings");
+        assert_eq!(payload["catalyst"]["events"][0]["severity"], "High");
+        assert_eq!(payload["correlation"]["status"], "OK");
+        assert_eq!(payload["regime"]["composite"], "Normal");
     }
 
     #[test]

@@ -126,6 +126,8 @@ fn build_cli() -> Command {
                 .reconcile()
                 .size_preview()
                 .hypothesis()
+                .advisor()
+                .events()
                 .build(),
         )
         .subcommand(

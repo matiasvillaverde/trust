@@ -77,6 +77,8 @@ pub enum TradeSubcommand<'a> {
     ModifyTarget,
     SizePreview(&'a ArgMatches),
     Hypothesis(&'a ArgMatches),
+    Advisor(&'a ArgMatches),
+    Events(&'a ArgMatches),
 }
 
 pub enum DistributionSubcommand<'a> {
@@ -251,6 +253,8 @@ pub fn parse_trade_subcommand(sub_matches: &ArgMatches) -> TradeSubcommand<'_> {
         Some(("modify-target", _)) => TradeSubcommand::ModifyTarget,
         Some(("size-preview", sub_sub_matches)) => TradeSubcommand::SizePreview(sub_sub_matches),
         Some(("hypothesis", sub_sub_matches)) => TradeSubcommand::Hypothesis(sub_sub_matches),
+        Some(("advisor", sub_sub_matches)) => TradeSubcommand::Advisor(sub_sub_matches),
+        Some(("events", sub_sub_matches)) => TradeSubcommand::Events(sub_sub_matches),
         _ => unreachable!("No subcommand provided"),
     }
 }
@@ -529,6 +533,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn parse_db_and_trade_cover_second_variants() {
         let app = Command::new("trust").subcommand(
             Command::new("db")
@@ -557,7 +562,9 @@ mod tests {
                 .subcommand(Command::new("modify-stop"))
                 .subcommand(Command::new("modify-target"))
                 .subcommand(Command::new("size-preview"))
-                .subcommand(Command::new("hypothesis")),
+                .subcommand(Command::new("hypothesis"))
+                .subcommand(Command::new("advisor"))
+                .subcommand(Command::new("events")),
         );
         let trade_variants = [
             ("create", "Create"),
@@ -577,6 +584,8 @@ mod tests {
             ("modify-target", "ModifyTarget"),
             ("size-preview", "SizePreview"),
             ("hypothesis", "Hypothesis"),
+            ("advisor", "Advisor"),
+            ("events", "Events"),
         ];
         for (sub, expected) in trade_variants {
             let m = trade_app.clone().get_matches_from(["trust", "trade", sub]);
@@ -600,6 +609,8 @@ mod tests {
                 TradeSubcommand::ModifyTarget => "ModifyTarget",
                 TradeSubcommand::SizePreview(_) => "SizePreview",
                 TradeSubcommand::Hypothesis(_) => "Hypothesis",
+                TradeSubcommand::Advisor(_) => "Advisor",
+                TradeSubcommand::Events(_) => "Events",
             };
             assert_eq!(got, expected);
         }
