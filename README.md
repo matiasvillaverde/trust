@@ -6,6 +6,15 @@ Trust is a comprehensive algorithmic trading system written in Rust that enforce
 
 📚 **Full Documentation**: https://deepwiki.com/matiasvillaverde/trust
 
+## Project Documentation
+
+Local documentation lives in [`docs/`](docs/README.md):
+
+- [Getting Started](docs/getting-started.md)
+- [Architecture](docs/architecture.md)
+- [CLI Reference](docs/cli-reference.md)
+- [Core Concepts](docs/core-concepts.md)
+
 ## What Trust Does
 
 Trust solves a critical problem in algorithmic trading: **enforcing risk management rules automatically**. Many traders struggle with discipline when it comes to position sizing and risk limits. Trust addresses this by:
