@@ -100,6 +100,7 @@ pub enum ReportSubcommand<'a> {
     Attribution(&'a ArgMatches),
     Benchmark(&'a ArgMatches),
     Timeline(&'a ArgMatches),
+    BiasSummary(&'a ArgMatches),
 }
 
 pub enum MarketDataSubcommand<'a> {
@@ -292,6 +293,7 @@ pub fn parse_report_subcommand(sub_matches: &ArgMatches) -> ReportSubcommand<'_>
         Some(("attribution", sub_sub_matches)) => ReportSubcommand::Attribution(sub_sub_matches),
         Some(("benchmark", sub_sub_matches)) => ReportSubcommand::Benchmark(sub_sub_matches),
         Some(("timeline", sub_sub_matches)) => ReportSubcommand::Timeline(sub_sub_matches),
+        Some(("bias-summary", sub_sub_matches)) => ReportSubcommand::BiasSummary(sub_sub_matches),
         _ => unreachable!("No subcommand provided"),
     }
 }
@@ -786,7 +788,8 @@ mod tests {
                 .subcommand(Command::new("metrics"))
                 .subcommand(Command::new("attribution"))
                 .subcommand(Command::new("benchmark"))
-                .subcommand(Command::new("timeline")),
+                .subcommand(Command::new("timeline"))
+                .subcommand(Command::new("bias-summary")),
         );
         for (sub, expected) in [
             ("drawdown", "drawdown"),
@@ -798,6 +801,7 @@ mod tests {
             ("attribution", "attribution"),
             ("benchmark", "benchmark"),
             ("timeline", "timeline"),
+            ("bias-summary", "bias-summary"),
         ] {
             let m = report.clone().get_matches_from(["trust", "report", sub]);
             let (_, sm) = m.subcommand().expect("expected report");
@@ -811,6 +815,7 @@ mod tests {
                 ReportSubcommand::Attribution(_) => "attribution",
                 ReportSubcommand::Benchmark(_) => "benchmark",
                 ReportSubcommand::Timeline(_) => "timeline",
+                ReportSubcommand::BiasSummary(_) => "bias-summary",
             };
             assert_eq!(got, expected);
         }

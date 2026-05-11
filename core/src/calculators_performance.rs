@@ -4,8 +4,10 @@
 //! metrics using precise decimal arithmetic for financial safety.
 
 use model::trade::{Status, Trade};
+use model::{Mistake, MistakeErrorType};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
+use std::collections::BTreeMap;
 
 /// Error types for performance calculations
 #[derive(Debug, PartialEq)]
@@ -41,9 +43,87 @@ pub struct PerformanceStats {
     pub worst_trade: Option<Decimal>,
 }
 
+/// Aggregated post-trade bias pattern summary for a fixed lookback window.
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct BiasAggregation {
+    /// Number of days included in the lookback window.
+    pub window_days: i32,
+    /// Number of mistake records included in the aggregation.
+    pub total_mistakes: i32,
+    /// Most frequently observed Munger tendency as `(tendency_number, count)`.
+    pub most_frequent_tendency: Option<(i32, i32)>,
+    /// Number of mistake records flagged as lollapaloozas.
+    pub lollapalooza_count: i32,
+    /// Number of omission mistake records.
+    pub omission_count: i32,
+    /// Number of commission mistake records.
+    pub commission_count: i32,
+    /// Whether lollapalooza frequency warrants standing down.
+    pub standdown_recommended: bool,
+    /// Whether one tendency appears in more than half of mistake records.
+    pub mechanical_antidote_needed: bool,
+}
+
 /// Calculator for trading performance metrics and statistics
 #[derive(Debug)]
 pub struct PerformanceCalculator;
+
+/// Calculator for aggregating post-trade mistake bias tendencies.
+#[derive(Debug)]
+pub struct BiasAggregationCalculator;
+
+impl BiasAggregationCalculator {
+    /// Aggregate mistake records into a bias summary for the provided window length.
+    pub fn calculate(mistakes: &[Mistake], window_days: i32) -> BiasAggregation {
+        let total_mistakes = Self::count_as_i32(mistakes.len());
+        let mut tendency_counts: BTreeMap<i32, i32> = BTreeMap::new();
+        let mut lollapalooza_count = 0_i32;
+        let mut omission_count = 0_i32;
+        let mut commission_count = 0_i32;
+
+        for mistake in mistakes {
+            for tendency in &mistake.bias_tags {
+                let number = i32::from(tendency.number());
+                let count = tendency_counts.entry(number).or_insert(0);
+                *count = count.saturating_add(1);
+            }
+
+            if mistake.lollapalooza {
+                lollapalooza_count = lollapalooza_count.saturating_add(1);
+            }
+
+            match mistake.error_type {
+                MistakeErrorType::Omission => omission_count = omission_count.saturating_add(1),
+                MistakeErrorType::Commission => {
+                    commission_count = commission_count.saturating_add(1);
+                }
+            }
+        }
+
+        let most_frequent_tendency = tendency_counts
+            .into_iter()
+            .max_by(|left, right| left.1.cmp(&right.1).then_with(|| right.0.cmp(&left.0)));
+        let mechanical_antidote_needed = most_frequent_tendency
+            .map(|(_, count)| count.saturating_mul(2) > total_mistakes)
+            .unwrap_or(false);
+        let standdown_recommended = lollapalooza_count >= 2;
+
+        BiasAggregation {
+            window_days,
+            total_mistakes,
+            most_frequent_tendency,
+            lollapalooza_count,
+            omission_count,
+            commission_count,
+            standdown_recommended,
+            mechanical_antidote_needed,
+        }
+    }
+
+    fn count_as_i32(count: usize) -> i32 {
+        i32::try_from(count).unwrap_or(i32::MAX)
+    }
+}
 
 impl PerformanceCalculator {
     /// Calculate win rate as percentage (0.0 to 100.0)
@@ -249,6 +329,27 @@ mod tests {
     use super::*;
     use model::trade::Trade;
 
+    fn create_test_mistake(
+        bias_tags: Vec<model::MungerTendency>,
+        lollapalooza: bool,
+        error_type: MistakeErrorType,
+    ) -> Mistake {
+        let now = chrono::Utc::now().naive_utc();
+        Mistake {
+            id: uuid::Uuid::new_v4(),
+            created_at: now,
+            updated_at: now,
+            deleted_at: None,
+            trade_id: uuid::Uuid::new_v4(),
+            bias_tags,
+            lollapalooza,
+            error_type,
+            rule_violated: None,
+            counterfactual_r: Decimal::ZERO,
+            lesson: "lesson".to_string(),
+        }
+    }
+
     fn create_test_trade(
         entry_price: Decimal,
         stop_price: Decimal,
@@ -284,6 +385,90 @@ mod tests {
         trade.balance.total_performance = performance;
         trade.category = category;
         trade
+    }
+
+    #[test]
+    fn test_bias_aggregation_counts_tendencies_and_thresholds() {
+        let mistakes = vec![
+            create_test_mistake(
+                vec![
+                    model::MungerTendency::DeprivalSuperreaction,
+                    model::MungerTendency::SocialProof,
+                ],
+                false,
+                MistakeErrorType::Commission,
+            ),
+            create_test_mistake(
+                vec![model::MungerTendency::DeprivalSuperreaction],
+                false,
+                MistakeErrorType::Omission,
+            ),
+            create_test_mistake(
+                vec![
+                    model::MungerTendency::DeprivalSuperreaction,
+                    model::MungerTendency::Lollapalooza,
+                ],
+                true,
+                MistakeErrorType::Commission,
+            ),
+            create_test_mistake(
+                vec![
+                    model::MungerTendency::InconsistencyAvoidance,
+                    model::MungerTendency::Lollapalooza,
+                ],
+                true,
+                MistakeErrorType::Omission,
+            ),
+            create_test_mistake(
+                vec![model::MungerTendency::Overoptimism],
+                false,
+                MistakeErrorType::Commission,
+            ),
+        ];
+
+        let aggregation = BiasAggregationCalculator::calculate(&mistakes, 7);
+
+        assert_eq!(aggregation.window_days, 7);
+        assert_eq!(aggregation.total_mistakes, 5);
+        assert_eq!(aggregation.most_frequent_tendency, Some((14, 3)));
+        assert_eq!(aggregation.lollapalooza_count, 2);
+        assert_eq!(aggregation.omission_count, 2);
+        assert_eq!(aggregation.commission_count, 3);
+        assert!(aggregation.standdown_recommended);
+        assert!(aggregation.mechanical_antidote_needed);
+    }
+
+    #[test]
+    fn test_bias_aggregation_requires_strict_majority_and_ties_by_lowest_tendency() {
+        let mistakes = vec![
+            create_test_mistake(
+                vec![model::MungerTendency::DeprivalSuperreaction],
+                false,
+                MistakeErrorType::Commission,
+            ),
+            create_test_mistake(
+                vec![model::MungerTendency::DeprivalSuperreaction],
+                false,
+                MistakeErrorType::Omission,
+            ),
+            create_test_mistake(
+                vec![model::MungerTendency::InconsistencyAvoidance],
+                true,
+                MistakeErrorType::Commission,
+            ),
+            create_test_mistake(
+                vec![model::MungerTendency::InconsistencyAvoidance],
+                false,
+                MistakeErrorType::Omission,
+            ),
+        ];
+
+        let aggregation = BiasAggregationCalculator::calculate(&mistakes, 14);
+
+        assert_eq!(aggregation.most_frequent_tendency, Some((5, 2)));
+        assert!(!aggregation.mechanical_antidote_needed);
+        assert_eq!(aggregation.lollapalooza_count, 1);
+        assert!(!aggregation.standdown_recommended);
     }
 
     #[test]

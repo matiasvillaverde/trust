@@ -39,6 +39,7 @@ use advisor::{
 use alpaca_broker::AlpacaBroker;
 use chrono::{DateTime, Datelike, Days, NaiveDate, Utc};
 use clap::ArgMatches;
+use core::calculators_performance::BiasAggregation;
 use core::services::leveling::{
     LevelCriterionProgress, LevelEvaluationOutcome, LevelPathProgress, LevelPerformanceSnapshot,
     LevelProgressReport,
@@ -285,6 +286,7 @@ struct MetricsReportCommand;
 struct AttributionReportCommand;
 struct BenchmarkReportCommand;
 struct TimelineReportCommand;
+struct BiasSummaryReportCommand;
 
 impl MarketDataCommandHandler for MarketDataSnapshotCommand {
     fn execute(
@@ -448,6 +450,17 @@ impl ReportCommandHandler for TimelineReportCommand {
         format: ReportOutputFormat,
     ) -> Result<(), CliError> {
         dispatcher.timeline_report(sub_matches, format)
+    }
+}
+
+impl ReportCommandHandler for BiasSummaryReportCommand {
+    fn execute(
+        &self,
+        dispatcher: &mut ArgDispatcher,
+        sub_matches: &ArgMatches,
+        format: ReportOutputFormat,
+    ) -> Result<(), CliError> {
+        dispatcher.bias_summary_report(sub_matches, format)
     }
 }
 
@@ -713,6 +726,7 @@ impl ArgDispatcher {
         static ATTRIBUTION: AttributionReportCommand = AttributionReportCommand;
         static BENCHMARK: BenchmarkReportCommand = BenchmarkReportCommand;
         static TIMELINE: TimelineReportCommand = TimelineReportCommand;
+        static BIAS_SUMMARY: BiasSummaryReportCommand = BiasSummaryReportCommand;
 
         match subcommand {
             ReportSubcommand::Performance(sub_matches) => (&PERFORMANCE, sub_matches),
@@ -724,6 +738,7 @@ impl ArgDispatcher {
             ReportSubcommand::Attribution(sub_matches) => (&ATTRIBUTION, sub_matches),
             ReportSubcommand::Benchmark(sub_matches) => (&BENCHMARK, sub_matches),
             ReportSubcommand::Timeline(sub_matches) => (&TIMELINE, sub_matches),
+            ReportSubcommand::BiasSummary(sub_matches) => (&BIAS_SUMMARY, sub_matches),
         }
     }
 
@@ -4329,6 +4344,15 @@ impl ArgDispatcher {
         format!("#{} {}", tag.number(), Self::munger_tendency_label(tag))
     }
 
+    fn munger_tendency_label_by_number(number: i32) -> String {
+        MungerTendency::all()
+            .into_iter()
+            .find(|tag| i32::from(tag.number()) == number)
+            .map(Self::munger_tendency_label)
+            .unwrap_or("Unknown")
+            .to_string()
+    }
+
     fn munger_tendency_label(tag: MungerTendency) -> &'static str {
         match tag {
             MungerTendency::RewardPunishment => "Reward/Punishment Superresponse",
@@ -7532,6 +7556,116 @@ impl ArgDispatcher {
         Ok(())
     }
 
+    fn bias_summary_report(
+        &mut self,
+        sub_matches: &ArgMatches,
+        format: ReportOutputFormat,
+    ) -> Result<(), CliError> {
+        let account_raw = sub_matches
+            .get_one::<String>("account")
+            .ok_or_else(|| Self::report_error(format, "missing_argument", "Missing --account"))?;
+        let account = self.resolve_account_arg(account_raw, format)?;
+        let days = sub_matches.get_one::<i32>("days").copied().unwrap_or(7);
+        let aggregation = self
+            .trust
+            .bias_aggregation_for_account(account.id, days)
+            .map_err(|error| Self::report_error(format, "report_failed", error.to_string()))?;
+
+        match format {
+            ReportOutputFormat::Text => Self::print_bias_summary_text(&aggregation),
+            ReportOutputFormat::Json => {
+                let payload = Self::bias_aggregation_payload(account.id, &aggregation);
+                Self::print_json(&payload)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn print_bias_summary_text(aggregation: &BiasAggregation) {
+        println!(
+            "Bias Summary (last {} days, {} mistakes)",
+            aggregation.window_days, aggregation.total_mistakes
+        );
+        println!("----------------------------------------");
+        if let Some((tendency_number, count)) = aggregation.most_frequent_tendency {
+            let label = Self::munger_tendency_label_by_number(tendency_number);
+            let percentage = Self::bias_count_percentage(count, aggregation.total_mistakes);
+            println!(
+                "Most frequent:  #{} {} ({}/{} = {}%)",
+                tendency_number, label, count, aggregation.total_mistakes, percentage
+            );
+            if aggregation.mechanical_antidote_needed {
+                println!("                -> Consider mechanical antidote");
+            }
+        } else {
+            println!("Most frequent:  n/a");
+        }
+        println!("Lollapaloozas:  {}", aggregation.lollapalooza_count);
+        println!("Omissions:      {}", aggregation.omission_count);
+        println!("Commissions:    {}", aggregation.commission_count);
+        println!(
+            "Standdown:      {}",
+            if aggregation.standdown_recommended {
+                "Yes"
+            } else {
+                "No"
+            }
+        );
+        println!(
+            "Mechanical antidote: {}",
+            if aggregation.mechanical_antidote_needed {
+                "Yes"
+            } else {
+                "No"
+            }
+        );
+    }
+
+    fn bias_aggregation_payload(account_id: Uuid, aggregation: &BiasAggregation) -> Value {
+        json!({
+            "report": "bias_summary",
+            "schema_version": 1,
+            "generated_at": Utc::now().to_rfc3339(),
+            "account_id": account_id.to_string(),
+            "window_days": aggregation.window_days,
+            "total_mistakes": aggregation.total_mistakes,
+            "most_frequent_tendency": Self::most_frequent_tendency_payload(aggregation),
+            "lollapalooza_count": aggregation.lollapalooza_count,
+            "omission_count": aggregation.omission_count,
+            "commission_count": aggregation.commission_count,
+            "standdown_recommended": aggregation.standdown_recommended,
+            "mechanical_antidote_needed": aggregation.mechanical_antidote_needed,
+        })
+    }
+
+    fn most_frequent_tendency_payload(aggregation: &BiasAggregation) -> Value {
+        aggregation
+            .most_frequent_tendency
+            .map(|(tendency_number, count)| {
+                json!({
+                    "tendency_number": tendency_number,
+                    "count": count,
+                    "label": Self::munger_tendency_label_by_number(tendency_number),
+                    "percentage": Self::bias_count_percentage(count, aggregation.total_mistakes),
+                })
+            })
+            .unwrap_or(Value::Null)
+    }
+
+    fn bias_count_percentage(count: i32, total: i32) -> String {
+        if total <= 0 {
+            return "0".to_string();
+        }
+
+        let percentage = Decimal::from(count)
+            .checked_mul(dec!(100))
+            .and_then(|value| value.checked_div(Decimal::from(total)))
+            .unwrap_or(Decimal::ZERO)
+            .round_dp(0);
+        Self::decimal_string(percentage)
+    }
+
     #[allow(clippy::too_many_lines)]
     fn grade_show(
         &mut self,
@@ -9741,8 +9875,9 @@ mod tests {
         database::TradingVehicleUpsert, AccountType, Broker, BrokerKind, BrokerLog, Currency,
         Environment, FixedIncomeTerms, Level, LevelAdjustmentRules, LevelDirection, LevelStatus,
         LevelTrigger, MarketBar, MarketDataChannel, MarketDataStreamEvent, MarketQuote,
-        MarketSnapshotSource, MarketSnapshotV2, MarketTradeTick, OrderIds, SessionRegime, Status,
-        Trade, TradingVehicleCategory, TransactionCategory,
+        MarketSnapshotSource, MarketSnapshotV2, MarketTradeTick, Mistake, MistakeErrorType,
+        MungerTendency, OrderIds, SessionRegime, Status, Trade, TradingVehicleCategory,
+        TransactionCategory,
     };
     use rust_decimal::Decimal;
     use rust_decimal_macros::dec;
@@ -10334,6 +10469,7 @@ mod tests {
                     .attribution()
                     .benchmark()
                     .timeline()
+                    .bias_summary()
                     .build(),
             )
             .subcommand(
@@ -10466,6 +10602,32 @@ mod tests {
             .find(|candidate| candidate.id == filled.id)
             .expect("closed trade should be persisted");
         (account, closed)
+    }
+
+    fn seed_mistake(
+        dispatcher: &mut ArgDispatcher,
+        trade_id: Uuid,
+        bias_tags: Vec<MungerTendency>,
+        lollapalooza: bool,
+        error_type: MistakeErrorType,
+    ) -> Mistake {
+        let now = Utc::now().naive_utc();
+        dispatcher
+            .trust
+            .create_mistake(Mistake {
+                id: Uuid::new_v4(),
+                created_at: now,
+                updated_at: now,
+                deleted_at: None,
+                trade_id,
+                bias_tags,
+                lollapalooza,
+                error_type,
+                rule_violated: None,
+                counterfactual_r: Decimal::ZERO,
+                lesson: "Review the process rule before taking the next setup.".to_string(),
+            })
+            .expect("mistake should persist")
     }
 
     #[test]
@@ -11726,6 +11888,14 @@ mod tests {
                 "--to",
                 "2026-01-31",
             ],
+            vec![
+                "report",
+                "bias-summary",
+                "--account",
+                invalid_account,
+                "--days",
+                "7",
+            ],
         ];
 
         for argv in commands {
@@ -11739,6 +11909,7 @@ mod tests {
                 .attribution()
                 .benchmark()
                 .timeline()
+                .bias_summary()
                 .build()
                 .get_matches_from(argv);
 
@@ -15217,6 +15388,91 @@ mod tests {
                 .timeline_report(timeline.subcommand_matches("timeline").unwrap(), format)
                 .expect("timeline report should succeed");
         }
+    }
+
+    #[test]
+    fn test_bias_summary_report_aggregates_mistakes_and_renders_formats() {
+        let mut dispatcher =
+            test_dispatcher_with_broker(Box::new(StubBroker::submitted_fill_fixture()));
+        let (account, closed) = seed_closed_target_trade(&mut dispatcher);
+        seed_mistake(
+            &mut dispatcher,
+            closed.id,
+            vec![
+                MungerTendency::DeprivalSuperreaction,
+                MungerTendency::SocialProof,
+            ],
+            false,
+            MistakeErrorType::Commission,
+        );
+        seed_mistake(
+            &mut dispatcher,
+            closed.id,
+            vec![MungerTendency::DeprivalSuperreaction],
+            false,
+            MistakeErrorType::Omission,
+        );
+        seed_mistake(
+            &mut dispatcher,
+            closed.id,
+            vec![
+                MungerTendency::DeprivalSuperreaction,
+                MungerTendency::Lollapalooza,
+            ],
+            true,
+            MistakeErrorType::Commission,
+        );
+
+        let account_id = account.id.to_string();
+        let json_matches = ReportCommandBuilder::new()
+            .bias_summary()
+            .build()
+            .get_matches_from([
+                "report",
+                "bias-summary",
+                "--format",
+                "json",
+                "--account",
+                &account_id,
+                "--days",
+                "7",
+            ]);
+        dispatcher
+            .dispatch_report(&json_matches)
+            .expect("bias summary json should dispatch");
+
+        let human_matches = ReportCommandBuilder::new()
+            .bias_summary()
+            .build()
+            .get_matches_from([
+                "report",
+                "bias-summary",
+                "--format",
+                "human",
+                "--account",
+                &account_id,
+                "--days",
+                "7",
+            ]);
+        dispatcher
+            .dispatch_report(&human_matches)
+            .expect("bias summary human should dispatch");
+
+        let aggregation = dispatcher
+            .trust
+            .bias_aggregation_for_account(account.id, 7)
+            .expect("bias aggregation should calculate");
+        let payload = ArgDispatcher::bias_aggregation_payload(account.id, &aggregation);
+        assert_eq!(payload["report"], "bias_summary");
+        assert_eq!(payload["window_days"], 7);
+        assert_eq!(payload["total_mistakes"], 3);
+        assert_eq!(payload["most_frequent_tendency"]["tendency_number"], 14);
+        assert_eq!(payload["most_frequent_tendency"]["count"], 3);
+        assert_eq!(payload["lollapalooza_count"], 1);
+        assert_eq!(payload["omission_count"], 1);
+        assert_eq!(payload["commission_count"], 2);
+        assert_eq!(payload["mechanical_antidote_needed"], true);
+        assert_eq!(payload["standdown_recommended"], false);
     }
 
     #[test]
@@ -20356,6 +20612,14 @@ mod tests {
                 "--to",
                 "2026-01-31",
             ],
+            vec![
+                "report",
+                "bias-summary",
+                "--account",
+                invalid_account,
+                "--days",
+                "7",
+            ],
         ];
 
         for argv in report_commands {
@@ -20367,6 +20631,7 @@ mod tests {
                 .attribution()
                 .benchmark()
                 .timeline()
+                .bias_summary()
                 .build()
                 .get_matches_from(argv);
             let error = dispatcher

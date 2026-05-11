@@ -15,7 +15,7 @@ impl ReportCommandBuilder {
                         .long("format")
                         .value_name("FORMAT")
                         .help("Output format")
-                        .value_parser(["text", "json"])
+                        .value_parser(["text", "human", "json"])
                         .default_value("text")
                         .global(true),
                 )
@@ -250,6 +250,30 @@ impl ReportCommandBuilder {
         );
         self
     }
+
+    pub fn bias_summary(mut self) -> Self {
+        self.subcommands.push(
+            Command::new("bias-summary")
+                .about("Aggregate post-trade mistake bias tendencies over a lookback window")
+                .arg(
+                    Arg::new("account")
+                        .long("account")
+                        .value_name("ACCOUNT_ID")
+                        .help("Account ID")
+                        .required(true),
+                )
+                .arg(
+                    Arg::new("days")
+                        .long("days")
+                        .value_name("DAYS")
+                        .help("Look back over the last N days")
+                        .value_parser(clap::value_parser!(i32).range(1..))
+                        .default_value("7")
+                        .required(false),
+                ),
+        );
+        self
+    }
 }
 
 impl Default for ReportCommandBuilder {
@@ -274,6 +298,7 @@ mod tests {
             .attribution()
             .benchmark()
             .timeline()
+            .bias_summary()
             .build();
         for name in [
             "performance",
@@ -285,6 +310,7 @@ mod tests {
             "attribution",
             "benchmark",
             "timeline",
+            "bias-summary",
         ] {
             assert!(cmd.get_subcommands().any(|c| c.get_name() == name));
         }
@@ -473,5 +499,34 @@ mod tests {
                 .map(String::as_str),
             Some("week")
         );
+    }
+
+    #[test]
+    fn report_bias_summary_parses_days_and_human_format() {
+        let cmd = ReportCommandBuilder::new().bias_summary().build();
+        let matches = cmd
+            .try_get_matches_from([
+                "report",
+                "bias-summary",
+                "--format",
+                "human",
+                "--account",
+                "acc-1",
+                "--days",
+                "14",
+            ])
+            .expect("bias-summary should parse");
+        assert_eq!(
+            matches.get_one::<String>("format").map(String::as_str),
+            Some("human")
+        );
+        let sub = matches
+            .subcommand_matches("bias-summary")
+            .expect("bias-summary subcommand");
+        assert_eq!(
+            sub.get_one::<String>("account").map(String::as_str),
+            Some("acc-1")
+        );
+        assert_eq!(sub.get_one::<i32>("days"), Some(&14));
     }
 }

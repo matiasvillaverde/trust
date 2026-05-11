@@ -151,6 +151,7 @@ fn build_cli() -> Command {
                 .attribution()
                 .benchmark()
                 .timeline()
+                .bias_summary()
                 .build(),
         )
         .subcommand(
