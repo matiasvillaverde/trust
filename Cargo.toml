@@ -21,7 +21,7 @@ readme = "README.md"
 
 [workspace.dependencies]
 chrono = { version = "0.4.43", features = ["serde"] }
-diesel = { version = "2.3.6", features = ["sqlite", "returning_clauses_for_sqlite_3_35", "chrono"] }
+diesel = { version = "2.3.10", features = ["sqlite", "returning_clauses_for_sqlite_3_35", "chrono"] }
 diesel_migrations = "2.3.1"
 serde = { version = "1.0.219", features = ["derive"] }
 uuid = { version = "1.20.0", features = [
@@ -30,9 +30,9 @@ uuid = { version = "1.20.0", features = [
     "macro-diagnostics", # Enable better diagnostics for compile-time UUIDs
 ] }
 clap = { version = "4.5.58", features = ["derive"] }
-tabled = { version = "0.20.0" }
+tabled = { version = "0.21.0" }
 dialoguer = { version = "0.12.0", features = ["fuzzy-select"] }
-rust_decimal = "1.40.0"
+rust_decimal = "1.42.1"
 rust_decimal_macros = "1.40.0"
 tracing = "0.1.44"
 # NOTE: apca uses GPL-3.0 license. Consider alternatives if license compatibility becomes an issue.

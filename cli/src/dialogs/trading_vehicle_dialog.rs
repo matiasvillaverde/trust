@@ -43,13 +43,7 @@ impl TradingVehicleDialogBuilder {
         let category = self.category.expect("Select category first");
         let broker = self.broker.clone().expect("Select broker first");
 
-        let isin = self.isin.clone().and_then(|value| {
-            if value.trim().is_empty() {
-                None
-            } else {
-                Some(value)
-            }
-        });
+        let isin = self.isin.clone().filter(|value| !value.trim().is_empty());
 
         self.result =
             Some(trust.create_trading_vehicle(&symbol, isin.as_deref(), &category, &broker));

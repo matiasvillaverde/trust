@@ -339,7 +339,12 @@ fn mock_session(server: &TestServer) {
     server.expect(MockExpectation::json(
         "GET",
         "/v1/api/iserver/auth/status",
-        json!({ "authenticated": true, "connected": true }),
+        json!({
+            "authenticated": true,
+            "connected": true,
+            "established": true,
+            "competing": false
+        }),
     ));
     server.expect(MockExpectation::json(
         "GET",
@@ -353,6 +358,18 @@ fn mock_session(server: &TestServer) {
             json!({ "acctId": "U1234567" }),
         )
         .body_contains("U1234567"),
+    );
+}
+
+fn mock_no_live_orders(server: &TestServer) {
+    server.expect(
+        MockExpectation::json(
+            "GET",
+            "/v1/api/iserver/account/orders",
+            json!({ "orders": [] }),
+        )
+        .query("accountId", "U1234567")
+        .query("force", "true"),
     );
 }
 
@@ -390,6 +407,7 @@ fn config_parser_missing_tls_should_default_to_secure() {
 fn contract_search_should_reject_wrong_symbol() {
     let server = TestServer::start();
     mock_session(&server);
+    mock_no_live_orders(&server);
 
     server.expect(
         MockExpectation::json(
@@ -432,6 +450,7 @@ fn contract_search_should_reject_wrong_symbol() {
 fn should_reject_buying_power_warning() {
     let server = TestServer::start();
     mock_session(&server);
+    mock_no_live_orders(&server);
 
     server.expect(
         MockExpectation::json(
@@ -446,12 +465,12 @@ fn should_reject_buying_power_warning() {
         MockExpectation::json(
             "POST",
             "/v1/api/iserver/account/U1234567/orders",
-            json!({
+            json!([{
                 "id": "reply-danger-123",
                 "message": ["WARNING: This order exceeds your account buying power. Proceed?"],
                 "isSuppressed": false,
                 "messageIds": ["o354"]
-            }),
+            }]),
         )
         .body_contains("orders"),
     );

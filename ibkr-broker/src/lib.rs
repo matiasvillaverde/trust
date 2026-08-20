@@ -29,13 +29,13 @@ pub use config::ConnectionConfig;
 pub use contracts::ContractMetadata;
 
 use chrono::{DateTime, Utc};
-use client::IbkrClient;
+use client::{redacted_json_string, IbkrClient};
 use contracts::{fetch_contract_metadata_with_client, resolve_conid};
 use executions::{fetch_executions, fetch_fee_activities};
 use market_data::{get_bars, get_latest_quote, get_latest_trade};
 use model::{
-    Account, BarTimeframe, Broker, BrokerKind, BrokerLog, MarketBar, MarketQuote, MarketTradeTick,
-    Order, OrderCategory, OrderIds, Status, Trade, TradingVehicleCategory,
+    Account, BarTimeframe, Broker, BrokerError, BrokerKind, BrokerLog, MarketBar, MarketQuote,
+    MarketTradeTick, Order, OrderCategory, OrderIds, Status, Trade, TradingVehicleCategory,
 };
 use orders::{
     build_bracket_orders, build_close_order, build_modify_order, find_live_order_by_ref,
@@ -78,26 +78,78 @@ impl Broker for IbkrBroker {
         trade: &Trade,
         account: &Account,
     ) -> Result<(BrokerLog, OrderIds), Box<dyn Error>> {
-        ensure_trade_account(trade, account)?;
-        validate_bracket_trade(trade)?;
-        let client = IbkrClient::for_account(account)?;
-        let account_id = broker_account_id(account)?;
-        client.prepare_trading_session(Some(account))?;
-        let conid = resolve_conid(&client, &trade.trading_vehicle)?;
+        let preflight = (|| -> Result<_, Box<dyn Error>> {
+            ensure_trade_account(trade, account)?;
+            validate_bracket_trade(trade)?;
+            let client = IbkrClient::for_account(account)?;
+            let account_id = broker_account_id(account)?.to_string();
+            client.prepare_trading_session(Some(account))?;
+            Ok((client, account_id))
+        })();
+        let (client, account_id) = preflight.map_err(|error| {
+            Box::new(BrokerError::retry_safe_mutation(
+                "submit preflight",
+                error.to_string(),
+            )) as Box<dyn Error>
+        })?;
+
+        // A prior request may have reached IBKR even if Trust did not receive or persist the
+        // acknowledgement. Recover a complete bracket by its stable client order references and
+        // refuse ambiguous partial brackets instead of submitting duplicates.
+        let entry_ref = normalize_order_ref(&trade.entry);
+        let target_ref = normalize_order_ref(&trade.target);
+        let stop_ref = normalize_order_ref(&trade.safety_stop);
+        let live_orders = client.live_orders(account).map_err(|error| {
+            Box::new(BrokerError::retry_safe_mutation(
+                "submit live-order preflight",
+                error.to_string(),
+            )) as Box<dyn Error>
+        })?;
+        let existing_count = [&entry_ref, &target_ref, &stop_ref]
+            .into_iter()
+            .filter(|order_ref| find_live_order_by_ref(&live_orders, order_ref).is_some())
+            .count();
+        if existing_count == 3 {
+            return Ok((
+                BrokerLog {
+                    trade_id: trade.id,
+                    log: redacted_json_string(&serde_json::json!({
+                        "recovered_existing_bracket": true,
+                        "orders": live_orders,
+                    })),
+                    ..Default::default()
+                },
+                OrderIds {
+                    stop: stop_ref,
+                    entry: entry_ref,
+                    target: target_ref,
+                },
+            ));
+        }
+        if existing_count != 0 {
+            return Err(format!(
+                "IBKR exposes {existing_count} of 3 expected bracket orders for trade {}; refusing duplicate submission; reconcile manually",
+                trade.id
+            )
+            .into());
+        }
+
+        let conid = resolve_conid(&client, &trade.trading_vehicle).map_err(|error| {
+            Box::new(BrokerError::retry_safe_mutation(
+                "submit contract preflight",
+                error.to_string(),
+            )) as Box<dyn Error>
+        })?;
         let payload = serde_json::json!({
-            "orders": build_bracket_orders(trade, account_id, &conid)?,
+            "orders": build_bracket_orders(trade, &account_id, &conid)?,
         });
         let response = client
             .post_json_with_replies(&format!("/iserver/account/{account_id}/orders"), &payload)?;
 
-        let entry_ref = normalize_order_ref(&trade.entry);
-        let target_ref = normalize_order_ref(&trade.target);
-        let stop_ref = normalize_order_ref(&trade.safety_stop);
-
         Ok((
             BrokerLog {
                 trade_id: trade.id,
-                log: response.to_string(),
+                log: redacted_json_string(&response),
                 ..Default::default()
             },
             OrderIds {
@@ -136,7 +188,7 @@ impl Broker for IbkrBroker {
             updated_orders,
             BrokerLog {
                 trade_id: trade.id,
-                log: serde_json::Value::Array(live_orders).to_string(),
+                log: redacted_json_string(&serde_json::Value::Array(live_orders)),
                 ..Default::default()
             },
         ))
@@ -147,28 +199,31 @@ impl Broker for IbkrBroker {
         trade: &Trade,
         account: &Account,
     ) -> Result<(Order, BrokerLog), Box<dyn Error>> {
-        ensure_trade_account(trade, account)?;
-        let client = IbkrClient::for_account(account)?;
-        let account_id = broker_account_id(account)?;
-        client.prepare_trading_session(Some(account))?;
-
         let target_ref = normalize_order_ref(&trade.target);
-        let target_order_id = client.resolve_live_order_id(account, &target_ref)?;
-        client.delete_no_content(&format!(
-            "/iserver/account/{account_id}/order/{target_order_id}"
-        ))?;
-
-        let conid = resolve_conid(&client, &trade.trading_vehicle)?;
-        let close_ref = format!("{target_ref}:manual-close");
-        let payload = build_close_order(trade, account_id, &conid, &close_ref)?;
+        let preflight = (|| -> Result<_, Box<dyn Error>> {
+            ensure_trade_account(trade, account)?;
+            let client = IbkrClient::for_account(account)?;
+            let account_id = broker_account_id(account)?.to_string();
+            client.prepare_trading_session(Some(account))?;
+            let target_order_id = client.resolve_live_order_id(account, &target_ref)?;
+            let conid = resolve_conid(&client, &trade.trading_vehicle)?;
+            Ok((client, account_id, target_order_id, conid))
+        })();
+        let (client, account_id, target_order_id, conid) = preflight.map_err(|error| {
+            Box::new(BrokerError::retry_safe_mutation(
+                "close preflight",
+                error.to_string(),
+            )) as Box<dyn Error>
+        })?;
+        let payload = build_close_order(trade, &account_id, &conid)?;
         let response = client.post_json_with_replies(
-            &format!("/iserver/account/{account_id}/orders"),
-            &serde_json::json!({ "orders": [payload] }),
+            &format!("/iserver/account/{account_id}/order/{target_order_id}"),
+            &payload,
         )?;
 
         let now = Utc::now().naive_utc();
         let mut order = trade.target.clone();
-        order.broker_order_id = Some(close_ref);
+        order.broker_order_id = Some(target_ref);
         order.category = OrderCategory::Market;
         order.status = model::OrderStatus::New;
         order.submitted_at = Some(now);
@@ -177,7 +232,7 @@ impl Broker for IbkrBroker {
             order,
             BrokerLog {
                 trade_id: trade.id,
-                log: response.to_string(),
+                log: redacted_json_string(&response),
                 ..Default::default()
             },
         ))
@@ -188,8 +243,10 @@ impl Broker for IbkrBroker {
         let client = IbkrClient::for_account(account)?;
         let account_id = broker_account_id(account)?;
         client.prepare_trading_session(Some(account))?;
-        let order_id = client.resolve_live_order_id(account, &normalize_order_ref(&trade.entry))?;
-        client.delete_no_content(&format!("/iserver/account/{account_id}/order/{order_id}"))
+        let order_ref = normalize_order_ref(&trade.entry);
+        let order_id = client.resolve_live_order_id(account, &order_ref)?;
+        client.delete_no_content(&format!("/iserver/account/{account_id}/order/{order_id}"))?;
+        client.confirm_order_canceled(account, &order_id, &order_ref)
     }
 
     fn modify_stop(
@@ -310,7 +367,7 @@ impl IbkrBroker {
         environment: &model::Environment,
         account: &Account,
     ) -> Result<ConnectionConfig, Box<dyn Error>> {
-        let config = ConnectionConfig::new(base_url, allow_insecure_tls);
+        let config = ConnectionConfig::new(base_url, allow_insecure_tls)?;
         let config = config.store(environment, account)?;
         Ok(config)
     }
@@ -535,12 +592,18 @@ mod tests {
 
     #[test]
     fn ensure_trade_account_rejects_cross_account_usage() {
-        let account = Account::default();
+        let account = Account {
+            broker_kind: BrokerKind::Ibkr,
+            ..Account::default()
+        };
         let mut trade = sample_trade();
         trade.account_id = account.id;
         assert!(ensure_trade_account(&trade, &account).is_ok());
 
-        let other_account = Account::default();
+        let other_account = Account {
+            broker_kind: BrokerKind::Ibkr,
+            ..Account::default()
+        };
         let error = ensure_trade_account(&trade, &other_account).expect_err("account mismatch");
         assert_eq!(
             error.to_string(),
@@ -551,7 +614,10 @@ mod tests {
     #[test]
     fn ibkr_broker_reports_kind_and_metadata_wrapper_validates_symbol() {
         let broker = IbkrBroker;
-        let account = Account::default();
+        let account = Account {
+            broker_kind: BrokerKind::Ibkr,
+            ..Account::default()
+        };
 
         assert_eq!(broker.kind(), BrokerKind::Ibkr);
 
@@ -602,7 +668,10 @@ mod tests {
     #[test]
     fn ibkr_broker_account_scoped_feeds_validate_account_before_client_setup() {
         let broker = IbkrBroker;
-        let account = Account::default();
+        let account = Account {
+            broker_kind: BrokerKind::Ibkr,
+            ..Account::default()
+        };
         let trade = sample_trade();
 
         let executions_err = broker
@@ -699,9 +768,12 @@ mod tests {
     fn build_close_and_modify_orders_preserve_refs_and_exit_side() {
         let trade = sample_trade();
 
-        let close =
-            build_close_order(&trade, "U1234567", "265598", "manual-close-ref").expect("close");
-        assert_eq!(close.get("cOID"), Some(&json!("manual-close-ref")));
+        let close = build_close_order(&trade, "U1234567", "265598").expect("close");
+        assert!(close.get("cOID").is_none());
+        assert_eq!(
+            close.get("parentId"),
+            Some(&json!(trade.entry.id.to_string()))
+        );
         assert_eq!(close.get("orderType"), Some(&json!("MKT")));
         assert_eq!(close.get("side"), Some(&json!("SELL")));
         assert_eq!(close.get("quantity"), Some(&json!("10")));
@@ -711,10 +783,7 @@ mod tests {
                 .expect("modify target");
         assert_eq!(modify_target.get("orderType"), Some(&json!("LMT")));
         assert_eq!(modify_target.get("price"), Some(&json!("111.25")));
-        assert_eq!(
-            modify_target.get("cOID"),
-            Some(&json!(trade.target.id.to_string()))
-        );
+        assert!(modify_target.get("cOID").is_none());
 
         let modify_stop =
             build_modify_order(&trade, "U1234567", "265598", &trade.safety_stop, dec!(96.5))
@@ -735,6 +804,32 @@ mod tests {
         zero_price.safety_stop.unit_price = dec!(0);
         let price_error = validate_bracket_trade(&zero_price).expect_err("zero price rejected");
         assert!(price_error.to_string().contains("price"));
+    }
+
+    #[test]
+    fn validate_bracket_trade_rejects_mismatched_quantities_and_bad_geometry() {
+        let mut quantities = sample_trade();
+        quantities.target.quantity = dec!(9);
+        assert!(validate_bracket_trade(&quantities)
+            .expect_err("mismatched quantities must fail")
+            .to_string()
+            .contains("quantities must match"));
+
+        let mut long_geometry = sample_trade();
+        long_geometry.safety_stop.unit_price = dec!(101);
+        assert!(validate_bracket_trade(&long_geometry)
+            .expect_err("long stop above entry must fail")
+            .to_string()
+            .contains("geometry"));
+
+        let mut short_geometry = sample_trade();
+        short_geometry.category = model::TradeCategory::Short;
+        short_geometry.safety_stop.unit_price = dec!(95);
+        short_geometry.target.unit_price = dec!(110);
+        assert!(validate_bracket_trade(&short_geometry)
+            .expect_err("short bracket with long geometry must fail")
+            .to_string()
+            .contains("geometry"));
     }
 
     #[test]

@@ -7,6 +7,10 @@
 [advisories]
 db-path = "~/.cargo/advisory-db"
 db-urls = ["https://github.com/rustsec/advisory-db"]
+# rust_decimal's optional rkyv 0.7 feature is locked but not enabled in any target. `tabled` 0.21
+# still transitively uses the unmaintained (but not vulnerability-advised) proc-macro-error2, and
+# RustSec reports that no safe upgrade exists. Keep both exceptions narrow and review on upgrades.
+ignore = ["RUSTSEC-2026-0235", "RUSTSEC-2026-0173"]
 
 [licenses]
 # NOTE: Currently allowing GPL licenses for apca broker dependency.

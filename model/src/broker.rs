@@ -12,6 +12,13 @@ use uuid::Uuid;
 /// Broker-level errors that callers can inspect instead of parsing strings.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BrokerError {
+    /// A mutating broker operation failed before any external mutation was attempted.
+    RetrySafeMutation {
+        /// Operation that was being prepared.
+        operation: String,
+        /// Human-readable failure detail.
+        message: String,
+    },
     /// The selected broker does not support the requested asset category.
     UnsupportedAssetClass {
         /// Broker that rejected the asset category.
@@ -24,6 +31,19 @@ pub enum BrokerError {
 }
 
 impl BrokerError {
+    /// Creates an error that explicitly guarantees the external mutation was not attempted.
+    pub fn retry_safe_mutation(operation: impl Into<String>, message: impl Into<String>) -> Self {
+        Self::RetrySafeMutation {
+            operation: operation.into(),
+            message: message.into(),
+        }
+    }
+
+    /// Returns whether retrying cannot duplicate an external broker mutation.
+    pub fn is_retry_safe_mutation(&self) -> bool {
+        matches!(self, Self::RetrySafeMutation { .. })
+    }
+
     /// Creates a typed unsupported-asset-class error.
     pub fn unsupported_asset_class(
         broker: BrokerKind,
@@ -41,6 +61,9 @@ impl BrokerError {
 impl std::fmt::Display for BrokerError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::RetrySafeMutation { operation, message } => {
+                write!(f, "{operation} failed before broker mutation: {message}")
+            }
             Self::UnsupportedAssetClass {
                 broker,
                 category,

@@ -1,4 +1,4 @@
-use crate::client::IbkrClient;
+use crate::client::{redacted_json_string, IbkrClient};
 use crate::orders::{entry_side, tracked_order_refs};
 use crate::parsing::{
     decimal_field_any, decimal_field_optional_any, string_field_optional, trade_timestamp,
@@ -72,7 +72,7 @@ fn executions_from_rows(
             price,
             executed_at,
         );
-        execution.raw_json = Some(row.to_string());
+        execution.raw_json = Some(redacted_json_string(&row));
         executions.push(execution);
     }
 
@@ -137,7 +137,7 @@ fn fee_activities_from_rows(
             activity_type: "commission".to_string(),
             amount: commission.abs(),
             occurred_at,
-            raw_json: Some(row.to_string()),
+            raw_json: Some(redacted_json_string(&row)),
         });
     }
 
@@ -170,7 +170,10 @@ mod tests {
     use serde_json::json;
 
     fn account_and_trade() -> (Account, Trade) {
-        let account = Account::default();
+        let account = Account {
+            broker_kind: model::BrokerKind::Ibkr,
+            ..Account::default()
+        };
         let mut trade = Trade {
             account_id: account.id,
             ..Trade::default()

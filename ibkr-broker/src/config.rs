@@ -27,11 +27,11 @@ impl Default for ConnectionConfig {
 
 impl ConnectionConfig {
     /// Create a new connection config.
-    pub fn new(base_url: &str, allow_insecure_tls: bool) -> Self {
-        Self {
-            base_url: normalize_base_url(base_url),
-            allow_insecure_tls,
-        }
+    pub fn new(
+        base_url: &str,
+        allow_insecure_tls: bool,
+    ) -> Result<Self, ConnectionConfigParseError> {
+        Self::from_parts(base_url, allow_insecure_tls)
     }
 
     /// Read persisted settings for an account.
@@ -62,6 +62,9 @@ impl ConnectionConfig {
 
     /// Persist settings for an account.
     pub fn store(self, environment: &Environment, account: &Account) -> keyring::Result<Self> {
+        Self::from_parts(&self.base_url, self.allow_insecure_tls).map_err(|_| {
+            keyring::Error::PlatformFailure("Invalid IBKR connection config".to_string().into())
+        })?;
         let entry = entry(environment, &account.name)?;
         entry.set_password(&self.to_keychain_string())?;
         Ok(self)
@@ -96,7 +99,7 @@ impl ConnectionConfig {
         allow_insecure_tls: bool,
     ) -> Result<Self, ConnectionConfigParseError> {
         let normalized = normalize_base_url(base_url);
-        if !is_supported_gateway_url(&normalized) {
+        if !is_supported_gateway_url(&normalized, allow_insecure_tls) {
             return Err(ConnectionConfigParseError);
         }
         Ok(Self {
@@ -128,6 +131,14 @@ impl Display for ConnectionConfig {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ConnectionConfigParseError;
 
+impl Display for ConnectionConfigParseError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "invalid IBKR connection configuration")
+    }
+}
+
+impl std::error::Error for ConnectionConfigParseError {}
+
 impl FromStr for ConnectionConfig {
     type Err = ConnectionConfigParseError;
 
@@ -153,8 +164,32 @@ fn normalize_base_url(base_url: &str) -> String {
     base_url.trim().trim_end_matches('/').to_string()
 }
 
-fn is_supported_gateway_url(base_url: &str) -> bool {
-    base_url.starts_with("https://") || base_url.starts_with("http://")
+fn is_supported_gateway_url(base_url: &str, allow_insecure_tls: bool) -> bool {
+    let Ok(url) = reqwest::Url::parse(base_url) else {
+        return false;
+    };
+    if !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        return false;
+    }
+    let loopback = url
+        .host_str()
+        .map(|host| {
+            host.eq_ignore_ascii_case("localhost")
+                || host
+                    .parse::<std::net::IpAddr>()
+                    .map(|address| address.is_loopback())
+                    .unwrap_or(false)
+        })
+        .unwrap_or(false);
+    match url.scheme() {
+        "https" => !allow_insecure_tls || loopback,
+        "http" => loopback,
+        _ => false,
+    }
 }
 
 fn parse_bool_flag(value: &str) -> bool {
@@ -221,7 +256,8 @@ mod tests {
 
     #[test]
     fn config_new_normalizes_display_debug_and_keychain_storage_format() {
-        let config = ConnectionConfig::new(" https://ibkr.local/v1/api/// ", false);
+        let config = ConnectionConfig::new(" https://ibkr.local/v1/api/// ", false)
+            .expect("valid secure config");
 
         assert_eq!(config.base_url, "https://ibkr.local/v1/api");
         assert_eq!(
@@ -253,12 +289,12 @@ mod tests {
             ConnectionConfigParseError
         );
         assert!(
-            ConnectionConfig::from_str("https://ibkr.local yes")
+            ConnectionConfig::from_str("https://localhost:5000/v1/api yes")
                 .unwrap()
                 .allow_insecure_tls
         );
         assert!(
-            ConnectionConfig::from_str("https://ibkr.local ON")
+            ConnectionConfig::from_str("https://localhost:5000/v1/api ON")
                 .unwrap()
                 .allow_insecure_tls
         );
@@ -274,6 +310,27 @@ mod tests {
         );
         assert_eq!(
             ConnectionConfig::from_str("file:///etc/passwd false").unwrap_err(),
+            ConnectionConfigParseError
+        );
+        assert_eq!(
+            ConnectionConfig::from_str("http://gateway.example/v1/api false").unwrap_err(),
+            ConnectionConfigParseError
+        );
+        let credential_url = format!(
+            "https://{}:{}@gateway.example/v1/api false",
+            "test-user", "test-password"
+        );
+        assert_eq!(
+            ConnectionConfig::from_str(&credential_url).unwrap_err(),
+            ConnectionConfigParseError
+        );
+        assert_eq!(
+            ConnectionConfig::from_str("https://gateway.example/v1/api?mode=paper false")
+                .unwrap_err(),
+            ConnectionConfigParseError
+        );
+        assert_eq!(
+            ConnectionConfig::from_str("https://gateway.example/v1/api true").unwrap_err(),
             ConnectionConfigParseError
         );
     }

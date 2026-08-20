@@ -1,4 +1,4 @@
-use model::{Status, Trade, TradeCategory};
+use model::{OrderCategory, Status, Trade, TradeCategory};
 use rust_decimal::Decimal;
 use std::error::Error;
 
@@ -28,6 +28,15 @@ pub fn can_fund(trade: &Trade) -> TradeValidationResult {
 }
 
 pub fn can_close(trade: &Trade) -> TradeValidationResult {
+    if trade.target.category == OrderCategory::Market {
+        return Err(Box::new(TradeValidationError {
+            code: TradeValidationErrorCode::TradeExitAlreadyRequested,
+            message: format!(
+                "Trade with id {} already has a market exit request",
+                trade.id
+            ),
+        }));
+    }
     match trade.status {
         Status::Filled => Ok(()),
         _ => Err(Box::new(TradeValidationError {
@@ -108,6 +117,7 @@ pub enum TradeValidationErrorCode {
     TradeNotFunded,
     TradeNotSubmitted,
     TradeNotFilled,
+    TradeExitAlreadyRequested,
     StopPriceNotValid,
 }
 
@@ -158,11 +168,27 @@ mod tests {
 
     #[test]
     fn test_validate_close() {
+        let mut trade = Trade {
+            status: Status::Filled,
+            ..Default::default()
+        };
+        trade.target.category = OrderCategory::Limit;
+        assert!(can_close(&trade).is_ok());
+    }
+
+    #[test]
+    fn test_validate_close_rejects_duplicate_market_exit_request() {
         let trade = Trade {
             status: Status::Filled,
             ..Default::default()
         };
-        assert!(can_close(&trade).is_ok());
+
+        let error = can_close(&trade).expect_err("market exit request must be idempotent");
+
+        assert_eq!(
+            error.code,
+            TradeValidationErrorCode::TradeExitAlreadyRequested
+        );
     }
 
     #[test]

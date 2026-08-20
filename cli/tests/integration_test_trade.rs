@@ -534,14 +534,14 @@ fn test_trade_close() {
     let (_, _log) = trust.close_trade(&trade).unwrap();
 
     let trade = trust
-        .search_trades(account.id, Status::Canceled)
-        .expect("Failed to find trade with status submitted 2")
+        .search_trades(account.id, Status::Filled)
+        .expect("Failed to find trade awaiting manual close fill")
         .first()
         .unwrap()
         .clone();
 
     // Assert Trade Overview
-    assert_eq!(trade.status, Status::Canceled); // The trade is still filled, but the target was changed to a market order
+    assert_eq!(trade.status, Status::Filled);
 
     // Assert Entry
     assert_eq!(trade.entry.quantity, dec!(500));
@@ -557,6 +557,7 @@ fn test_trade_close() {
     assert_eq!(trade.target.category, OrderCategory::Market);
     assert_eq!(trade.target.filled_quantity, dec!(0));
     assert_eq!(trade.target.status, OrderStatus::PendingNew);
+    assert_ne!(trade.safety_stop.status, OrderStatus::Canceled);
 }
 
 #[test]

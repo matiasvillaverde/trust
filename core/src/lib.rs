@@ -57,9 +57,10 @@ use model::{
     DatabaseFactory, DistributionHistory, DistributionResult, DistributionRules, DraftTrade,
     Environment, Execution, Level, LevelAdjustmentRules, LevelChange, LevelTrigger, MarketBar,
     MarketDataChannel, MarketDataStreamEvent, MarketSnapshot, MarketSnapshotSource,
-    MarketSnapshotV2, Mistake, Order, Rule, RuleLevel, RuleName, SessionPlan, SessionPlanClose,
-    Status, Trade, TradeBalance, TradeEvent, TradeEventSeverity, TradeEventSource, TradeEventType,
-    TradingVehicle, TradingVehicleCategory, Transaction, TransactionCategory,
+    MarketSnapshotV2, Mistake, Order, OrderCategory, Rule, RuleLevel, RuleName, SessionPlan,
+    SessionPlanClose, Status, Trade, TradeBalance, TradeEvent, TradeEventSeverity,
+    TradeEventSource, TradeEventType, TradingVehicle, TradingVehicleCategory, Transaction,
+    TransactionCategory,
 };
 use rand_core::OsRng;
 use rust_decimal::Decimal;
@@ -73,6 +74,19 @@ use {
     std::collections::{BTreeMap, HashMap},
     std::error::Error as StdError,
 };
+
+fn synced_close_reason(status: Status, target_category: OrderCategory) -> CloseReason {
+    if status == Status::ClosedTarget && target_category == OrderCategory::Market {
+        CloseReason::Manual
+    } else if status == Status::ClosedTarget {
+        CloseReason::Target
+    } else {
+        CloseReason::StopLoss
+    }
+}
+
+const CLOSE_PROCESSING_COMPLETE_LOG: &str = "trust:close-processing-complete:v1";
+const CLOSE_PROCESSING_SAVEPOINT: &str = "process_trade_close";
 
 /// Summary data combining all key trading metrics
 #[derive(Debug, Clone)]
@@ -1398,17 +1412,49 @@ impl TrustFacade {
                 &mut *self.broker,
             )?;
 
-        if transitioned_to_closed {
-            // Close-event handler (leveling, distribution, etc). We keep this best-effort so the
-            // sync path remains reliable, but individual components can still surface errors in
-            // direct/manual flows.
-            let close_reason = if status == Status::ClosedTarget {
-                CloseReason::Target
-            } else {
-                CloseReason::StopLoss
-            };
-            let _ = self.handle_trade_closed_event_from_trade(&persisted_trade, close_reason);
+        let is_closed = status == Status::ClosedTarget || status == Status::ClosedStopLoss;
+        if is_closed {
+            let processing_complete = self
+                .factory
+                .log_read()
+                .read_all_logs_for_trade(persisted_trade.id)?
+                .iter()
+                .any(|entry| entry.log == CLOSE_PROCESSING_COMPLETE_LOG);
+            if !processing_complete {
+                // The durable marker is written only after all financial close processing succeeds.
+                // A later sync retries this block when a prior attempt failed after close persistence.
+                let close_reason = synced_close_reason(status, persisted_trade.target.category);
+                self.factory.begin_savepoint(CLOSE_PROCESSING_SAVEPOINT)?;
+                let processing_result = self
+                    .handle_trade_closed_event_from_trade(&persisted_trade, close_reason)
+                    .and_then(|()| {
+                        self.factory
+                            .log_write()
+                            .create_log(CLOSE_PROCESSING_COMPLETE_LOG, &persisted_trade)
+                            .map(|_| ())
+                    });
+                if let Err(processing_error) = processing_result {
+                    let rollback_error = self
+                        .factory
+                        .rollback_to_savepoint(CLOSE_PROCESSING_SAVEPOINT)
+                        .err();
+                    let release_error = self
+                        .factory
+                        .release_savepoint(CLOSE_PROCESSING_SAVEPOINT)
+                        .err();
+                    return Err(format!(
+                        "close processing failed for trade {}: {processing_error}; rollback error: {}; release error: {}",
+                        persisted_trade.id,
+                        rollback_error.map_or_else(|| "none".to_string(), |error| error.to_string()),
+                        release_error.map_or_else(|| "none".to_string(), |error| error.to_string())
+                    )
+                    .into());
+                }
+                self.factory.release_savepoint(CLOSE_PROCESSING_SAVEPOINT)?;
+            }
+        }
 
+        if transitioned_to_closed {
             // Auto-grading on close is enabled by default; we keep it best-effort for sync reliability.
             let has_grade = match self
                 .factory
@@ -1529,9 +1575,7 @@ impl TrustFacade {
         &mut self,
         trade: &Trade,
     ) -> Result<(TradeBalance, BrokerLog), Box<dyn std::error::Error>> {
-        let result = commands::trade::close(trade, &mut *self.factory, &mut *self.broker)?;
-        let _ = self.handle_trade_closed_event(trade.id, CloseReason::Manual);
-        Ok(result)
+        commands::trade::close(trade, &mut *self.factory, &mut *self.broker)
     }
 
     /// Close a trade with automatic profit distribution
@@ -1543,11 +1587,9 @@ impl TrustFacade {
         // 1. Close the trade normally
         let (balance, log) = self.close_trade(trade)?;
 
-        // 2. Read persisted post-close state and trigger distribution from fresh data.
-        let closed_trade = self.factory.trade_read().read_trade(trade.id)?;
-        let distribution_result = self.try_auto_distribute_profit_for_trade(&closed_trade)?;
-
-        Ok((balance, log, distribution_result))
+        // The broker accepted an exit request, but the position remains open until sync confirms
+        // the fill. Distribution is deferred to the normal close-event processing path.
+        Ok((balance, log, None))
     }
 
     /// Cancel a funded trade and return capital to the account.
@@ -1700,7 +1742,11 @@ impl TrustFacade {
             if !db_includes_trigger {
                 cache.push_and_prune(closed_at, trade.balance.total_performance);
             }
-        } else {
+        } else if cache
+            .points
+            .back()
+            .is_none_or(|(timestamp, _)| *timestamp != closed_at)
+        {
             // Incremental update for subsequent closes.
             cache.push_and_prune(closed_at, trade.balance.total_performance);
         }
@@ -1758,6 +1804,16 @@ impl TrustFacade {
         };
 
         if profit < rules.minimum_threshold {
+            return Ok(None);
+        }
+
+        let already_distributed = self
+            .factory
+            .distribution_read()
+            .history_for_account(trade.account_id)?
+            .iter()
+            .any(|history| history.trade_id == Some(trade.id));
+        if already_distributed {
             return Ok(None);
         }
 
@@ -1888,20 +1944,16 @@ impl TrustFacade {
             trades
         } else {
             // Get trades for all accounts
-            match self.search_all_accounts() {
-                Ok(accounts) => {
-                    let mut all_trades = Vec::new();
-                    for account in accounts {
-                        for status in model::Status::all() {
-                            if let Ok(mut trades) = self.search_trades(account.id, status) {
-                                all_trades.append(&mut trades);
-                            }
-                        }
+            let accounts = self.search_all_accounts()?;
+            let mut all_trades = Vec::new();
+            for account in accounts {
+                for status in model::Status::all() {
+                    if let Ok(mut trades) = self.search_trades(account.id, status) {
+                        all_trades.append(&mut trades);
                     }
-                    all_trades
                 }
-                Err(e) => return Err(e),
             }
+            all_trades
         };
 
         // Analyze concentration by asset class (primary analysis)
@@ -2430,6 +2482,22 @@ mod tests {
     use super::*;
     use chrono::{Duration, TimeZone, Utc};
     use model::OrderIds;
+
+    #[test]
+    fn synced_close_reason_preserves_manual_exit_provenance() {
+        assert_eq!(
+            synced_close_reason(Status::ClosedTarget, OrderCategory::Market),
+            CloseReason::Manual
+        );
+        assert_eq!(
+            synced_close_reason(Status::ClosedTarget, OrderCategory::Limit),
+            CloseReason::Target
+        );
+        assert_eq!(
+            synced_close_reason(Status::ClosedStopLoss, OrderCategory::Stop),
+            CloseReason::StopLoss
+        );
+    }
 
     struct NoopBroker;
 

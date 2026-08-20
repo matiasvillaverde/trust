@@ -414,14 +414,14 @@ pub fn cancel_submitted(
     let account = database.account_read().id(current_trade.account_id)?;
     broker.cancel_trade(&current_trade, &account)?;
 
-    // 4. Update Trade Status
-    let _ = update_trade_status_and_projection(&current_trade, Status::Canceled, database)?;
-
-    // 5. Transfer funds back to account
-    let (tx, account_o, trade_o) =
-        commands::transaction::transfer_to_account_from(&current_trade, database)?;
-
-    Ok((trade_o, account_o, tx))
+    // 4. Release local capital only after the broker adapter has confirmed cancellation, and
+    // persist all accounting changes atomically.
+    with_savepoint(database, "persist_broker_cancellation", |database| {
+        let _ = update_trade_status_and_projection(&current_trade, Status::Canceled, database)?;
+        let (tx, account_o, trade_o) =
+            commands::transaction::transfer_to_account_from(&current_trade, database)?;
+        Ok((trade_o, account_o, tx))
+    })
 }
 
 pub fn modify_stop(
@@ -516,26 +516,62 @@ pub fn submit(
     // 2. Validate that Trade can be submitted
     crate::validators::trade::can_submit(&current_trade)?;
 
-    // 3. Submit trade to broker
+    // 3. Persist a durable submission intent before crossing the external boundary. A crash or
+    // local acknowledgement failure must leave the trade non-resubmittable and reconcilable.
     let account = database.account_read().id(current_trade.account_id)?;
-    let (log, order_id) = broker.submit_trade(&current_trade, &account)?;
+    let mut submitted = database
+        .trade_write()
+        .update_trade_status(Status::Submitted, &current_trade)?;
+    submitted.balance = database
+        .trade_read()
+        .read_trade_balance(current_trade.balance.id)?;
+    let (log, order_id) = match broker.submit_trade(&current_trade, &account) {
+        Ok(acknowledgement) => acknowledgement,
+        Err(error)
+            if error
+                .downcast_ref::<BrokerError>()
+                .is_some_and(BrokerError::is_retry_safe_mutation) =>
+        {
+            database
+                .trade_write()
+                .update_trade_status(Status::Funded, &submitted)?;
+            return Err(error);
+        }
+        Err(error) => {
+            return Err(format!(
+                "trade {} submission outcome is unknown; durable Submitted intent retained; do not resubmit; reconcile with the broker: {error}",
+                current_trade.id
+            )
+            .into());
+        }
+    };
 
-    // 4. Save log in the DB
-    database
-        .log_write()
-        .create_log(log.log.as_str(), &current_trade)?;
+    // 4. Persist acknowledgement details atomically. The durable Submitted state remains in place
+    // if this fails, blocking duplicate submission while reconciliation repairs missing IDs/logs.
+    let persisted = with_savepoint(database, "persist_broker_submission", |database| {
+        database
+            .log_write()
+            .create_log(log.log.as_str(), &current_trade)?;
+        let _ = commands::balance::apply_account_projection_for_trade_status_transition(
+            database,
+            &current_trade,
+            Status::Submitted,
+        )?;
 
-    // 5. Update Trade status to submitted
-    let mut submitted =
-        update_trade_status_and_projection(&current_trade, Status::Submitted, database)?;
+        let mut order_write = database.order_write();
+        submitted.safety_stop = order_write.submit_of(&submitted.safety_stop, order_id.stop)?;
+        submitted.entry = order_write.submit_of(&submitted.entry, order_id.entry)?;
+        submitted.target = order_write.submit_of(&submitted.target, order_id.target)?;
+        Ok(submitted)
+    })
+    .map_err(|error| {
+        format!(
+            "broker accepted trade {} but local acknowledgement persistence failed; do not resubmit; reconcile with the broker: {error}",
+            current_trade.id
+        )
+    })?;
 
-    // 6. Update internal orders to submitted and return the updated in-memory trade snapshot.
-    let mut order_write = database.order_write();
-    submitted.safety_stop = order_write.submit_of(&submitted.safety_stop, order_id.stop)?;
-    submitted.entry = order_write.submit_of(&submitted.entry, order_id.entry)?;
-    submitted.target = order_write.submit_of(&submitted.target, order_id.target)?;
-
-    Ok((submitted, log))
+    Ok((persisted, log))
 }
 
 pub fn sync_with_broker(
@@ -618,6 +654,7 @@ pub fn sync_with_broker(
                 &resolved,
                 account.id,
                 &trade.trading_vehicle.symbol,
+                broker.kind(),
             );
             let mut trade_with_synced_orders = current_trade;
             trade_with_synced_orders.entry = resolved.entry;
@@ -709,6 +746,7 @@ fn derive_trade_update_executions(
     resolved: &ResolvedSyncOrders,
     account_id: uuid::Uuid,
     symbol: &str,
+    broker_kind: BrokerKind,
 ) -> Vec<Execution> {
     let mut out = Vec::new();
     for (previous_order, updated_order, side) in [
@@ -756,7 +794,7 @@ fn derive_trade_update_executions(
             executed_at.and_utc().timestamp_millis()
         );
         let mut exec = Execution::new(
-            "alpaca".to_string(),
+            broker_kind.as_str().to_string(),
             ExecutionSource::TradeUpdates,
             account_id,
             broker_execution_id,
@@ -1429,11 +1467,18 @@ mod tests {
                 .unwrap(),
         );
 
-        let rows = derive_trade_update_executions(&previous, &resolved, Uuid::new_v4(), "AAPL");
+        let rows = derive_trade_update_executions(
+            &previous,
+            &resolved,
+            Uuid::new_v4(),
+            "AAPL",
+            BrokerKind::Ibkr,
+        );
         assert_eq!(rows.len(), 2);
         assert!(rows
             .iter()
             .all(|row| row.source == ExecutionSource::TradeUpdates));
+        assert!(rows.iter().all(|row| row.broker == "ibkr"));
         assert!(rows.iter().all(|row| row.symbol == "AAPL"));
         assert!(rows.iter().any(|row| row.qty == dec!(5)));
         assert!(rows.iter().any(|row| row.qty == dec!(10)));
@@ -1448,7 +1493,13 @@ mod tests {
             target: trade.target.clone(),
             stop: trade.safety_stop.clone(),
         };
-        let rows = derive_trade_update_executions(&trade, &resolved, Uuid::new_v4(), "AAPL");
+        let rows = derive_trade_update_executions(
+            &trade,
+            &resolved,
+            Uuid::new_v4(),
+            "AAPL",
+            BrokerKind::Alpaca,
+        );
         assert!(rows.is_empty());
     }
 }
@@ -1464,32 +1515,60 @@ pub fn close(
     // 2. Verify trade can be closed
     crate::validators::trade::can_close(&current_trade)?;
 
-    // 3. Submit a market order to close the trade
+    // 3. Persist the market-exit intent before crossing the external boundary. Even when the
+    // acknowledgement is lost, stale callers must be unable to issue another close.
+    let mut pending_target = current_trade.target.clone();
+    pending_target.category = OrderCategory::Market;
+    database.order_write().update(&pending_target)?;
+
+    // 4. Submit the market-exit request. Errors are outcome-ambiguous, so retain the durable intent.
     let account = database.account_read().id(current_trade.account_id)?;
-    let (target_order, log) = broker.close_trade(&current_trade, &account)?;
-
-    // 4. Save log in the database
-    database
-        .log_write()
-        .create_log(log.log.as_str(), &current_trade)?;
-
-    // 5. Update Order Target with the filled price and new ID
-    {
-        let mut order_write = database.order_write();
-        order_write.update(&target_order)?;
+    let (mut target_order, log) = match broker.close_trade(&current_trade, &account) {
+        Ok(acknowledgement) => acknowledgement,
+        Err(error)
+            if error
+                .downcast_ref::<BrokerError>()
+                .is_some_and(BrokerError::is_retry_safe_mutation) =>
+        {
+            database.order_write().update(&current_trade.target)?;
+            return Err(error);
+        }
+        Err(error) => {
+            return Err(format!(
+                "trade {} close outcome is unknown; durable market-exit intent retained; do not retry; reconcile with the broker: {error}",
+                current_trade.id
+            )
+            .into());
+        }
+    };
+    if target_order.id != current_trade.target.id {
+        return Err(format!(
+            "broker close acknowledgement returned order {} instead of target order {}; reconcile with the broker",
+            target_order.id, current_trade.target.id
+        )
+        .into());
     }
+    // `Broker::close_trade` acknowledges a market-exit request. Persist that semantic marker even
+    // for adapters that return an otherwise unchanged target snapshot; it is the idempotency guard
+    // used to prevent a stale caller from issuing the external mutation twice.
+    target_order.category = OrderCategory::Market;
 
-    // 6. Update Trade Status
-    let updated_trade =
-        update_trade_status_and_projection(&current_trade, Status::Canceled, database)?;
+    // 5. The broker only acknowledged a request to convert the existing target child into a
+    // market exit. Keep the trade open and the stop locally active until sync confirms the fill
+    // and the broker-cancelled sibling. Persist the acknowledgement atomically.
+    with_savepoint(database, "persist_broker_close_request", |database| {
+        database
+            .log_write()
+            .create_log(log.log.as_str(), &current_trade)?;
+        database.order_write().update(&target_order)?;
+        Ok(())
+    })
+    .map_err(|error| {
+        format!(
+            "broker accepted close request for trade {} but local acknowledgement persistence failed; do not resubmit; reconcile with the broker: {error}",
+            current_trade.id
+        )
+    })?;
 
-    // 7. Cancel Stop-loss Order
-    let mut stop_order = current_trade.safety_stop.clone();
-    stop_order.status = OrderStatus::Canceled;
-    {
-        let mut order_write = database.order_write();
-        order_write.update(&stop_order)?;
-    }
-
-    Ok((updated_trade.balance, log))
+    Ok((current_trade.balance, log))
 }

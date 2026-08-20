@@ -383,7 +383,12 @@ fn mock_session(server: &TestServer) {
     server.expect(MockExpectation::json(
         "GET",
         "/v1/api/iserver/auth/status",
-        json!({ "authenticated": true, "connected": true }),
+        json!({
+            "authenticated": true,
+            "connected": true,
+            "established": true,
+            "competing": false
+        }),
     ));
     server.expect(MockExpectation::json(
         "GET",
@@ -402,6 +407,18 @@ fn mock_session(server: &TestServer) {
 
 fn mock_contract_search(server: &TestServer) {
     mock_contract_search_for(server, "AAPL", "STK", "265598");
+}
+
+fn mock_no_live_orders(server: &TestServer) {
+    server.expect(
+        MockExpectation::json(
+            "GET",
+            "/v1/api/iserver/account/orders",
+            json!({ "orders": [] }),
+        )
+        .query("accountId", "U1234567")
+        .query("force", "true"),
+    );
 }
 
 fn mock_contract_search_for(server: &TestServer, symbol: &str, sec_type: &str, conid: &str) {
@@ -623,6 +640,7 @@ fn trust_facade_submits_valid_ibkr_stock_etf_and_bond_trades() {
     ] {
         let server = TestServer::start();
         mock_session(&server);
+        mock_no_live_orders(&server);
         mock_contract_search_for(&server, symbol, sec_type, conid);
 
         let mut trust = e2e_trust();
@@ -692,6 +710,7 @@ fn preflight_gateway_checks_authentication_and_account_selection() {
 fn submit_trade_posts_bracket_orders_and_returns_local_order_refs() {
     let server = TestServer::start();
     mock_session(&server);
+    mock_no_live_orders(&server);
     mock_contract_search(&server);
 
     let account = account();
@@ -730,6 +749,7 @@ fn submit_trade_posts_bracket_orders_and_returns_local_order_refs() {
 fn submit_bond_trade_uses_ibkr_bond_security_type() {
     let server = TestServer::start();
     mock_session(&server);
+    mock_no_live_orders(&server);
     mock_contract_search_for(&server, "9128285M8", "BOND", "123456");
 
     let account = account();
@@ -761,6 +781,120 @@ fn submit_bond_trade_uses_ibkr_bond_security_type() {
     });
 
     submit.assert();
+}
+
+#[test]
+fn submit_trade_recovers_complete_existing_bracket_without_duplicate_post() {
+    let server = TestServer::start();
+    mock_session(&server);
+    let account = account();
+    let mut trade = trade();
+    trade.account_id = account.id;
+    let existing = server.expect(
+        MockExpectation::json(
+            "GET",
+            "/v1/api/iserver/account/orders",
+            json!({
+                "orders": [
+                    { "order_ref": trade.entry.id.to_string(), "orderId": "7001" },
+                    { "order_ref": trade.target.id.to_string(), "orderId": "7002" },
+                    { "order_ref": trade.safety_stop.id.to_string(), "orderId": "7003" }
+                ]
+            }),
+        )
+        .query("accountId", "U1234567")
+        .query("force", "true"),
+    );
+
+    with_mock_gateway(&server, || {
+        let (log, ids) = IbkrBroker
+            .submit_trade(&trade, &account)
+            .expect("complete existing bracket should be recovered");
+        assert_eq!(ids.entry, trade.entry.id.to_string());
+        assert!(log.log.contains("recovered_existing_bracket"));
+        assert!(!log.log.contains("U1234567"));
+    });
+
+    existing.assert();
+    assert_eq!(server.request_count(), 4);
+}
+
+#[test]
+fn submit_trade_rejects_partial_existing_bracket_without_duplicate_post() {
+    let server = TestServer::start();
+    mock_session(&server);
+    let account = account();
+    let mut trade = trade();
+    trade.account_id = account.id;
+    server.expect(
+        MockExpectation::json(
+            "GET",
+            "/v1/api/iserver/account/orders",
+            json!({
+                "orders": [
+                    { "order_ref": trade.entry.id.to_string(), "orderId": "7001" }
+                ]
+            }),
+        )
+        .query("accountId", "U1234567")
+        .query("force", "true"),
+    );
+
+    with_mock_gateway(&server, || {
+        let error = IbkrBroker
+            .submit_trade(&trade, &account)
+            .expect_err("partial bracket must require reconciliation");
+        assert!(error.to_string().contains("1 of 3"));
+        assert!(error.to_string().contains("reconcile manually"));
+    });
+
+    assert_eq!(server.request_count(), 4);
+}
+
+#[test]
+fn manual_close_modifies_target_child_to_market_without_cancel_request() {
+    let server = TestServer::start();
+    mock_session(&server);
+    mock_contract_search(&server);
+    let account = account();
+    let mut trade = trade();
+    trade.account_id = account.id;
+    trade.entry.broker_order_id = Some(trade.entry.id.to_string());
+    trade.target.broker_order_id = Some(trade.target.id.to_string());
+    let target_ref = trade.target.id.to_string();
+    server.expect(
+        MockExpectation::json(
+            "GET",
+            "/v1/api/iserver/account/orders",
+            json!({
+                "orders": [
+                    { "order_ref": target_ref, "orderId": "8002", "status": "Submitted" }
+                ]
+            }),
+        )
+        .query("accountId", "U1234567")
+        .query("force", "true"),
+    );
+    let modify = server.expect(
+        MockExpectation::json(
+            "POST",
+            "/v1/api/iserver/account/U1234567/order/8002",
+            json!([{ "order_id": "8002", "order_status": "Submitted" }]),
+        )
+        .body_contains("\"orderType\":\"MKT\"")
+        .body_contains(trade.entry.id.to_string()),
+    );
+
+    with_mock_gateway(&server, || {
+        let (order, _) = IbkrBroker
+            .close_trade(&trade, &account)
+            .expect("target modification should be acknowledged");
+        assert_eq!(order.broker_order_id.as_deref(), Some(target_ref.as_str()));
+        assert_eq!(order.category, model::OrderCategory::Market);
+    });
+
+    modify.assert();
+    assert_eq!(server.request_count(), 6);
 }
 
 #[test]
@@ -848,7 +982,7 @@ fn cancel_trade_resolves_order_id_from_order_ref_before_delete() {
                     {
                         "orderId": "7001",
                         "order_ref": trade.entry.id.to_string(),
-                        "status": "Submitted"
+                        "status": "Canceled"
                     }
                 ]
             }),
@@ -861,6 +995,11 @@ fn cancel_trade_resolves_order_id_from_order_ref_before_delete() {
         "/v1/api/iserver/account/U1234567/order/7001",
         json!({ "ok": true }),
     ));
+    let canceled = server.expect(MockExpectation::json(
+        "GET",
+        "/v1/api/iserver/account/U1234567/order/status/7001",
+        json!({ "order_id": "7001", "status": "Canceled", "cum_fill": "0" }),
+    ));
 
     with_mock_gateway(&server, || {
         let broker = IbkrBroker;
@@ -869,6 +1008,7 @@ fn cancel_trade_resolves_order_id_from_order_ref_before_delete() {
 
     lookup.assert();
     delete.assert();
+    canceled.assert();
 }
 
 #[test]
@@ -911,7 +1051,6 @@ fn modify_stop_uses_order_ref_for_lookup_and_returns_same_ref() {
                 }
             ]),
         )
-        .body_contains(trade.safety_stop.id.to_string())
         .body_contains(trade.entry.id.to_string())
         .body_contains("\"price\":\"94.5\""),
     );

@@ -1,14 +1,17 @@
 use crate::config::ConnectionConfig;
 use crate::orders::find_live_order_by_ref;
-use crate::parsing::string_field_optional;
+use crate::parsing::{decimal_field_optional_any, string_field_optional};
 use crate::support::broker_account_id;
 use crate::{LIVE_ORDER_LOOKUP_DELAY_MS, LIVE_ORDER_LOOKUP_RETRIES};
-use model::Account;
+use model::{Account, BrokerError};
 use reqwest::blocking::{Client, Response};
+use rust_decimal::Decimal;
 use serde_json::{json, Value};
 use std::error::Error;
 use std::thread::sleep;
 use std::time::Duration;
+
+const MAX_PERSISTED_RESPONSE_BYTES: usize = 16 * 1024;
 
 #[derive(Debug)]
 pub(crate) struct IbkrClient {
@@ -32,12 +35,13 @@ impl IbkrClient {
         account: Option<&Account>,
     ) -> Result<(), Box<dyn Error>> {
         self.ensure_authenticated()?;
-        let _ = self.get_json_value("/iserver/accounts", &[])?;
+        let accounts = self.get_json_value("/iserver/accounts", &[])?;
         if let Some(account) = account {
-            if let Some(account_id) = account.broker_account_id.as_deref() {
-                let _ =
-                    self.post_json_value("/iserver/account", &json!({ "acctId": account_id }))?;
-            }
+            let account_id = broker_account_id(account)?;
+            ensure_account_is_accessible(&accounts, account_id)?;
+            let selected =
+                self.post_json_value("/iserver/account", &json!({ "acctId": account_id }))?;
+            ensure_account_is_selected(&selected, account_id)?;
         }
         Ok(())
     }
@@ -79,6 +83,56 @@ impl IbkrClient {
         }
 
         Err(format!("IBKR order '{order_ref}' was not found in live orders").into())
+    }
+
+    pub(crate) fn confirm_order_canceled(
+        &self,
+        account: &Account,
+        order_id: &str,
+        order_ref: &str,
+    ) -> Result<(), Box<dyn Error>> {
+        let account_id = crate::support::broker_account_id(account)?;
+        let path = format!("/iserver/account/{account_id}/order/status/{order_id}");
+        for _ in 0..LIVE_ORDER_LOOKUP_RETRIES {
+            let order = self.get_json_value(&path, &[])?;
+            let status = string_field_optional(&order, "status")
+                .or_else(|| string_field_optional(&order, "order_status"))
+                .unwrap_or_default()
+                .to_ascii_lowercase();
+            if matches!(
+                status.as_str(),
+                "cancelled" | "canceled" | "api_cancelled" | "apicancelled"
+            ) {
+                let filled_quantity = decimal_field_optional_any(
+                    &order,
+                    &[
+                        "cum_fill",
+                        "cumFill",
+                        "filledQuantity",
+                        "filled_quantity",
+                        "filled",
+                    ],
+                );
+                if filled_quantity == Some(Decimal::ZERO) {
+                    return Ok(());
+                }
+                return Err(format!(
+                    "IBKR order '{order_ref}' was canceled but its filled quantity was nonzero or unavailable; funds must not be released; reconcile executions"
+                )
+                .into());
+            }
+            if matches!(status.as_str(), "filled" | "partially_filled") {
+                return Err(format!(
+                    "IBKR order '{order_ref}' became '{status}' while cancellation was pending; funds must not be released"
+                )
+                .into());
+            }
+            sleep(Duration::from_millis(LIVE_ORDER_LOOKUP_DELAY_MS));
+        }
+        Err(format!(
+            "IBKR did not confirm cancellation of order '{order_ref}'; funds must not be released"
+        )
+        .into())
     }
 
     pub(crate) fn account_trades(&self) -> Result<Vec<Value>, Box<dyn Error>> {
@@ -143,26 +197,10 @@ impl IbkrClient {
         path: &str,
         body: &Value,
     ) -> Result<Value, Box<dyn Error>> {
-        let mut response = self.post_json_value(path, body)?;
-
-        for _ in 0..4usize {
-            if response.is_array() {
-                return Ok(response);
-            }
-
-            reject_dangerous_order_reply(&response)?;
-
-            let Some(reply_id) = string_field_optional(&response, "id") else {
-                return Ok(response);
-            };
-
-            response = self.post_json_value(
-                &format!("/iserver/reply/{reply_id}"),
-                &json!({ "confirmed": true }),
-            )?;
-        }
-
-        Err("IBKR order confirmation loop exceeded the maximum reply depth".into())
+        let response = self.post_json_value(path, body)?;
+        reject_order_reply(&response)?;
+        ensure_order_acknowledgement(&response)?;
+        Ok(response)
     }
 
     pub(crate) fn delete_no_content(&self, path: &str) -> Result<(), Box<dyn Error>> {
@@ -177,8 +215,11 @@ impl IbkrClient {
         }
 
         let status = response.status();
-        let body = response.text().unwrap_or_default();
-        Err(format!("IBKR DELETE {path} returned {status}: {body}").into())
+        let body_len = response.text().map(|body| body.len()).unwrap_or_default();
+        Err(format!(
+            "IBKR DELETE {path} returned {status} (response body omitted; {body_len} bytes)"
+        )
+        .into())
     }
 
     fn ensure_authenticated(&self) -> Result<(), Box<dyn Error>> {
@@ -190,9 +231,17 @@ impl IbkrClient {
         let connected = status
             .get("connected")
             .and_then(Value::as_bool)
-            .unwrap_or(true);
+            .unwrap_or(false);
+        // Older Client Portal Gateway releases omit `established`. Account discovery/selection in
+        // `prepare_trading_session` is the compatibility-safe proof that accounts finished loading.
+        // If a newer gateway emits the flag explicitly, still fail closed when it is false.
+        let established = status.get("established").and_then(Value::as_bool);
+        let competing = status
+            .get("competing")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
 
-        if authenticated && connected {
+        if authenticated && connected && established.unwrap_or(true) && !competing {
             return Ok(());
         }
 
@@ -212,29 +261,97 @@ impl IbkrClient {
     }
 }
 
-fn reject_dangerous_order_reply(response: &Value) -> Result<(), Box<dyn Error>> {
-    let messages = reply_messages(response);
-    if messages.iter().any(|message| {
-        let normalized = message.to_ascii_lowercase();
-        normalized.contains("buying power")
-            || normalized.contains("insufficient")
-            || normalized.contains("margin")
-            || normalized.contains("exceeds")
-    }) {
-        return Err(format!("IBKR order confirmation requires manual review: {messages:?}").into());
+fn response_objects(response: &Value) -> Vec<&Value> {
+    match response {
+        Value::Array(items) => items.iter().collect(),
+        Value::Object(_) => vec![response],
+        _ => Vec::new(),
+    }
+}
+
+fn reply_messages(response: &Value) -> Vec<String> {
+    response_objects(response)
+        .into_iter()
+        .flat_map(|item| match item.get("message") {
+            Some(Value::String(message)) => vec![message.to_string()],
+            Some(Value::Array(messages)) => messages
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect(),
+            _ => Vec::new(),
+        })
+        .collect()
+}
+
+fn reject_order_reply(response: &Value) -> Result<(), Box<dyn Error>> {
+    let reply = response_objects(response).into_iter().find(|item| {
+        string_field_optional(item, "id").is_some()
+            && (item.get("message").is_some() || item.get("messageIds").is_some())
+    });
+    if let Some(reply) = reply {
+        let messages = reply_messages(reply);
+        let message_ids = reply
+            .get("messageIds")
+            .and_then(Value::as_array)
+            .map(|values| {
+                values
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let reply_id = string_field_optional(reply, "id").unwrap_or_default();
+        return Err(Box::new(BrokerError::retry_safe_mutation(
+            "IBKR order confirmation",
+            format!(
+                "explicit manual confirmation required; reply_id={reply_id}; message_ids={message_ids:?}; messages={messages:?}"
+            ),
+        )));
     }
     Ok(())
 }
 
-fn reply_messages(response: &Value) -> Vec<String> {
-    match response.get("message") {
-        Some(Value::String(message)) => vec![message.to_string()],
-        Some(Value::Array(messages)) => messages
+fn ensure_order_acknowledgement(response: &Value) -> Result<(), Box<dyn Error>> {
+    let acknowledged = response_objects(response).into_iter().any(|item| {
+        string_field_optional(item, "order_id")
+            .or_else(|| string_field_optional(item, "orderId"))
+            .is_some()
+            && string_field_optional(item, "order_status")
+                .or_else(|| string_field_optional(item, "orderStatus"))
+                .is_some()
+    });
+    if acknowledged {
+        return Ok(());
+    }
+    Err("IBKR response was neither an order acknowledgement nor a confirmation request".into())
+}
+
+fn ensure_account_is_accessible(accounts: &Value, account_id: &str) -> Result<(), Box<dyn Error>> {
+    if json_contains_exact_string(accounts, account_id) {
+        return Ok(());
+    }
+    Err(format!("IBKR brokerage session does not expose configured account '{account_id}'").into())
+}
+
+fn ensure_account_is_selected(response: &Value, account_id: &str) -> Result<(), Box<dyn Error>> {
+    if json_contains_exact_string(response, account_id) {
+        return Ok(());
+    }
+    Err(format!("IBKR did not confirm selection of configured account '{account_id}'").into())
+}
+
+fn json_contains_exact_string(value: &Value, expected: &str) -> bool {
+    match value {
+        Value::String(value) => value == expected,
+        Value::Array(values) => values
             .iter()
-            .filter_map(Value::as_str)
-            .map(str::to_string)
-            .collect(),
-        _ => Vec::new(),
+            .any(|value| json_contains_exact_string(value, expected)),
+        Value::Object(values) => values
+            .values()
+            .any(|value| json_contains_exact_string(value, expected)),
+        _ => false,
     }
 }
 
@@ -246,19 +363,89 @@ pub(crate) fn parse_json_response(
     let status = response.status();
     let body = response.text().unwrap_or_default();
     if !status.is_success() {
-        return Err(format!("IBKR {method} {path} returned {status}: {body}").into());
+        let message = format!(
+            "IBKR {method} {path} returned {status} (response body omitted; {} bytes)",
+            body.len()
+        );
+        if matches!(status.as_u16(), 400 | 401 | 403 | 404 | 405 | 422 | 429) {
+            return Err(Box::new(BrokerError::retry_safe_mutation(
+                format!("IBKR {method} request"),
+                message,
+            )));
+        }
+        return Err(message.into());
     }
     if body.trim().is_empty() {
         return Ok(Value::Null);
     }
     serde_json::from_str(&body).map_err(|error| {
-        format!("IBKR {method} {path} returned invalid JSON: {error}: {body}").into()
+        format!(
+            "IBKR {method} {path} returned invalid JSON ({error}; response body omitted; {} bytes)",
+            body.len()
+        )
+        .into()
     })
+}
+
+pub(crate) fn redacted_json_string(value: &Value) -> String {
+    let mut redacted = value.clone();
+    redact_sensitive_json(&mut redacted);
+    let serialized = redacted.to_string();
+    truncate_utf8(&serialized, MAX_PERSISTED_RESPONSE_BYTES)
+}
+
+fn redact_sensitive_json(value: &mut Value) {
+    match value {
+        Value::Array(values) => {
+            for value in values {
+                redact_sensitive_json(value);
+            }
+        }
+        Value::Object(values) => {
+            for (key, value) in values {
+                if is_sensitive_json_key(key) {
+                    *value = Value::String("[REDACTED]".to_string());
+                } else {
+                    redact_sensitive_json(value);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn is_sensitive_json_key(key: &str) -> bool {
+    let normalized: String = key
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect();
+    normalized.contains("account")
+        || normalized.contains("acct")
+        || normalized.contains("token")
+        || normalized.contains("password")
+        || normalized.contains("cookie")
+        || normalized.contains("session")
+        || normalized.contains("username")
+        || normalized.contains("authorization")
+        || normalized.contains("oauth")
+        || normalized == "encryptmessage"
+}
+
+fn truncate_utf8(value: &str, max_bytes: usize) -> String {
+    if value.len() <= max_bytes {
+        return value.to_string();
+    }
+    let mut boundary = max_bytes;
+    while !value.is_char_boundary(boundary) {
+        boundary = boundary.saturating_sub(1);
+    }
+    format!("{}...[TRUNCATED]", &value[..boundary])
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{reject_dangerous_order_reply, reply_messages, IbkrClient};
+    use super::{redacted_json_string, reject_order_reply, reply_messages, IbkrClient};
     use crate::config::ConnectionConfig;
     use model::Account;
     use reqwest::blocking::Client;
@@ -281,29 +468,35 @@ mod tests {
     }
 
     #[test]
-    fn dangerous_order_replies_require_manual_review() {
-        for message in [
-            "WARNING: This order exceeds your account buying power. Proceed?",
-            "Insufficient settled cash for this order",
-            "Margin impact is above the account limit",
+    fn all_order_replies_require_manual_confirmation() {
+        for response in [
+            json!({
+                "id": "reply-danger",
+                "message": ["WARNING: This order exceeds your account buying power. Proceed?"],
+                "messageIds": ["o354"]
+            }),
+            json!([{
+                "id": "reply-price",
+                "message": ["The order price exceeds the configured percentage constraint."],
+                "messageIds": ["o163"]
+            }]),
+            json!({
+                "id": "reply-unknown",
+                "message": ["Confirm order submission"]
+            }),
         ] {
-            let error = reject_dangerous_order_reply(&json!({ "message": [message] }))
-                .expect_err("dangerous reply should be rejected");
-            assert!(error.to_string().contains("manual review"));
+            let error = reject_order_reply(&response)
+                .expect_err("every broker confirmation must fail closed");
+            assert!(error.to_string().contains("explicit manual confirmation"));
         }
-
-        reject_dangerous_order_reply(&json!({
-            "message": ["Confirm order submission"],
-            "id": "safe-reply"
-        }))
-        .expect("benign confirmation can be auto-confirmed");
     }
 
     #[test]
     fn client_url_joins_base_and_path_without_double_slashes() {
         let client = IbkrClient {
             http: Client::new(),
-            config: ConnectionConfig::new("https://ibkr.local/v1/api/", false),
+            config: ConnectionConfig::new("https://ibkr.local/v1/api/", false)
+                .expect("valid secure config"),
         };
 
         assert_eq!(
@@ -319,7 +512,7 @@ mod tests {
                 (
                     "GET /iserver/auth/status",
                     200,
-                    r#"{"authenticated":true,"connected":true}"#,
+                    r#"{"authenticated":true,"connected":true,"established":true,"competing":false}"#,
                 ),
                 ("GET /iserver/accounts", 200, r#"[]"#),
                 (
@@ -397,20 +590,13 @@ mod tests {
     }
 
     #[test]
-    fn post_json_with_replies_confirms_benign_replies_until_array_response() {
+    fn post_json_with_replies_accepts_valid_acknowledgement_array() {
         with_test_server(
-            vec![
-                (
-                    "POST /iserver/account/U1234567/orders",
-                    200,
-                    r#"{"id":"reply-safe-1","message":["Confirm order submission"]}"#,
-                ),
-                (
-                    "POST /iserver/reply/reply-safe-1",
-                    200,
-                    r#"[{"order_id":"9001","order_status":"Submitted"}]"#,
-                ),
-            ],
+            vec![(
+                "POST /iserver/account/U1234567/orders",
+                200,
+                r#"[{"order_id":"9001","order_status":"Submitted"}]"#,
+            )],
             |base_url| {
                 let client = test_client(&base_url);
 
@@ -419,7 +605,7 @@ mod tests {
                         "/iserver/account/U1234567/orders",
                         &json!({"orders":[]}),
                     )
-                    .expect("benign reply confirmed");
+                    .expect("acknowledgement accepted");
 
                 assert!(response.is_array());
             },
@@ -433,10 +619,14 @@ mod tests {
                 (
                     "GET /iserver/auth/status",
                     200,
-                    r#"{"authenticated":true,"connected":true}"#,
+                    r#"{"authenticated":true,"connected":true,"established":true,"competing":false}"#,
                 ),
-                ("GET /iserver/accounts", 200, r#"[]"#),
-                ("POST /iserver/account", 200, r#"{"selected":true}"#),
+                ("GET /iserver/accounts", 200, r#"{"accounts":["U1234567"]}"#),
+                (
+                    "POST /iserver/account",
+                    200,
+                    r#"{"selected":true,"acctId":"U1234567"}"#,
+                ),
             ],
             |base_url| {
                 let client = test_client(&base_url);
@@ -469,6 +659,53 @@ mod tests {
 
                 assert!(error.to_string().contains("Gateway is not ready"));
                 assert!(error.to_string().contains(&base_url));
+            },
+        );
+    }
+
+    #[test]
+    fn session_preparation_rejects_unestablished_or_competing_session() {
+        for status in [
+            r#"{"authenticated":true,"connected":true,"established":false,"competing":false}"#,
+            r#"{"authenticated":true,"connected":true,"established":true,"competing":true}"#,
+            r#"{"authenticated":true,"established":true,"competing":false}"#,
+        ] {
+            with_test_server(
+                vec![("GET /iserver/auth/status", 200, status)],
+                |base_url| {
+                    let client = test_client(&base_url);
+                    let error = client
+                        .prepare_trading_session(None)
+                        .expect_err("session must be fully established and uncontested");
+                    assert!(error.to_string().contains("Gateway is not ready"));
+                },
+            );
+        }
+    }
+
+    #[test]
+    fn session_preparation_rejects_inaccessible_account_before_selection() {
+        with_test_server(
+            vec![
+                (
+                    "GET /iserver/auth/status",
+                    200,
+                    r#"{"authenticated":true,"connected":true,"established":true,"competing":false}"#,
+                ),
+                ("GET /iserver/accounts", 200, r#"{"accounts":["U7654321"]}"#),
+            ],
+            |base_url| {
+                let client = test_client(&base_url);
+                let account = Account {
+                    broker_account_id: Some("U1234567".to_string()),
+                    ..Account::default()
+                };
+                let error = client
+                    .prepare_trading_session(Some(&account))
+                    .expect_err("unavailable account must be rejected");
+                assert!(error
+                    .to_string()
+                    .contains("does not expose configured account"));
             },
         );
     }
@@ -526,6 +763,44 @@ mod tests {
     }
 
     #[test]
+    fn cancellation_confirmation_accepts_canceled_and_rejects_fill_race() {
+        for (response, should_succeed) in [
+            (
+                r#"{"order_ref":"entry-ref","status":"Canceled","cum_fill":"0"}"#,
+                true,
+            ),
+            (
+                r#"{"order_ref":"entry-ref","status":"Canceled","cum_fill":"2"}"#,
+                false,
+            ),
+            (
+                r#"{"order_ref":"entry-ref","status":"Filled","filledQuantity":5}"#,
+                false,
+            ),
+        ] {
+            with_test_server(
+                vec![(
+                    "GET /iserver/account/U1234567/order/status/9001",
+                    200,
+                    response,
+                )],
+                |base_url| {
+                    let client = test_client(&base_url);
+                    let account = Account {
+                        broker_account_id: Some("U1234567".to_string()),
+                        ..Account::default()
+                    };
+                    let result = client.confirm_order_canceled(&account, "9001", "entry-ref");
+                    assert_eq!(result.is_ok(), should_succeed);
+                    if let Err(error) = result {
+                        assert!(error.to_string().contains("funds must not be released"));
+                    }
+                },
+            );
+        }
+    }
+
+    #[test]
     fn snapshot_retries_until_requested_fields_are_available() {
         with_test_server(
             vec![
@@ -570,7 +845,7 @@ mod tests {
     }
 
     #[test]
-    fn post_json_with_replies_returns_safe_reply_without_reply_id() {
+    fn post_json_with_replies_rejects_unrecognized_success_payload() {
         with_test_server(
             vec![(
                 "POST /iserver/account/U1234567/orders",
@@ -580,51 +855,28 @@ mod tests {
             |base_url| {
                 let client = test_client(&base_url);
 
-                let response = client
+                let error = client
                     .post_json_with_replies(
                         "/iserver/account/U1234567/orders",
                         &json!({"orders":[]}),
                     )
-                    .expect("safe reply without id should be returned");
+                    .expect_err("ambiguous response must fail closed");
 
-                assert_eq!(
-                    response,
-                    json!({"message":["Order accepted without confirmation id"]})
-                );
+                assert!(error
+                    .to_string()
+                    .contains("neither an order acknowledgement"));
             },
         );
     }
 
     #[test]
-    fn post_json_with_replies_caps_confirmation_depth() {
+    fn post_json_with_replies_rejects_array_shaped_confirmation_without_posting_reply() {
         with_test_server(
-            vec![
-                (
-                    "POST /iserver/account/U1234567/orders",
-                    200,
-                    r#"{"id":"reply-1","message":["Confirm order submission"]}"#,
-                ),
-                (
-                    "POST /iserver/reply/reply-1",
-                    200,
-                    r#"{"id":"reply-2","message":["Confirm order submission"]}"#,
-                ),
-                (
-                    "POST /iserver/reply/reply-2",
-                    200,
-                    r#"{"id":"reply-3","message":["Confirm order submission"]}"#,
-                ),
-                (
-                    "POST /iserver/reply/reply-3",
-                    200,
-                    r#"{"id":"reply-4","message":["Confirm order submission"]}"#,
-                ),
-                (
-                    "POST /iserver/reply/reply-4",
-                    200,
-                    r#"{"id":"reply-5","message":["Confirm order submission"]}"#,
-                ),
-            ],
+            vec![(
+                "POST /iserver/account/U1234567/orders",
+                200,
+                r#"[{"id":"reply-1","message":["Confirm order submission"],"messageIds":["o163"]}]"#,
+            )],
             |base_url| {
                 let client = test_client(&base_url);
 
@@ -633,9 +885,10 @@ mod tests {
                         "/iserver/account/U1234567/orders",
                         &json!({"orders":[]}),
                     )
-                    .expect_err("reply loop should be capped");
+                    .expect_err("confirmation must require manual review");
 
-                assert!(error.to_string().contains("maximum reply depth"));
+                assert!(error.to_string().contains("explicit manual confirmation"));
+                assert!(error.to_string().contains("o163"));
             },
         );
     }
@@ -652,9 +905,35 @@ mod tests {
                     .expect_err("non-success delete should fail");
 
                 assert!(error.to_string().contains("409"));
-                assert!(error.to_string().contains("cannot delete"));
+                assert!(error.to_string().contains("response body omitted"));
+                assert!(!error.to_string().contains("cannot delete"));
             },
         );
+    }
+
+    #[test]
+    fn persisted_json_redacts_sensitive_fields_recursively_and_bounds_size() {
+        let oversized = "x".repeat(20_000);
+        let value = json!({
+            "account": "U1234567",
+            "nested": {
+                "access_token": "redaction-test-value",
+                "broker_account_id": "U7654321",
+                "session-id": "redaction-session-value",
+                "order_id": "9001",
+                "description": oversized
+            }
+        });
+
+        let redacted = redacted_json_string(&value);
+
+        assert!(!redacted.contains("U1234567"));
+        assert!(!redacted.contains("U7654321"));
+        assert!(!redacted.contains("redaction-test-value"));
+        assert!(!redacted.contains("redaction-session-value"));
+        assert!(redacted.contains("[REDACTED]"));
+        assert!(redacted.ends_with("...[TRUNCATED]"));
+        assert!(redacted.len() <= 16 * 1024 + "...[TRUNCATED]".len());
     }
 
     #[test]
@@ -673,7 +952,7 @@ mod tests {
     fn test_client(base_url: &str) -> IbkrClient {
         IbkrClient {
             http: Client::new(),
-            config: ConnectionConfig::new(base_url, false),
+            config: ConnectionConfig::new(base_url, false).expect("valid loopback config"),
         }
     }
 

@@ -588,7 +588,10 @@ impl Broker for SubmitFailsBroker {
         _: &Trade,
         _: &Account,
     ) -> Result<(BrokerLog, OrderIds), Box<dyn Error>> {
-        Err("Market is closed".into())
+        Err(Box::new(model::BrokerError::retry_safe_mutation(
+            "submit",
+            "market is closed",
+        )))
     }
     fn sync_trade(
         &self,

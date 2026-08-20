@@ -89,6 +89,24 @@ pub(crate) fn validate_bracket_trade(trade: &Trade) -> Result<(), Box<dyn Error>
             return Err(format!("IBKR {label} order price must be greater than zero").into());
         }
     }
+    if trade.entry.quantity != trade.target.quantity
+        || trade.entry.quantity != trade.safety_stop.quantity
+    {
+        return Err("IBKR bracket order quantities must match exactly".into());
+    }
+    let valid_geometry = match trade.category {
+        TradeCategory::Long => {
+            trade.safety_stop.unit_price < trade.entry.unit_price
+                && trade.entry.unit_price < trade.target.unit_price
+        }
+        TradeCategory::Short => {
+            trade.target.unit_price < trade.entry.unit_price
+                && trade.entry.unit_price < trade.safety_stop.unit_price
+        }
+    };
+    if !valid_geometry {
+        return Err("IBKR bracket order price geometry is invalid for the trade side".into());
+    }
     Ok(())
 }
 
@@ -96,13 +114,12 @@ pub(crate) fn build_close_order(
     trade: &Trade,
     account_id: &str,
     conid: &str,
-    close_ref: &str,
 ) -> Result<Value, Box<dyn Error>> {
     Ok(json!({
         "acctId": account_id,
         "conid": conid,
         "secType": sec_type_for_vehicle(&trade.trading_vehicle)?,
-        "cOID": close_ref,
+        "parentId": normalize_order_ref(&trade.entry),
         "referrer": "trust-manual-close",
         "orderType": "MKT",
         "listingExchange": listing_exchange(&trade.trading_vehicle),
@@ -132,7 +149,6 @@ pub(crate) fn build_modify_order(
         "acctId": account_id,
         "conid": conid,
         "secType": sec_type_for_vehicle(&trade.trading_vehicle)?,
-        "cOID": normalize_order_ref(order),
         "parentId": normalize_order_ref(&trade.entry),
         "referrer": referrer,
         "orderType": order_type,

@@ -898,7 +898,7 @@ fn test_case_24_submit_funded_trade_sets_submitted_and_broker_ids() {
 }
 
 #[test]
-fn test_case_25_submit_broker_error_keeps_trade_funded() {
+fn test_case_25_submit_broker_error_retains_reconciliation_intent() {
     let broker = TestBroker::with_submit_error("submit failed");
     let mut trust = new_trust_with_broker(broker);
     let (account, _vehicle, trade) = setup_account_deposit_vehicle_trade(
@@ -919,8 +919,9 @@ fn test_case_25_submit_broker_error_keeps_trade_funded() {
         .expect_err("submit must fail from broker side");
     assert!(err.to_string().contains("submit failed"));
 
-    let still_funded = trade_by_status_and_id(&mut trust, &account, Status::Funded, trade.id);
-    assert_eq!(still_funded.status, Status::Funded);
+    let pending = trade_by_status_and_id(&mut trust, &account, Status::Submitted, trade.id);
+    assert_eq!(pending.status, Status::Submitted);
+    assert!(pending.entry.broker_order_id.is_none());
 }
 
 #[test]
@@ -1219,7 +1220,7 @@ fn test_case_34_modify_target_on_filled_trade_updates_price_and_broker_id() {
 }
 
 #[test]
-fn test_case_35_close_trade_on_filled_sets_canceled_and_cancels_stop_order() {
+fn test_case_35_close_trade_on_filled_persists_pending_market_exit() {
     let broker = TestBroker::success();
     let mut trust = new_trust_with_broker(broker.clone());
 
@@ -1253,10 +1254,10 @@ fn test_case_35_close_trade_on_filled_sets_canceled_and_cancels_stop_order() {
 
     trust.close_trade(&filled).expect("close trade");
 
-    let canceled = trade_by_status_and_id(&mut trust, &account, Status::Canceled, trade.id);
-    assert_eq!(canceled.status, Status::Canceled);
-    assert_eq!(canceled.safety_stop.status, OrderStatus::Canceled);
-    assert_eq!(canceled.target.category, model::OrderCategory::Market);
+    let pending = trade_by_status_and_id(&mut trust, &account, Status::Filled, trade.id);
+    assert_eq!(pending.status, Status::Filled);
+    assert_ne!(pending.safety_stop.status, OrderStatus::Canceled);
+    assert_eq!(pending.target.category, model::OrderCategory::Market);
 }
 
 #[test]
@@ -1464,7 +1465,7 @@ fn test_case_40_sync_submitted_to_closed_stop_realizes_loss() {
 }
 
 #[test]
-fn test_case_41_sync_canceled_trade_to_closed_target_reconciles_manual_close() {
+fn test_case_41_sync_pending_manual_exit_to_closed_target_reconciles_close() {
     let broker = TestBroker::success();
     let mut trust = new_trust_with_broker(broker.clone());
 
@@ -1499,19 +1500,19 @@ fn test_case_41_sync_canceled_trade_to_closed_target_reconciles_manual_close() {
     let filled = trade_by_status_and_id(&mut trust, &account, Status::Filled, trade.id);
     trust
         .close_trade(&filled)
-        .expect("manual close to canceled state");
+        .expect("request manual market exit");
 
-    let canceled = trade_by_status_and_id(&mut trust, &account, Status::Canceled, trade.id);
+    let pending = trade_by_status_and_id(&mut trust, &account, Status::Filled, trade.id);
 
     // Broker later reports close target fill for the replacement market target.
     broker.enqueue_sync(Ok((
         Status::ClosedTarget,
-        vec![order_target_filled(&canceled, dec!(110))],
+        vec![order_target_filled(&pending, dec!(110))],
     )));
 
     trust
-        .sync_trade(&canceled, &account)
-        .expect("sync canceled->closed_target reconciliation");
+        .sync_trade(&pending, &account)
+        .expect("sync pending manual exit to closed-target reconciliation");
 
     let reconciled = trade_by_status_and_id(&mut trust, &account, Status::ClosedTarget, trade.id);
     assert_eq!(reconciled.status, Status::ClosedTarget);
@@ -3060,7 +3061,7 @@ fn test_case_205_bug_hunt_closed_target_sync_should_not_leave_stop_order_open() 
 }
 
 #[test]
-fn test_case_206_bug_hunt_close_trade_broker_error_must_not_mutate_trade_state() {
+fn test_case_206_bug_hunt_close_trade_broker_error_retains_close_intent() {
     let broker = TestBroker::success();
     broker.state.lock().expect("broker state lock").close_error =
         Some("forced close error".to_string());
@@ -3099,6 +3100,7 @@ fn test_case_206_bug_hunt_close_trade_broker_error_must_not_mutate_trade_state()
 
     let still_filled = trade_by_status_and_id(&mut trust, &account, Status::Filled, trade.id);
     assert_eq!(still_filled.status, Status::Filled);
+    assert_eq!(still_filled.target.category, model::OrderCategory::Market);
     assert_ne!(still_filled.safety_stop.status, OrderStatus::Canceled);
 }
 
