@@ -1,78 +1,106 @@
-# AGENTS.md
+# Trust repository guide
 
-Guidelines for sub-agents working in this repository.
+These instructions apply repository-wide. Each crate has a narrower `AGENTS.md`; read it as well before editing that subtree.
 
-## Project
+## Workspace and boundaries
 
-Rust workspace — risk-managed algorithmic trading system. Six crates:
+Trust is a Rust 2021 workspace for risk-managed trading. Financial correctness, deterministic accounting, auditability, and safe broker behavior take priority over convenience.
 
-- **model** (`trust-model`): Domain types + trait contracts (`Broker`, `DatabaseFactory`). All monetary values use `rust_decimal::Decimal` — float arithmetic is denied at compile time.
-- **core**: `TrustFacade` is the single entry point for all business logic. Contains calculators, validators, services (leveling, distribution, grading, advisory), and commands. CLI never calls DB or broker directly.
-- **db-sqlite**: `SqliteDatabase` implements `DatabaseFactory`. Diesel ORM with SQLite. Schema in `db-sqlite/src/schema.rs` is auto-generated — never edit it manually. Migrations in `db-sqlite/migrations/`.
-- **cli**: Clap CLI. `cli/src/dispatcher.rs` is the central command router (~184KB). Commands in `cli/src/commands/`, views in `cli/src/views/`, dialogs in `cli/src/dialogs/`.
-- **alpaca-broker**: `AlpacaBroker` implements the `Broker` trait. Each operation (submit, sync, close, cancel, modify) is in its own module.
-- **broker-sync**: Actor-based real-time sync. `BrokerSync`/`BrokerSyncHandle` with command/event messaging and state machine logic.
+- `model` (`trust-model`): domain entities and the `Broker` and `DatabaseFactory` contracts.
+- `core`: business rules and orchestration through `TrustFacade`.
+- `db-sqlite`: Diesel/SQLite implementation of the database contracts.
+- `cli` (`trust-cli`, binary `trust`): Clap commands, dialogs, routing, output, and integration tests.
+- `alpaca-broker`: Alpaca implementation of `Broker`.
+- `ibkr-broker`: Interactive Brokers Client Portal implementation of `Broker`.
+- `broker-sync`: in-memory actor/session scaffold plus serialized messages and a separate connection state machine. Real websocket reconciliation is not wired into the actor yet.
+- `advisor`: catalyst, correlation, regime, and advisory configuration support.
 
-## Build & Test
+The intended application flow is:
 
-```bash
-make build              # Setup DB + debug build
-make test               # All tests (multi-threaded)
-make test-single        # Single-threaded (required for DB/CLI tests)
-make fmt                # Auto-format
-make lint               # Clippy with -D warnings
-make ci-fast            # fmt + clippy
-make ci                 # Full CI: fmt, clippy, build, tests, snapshots, perf
+```text
+CLI -> core::TrustFacade -> model contracts -> database/broker adapters
+                         -> advisor services
 ```
 
+Keep business decisions out of the CLI and adapters. The CLI constructs concrete dependencies and has narrow credential/metadata exceptions, but business mutations should go through `TrustFacade`. Broker and database crates translate external representations into model types; they do not own risk policy.
+
+## Correctness and safety
+
+- Use `rust_decimal::Decimal` for financial calculations. Do not introduce floating-point financial arithmetic; a few legacy model rule percentages remain `f32` boundary values.
+- Do not add `unwrap`, `expect`, unchecked indexing, panic paths, lossy casts, or unchecked arithmetic to production code. Most crate roots deny these through Clippy; use checked/saturating operations and typed errors.
+- Preserve validation before capital commitment and broker submission.
+- Treat balances, trade state, orders, executions, fees, and distributions as one auditable system. Operations requiring multiple financial writes should be atomic and tested for rollback.
+- Preserve broker/account identity checks. Broker-specific behavior belongs behind `model::Broker` and should return domain-compatible values or explicit errors.
+- Never print or commit credentials, keychain values, tokens, or credential-bearing URLs.
+- Do not run ignored live-broker tests unless the user explicitly requests them and has configured the environment.
+
+## Trade lifecycle
+
+`DraftTrade` is creation input; the persisted initial status is `New`. The status set in `model/src/trade.rs` supports:
+
+```text
+New -> Funded -> Submitted -> PartiallyFilled/Filled
+                              -> ClosedTarget/ClosedStopLoss
+                              -> Canceled/Expired/Rejected where valid
+```
+
+Every trade has entry, safety-stop, and target orders. Do not infer allowed transitions from this summary: preserve the validations and accounting effects in `core/src/commands/trade.rs`. Closing feeds leveling and conditional positive-profit distribution; grading is an explicit operation.
+
+## Editing workflow
+
+- Inspect the relevant trait, facade method, persistence worker, adapter, and tests before changing a cross-layer workflow.
+- Keep changes scoped. Do not opportunistically rewrite the large CLI dispatcher or generated files.
+- Never edit `db-sqlite/src/schema.rs` manually. Create paired migrations under `db-sqlite/migrations/` and use the repository migration workflow.
+- Preserve existing user changes in a dirty worktree.
+- Add regression tests at the lowest useful layer and integration coverage for cross-crate behavior.
+- Treat CLI JSON as a public contract. Refresh snapshots only for intentional changes and inspect the diff.
+
+## Build and verification
+
+The toolchain is pinned in `rust-toolchain.toml`. Make targets that set up the database require:
+
 ```bash
-# Specific crate/test
+cargo install diesel_cli --no-default-features --features sqlite
+```
+
+Use focused checks while iterating:
+
+```bash
+cargo test -p trust-model
 cargo test -p core
-cargo test -p trust-cli -- --test-threads=1
-cargo test -p trust-cli --test integration_test_trade -- test_name
+cargo test -p db-sqlite -- --test-threads=1
+cargo test -p trust-cli --test integration_test_trade -- --test-threads=1
+cargo test -p alpaca-broker
+cargo test -p ibkr-broker
+cargo test -p broker-sync
+cargo test -p advisor
 ```
+
+Repository gates:
 
 ```bash
-# Snapshots & perf
-make ci-snapshots       # Verify JSON report snapshots
-make snapshots-update   # Regenerate snapshots (UPDATE_SNAPSHOTS=1)
-make ci-perf            # Performance regression gate
+make fmt                 # write formatting changes
+make fmt-check           # verify formatting
+make lint                # workspace Clippy, all targets/features
+make test-single         # serialize DB/CLI-sensitive workspace tests
+make ci-fast             # fmt-check + lint
+make ci-snapshots        # verify CLI JSON snapshots
+make ci-perf             # broker-sync performance gate
+make ci                  # full local CI, including coverage
 ```
 
-Prerequisite: `cargo install diesel_cli --no-default-features --features sqlite`.
+CI also runs `cargo test --locked --no-default-features --workspace`. DB- and CLI-backed tests share process/filesystem state, so default to `--test-threads=1` for them. Run formatting and relevant tests after edits; broaden verification in proportion to the change.
 
-## Key Architecture
+## Navigation
 
-- **DatabaseFactory** returns specialized read/write trait objects (e.g., `AccountRead`, `OrderWrite`, `ReadTradeDB`). Uses named savepoints for atomicity.
-- **Trade State Machine**: Draft → Funded → Submitted → Filled → Closed (ClosedTarget/ClosedStopLoss) or Canceled. Every trade has three orders: entry, stop-loss, target.
-- **Risk Validation Flow**: CLI → Core Validators → DB Check → Broker API → DB Update. Validation before capital commitment.
-- **Event-Driven**: Trade close triggers leveling evaluation, profit distribution, and grading.
-- **Protected Mode**: Argon2 password authorization for critical mutations.
+- Domain contracts: `model/src/broker.rs`, `model/src/database.rs`
+- Trade/order state: `model/src/trade.rs`, `model/src/order.rs`
+- Facade and orchestration: `core/src/lib.rs`, `core/src/commands/trade.rs`
+- Validation/calculation: `core/src/validators/`, `core/src/calculators_trade/`
+- Persistence: `db-sqlite/src/database.rs`, `db-sqlite/src/workers/`
+- CLI definition/routing: `cli/src/main.rs`, `cli/src/command_routing.rs`, `cli/src/dispatcher.rs`
+- Broker adapters: `alpaca-broker/src/`, `ibkr-broker/src/`
+- Sync contracts/state: `broker-sync/src/messages.rs`, `broker-sync/src/state.rs`
+- Advisory analysis: `advisor/src/`
 
-## Testing
-
-- **CLI integration tests**: `cli/tests/` (18 files). Must run single-threaded (`--test-threads=1`).
-- **Core tests**: `core/src/integration_tests.rs` with mocks in `core/src/mocks.rs`.
-- **DB tests**: `db-sqlite/src/migration_fk_safety_tests.rs` for FK constraint validation.
-- **Broker-sync tests**: `broker-sync/tests/` including property tests (`*property_test.rs`).
-- **Snapshot tests**: JSON contract tests for CLI reports. Regenerate with `make snapshots-update`.
-- Run `cargo test --locked --no-default-features --workspace` to mirror CI no-default-feature lane.
-
-## Code Style
-
-- Format: `cargo fmt --all` (CI enforced).
-- Lint: `cargo clippy --workspace --all-targets --all-features -- -D warnings`.
-- No `unwrap`/`expect` in production code — strict clippy denies in crate roots.
-- Conventional Commits: `feat(core): add ...`, `fix(cli): resolve ...`, `test(broker-sync): add ...`.
-
-## Where to Find Things
-
-- Risk validation: `core/src/validators/`
-- Trade calculations: `core/src/calculators_trade/`
-- Trade lifecycle: `core/src/commands/trade.rs`
-- CLI command routing: `cli/src/dispatcher.rs`
-- CLI command definitions: `cli/src/commands/`
-- Database queries: `db-sqlite/src/database.rs`
-- Broker operations: `alpaca-broker/src/` (one module per operation)
-- Domain models & traits: `model/src/`
-- DB schema changes: Create migration with `make migration NAME=x`, edit `db-sqlite/migrations/`, then `make build`
+Format with `cargo fmt --all`. Follow the existing typed-error style, and make error messages actionable without exposing secrets. If asked to commit, use Conventional Commits with the affected area.
