@@ -282,6 +282,14 @@ impl SqliteDatabase {
              WHERE deleted_at IS NULL",
             "Failed to create index idx_accounts_balances_account_currency_active",
         );
+
+        execute_sql_or_exit(
+            connection,
+            "CREATE INDEX IF NOT EXISTS idx_logs_trade_active \
+             ON logs(trade_id, created_at) \
+             WHERE deleted_at IS NULL",
+            "Failed to create index idx_logs_trade_active",
+        );
     }
 
     /// Create a new SQLite database connection from a URL

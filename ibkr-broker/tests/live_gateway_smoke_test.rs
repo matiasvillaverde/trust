@@ -1,13 +1,17 @@
+use core::TrustFacade;
+use db_sqlite::SqliteDatabase;
 use ibkr_broker::IbkrBroker;
 use model::{
-    Account, BrokerKind, Currency, Environment, TimeInForce, Trade, TradeCategory,
-    TradingVehicleCategory,
+    Account, AccountType, BrokerKind, Currency, DraftTrade, Environment, RuleLevel, RuleName,
+    Status, TimeInForce, Trade, TradeCategory, TradingVehicleCategory, TransactionCategory,
 };
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use std::str::FromStr;
 
 const ENABLE_ENV: &str = "TRUST_IBKR_LIVE_E2E";
+const MUTATION_ENV: &str = "TRUST_IBKR_ALLOW_PAPER_MUTATIONS";
+const MUTATION_ACKNOWLEDGEMENT: &str = "I_UNDERSTAND_PAPER_ORDERS_ARE_REAL_SIMULATIONS";
 const ACCOUNT_ID_ENV: &str = "TRUST_IBKR_ACCOUNT_ID";
 const STOCK_SYMBOL_ENV: &str = "TRUST_IBKR_STOCK_SYMBOL";
 const ETF_SYMBOL_ENV: &str = "TRUST_IBKR_ETF_SYMBOL";
@@ -30,6 +34,10 @@ fn enabled() -> bool {
             .as_deref(),
         Some("1" | "true" | "yes" | "on")
     )
+}
+
+fn paper_mutations_enabled() -> bool {
+    env_value(MUTATION_ENV).as_deref() == Some(MUTATION_ACKNOWLEDGEMENT)
 }
 
 fn env_value(name: &str) -> Option<String> {
@@ -118,6 +126,55 @@ fn preview_trade(
     trade.safety_stop.unit_price = stop_price;
     trade.target.unit_price = target_price;
     trade
+}
+
+fn paper_e2e_facade(account_id: String) -> (TrustFacade, Account) {
+    assert!(
+        account_id.starts_with("DU"),
+        "paper mutation E2E requires an IBKR paper account ID beginning with DU"
+    );
+    let mut trust = TrustFacade::new(
+        Box::new(SqliteDatabase::new_in_memory()),
+        Box::new(IbkrBroker),
+    );
+    let account = trust
+        .create_account_with_profile(
+            "ibkr-paper-order-e2e",
+            "isolated paper-account mutation test",
+            Environment::Paper,
+            dec!(20),
+            dec!(10),
+            AccountType::Primary,
+            None,
+            BrokerKind::Ibkr,
+            Some(&account_id),
+        )
+        .expect("paper E2E account should be created");
+    trust
+        .create_transaction(
+            &account,
+            &TransactionCategory::Deposit,
+            dec!(1000000),
+            &Currency::USD,
+        )
+        .expect("paper E2E account should be funded locally");
+    trust
+        .create_rule(
+            &account,
+            &RuleName::RiskPerMonth(100.0),
+            "paper E2E monthly risk cap",
+            &RuleLevel::Error,
+        )
+        .expect("paper E2E monthly rule should be created");
+    trust
+        .create_rule(
+            &account,
+            &RuleName::RiskPerTrade(100.0),
+            "paper E2E trade risk cap",
+            &RuleLevel::Error,
+        )
+        .expect("paper E2E trade rule should be created");
+    (trust, account)
 }
 
 #[test]
@@ -301,4 +358,84 @@ fn live_gateway_previews_stock_etf_and_bond_brackets_with_whatif() {
             "IBKR what-if preview should return an object for {symbol}"
         );
     }
+}
+
+#[test]
+#[ignore = "places and cancels an order in an authenticated IBKR paper account"]
+fn live_paper_account_submits_cancels_and_verifies_audit_chain() {
+    if !enabled() || !paper_mutations_enabled() {
+        eprintln!(
+            "skipping paper mutation E2E: set {ENABLE_ENV}=1 and {MUTATION_ENV}={MUTATION_ACKNOWLEDGEMENT}"
+        );
+        return;
+    }
+
+    let account_id = required_env_value(ACCOUNT_ID_ENV);
+    let symbol = required_env_value(STOCK_SYMBOL_ENV);
+    let entry_price = required_decimal_env_value(STOCK_ENTRY_PRICE_ENV);
+    let stop_price = required_decimal_env_value(STOCK_STOP_PRICE_ENV);
+    let target_price = required_decimal_env_value(STOCK_TARGET_PRICE_ENV);
+    validate_long_bracket_prices(
+        &symbol,
+        TradingVehicleCategory::Stock,
+        entry_price,
+        stop_price,
+        target_price,
+    );
+
+    let (mut trust, account) = paper_e2e_facade(account_id);
+    IbkrBroker::preflight_gateway(&account).expect("paper gateway preflight must pass");
+    let vehicle = trust
+        .create_trading_vehicle(&symbol, None, &TradingVehicleCategory::Stock, "ibkr")
+        .expect("paper E2E vehicle should be created");
+    let trade = trust
+        .create_trade(
+            DraftTrade {
+                account: account.clone(),
+                trading_vehicle: vehicle,
+                quantity: 1.into(),
+                currency: Currency::USD,
+                category: TradeCategory::Long,
+                thesis: Some("IBKR paper submission/cancellation E2E".to_string()),
+                sector: None,
+                asset_class: Some("stock".to_string()),
+                context: Some("explicitly gated paper mutation test".to_string()),
+            },
+            stop_price,
+            entry_price,
+            target_price,
+        )
+        .expect("paper E2E trade should be created");
+    let (funded, _, _, _) = trust
+        .fund_trade(&trade)
+        .expect("paper E2E trade should pass local risk validation");
+
+    let (submitted, _) = trust.submit_trade(&funded).unwrap_or_else(|error| {
+        panic!(
+            "paper order submission failed for trade {}: {error}; inspect IBKR before retrying",
+            funded.id
+        )
+    });
+    assert_eq!(submitted.status, Status::Submitted);
+    assert_eq!(
+        trust
+            .verify_trade_audit_chain(submitted.id)
+            .expect("submission audit chain should verify"),
+        2
+    );
+
+    trust
+        .cancel_submitted_trade(&submitted)
+        .unwrap_or_else(|error| {
+            panic!(
+                "paper order cancellation was not confirmed for trade {}; manually inspect order refs entry={}, target={}, stop={}: {error}",
+                submitted.id, submitted.entry.id, submitted.target.id, submitted.safety_stop.id
+            )
+        });
+    assert_eq!(
+        trust
+            .verify_trade_audit_chain(submitted.id)
+            .expect("submission/cancellation audit chain should verify"),
+        4
+    );
 }

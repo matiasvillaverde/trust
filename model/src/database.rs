@@ -595,6 +595,22 @@ pub trait ReadBrokerLogsDB {
     /// Retrieves all logs associated with a specific trade
     fn read_all_logs_for_trade(&mut self, trade_id: Uuid)
         -> Result<Vec<BrokerLog>, Box<dyn Error>>;
+
+    /// Retrieves the newest active trade log whose payload begins with `prefix`.
+    ///
+    /// Database adapters should override this default with an indexed query. The fallback keeps
+    /// test doubles and lightweight adapters source-compatible.
+    fn read_latest_log_for_trade_with_prefix(
+        &mut self,
+        trade_id: Uuid,
+        prefix: &str,
+    ) -> Result<Option<BrokerLog>, Box<dyn Error>> {
+        Ok(self
+            .read_all_logs_for_trade(trade_id)?
+            .into_iter()
+            .filter(|log| log.log.starts_with(prefix))
+            .max_by_key(|log| (log.created_at, log.id)))
+    }
 }
 
 /// Trait for reading post-trade mistakes from the database.

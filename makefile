@@ -63,6 +63,7 @@ help:
 	@echo "  make ibkr-live-input-check - Validate IBKR live symbols and bracket prices"
 	@echo "  make ibkr-live-preflight - Check authenticated IBKR gateway readiness"
 	@echo "  make ibkr-live-e2e  - Run authenticated IBKR Client Portal smoke test"
+	@echo "  make ibkr-paper-order-e2e - Submit/cancel one explicitly authorized paper order"
 	@echo ""
 	@echo "$(GREEN)Code Quality Commands:$(NC)"
 	@echo "  make fmt            - Format code"
@@ -205,6 +206,16 @@ ibkr-live-e2e: ibkr-live-input-check ibkr-live-preflight
 	@echo "$(BLUE)Running authenticated IBKR live contract and what-if smoke tests...$(NC)"
 	@TRUST_IBKR_LIVE_E2E=1 $(CARGO) test -p ibkr-broker --test live_gateway_smoke_test live_gateway_resolves_stock_etf_and_bond_contracts -- --ignored --nocapture --test-threads=1
 	@TRUST_IBKR_LIVE_E2E=1 $(CARGO) test -p ibkr-broker --test live_gateway_smoke_test live_gateway_previews_stock_etf_and_bond_brackets_with_whatif -- --ignored --nocapture --test-threads=1
+
+.PHONY: ibkr-paper-order-e2e
+ibkr-paper-order-e2e: ibkr-live-input-check ibkr-live-preflight
+	@if [ "$$TRUST_IBKR_ALLOW_PAPER_MUTATIONS" != "I_UNDERSTAND_PAPER_ORDERS_ARE_REAL_SIMULATIONS" ]; then \
+		echo "$(RED)Paper mutation acknowledgement is missing or incorrect.$(NC)"; \
+		echo "$(YELLOW)See docs/interactive-brokers-e2e.md; this target places an order.$(NC)"; \
+		exit 2; \
+	fi
+	@echo "$(BLUE)Submitting and cancelling one authenticated IBKR paper order...$(NC)"
+	@TRUST_IBKR_LIVE_E2E=1 $(CARGO) test -p ibkr-broker --test live_gateway_smoke_test live_paper_account_submits_cancels_and_verifies_audit_chain -- --ignored --nocapture --test-threads=1
 
 .PHONY: ibkr-live-preflight
 ibkr-live-preflight: ibkr-live-env-preflight

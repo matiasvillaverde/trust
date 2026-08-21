@@ -141,6 +141,7 @@ fn build_cli() -> Command {
                 .hypothesis()
                 .advisor()
                 .events()
+                .audit()
                 .autopsy()
                 .build(),
         )

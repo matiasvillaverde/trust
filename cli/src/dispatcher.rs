@@ -715,7 +715,73 @@ impl ArgDispatcher {
                 self.trade_advisor(sub_sub_matches, Self::parse_report_format(sub_sub_matches))?
             }
             TradeSubcommand::Events(sub_sub_matches) => self.trade_events(sub_sub_matches)?,
+            TradeSubcommand::Audit(sub_sub_matches) => self.trade_audit(sub_sub_matches)?,
             TradeSubcommand::Autopsy(sub_sub_matches) => self.trade_autopsy(sub_sub_matches)?,
+        }
+        Ok(())
+    }
+
+    fn trade_audit(&mut self, sub_matches: &ArgMatches) -> Result<(), CliError> {
+        let format = Self::parse_report_format(sub_matches);
+        let trade_id = Self::parse_uuid_arg(sub_matches, "trade-id", format)?;
+        let verification = self
+            .trust
+            .trade_audit_verification(trade_id)
+            .map_err(|error| {
+                Self::report_error(format, "audit_verification_failed", error.to_string())
+            })?;
+        let events = self
+            .trust
+            .trade_audit_events(trade_id)
+            .map_err(|error| Self::report_error(format, "audit_read_failed", error.to_string()))?;
+        let envelope = json!({
+            "schema_version": 1,
+            "verification": &verification,
+            "events": &events,
+        });
+
+        if let Some(output) = sub_matches.get_one::<String>("output") {
+            use std::fs::OpenOptions;
+            use std::io::Write;
+
+            let mut file = OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(output)
+                .map_err(|error| {
+                    Self::report_error(
+                        format,
+                        "audit_export_failed",
+                        format!("Could not create audit export {output}: {error}"),
+                    )
+                })?;
+            let mut encoded = serde_json::to_vec_pretty(&envelope).map_err(|error| {
+                Self::report_error(format, "audit_export_failed", error.to_string())
+            })?;
+            encoded.push(b'\n');
+            file.write_all(&encoded).map_err(|error| {
+                Self::report_error(format, "audit_export_failed", error.to_string())
+            })?;
+        }
+
+        match format {
+            ReportOutputFormat::Json => println!("{envelope}"),
+            ReportOutputFormat::Text => {
+                println!(
+                    "Audit verified: trade={} events={} head={}",
+                    verification.trade_id, verification.event_count, verification.head_hash
+                );
+                for event in events {
+                    println!(
+                        "{} {} {} actor={} operation={}",
+                        event.occurred_at,
+                        event.event_type,
+                        event.outcome,
+                        event.actor,
+                        event.operation_id
+                    );
+                }
+            }
         }
         Ok(())
     }
@@ -18255,6 +18321,52 @@ mod tests {
         assert_eq!(filled.len(), 1);
 
         crate::dialogs::scripted_reset();
+    }
+
+    #[test]
+    fn test_trade_audit_exports_verified_agent_first_json() {
+        let mut dispatcher =
+            test_dispatcher_with_broker(Box::new(StubBroker::submitted_fill_fixture()));
+        let (_account, trade) = seed_new_trade(&mut dispatcher);
+        let (funded, _, _, _) = dispatcher.trust.fund_trade(&trade).expect("fund trade");
+        dispatcher
+            .trust
+            .submit_trade(&funded)
+            .expect("submit trade");
+
+        let output = std::env::temp_dir().join(format!("trust-audit-{}.json", Uuid::new_v4()));
+        let output_text = output.to_string_lossy().to_string();
+        let trade_id = trade.id.to_string();
+        let matches = TradeCommandBuilder::new()
+            .audit()
+            .build()
+            .get_matches_from([
+                "trade",
+                "audit",
+                "--trade-id",
+                &trade_id,
+                "--format",
+                "json",
+                "--output",
+                &output_text,
+            ]);
+        dispatcher
+            .trade_audit(matches.subcommand_matches("audit").expect("audit matches"))
+            .expect("audit export should succeed");
+
+        let bytes = std::fs::read(&output).expect("audit export should be readable");
+        let envelope: serde_json::Value =
+            serde_json::from_slice(&bytes).expect("audit export should be valid JSON");
+        assert_eq!(envelope["schema_version"], 1);
+        assert_eq!(envelope["verification"]["event_count"], 2);
+        assert_eq!(
+            envelope["events"]
+                .as_array()
+                .expect("events should be an array")
+                .len(),
+            2
+        );
+        std::fs::remove_file(output).expect("audit export should be removable");
     }
 
     #[test]

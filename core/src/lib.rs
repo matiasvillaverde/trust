@@ -44,6 +44,7 @@ use argon2::{
     password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2,
 };
+pub use audit::{AuditEvent, AuditVerification};
 use broker_registry::BrokerRegistry;
 use calculators_fixed_income::{BondAnalytics, BondAnalyticsInput, FixedIncomeCalculator};
 use calculators_performance::{BiasAggregation, BiasAggregationCalculator};
@@ -1387,6 +1388,37 @@ impl TrustFacade {
         trade: &Trade,
     ) -> Result<(Trade, BrokerLog), Box<dyn std::error::Error>> {
         commands::trade::submit(trade, &mut *self.factory, &mut *self.broker)
+    }
+
+    /// Verifies the tamper-evident audit chain for a trade.
+    ///
+    /// Legacy broker-response logs are ignored. The returned count is the number of validated
+    /// structured audit events. Any altered, duplicated, forked, or disconnected event fails
+    /// verification.
+    pub fn verify_trade_audit_chain(
+        &mut self,
+        trade_id: Uuid,
+    ) -> Result<usize, Box<dyn std::error::Error>> {
+        let logs = self.factory.log_read().read_all_logs_for_trade(trade_id)?;
+        audit::verify(&logs)
+    }
+
+    /// Returns the verified structured audit events for a trade in chain order.
+    pub fn trade_audit_events(
+        &mut self,
+        trade_id: Uuid,
+    ) -> Result<Vec<AuditEvent>, Box<dyn std::error::Error>> {
+        let logs = self.factory.log_read().read_all_logs_for_trade(trade_id)?;
+        audit::ordered_events(&logs)
+    }
+
+    /// Verifies a trade audit chain and returns its count and head hash.
+    pub fn trade_audit_verification(
+        &mut self,
+        trade_id: Uuid,
+    ) -> Result<AuditVerification, Box<dyn std::error::Error>> {
+        let logs = self.factory.log_read().read_all_logs_for_trade(trade_id)?;
+        audit::verification(trade_id, &logs)
     }
 
     /// Synchronize trade status with the broker.
@@ -3099,6 +3131,7 @@ mod tests {
     }
 }
 
+mod audit;
 mod broker_registry;
 mod calculators_account;
 pub mod calculators_advanced_metrics;

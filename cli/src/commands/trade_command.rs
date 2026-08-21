@@ -578,6 +578,35 @@ impl TradeCommandBuilder {
         );
         self
     }
+
+    pub fn audit(mut self) -> Self {
+        self.subcommands.push(
+            Command::new("audit")
+                .about("Verify and emit the structured audit chain for a trade")
+                .arg(
+                    Arg::new("trade-id")
+                        .long("trade-id")
+                        .value_name("UUID")
+                        .help("Trade UUID")
+                        .required(true),
+                )
+                .arg(
+                    Arg::new("format")
+                        .long("format")
+                        .value_name("FORMAT")
+                        .value_parser(["text", "json"])
+                        .default_value("json")
+                        .help("Machine-readable JSON is the default"),
+                )
+                .arg(
+                    Arg::new("output")
+                        .long("output")
+                        .value_name("PATH")
+                        .help("Write the verified JSON envelope to a file"),
+                ),
+        );
+        self
+    }
 }
 
 #[cfg(test)]
@@ -605,6 +634,7 @@ mod tests {
             .hypothesis()
             .advisor()
             .events()
+            .audit()
             .autopsy()
             .build()
     }
@@ -632,6 +662,7 @@ mod tests {
             "hypothesis",
             "advisor",
             "events",
+            "audit",
             "autopsy",
         ] {
             assert!(cmd.get_subcommands().any(|c| c.get_name() == name));

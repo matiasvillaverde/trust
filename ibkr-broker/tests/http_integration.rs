@@ -689,6 +689,26 @@ fn trust_facade_submits_valid_ibkr_stock_etf_and_bond_trades() {
             );
         });
 
+        assert_eq!(
+            trust
+                .verify_trade_audit_chain(funded.id)
+                .expect("submitted trade audit chain should verify"),
+            2,
+            "submission must record an attempt and an acknowledged outcome"
+        );
+        let audit_events = trust
+            .trade_audit_events(funded.id)
+            .expect("submitted trade audit events should be readable");
+        let attempt = audit_events
+            .first()
+            .expect("submission attempt audit event should exist");
+        let outcome = audit_events
+            .last()
+            .expect("submission outcome audit event should exist");
+        assert_eq!(attempt.operation_id, outcome.operation_id);
+        assert!(!attempt.actor.trim().is_empty());
+        assert!(!attempt.request_id.trim().is_empty());
+
         submit.assert();
     }
 }

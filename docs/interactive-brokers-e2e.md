@@ -8,6 +8,8 @@ The live IBKR smoke test verifies that an authenticated Client Portal Gateway ca
 
 This test does not place orders. It is ignored by default and must be enabled explicitly because it depends on a live authenticated gateway session. The what-if preview calls IBKR's documented [Preview Order / WhatIf Order](https://www.interactivebrokers.eu/campus/ibkr-api-page/cpapi-v1/#preview-order-whatif-order) endpoint, which returns commission and margin impact without submitting the order.
 
+A second, separately gated test submits one stock bracket to an IBKR **paper** account, confirms cancellation, and verifies the local tamper-evident audit chain. It is never part of the default test or CI lanes.
+
 ## Prerequisites
 
 1. Start IBKR Client Portal Gateway and authenticate in the browser.
@@ -57,6 +59,19 @@ Then run the full non-mutating contract-resolution and order-preview smoke:
 make ibkr-live-e2e
 ```
 
+## Paper order lifecycle
+
+Only after the non-mutating suite passes, choose stock prices unlikely to execute immediately and enable the explicit mutation acknowledgement:
+
+```bash
+export TRUST_IBKR_ALLOW_PAPER_MUTATIONS="I_UNDERSTAND_PAPER_ORDERS_ARE_REAL_SIMULATIONS"
+make ibkr-paper-order-e2e
+```
+
+The test refuses non-paper accounts, uses quantity `1`, performs gateway preflight and local risk validation, records a submit attempt before broker I/O, submits the bracket, verifies the submission audit chain, requests cancellation, waits for IBKR's cancellation confirmation, releases local capital only after zero-fill confirmation, and verifies the complete four-event audit chain.
+
+If cancellation cannot be confirmed, the test fails with the Trust trade and order references. Inspect the IBKR paper account manually before retrying. Never run this target against a production account or unattended gateway.
+
 Use these optional environment variables when the gateway is not at the default endpoint:
 
 ```bash
@@ -82,3 +97,5 @@ When `TRUST_IBKR_LIVE_E2E=1` is set, missing required environment variables are 
 ## Expected Evidence
 
 A passing run proves the live gateway can resolve representative stock, ETF, and bond contracts, that Trust maps them to the expected IBKR security types, and that IBKR accepts Trust's stock/ETF/bond bracket order payloads through non-mutating what-if previews. The mocked IBKR integration tests still cover actual submission handling, broker request shape, and risk rejection without live broker I/O.
+
+The paper mutation target additionally proves one real gateway submit/cancel path and local audit-chain verification. Paper execution behavior remains simulated by IBKR and is not evidence of production fill quality, stop behavior, latency, or market-data fidelity.

@@ -33,14 +33,12 @@ impl WriteBrokerLogsDB for BrokerLogDB {
     fn create_log(&mut self, log: &str, trade: &Trade) -> Result<BrokerLog, Box<dyn Error>> {
         let uuid = Uuid::new_v4().to_string();
         let now = Utc::now().naive_utc();
-        let normalized_log = log.to_lowercase();
-
         let new_account = NewBrokerLogs {
             id: uuid.clone(),
             created_at: now,
             updated_at: now,
             deleted_at: None,
-            log: normalized_log.clone(),
+            log: log.to_string(),
             trade_id: trade.id.to_string(),
         };
 
@@ -60,7 +58,7 @@ impl WriteBrokerLogsDB for BrokerLogDB {
             created_at: now,
             updated_at: now,
             deleted_at: None,
-            log: normalized_log,
+            log: log.to_string(),
             trade_id: trade.id,
         })
     }
@@ -83,6 +81,23 @@ impl ReadBrokerLogsDB for BrokerLogDB {
                 error
             })?
             .into_domain_models()
+    }
+
+    fn read_latest_log_for_trade_with_prefix(
+        &mut self,
+        trade_id: Uuid,
+        prefix: &str,
+    ) -> Result<Option<BrokerLog>, Box<dyn Error>> {
+        let mut guard = self.connection_guard()?;
+        let connection: &mut SqliteConnection = &mut guard;
+        let row = logs::table
+            .filter(logs::trade_id.eq(trade_id.to_string()))
+            .filter(logs::deleted_at.is_null())
+            .filter(logs::log.like(format!("{prefix}%")))
+            .order((logs::created_at.desc(), logs::id.desc()))
+            .first::<BrokerLogSQLite>(connection)
+            .optional()?;
+        row.map(IntoDomainModel::into_domain_model).transpose()
     }
 }
 
@@ -216,7 +231,7 @@ mod tests {
             .create_log("Test Account", &trade)
             .expect("Error creating log");
 
-        assert_eq!(log.log, "test account");
+        assert_eq!(log.log, "Test Account");
         assert_eq!(log.trade_id, trade.id);
         assert_eq!(log.deleted_at, None);
     }
@@ -251,6 +266,30 @@ mod tests {
             trade.id
         );
         assert_eq!(log.deleted_at, None);
+    }
+
+    #[test]
+    fn latest_log_with_prefix_preserves_payload_and_selects_newest_match() {
+        let conn: SqliteConnection = establish_connection();
+        let mut db = BrokerLogDB {
+            connection: Arc::new(Mutex::new(conn)),
+        };
+        let trade = Trade::default();
+        db.create_log("trust-audit:v1:{\"event\":\"First\"}", &trade)
+            .expect("first audit log should be created");
+        db.create_log("unrelated", &trade)
+            .expect("unrelated log should be created");
+        let newest = db
+            .create_log("trust-audit:v1:{\"event\":\"Second\"}", &trade)
+            .expect("second audit log should be created");
+
+        let selected = db
+            .read_latest_log_for_trade_with_prefix(trade.id, "trust-audit:v1:")
+            .expect("latest audit log query should succeed")
+            .expect("an audit log should exist");
+
+        assert_eq!(selected.id, newest.id);
+        assert_eq!(selected.log, "trust-audit:v1:{\"event\":\"Second\"}");
     }
 
     #[test]
@@ -310,7 +349,7 @@ mod tests {
 
         assert_eq!(logs.len(), 1);
         assert_eq!(log.id, active.id);
-        assert_eq!(log.log, "active");
+        assert_eq!(log.log, "Active");
     }
 
     #[test]

@@ -1,5 +1,6 @@
 #![allow(clippy::items_after_test_module)]
 
+use crate::audit::{self, AuditRecord};
 use crate::commands;
 use chrono::Utc;
 use model::{
@@ -10,8 +11,10 @@ use model::{
 };
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
+use sha2::Digest;
 use std::collections::HashSet;
 use std::error::Error;
+use uuid::Uuid;
 
 type SyncWithBrokerResult = Result<(Status, Vec<Order>, BrokerLog, bool, Trade), Box<dyn Error>>;
 
@@ -409,10 +412,51 @@ pub fn cancel_submitted(
 
     // 2. Verify trade can be canceled
     crate::validators::trade::can_cancel_submitted(&current_trade)?;
+    let operation_id = Uuid::new_v4();
+    let broker_name = broker.kind().as_str().to_string();
+    let attempt_details =
+        serde_json::json!({"capital_release":"blocked_until_zero_fill_confirmation"});
+    audit::record(
+        database,
+        &current_trade,
+        &broker_name,
+        AuditRecord {
+            operation_id,
+            event_type: "trade.cancel",
+            outcome: "attempted",
+            prior_status: current_trade.status,
+            resulting_status: current_trade.status,
+            details: &attempt_details,
+        },
+    )?;
 
     // 3. Cancel trade with broker
     let account = database.account_read().id(current_trade.account_id)?;
-    broker.cancel_trade(&current_trade, &account)?;
+    if let Err(error) = broker.cancel_trade(&current_trade, &account) {
+        let outcome = if error
+            .downcast_ref::<BrokerError>()
+            .is_some_and(BrokerError::is_retry_safe_mutation)
+        {
+            "retry_safe_failure"
+        } else {
+            "outcome_unknown"
+        };
+        let details = serde_json::json!({"capital_released":false});
+        audit::record(
+            database,
+            &current_trade,
+            &broker_name,
+            AuditRecord {
+                operation_id,
+                event_type: "trade.cancel",
+                outcome,
+                prior_status: current_trade.status,
+                resulting_status: current_trade.status,
+                details: &details,
+            },
+        )?;
+        return Err(error);
+    }
 
     // 4. Release local capital only after the broker adapter has confirmed cancellation, and
     // persist all accounting changes atomically.
@@ -420,6 +464,21 @@ pub fn cancel_submitted(
         let _ = update_trade_status_and_projection(&current_trade, Status::Canceled, database)?;
         let (tx, account_o, trade_o) =
             commands::transaction::transfer_to_account_from(&current_trade, database)?;
+        let details =
+            serde_json::json!({"capital_released":true,"transaction_id":tx.id.to_string()});
+        audit::record(
+            database,
+            &current_trade,
+            &broker_name,
+            AuditRecord {
+                operation_id,
+                event_type: "trade.cancel",
+                outcome: "confirmed",
+                prior_status: current_trade.status,
+                resulting_status: Status::Canceled,
+                details: &details,
+            },
+        )?;
         Ok((trade_o, account_o, tx))
     })
 }
@@ -434,9 +493,53 @@ pub fn modify_stop(
     // 1. Load latest persisted trade snapshot and verify it can be modified.
     let current_trade = latest_trade_snapshot(trade, database)?;
     crate::validators::trade::can_modify_stop(&current_trade, new_stop_price)?;
+    let operation_id = Uuid::new_v4();
+    let broker_name = broker.kind().as_str().to_string();
+    let details = serde_json::json!({"order_role":"safety_stop","old_price":current_trade.safety_stop.unit_price.to_string(),"new_price":new_stop_price.to_string()});
+    audit::record(
+        database,
+        &current_trade,
+        &broker_name,
+        AuditRecord {
+            operation_id,
+            event_type: "order.modify",
+            outcome: "attempted",
+            prior_status: current_trade.status,
+            resulting_status: current_trade.status,
+            details: &details,
+        },
+    )?;
 
     // 2. Update Trade on the broker
-    let new_broker_id = broker.modify_stop(&current_trade, account, new_stop_price)?;
+    let new_broker_id = match broker.modify_stop(&current_trade, account, new_stop_price) {
+        Ok(id) => id,
+        Err(error) => {
+            let outcome = if error
+                .downcast_ref::<BrokerError>()
+                .is_some_and(BrokerError::is_retry_safe_mutation)
+            {
+                "retry_safe_failure"
+            } else {
+                "outcome_unknown"
+            };
+            let details =
+                serde_json::json!({"order_role":"safety_stop","local_state_changed":false});
+            audit::record(
+                database,
+                &current_trade,
+                &broker_name,
+                AuditRecord {
+                    operation_id,
+                    event_type: "order.modify",
+                    outcome,
+                    prior_status: current_trade.status,
+                    resulting_status: current_trade.status,
+                    details: &details,
+                },
+            )?;
+            return Err(error);
+        }
+    };
 
     // 3. Modify stop order
     commands::order::modify(
@@ -448,6 +551,21 @@ pub fn modify_stop(
 
     // 4. Refresh Trade
     let trade = database.trade_read().read_trade(current_trade.id)?;
+    let details =
+        serde_json::json!({"order_role":"safety_stop","new_price":new_stop_price.to_string()});
+    audit::record(
+        database,
+        &trade,
+        &broker_name,
+        AuditRecord {
+            operation_id,
+            event_type: "order.modify",
+            outcome: "acknowledged",
+            prior_status: current_trade.status,
+            resulting_status: trade.status,
+            details: &details,
+        },
+    )?;
 
     Ok(trade)
 }
@@ -462,9 +580,52 @@ pub fn modify_target(
     // 1. Load latest persisted trade snapshot and verify it can be modified.
     let current_trade = latest_trade_snapshot(trade, database)?;
     crate::validators::trade::can_modify_target(&current_trade)?;
+    let operation_id = Uuid::new_v4();
+    let broker_name = broker.kind().as_str().to_string();
+    let details = serde_json::json!({"order_role":"target","old_price":current_trade.target.unit_price.to_string(),"new_price":new_price.to_string()});
+    audit::record(
+        database,
+        &current_trade,
+        &broker_name,
+        AuditRecord {
+            operation_id,
+            event_type: "order.modify",
+            outcome: "attempted",
+            prior_status: current_trade.status,
+            resulting_status: current_trade.status,
+            details: &details,
+        },
+    )?;
 
     // 2. Update Trade on the broker
-    let new_broker_id = broker.modify_target(&current_trade, account, new_price)?;
+    let new_broker_id = match broker.modify_target(&current_trade, account, new_price) {
+        Ok(id) => id,
+        Err(error) => {
+            let outcome = if error
+                .downcast_ref::<BrokerError>()
+                .is_some_and(BrokerError::is_retry_safe_mutation)
+            {
+                "retry_safe_failure"
+            } else {
+                "outcome_unknown"
+            };
+            let details = serde_json::json!({"order_role":"target","local_state_changed":false});
+            audit::record(
+                database,
+                &current_trade,
+                &broker_name,
+                AuditRecord {
+                    operation_id,
+                    event_type: "order.modify",
+                    outcome,
+                    prior_status: current_trade.status,
+                    resulting_status: current_trade.status,
+                    details: &details,
+                },
+            )?;
+            return Err(error);
+        }
+    };
 
     // 3. Modify stop order
     commands::order::modify(
@@ -476,6 +637,20 @@ pub fn modify_target(
 
     // 4. Refresh Trade
     let trade = database.trade_read().read_trade(current_trade.id)?;
+    let details = serde_json::json!({"order_role":"target","new_price":new_price.to_string()});
+    audit::record(
+        database,
+        &trade,
+        &broker_name,
+        AuditRecord {
+            operation_id,
+            event_type: "order.modify",
+            outcome: "acknowledged",
+            prior_status: current_trade.status,
+            resulting_status: trade.status,
+            details: &details,
+        },
+    )?;
 
     Ok(trade)
 }
@@ -505,6 +680,8 @@ pub fn fund(
     Ok((funded_trade, transaction, account_balance, trade_balance))
 }
 
+// Keep the external mutation and its durable intent/outcome records in one linear review surface.
+#[allow(clippy::too_many_lines)]
 pub fn submit(
     trade: &Trade,
     database: &mut dyn DatabaseFactory,
@@ -515,6 +692,27 @@ pub fn submit(
 
     // 2. Validate that Trade can be submitted
     crate::validators::trade::can_submit(&current_trade)?;
+    let operation_id = Uuid::new_v4();
+    let broker_name = broker.kind().as_str().to_string();
+    let attempt_details = serde_json::json!({
+        "entry_order_ref": current_trade.entry.id.to_string(),
+        "target_order_ref": current_trade.target.id.to_string(),
+        "stop_order_ref": current_trade.safety_stop.id.to_string(),
+        "quantity": current_trade.entry.quantity.to_string()
+    });
+    audit::record(
+        database,
+        &current_trade,
+        &broker_name,
+        AuditRecord {
+            operation_id,
+            event_type: "trade.submit",
+            outcome: "attempted",
+            prior_status: current_trade.status,
+            resulting_status: Status::Submitted,
+            details: &attempt_details,
+        },
+    )?;
 
     // 3. Persist a durable submission intent before crossing the external boundary. A crash or
     // local acknowledgement failure must leave the trade non-resubmittable and reconcilable.
@@ -535,9 +733,37 @@ pub fn submit(
             database
                 .trade_write()
                 .update_trade_status(Status::Funded, &submitted)?;
+            let details = serde_json::json!({"intent_retained":false,"safe_to_retry":true});
+            audit::record(
+                database,
+                &current_trade,
+                &broker_name,
+                AuditRecord {
+                    operation_id,
+                    event_type: "trade.submit",
+                    outcome: "retry_safe_failure",
+                    prior_status: Status::Submitted,
+                    resulting_status: Status::Funded,
+                    details: &details,
+                },
+            )?;
             return Err(error);
         }
         Err(error) => {
+            let details = serde_json::json!({"intent_retained":true,"safe_to_retry":false});
+            audit::record(
+                database,
+                &submitted,
+                &broker_name,
+                AuditRecord {
+                    operation_id,
+                    event_type: "trade.submit",
+                    outcome: "outcome_unknown",
+                    prior_status: Status::Funded,
+                    resulting_status: Status::Submitted,
+                    details: &details,
+                },
+            )?;
             return Err(format!(
                 "trade {} submission outcome is unknown; durable Submitted intent retained; do not resubmit; reconcile with the broker: {error}",
                 current_trade.id
@@ -562,6 +788,15 @@ pub fn submit(
         submitted.safety_stop = order_write.submit_of(&submitted.safety_stop, order_id.stop)?;
         submitted.entry = order_write.submit_of(&submitted.entry, order_id.entry)?;
         submitted.target = order_write.submit_of(&submitted.target, order_id.target)?;
+        let details = serde_json::json!({"broker_order_refs_persisted":true});
+        audit::record(database, &submitted, &broker_name, AuditRecord {
+            operation_id,
+            event_type: "trade.submit",
+            outcome: "acknowledged",
+            prior_status: Status::Funded,
+            resulting_status: Status::Submitted,
+            details: &details,
+        })?;
         Ok(submitted)
     })
     .map_err(|error| {
@@ -574,12 +809,15 @@ pub fn submit(
     Ok((persisted, log))
 }
 
+// Reconciliation is deliberately linear so audit and savepoint ordering remain reviewable.
+#[allow(clippy::too_many_lines)]
 pub fn sync_with_broker(
     trade: &Trade,
     account: &Account,
     database: &mut dyn DatabaseFactory,
     broker: &mut dyn Broker,
 ) -> SyncWithBrokerResult {
+    let broker_name = broker.kind().as_str().to_string();
     // Best-effort execution reconciliation window.
     // This is intentionally outside the DB savepoint because it may involve broker I/O.
     let after = database
@@ -589,6 +827,7 @@ pub fn sync_with_broker(
         after.map(|t| chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(t, chrono::Utc));
     // 1. Sync Trade with Broker
     let (status, orders, log) = broker.sync_trade(trade, account)?;
+    let operation_id = Uuid::new_v4();
 
     let reconciled_executions = match broker.fetch_executions(trade, account, after) {
         Ok(executions) => executions,
@@ -612,10 +851,7 @@ pub fn sync_with_broker(
     // 2. Persist the whole sync lifecycle atomically.
     let (transitioned_to_closed, persisted_trade) =
         with_savepoint(database, "sync_trade_lifecycle", |database| {
-            // 2.1 Save broker log.
-            database.log_write().create_log(log.log.as_str(), trade)?;
-
-            // 2.2 Resolve broker updates against the latest persisted trade snapshot.
+            // 2.1 Resolve broker updates against the latest persisted trade snapshot.
             // Perf: `read_trade` is expensive (joins / multiple reads). In the common case the caller
             // passes the latest persisted snapshot; validate that via a lightweight status read and
             // only fall back to `read_trade` when needed.
@@ -671,6 +907,25 @@ pub fn sync_with_broker(
 
             // 2.6 Ensure sibling exit orders are consistently closed in terminal states.
             reconcile_sibling_exit_orders(&trade, status, database)?;
+            let details = serde_json::json!({
+                "orders_received": orders.len(),
+                "executions_reconciled": reconciled_executions.len(),
+                "fees_reconciled": fees.len(),
+                "broker_response_sha256": format!("{:x}", sha2::Sha256::digest(log.log.as_bytes()))
+            });
+            audit::record(
+                database,
+                &trade,
+                &broker_name,
+                AuditRecord {
+                    operation_id,
+                    event_type: "trade.sync",
+                    outcome: "reconciled",
+                    prior_status: trade_with_synced_orders.status,
+                    resulting_status: status,
+                    details: &details,
+                },
+            )?;
             Ok((transitioned_to_closed, trade))
         })?;
 
@@ -1504,6 +1759,8 @@ mod tests {
     }
 }
 
+// Keep the external mutation and its durable intent/outcome records in one linear review surface.
+#[allow(clippy::too_many_lines)]
 pub fn close(
     trade: &Trade,
     database: &mut dyn DatabaseFactory,
@@ -1514,6 +1771,26 @@ pub fn close(
 
     // 2. Verify trade can be closed
     crate::validators::trade::can_close(&current_trade)?;
+    let operation_id = Uuid::new_v4();
+    let broker_name = broker.kind().as_str().to_string();
+    let attempt_details = serde_json::json!({
+        "target_order_ref": current_trade.target.id.to_string(),
+        "protective_stop_retained": true,
+        "quantity": current_trade.entry.quantity.to_string()
+    });
+    audit::record(
+        database,
+        &current_trade,
+        &broker_name,
+        AuditRecord {
+            operation_id,
+            event_type: "trade.close",
+            outcome: "attempted",
+            prior_status: current_trade.status,
+            resulting_status: current_trade.status,
+            details: &attempt_details,
+        },
+    )?;
 
     // 3. Persist the market-exit intent before crossing the external boundary. Even when the
     // acknowledgement is lost, stale callers must be unable to issue another close.
@@ -1531,9 +1808,37 @@ pub fn close(
                 .is_some_and(BrokerError::is_retry_safe_mutation) =>
         {
             database.order_write().update(&current_trade.target)?;
+            let details = serde_json::json!({"intent_retained":false,"safe_to_retry":true});
+            audit::record(
+                database,
+                &current_trade,
+                &broker_name,
+                AuditRecord {
+                    operation_id,
+                    event_type: "trade.close",
+                    outcome: "retry_safe_failure",
+                    prior_status: current_trade.status,
+                    resulting_status: current_trade.status,
+                    details: &details,
+                },
+            )?;
             return Err(error);
         }
         Err(error) => {
+            let details = serde_json::json!({"intent_retained":true,"safe_to_retry":false});
+            audit::record(
+                database,
+                &current_trade,
+                &broker_name,
+                AuditRecord {
+                    operation_id,
+                    event_type: "trade.close",
+                    outcome: "outcome_unknown",
+                    prior_status: current_trade.status,
+                    resulting_status: current_trade.status,
+                    details: &details,
+                },
+            )?;
             return Err(format!(
                 "trade {} close outcome is unknown; durable market-exit intent retained; do not retry; reconcile with the broker: {error}",
                 current_trade.id
@@ -1561,6 +1866,15 @@ pub fn close(
             .log_write()
             .create_log(log.log.as_str(), &current_trade)?;
         database.order_write().update(&target_order)?;
+        let details = serde_json::json!({"market_exit_acknowledged":true,"protective_stop_retained":true});
+        audit::record(database, &current_trade, &broker_name, AuditRecord {
+            operation_id,
+            event_type: "trade.close",
+            outcome: "acknowledged",
+            prior_status: current_trade.status,
+            resulting_status: current_trade.status,
+            details: &details,
+        })?;
         Ok(())
     })
     .map_err(|error| {
