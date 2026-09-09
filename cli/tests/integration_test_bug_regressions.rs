@@ -43,19 +43,19 @@ impl Broker for NoOpBroker {
             average_filled_price: Some(trade.entry.unit_price),
             status: model::OrderStatus::Filled,
             filled_at: Some(chrono::Utc::now().naive_utc()),
-            ..Default::default()
+            ..trade.entry.clone()
         };
         let target = Order {
             id: trade.target.id,
             broker_order_id: trade.target.broker_order_id.clone(),
             status: model::OrderStatus::Held,
-            ..Default::default()
+            ..trade.target.clone()
         };
         let stop = Order {
             id: trade.safety_stop.id,
             broker_order_id: trade.safety_stop.broker_order_id.clone(),
             status: model::OrderStatus::Held,
-            ..Default::default()
+            ..trade.safety_stop.clone()
         };
         Ok((
             Status::Filled,

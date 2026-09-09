@@ -344,15 +344,15 @@ impl DatabaseFactory for ReadFailureFactory {
     }
 
     fn begin_savepoint(&mut self, _name: &str) -> Result<(), Box<dyn Error>> {
-        panic!("begin_savepoint should not be called")
+        Ok(())
     }
 
     fn release_savepoint(&mut self, _name: &str) -> Result<(), Box<dyn Error>> {
-        panic!("release_savepoint should not be called")
+        Ok(())
     }
 
     fn rollback_to_savepoint(&mut self, _name: &str) -> Result<(), Box<dyn Error>> {
-        panic!("rollback_to_savepoint should not be called")
+        Ok(())
     }
 
     fn distribution_read(&self) -> Box<dyn DistributionRead> {

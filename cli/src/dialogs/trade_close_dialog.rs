@@ -201,19 +201,19 @@ mod tests {
                         average_filled_price: Some(dec!(100)),
                         status: OrderStatus::Filled,
                         filled_at: Some(Utc::now().naive_utc()),
-                        ..Order::default()
+                        ..trade.entry.clone()
                     },
                     Order {
                         id: trade.target.id,
                         broker_order_id: trade.target.broker_order_id.clone(),
                         status: OrderStatus::Accepted,
-                        ..Order::default()
+                        ..trade.target.clone()
                     },
                     Order {
                         id: trade.safety_stop.id,
                         broker_order_id: trade.safety_stop.broker_order_id.clone(),
                         status: OrderStatus::Held,
-                        ..Order::default()
+                        ..trade.safety_stop.clone()
                     },
                 ],
                 BrokerLog {

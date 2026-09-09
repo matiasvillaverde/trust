@@ -1,0 +1,34 @@
+{
+  "model": {
+    "rust_files": 21,
+    "rust_lines_including_tests": 7037
+  },
+  "core": {
+    "rust_files": 54,
+    "rust_lines_including_tests": 29160
+  },
+  "db-sqlite": {
+    "rust_files": 26,
+    "rust_lines_including_tests": 17481
+  },
+  "cli": {
+    "rust_files": 89,
+    "rust_lines_including_tests": 67685
+  },
+  "alpaca-broker": {
+    "rust_files": 13,
+    "rust_lines_including_tests": 4949
+  },
+  "ibkr-broker": {
+    "rust_files": 12,
+    "rust_lines_including_tests": 6116
+  },
+  "broker-sync": {
+    "rust_files": 9,
+    "rust_lines_including_tests": 1642
+  },
+  "advisor": {
+    "rust_files": 6,
+    "rust_lines_including_tests": 3060
+  }
+}

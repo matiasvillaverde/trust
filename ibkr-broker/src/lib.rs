@@ -776,20 +776,20 @@ mod tests {
         );
         assert_eq!(close.get("orderType"), Some(&json!("MKT")));
         assert_eq!(close.get("side"), Some(&json!("SELL")));
-        assert_eq!(close.get("quantity"), Some(&json!("10")));
+        assert_eq!(close.get("quantity"), Some(&json!(10)));
 
         let modify_target =
             build_modify_order(&trade, "U1234567", "265598", &trade.target, dec!(111.25))
                 .expect("modify target");
         assert_eq!(modify_target.get("orderType"), Some(&json!("LMT")));
-        assert_eq!(modify_target.get("price"), Some(&json!("111.25")));
+        assert_eq!(modify_target.get("price"), Some(&json!(111.25)));
         assert!(modify_target.get("cOID").is_none());
 
         let modify_stop =
             build_modify_order(&trade, "U1234567", "265598", &trade.safety_stop, dec!(96.5))
                 .expect("modify stop");
         assert_eq!(modify_stop.get("orderType"), Some(&json!("STP")));
-        assert_eq!(modify_stop.get("price"), Some(&json!("96.5")));
+        assert_eq!(modify_stop.get("price"), Some(&json!(96.5)));
     }
 
     #[test]

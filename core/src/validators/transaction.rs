@@ -33,7 +33,7 @@ pub fn can_transfer_fill(trade: &Trade, total: Decimal) -> TransactionValidation
         }
     };
 
-    if total > max_possible_fill {
+    if trade.category == TradeCategory::Long && total > max_possible_fill {
         return Err(Box::new(TransactionValidationError {
             code: TransactionValidationErrorCode::NotEnoughFunds,
             message: format!(

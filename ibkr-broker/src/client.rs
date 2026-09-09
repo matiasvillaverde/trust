@@ -22,7 +22,13 @@ pub(crate) struct IbkrClient {
 impl IbkrClient {
     pub(crate) fn for_account(account: &Account) -> Result<Self, Box<dyn Error>> {
         let config = ConnectionConfig::read(&account.environment, account)?;
+        Self::from_config(config)
+    }
+
+    fn from_config(config: ConnectionConfig) -> Result<Self, Box<dyn Error>> {
         let http = Client::builder()
+            // Client Portal Gateway rejects requests without a User-Agent.
+            .user_agent(concat!("trust/", env!("CARGO_PKG_VERSION")))
             .cookie_store(true)
             .danger_accept_invalid_certs(config.allow_insecure_tls)
             .timeout(Duration::from_secs(20))
@@ -41,7 +47,15 @@ impl IbkrClient {
             ensure_account_is_accessible(&accounts, account_id)?;
             let selected =
                 self.post_json_value("/iserver/account", &json!({ "acctId": account_id }))?;
-            ensure_account_is_selected(&selected, account_id)?;
+            if selected.get("success").and_then(Value::as_str) == Some("Account already set") {
+                let confirmed = self.get_json_value("/iserver/accounts", &[])?;
+                if confirmed.get("selectedAccount").and_then(Value::as_str) != Some(account_id) {
+                    return Err("IBKR selected account does not match configured account".into());
+                }
+                ensure_account_is_accessible(&confirmed, account_id)?;
+            } else {
+                ensure_account_is_selected(&selected, account_id)?;
+            }
         }
         Ok(())
     }
@@ -329,7 +343,12 @@ fn ensure_order_acknowledgement(response: &Value) -> Result<(), Box<dyn Error>> 
 }
 
 fn ensure_account_is_accessible(accounts: &Value, account_id: &str) -> Result<(), Box<dyn Error>> {
-    if json_contains_exact_string(accounts, account_id) {
+    let listed = accounts.get("accounts").unwrap_or(accounts);
+    if listed.as_array().is_some_and(|values| {
+        values
+            .iter()
+            .any(|value| value.as_str() == Some(account_id))
+    }) {
         return Ok(());
     }
     Err(format!("IBKR brokerage session does not expose configured account '{account_id}'").into())
@@ -492,6 +511,32 @@ mod tests {
     }
 
     #[test]
+    fn configured_client_identifies_itself_to_gateway() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let config =
+            ConnectionConfig::new(&format!("http://{}", listener.local_addr().unwrap()), false)
+                .unwrap();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                .unwrap();
+            let reader = BufReader::new(stream.try_clone().unwrap());
+            let headers: Vec<String> = reader
+                .lines()
+                .map(Result::unwrap)
+                .take_while(|line| !line.is_empty())
+                .collect();
+            write_response(&mut stream, 200, "{}");
+            headers
+        });
+        let client = IbkrClient::from_config(config).unwrap();
+        client.get_json_value("/iserver/auth/status", &[]).unwrap();
+        assert!(server.join().unwrap().iter().any(|line| line
+            .eq_ignore_ascii_case(concat!("user-agent: trust/", env!("CARGO_PKG_VERSION")))));
+    }
+
+    #[test]
     fn client_url_joins_base_and_path_without_double_slashes() {
         let client = IbkrClient {
             http: Client::new(),
@@ -610,6 +655,45 @@ mod tests {
                 assert!(response.is_array());
             },
         );
+    }
+
+    #[test]
+    fn already_selected_account_requires_fresh_identity_confirmation() {
+        for (confirmation, accepted) in [
+            (r#"{"accounts":["DU123"],"selectedAccount":"DU123"}"#, true),
+            (r#"{"accounts":["DU123"],"selectedAccount":"DU999"}"#, false),
+            (r#"{"accounts":["DU123"]}"#, false),
+            (r#"{"accounts":["DU999"],"selectedAccount":"DU123"}"#, false),
+        ] {
+            with_test_server(
+                vec![
+                    (
+                        "GET /iserver/auth/status",
+                        200,
+                        r#"{"authenticated":true,"connected":true}"#,
+                    ),
+                    ("GET /iserver/accounts", 200, r#"{"accounts":["DU123"]}"#),
+                    (
+                        "POST /iserver/account",
+                        200,
+                        r#"{"success":"Account already set"}"#,
+                    ),
+                    ("GET /iserver/accounts", 200, confirmation),
+                ],
+                |base_url| {
+                    let account = Account {
+                        broker_account_id: Some("DU123".to_string()),
+                        ..Account::default()
+                    };
+                    assert_eq!(
+                        test_client(&base_url)
+                            .prepare_trading_session(Some(&account))
+                            .is_ok(),
+                        accepted
+                    );
+                },
+            );
+        }
     }
 
     #[test]

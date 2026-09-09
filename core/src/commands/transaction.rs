@@ -1,5 +1,5 @@
 use model::{
-    AccountBalance, Currency, DatabaseFactory, Trade, TradeBalance, Transaction,
+    AccountBalance, Currency, DatabaseFactory, Trade, TradeBalance, TradeCategory, Transaction,
     TransactionCategory,
 };
 use rust_decimal::Decimal;
@@ -15,7 +15,7 @@ use crate::{
     },
 };
 
-use super::balance;
+use super::{atomic::with_savepoint, balance};
 
 pub fn create(
     database: &mut dyn DatabaseFactory,
@@ -24,7 +24,7 @@ pub fn create(
     currency: &Currency,
     account_id: Uuid,
 ) -> Result<(Transaction, AccountBalance), Box<dyn Error>> {
-    match category {
+    with_savepoint(database, "create", |database| match category {
         TransactionCategory::Deposit => deposit(database, amount, currency, account_id),
         TransactionCategory::Withdrawal => withdraw(
             database,
@@ -51,7 +51,7 @@ pub fn create(
             let message = format!("Manually creating transaction category {default:?} is not allowed. Only Withdrawals and deposits are allowed");
             Err(message.into())
         }
-    }
+    })
 }
 
 fn deposit(
@@ -181,10 +181,31 @@ pub fn transfer_to_fund_trade(
     Ok((transaction, account_balance, trade_balance))
 }
 
+// Positive amounts buy long inventory; negative amounts credit short-sale proceeds.
+// Exit transactions use the same direction, so a short cover debits cash.
+fn signed_market_cash_flow(trade: &Trade, amount: Decimal) -> Result<Decimal, Box<dyn Error>> {
+    match trade.category {
+        TradeCategory::Long => Ok(amount),
+        TradeCategory::Short => Decimal::ZERO
+            .checked_sub(amount)
+            .ok_or_else(|| "Short cash flow overflow".into()),
+    }
+}
+
+// Keep the financial operation and its validation in one reviewable sequence.
+#[allow(clippy::too_many_lines)]
 pub fn transfer_to_fill_trade(
     trade: &Trade,
     database: &mut dyn DatabaseFactory,
 ) -> Result<(Transaction, TradeBalance), Box<dyn Error>> {
+    if trade.entry.unit_price <= Decimal::ZERO {
+        return Err("Entry price must be positive".into());
+    }
+    trade
+        .entry
+        .unit_price
+        .checked_mul(trade.entry.quantity)
+        .ok_or("Arithmetic overflow in multiplication")?;
     // 1. Calculate the total amount of the trade
     let average_price = trade
         .entry
@@ -202,24 +223,19 @@ pub fn transfer_to_fill_trade(
     // 2. Validate that the trade has enough funds to fill the trade
     transaction::can_transfer_fill(trade, total)?;
 
-    // 3. Create transaction
-    // 4. If there is a difference between the unit_price and the average_filled_price
-    // then we should create a transaction to transfer the difference to the account.
-    let entry_total = trade
-        .entry
-        .unit_price
-        .checked_mul(trade.entry.quantity)
-        .ok_or_else(|| {
-            format!(
-                "Arithmetic overflow in multiplication: {} * {}",
-                trade.entry.unit_price, trade.entry.quantity
-            )
-        })?;
-
-    let mut total_difference = total
-        .checked_sub(entry_total)
-        .ok_or_else(|| format!("Arithmetic overflow in subtraction: {total} - {entry_total}"))?;
-    total_difference.set_sign_positive(true);
+    // Short sale proceeds are credit cash flows; collateral stays reserved until exit.
+    let exposure = total;
+    let total_difference = if trade.category == TradeCategory::Long {
+        trade
+            .balance
+            .funding
+            .checked_sub(total)
+            .ok_or("Fill difference overflow")?
+            .max(Decimal::ZERO)
+    } else {
+        Decimal::ZERO
+    };
+    let total = signed_market_cash_flow(trade, total)?;
 
     let transaction = {
         let mut transaction_writer = database.transaction_write();
@@ -255,7 +271,7 @@ pub fn transfer_to_fill_trade(
             trade.account_id,
             &trade.currency,
             &lifecycle_updates,
-            total,
+            exposure,
         )?;
         let trade_balance =
             balance::apply_trade_projection_batch(database, trade, &lifecycle_updates)?;
@@ -269,7 +285,7 @@ pub fn transfer_to_fill_trade(
         trade.account_id,
         &trade.currency,
         &lifecycle_updates,
-        total,
+        exposure,
     )?;
     let trade_balance = balance::apply_trade_projection_batch(database, trade, &lifecycle_updates)?;
 
@@ -373,6 +389,8 @@ pub fn transfer_to_close_target(
     // 1. Validate that the closing is possible
     transaction::can_transfer_close(total)?;
 
+    let total = signed_market_cash_flow(trade, total)?;
+
     // 2. Create transaction
     let transaction = database
         .transaction_write()
@@ -431,11 +449,17 @@ pub fn transfer_to_close_stop(
             )
         })?;
 
-    let category = if total > planned_total {
+    let is_slippage = match trade.category {
+        TradeCategory::Long => total < planned_total,
+        TradeCategory::Short => total > planned_total,
+    };
+    let category = if is_slippage {
         TransactionCategory::CloseSafetyStopSlippage(trade.id)
     } else {
         TransactionCategory::CloseSafetyStop(trade.id)
     };
+
+    let total = signed_market_cash_flow(trade, total)?;
 
     // 4. Create transaction
     let transaction = database
@@ -744,7 +768,7 @@ mod tests {
     }
 
     #[test]
-    fn transfer_to_fill_trade_rejects_slippage_difference_overflow() {
+    fn transfer_to_fill_trade_rejects_invalid_entry_price() {
         let mut database = in_memory_database();
         let trade = Trade {
             entry: Order {
@@ -762,11 +786,9 @@ mod tests {
         };
 
         let error = transfer_to_fill_trade(&trade, &mut database)
-            .expect_err("overflowing slippage differences must be rejected before writing");
+            .expect_err("invalid entry price must be rejected before writing");
 
-        assert!(error
-            .to_string()
-            .contains("Arithmetic overflow in subtraction"));
+        assert!(error.to_string().contains("Entry price must be positive"));
     }
 
     #[test]

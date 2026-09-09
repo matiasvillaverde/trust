@@ -31,3 +31,6 @@ pub use worker_trade_event::WorkerTradeEvent;
 pub use worker_trade_grade::WorkerTradeGrade;
 pub use worker_trading_vehicle::WorkerTradingVehicle;
 pub use worker_transaction::WorkerTransaction;
+
+mod worker_fee;
+pub use worker_fee::WorkerFee;

@@ -951,19 +951,19 @@ fn make_entry_filled_orders(trade: &Trade) -> (Status, Vec<Order>) {
         average_filled_price: Some(trade.entry.unit_price),
         status: OrderStatus::Filled,
         filled_at: Some(Utc::now().naive_utc()),
-        ..Default::default()
+        ..trade.entry.clone()
     };
     let target = Order {
         id: trade.target.id,
         broker_order_id: trade.target.broker_order_id.clone(),
         status: OrderStatus::Accepted,
-        ..Default::default()
+        ..trade.target.clone()
     };
     let stop = Order {
         id: trade.safety_stop.id,
         broker_order_id: trade.safety_stop.broker_order_id.clone(),
         status: OrderStatus::Held,
-        ..Default::default()
+        ..trade.safety_stop.clone()
     };
     (Status::Filled, vec![entry, target, stop])
 }
@@ -977,7 +977,7 @@ fn make_target_filled_orders(trade: &Trade) -> (Status, Vec<Order>) {
         average_filled_price: Some(trade.entry.unit_price),
         status: OrderStatus::Filled,
         filled_at: Some(Utc::now().naive_utc()),
-        ..Default::default()
+        ..trade.entry.clone()
     };
     let target = Order {
         id: trade.target.id,
@@ -986,13 +986,13 @@ fn make_target_filled_orders(trade: &Trade) -> (Status, Vec<Order>) {
         average_filled_price: Some(trade.target.unit_price),
         status: OrderStatus::Filled,
         filled_at: Some(Utc::now().naive_utc()),
-        ..Default::default()
+        ..trade.target.clone()
     };
     let stop = Order {
         id: trade.safety_stop.id,
         broker_order_id: trade.safety_stop.broker_order_id.clone(),
         status: OrderStatus::Canceled,
-        ..Default::default()
+        ..trade.safety_stop.clone()
     };
     (Status::ClosedTarget, vec![entry, target, stop])
 }
@@ -1006,13 +1006,13 @@ fn make_stop_filled_orders(trade: &Trade) -> (Status, Vec<Order>) {
         average_filled_price: Some(trade.entry.unit_price),
         status: OrderStatus::Filled,
         filled_at: Some(Utc::now().naive_utc()),
-        ..Default::default()
+        ..trade.entry.clone()
     };
     let target = Order {
         id: trade.target.id,
         broker_order_id: trade.target.broker_order_id.clone(),
         status: OrderStatus::Canceled,
-        ..Default::default()
+        ..trade.target.clone()
     };
     let stop = Order {
         id: trade.safety_stop.id,
@@ -1021,7 +1021,7 @@ fn make_stop_filled_orders(trade: &Trade) -> (Status, Vec<Order>) {
         average_filled_price: Some(trade.safety_stop.unit_price),
         status: OrderStatus::Filled,
         filled_at: Some(Utc::now().naive_utc()),
-        ..Default::default()
+        ..trade.safety_stop.clone()
     };
     (Status::ClosedStopLoss, vec![entry, target, stop])
 }

@@ -8,6 +8,7 @@ use std::error::Error;
 use std::str::FromStr;
 
 /// Maps an Alpaca order to our domain model.
+#[cfg(test)]
 pub fn map_entry(alpaca_order: AlpacaOrder, trade: &Trade) -> Result<Vec<Order>, Box<dyn Error>> {
     // 1. Updated orders and trade status
     let mut updated_orders = vec![];
@@ -72,10 +73,6 @@ pub fn map_entry(alpaca_order: AlpacaOrder, trade: &Trade) -> Result<Vec<Order>,
     Ok(updated_orders)
 }
 
-pub fn map_target(alpaca_order: AlpacaOrder, trade: &Trade) -> Result<Vec<Order>, Box<dyn Error>> {
-    Ok(vec![map(&alpaca_order, trade.target.clone())?])
-}
-
 // Alternative approach using helper functions for cleaner code
 
 fn apply_updates_to_order(original: &Order, updates: &[Order]) -> Order {
@@ -125,7 +122,14 @@ pub fn map_trade_status(trade: &Trade, updated_orders: &[Order]) -> Status {
 
     // Priority 2: Recent unfills (orders that became not filled)
     if has_recent_unfill(trade.entry.id, updated_orders) {
-        return Status::Submitted;
+        let entry = apply_updates_to_order(&trade.entry, updated_orders);
+        return match entry.status {
+            OrderStatus::PartiallyFilled => Status::PartiallyFilled,
+            OrderStatus::Canceled => Status::Canceled,
+            OrderStatus::Expired => Status::Expired,
+            OrderStatus::Rejected => Status::Rejected,
+            _ => Status::Submitted,
+        };
     }
 
     // Priority 3: Overall state (for orders already filled from previous syncs)
@@ -148,7 +152,7 @@ pub fn map_trade_status(trade: &Trade, updated_orders: &[Order]) -> Status {
     trade.status
 }
 
-fn map(alpaca_order: &AlpacaOrder, order: Order) -> Result<Order, Box<dyn Error>> {
+pub(crate) fn map(alpaca_order: &AlpacaOrder, order: Order) -> Result<Order, Box<dyn Error>> {
     let broker_order_id = order
         .broker_order_id
         .clone()
@@ -159,6 +163,18 @@ fn map(alpaca_order: &AlpacaOrder, order: Order) -> Result<Order, Box<dyn Error>
     }
 
     let mut order = order;
+    let live_price = match order.category {
+        OrderCategory::Stop | OrderCategory::StopLimit => alpaca_order.stop_price.as_ref(),
+        OrderCategory::Limit => alpaca_order.limit_price.as_ref(),
+        _ => None,
+    };
+    if let Some(price) = live_price {
+        let price = Decimal::from_str(&price.to_string())?;
+        if price <= Decimal::ZERO {
+            return Err("Invalid live order price".into());
+        }
+        order.unit_price = price;
+    }
     order.filled_quantity = filled_quantity_to_decimal(&alpaca_order.filled_quantity)?;
     order.average_filled_price = alpaca_order
         .average_fill_price
@@ -173,6 +189,7 @@ fn map(alpaca_order: &AlpacaOrder, order: Order) -> Result<Order, Box<dyn Error>
     Ok(order)
 }
 
+#[cfg(test)]
 pub fn map_close_order(alpaca_order: &AlpacaOrder, target: Order) -> Result<Order, Box<dyn Error>> {
     let mut order = target;
     order.broker_order_id = Some(alpaca_order.id.to_string());

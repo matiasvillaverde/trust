@@ -2245,7 +2245,11 @@ fn run_matrix_sync_case(case_id: usize) {
 
     assert_eq!(fund_count, 1, "exactly one funding transaction expected");
 
-    let expected_payment_count = if fill_price == entry { 1 } else { 2 };
+    let expected_payment_count = if category == TradeCategory::Short || fill_price == entry {
+        1
+    } else {
+        2
+    };
     assert_eq!(payment_count, expected_payment_count);
     assert_eq!(trade_txs.len(), 1 + expected_payment_count);
 
@@ -2973,15 +2977,14 @@ fn test_case_203_bug_hunt_rejected_status_update_should_not_mutate_orders() {
     let funded = fund_trade_direct(&mut trust, &account, &trade);
     let submitted = submit_trade_direct(&mut trust, &account, &funded);
 
-    broker.enqueue_sync(Ok((
-        Status::PartiallyFilled,
-        vec![order_entry_filled(&submitted, dec!(100))],
-    )));
+    let mut invalid_entry = order_entry_filled(&submitted, dec!(100));
+    invalid_entry.filled_quantity = submitted.entry.quantity + dec!(1);
+    broker.enqueue_sync(Ok((Status::PartiallyFilled, vec![invalid_entry])));
 
     let result = trust.sync_trade(&submitted, &account);
     assert!(
         result.is_err(),
-        "unsupported partially filled status should fail"
+        "cumulative fills above the order quantity should fail"
     );
 
     let still_submitted = trade_by_status_and_id(&mut trust, &account, Status::Submitted, trade.id);

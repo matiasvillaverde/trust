@@ -100,6 +100,19 @@ diesel::table! {
 }
 
 diesel::table! {
+    fee_activities (id) {
+        id -> Text,
+        broker -> Text,
+        account_id -> Text,
+        broker_activity_id -> Text,
+        broker_order_id -> Nullable<Text>,
+        amount -> Text,
+        occurred_at -> Timestamp,
+        trade_id -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
     level_adjustment_rules (id) {
         id -> Text,
         created_at -> Timestamp,
@@ -367,6 +380,8 @@ diesel::joinable!(distribution_rules -> accounts (account_id));
 diesel::joinable!(executions -> accounts (account_id));
 diesel::joinable!(executions -> orders (order_id));
 diesel::joinable!(executions -> trades (trade_id));
+diesel::joinable!(fee_activities -> accounts (account_id));
+diesel::joinable!(fee_activities -> trades (trade_id));
 diesel::joinable!(level_adjustment_rules -> accounts (account_id));
 diesel::joinable!(level_changes -> accounts (account_id));
 diesel::joinable!(levels -> accounts (account_id));
@@ -390,6 +405,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     distribution_history,
     distribution_rules,
     executions,
+    fee_activities,
     level_adjustment_rules,
     level_changes,
     levels,

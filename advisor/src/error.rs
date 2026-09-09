@@ -73,6 +73,19 @@ impl From<keyring::Error> for AdvisorError {
 
 impl From<reqwest::Error> for AdvisorError {
     fn from(value: reqwest::Error) -> Self {
-        AdvisorError::Http(value.to_string())
+        AdvisorError::Http(value.without_url().to_string())
+    }
+}
+
+#[cfg(test)]
+mod redaction_tests {
+    #[test]
+    fn http_errors_omit_credential_bearing_urls() {
+        let error = reqwest::blocking::Client::new()
+            .get("invalid-scheme://example.invalid/calendar?apikey=secret-audit-marker")
+            .send()
+            .unwrap_err();
+        let public = super::AdvisorError::from(error);
+        assert!(!format!("{public} {public:?}").contains("secret-audit-marker"));
     }
 }

@@ -1,7 +1,8 @@
 use crate::keys;
 use crate::order_mapper;
-use apca::api::v2::order::Order as AlpacaOrder;
-use apca::api::v2::orders::{List, ListReq, Status as AlpacaRequestStatus};
+use apca::api::v2::order::{Get, GetByClientId, Id, Order as AlpacaOrder};
+#[cfg(test)]
+use apca::api::v2::orders::{ListReq, Status as AlpacaRequestStatus};
 use apca::Client;
 use model::{Account, BrokerLog, Order, Status, Trade};
 use std::error::Error;
@@ -31,36 +32,64 @@ fn sync_trade(
     trade: &Trade,
     orders: Vec<AlpacaOrder>,
 ) -> Result<(Status, Vec<Order>), Box<dyn Error>> {
-    let updated_orders = match trade.status {
-        Status::Canceled => {
-            find_target(orders, trade).and_then(|order| order_mapper::map_target(order, trade))
+    // Nested bracket legs are fallback snapshots. Top-level exact lookups
+    // take precedence, including when a parent embeds an older copy of a leg.
+    let mut flattened: Vec<_> = orders
+        .iter()
+        .flat_map(|order| order.legs.iter().cloned())
+        .collect();
+    flattened.extend(orders);
+    let orders = flattened;
+    let mut updated_orders = Vec::new();
+    for base in [&trade.entry, &trade.target, &trade.safety_stop] {
+        if let Some(live) = orders.iter().rev().find(|order| {
+            base.broker_order_id.as_deref() == Some(order.id.to_string().as_str())
+                || order.client_order_id == base.id.to_string()
+        }) {
+            let mut identified = base.clone();
+            identified.broker_order_id = Some(live.id.to_string());
+            let mapped = order_mapper::map(live, identified)?;
+            if mapped != *base {
+                updated_orders.push(mapped);
+            }
         }
-        _ => find_entry(orders, trade).and_then(|order| order_mapper::map_entry(order, trade)),
-    }?;
-
+    }
     let status = order_mapper::map_trade_status(trade, &updated_orders);
 
     Ok((status, updated_orders))
 }
 
-/// Get closed orders from Alpaca
+/// Fetch current entry and exit references from Alpaca
 async fn get_closed_orders(
     client: &Client,
     trade: &Trade,
 ) -> Result<Vec<AlpacaOrder>, Box<dyn Error>> {
-    let request = closed_orders_request(trade);
-
-    let orders = client
-        .issue::<List>(&request)
-        .await
-        .map_err(|e| Box::new(e) as Box<dyn Error>)?;
+    let entry = match trade.entry.broker_order_id.as_deref() {
+        Some(id) => client.issue::<Get>(&Id(uuid::Uuid::parse_str(id)?)).await?,
+        None => {
+            client
+                .issue::<GetByClientId>(&trade.entry.id.to_string())
+                .await?
+        }
+    };
+    let mut orders = vec![entry];
+    // Exact current references include standalone exits and active/partial orders;
+    // reconciliation is independent of list pagination and the trade's local status.
+    for base in [&trade.target, &trade.safety_stop] {
+        if let Some(id) = base.broker_order_id.as_deref() {
+            let live = client.issue::<Get>(&Id(uuid::Uuid::parse_str(id)?)).await?;
+            orders.retain(|order| order.id != live.id);
+            orders.push(live);
+        }
+    }
     Ok(orders)
 }
 
+#[cfg(test)]
 fn closed_orders_request(trade: &Trade) -> ListReq {
     ListReq {
         symbols: vec![trade.trading_vehicle.symbol.to_string()],
-        status: AlpacaRequestStatus::Closed,
+        status: AlpacaRequestStatus::All,
         ..Default::default()
     }
 }
@@ -77,6 +106,7 @@ fn broker_log_from_orders(
 }
 
 /// Find entry order from closed orders
+#[cfg(test)]
 pub fn find_entry(orders: Vec<AlpacaOrder>, trade: &Trade) -> Result<AlpacaOrder, Box<dyn Error>> {
     orders
         .into_iter()
@@ -85,6 +115,7 @@ pub fn find_entry(orders: Vec<AlpacaOrder>, trade: &Trade) -> Result<AlpacaOrder
 }
 
 /// Find the target order that is on the first level of the JSON
+#[cfg(test)]
 pub fn find_target(orders: Vec<AlpacaOrder>, trade: &Trade) -> Result<AlpacaOrder, Box<dyn Error>> {
     let target_order_id = trade
         .target
@@ -512,7 +543,7 @@ mod tests {
     }
 
     #[test]
-    fn closed_orders_request_filters_closed_orders_for_trade_symbol() {
+    fn closed_orders_request_includes_active_orders_for_trade_symbol() {
         let trade = Trade {
             trading_vehicle: model::TradingVehicle {
                 symbol: "TSLA".to_string(),
@@ -524,7 +555,7 @@ mod tests {
         let request = closed_orders_request(&trade);
 
         assert_eq!(request.symbols, vec!["TSLA".to_string()]);
-        assert_eq!(request.status, AlpacaRequestStatus::Closed);
+        assert_eq!(request.status, AlpacaRequestStatus::All);
     }
 
     #[test]
@@ -543,6 +574,74 @@ mod tests {
         assert_eq!(log.trade_id, trade.id);
         assert!(log.log.contains("904837e3-3b76-47ec-b432-046db621571b"));
         assert!(log.log.contains("AAPL"));
+    }
+
+    #[test]
+    fn exact_exit_snapshots_override_stale_nested_legs() {
+        let target_id = Uuid::new_v4();
+        let stop_id = Uuid::new_v4();
+        let trade = Trade {
+            status: Status::Filled,
+            entry: Order {
+                status: model::OrderStatus::Filled,
+                ..Default::default()
+            },
+            target: Order {
+                broker_order_id: Some(target_id.to_string()),
+                category: model::OrderCategory::Limit,
+                quantity: dec!(10),
+                unit_price: dec!(120),
+                ..Default::default()
+            },
+            safety_stop: Order {
+                broker_order_id: Some(stop_id.to_string()),
+                category: model::OrderCategory::Stop,
+                quantity: dec!(10),
+                unit_price: dec!(90),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let stale_target = AlpacaOrder {
+            id: Id(target_id),
+            type_: Type::Limit,
+            limit_price: Some(Num::from(120)),
+            ..default()
+        };
+        let stale_stop = AlpacaOrder {
+            id: Id(stop_id),
+            type_: Type::Stop,
+            stop_price: Some(Num::from(90)),
+            ..default()
+        };
+        let parent = AlpacaOrder {
+            legs: vec![stale_target.clone(), stale_stop.clone()],
+            ..default()
+        };
+        let current_target = AlpacaOrder {
+            status: AlpacaStatus::Filled,
+            filled_quantity: Num::from(10),
+            average_fill_price: Some(Num::from(120)),
+            ..stale_target
+        };
+        let current_stop = AlpacaOrder {
+            stop_price: Some(Num::from(95)),
+            ..stale_stop
+        };
+        let (status, updates) =
+            sync_trade(&trade, vec![parent, current_target, current_stop]).unwrap();
+        assert_eq!(status, Status::ClosedTarget);
+        let target = updates
+            .iter()
+            .find(|order| order.id == trade.target.id)
+            .unwrap();
+        assert_eq!(target.status, model::OrderStatus::Filled);
+        assert_eq!(target.filled_quantity, dec!(10));
+        let stop = updates
+            .iter()
+            .find(|order| order.id == trade.safety_stop.id)
+            .unwrap();
+        assert_eq!(stop.unit_price, dec!(95));
     }
 
     #[test]

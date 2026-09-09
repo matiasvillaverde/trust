@@ -393,7 +393,7 @@ fn mock_session(server: &TestServer) {
     server.expect(MockExpectation::json(
         "GET",
         "/v1/api/iserver/accounts",
-        json!({ "selectedAccount": "U1234567" }),
+        json!({ "accounts": ["U1234567"], "selectedAccount": "U1234567" }),
     ));
     server.expect(
         MockExpectation::json(
@@ -1072,7 +1072,7 @@ fn modify_stop_uses_order_ref_for_lookup_and_returns_same_ref() {
             ]),
         )
         .body_contains(trade.entry.id.to_string())
-        .body_contains("\"price\":\"94.5\""),
+        .body_contains("\"price\":94.5"),
     );
 
     with_mock_gateway(&server, || {

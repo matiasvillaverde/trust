@@ -11,20 +11,27 @@ impl AccountCapitalInApprovedTrades {
         currency: &Currency,
         database: &mut dyn ReadTransactionDB,
     ) -> Result<Decimal, Box<dyn std::error::Error>> {
+        if let Some(exposure) = database.account_market_exposure(account_id, currency)? {
+            return Ok(exposure);
+        }
         // Get all transactions
         let transactions =
             database.all_account_transactions_funding_in_submitted_trades(account_id, currency)?;
 
         // Sum all transactions
-        let total: Decimal = transactions
+        let total = transactions
             .iter()
             .map(|transaction| match transaction.category {
                 TransactionCategory::OpenTrade(_) | TransactionCategory::FundTrade(_) => {
-                    transaction.amount
+                    transaction.amount.abs()
                 }
                 _ => dec!(0),
             })
-            .sum();
+            .try_fold(Decimal::ZERO, |total, amount| {
+                total
+                    .checked_add(amount)
+                    .ok_or("Capital in trades overflow")
+            })?;
 
         Ok(total)
     }

@@ -31,18 +31,26 @@ impl<'a> FundTransferService<'a> {
         currency: &Currency,
         _reason: &str,
     ) -> Result<(Uuid, Uuid), Box<dyn Error>> {
-        // Validate the transfer first
-        self.validate_transfer(from_account, to_account, amount)?;
-        let (withdrawal_tx, deposit_tx) = self.database.transaction_write().create_transfer_pair(
-            from_account,
-            to_account,
-            amount,
-            currency,
-            TransactionCategory::Withdrawal,
-            TransactionCategory::Deposit,
-        )?;
-
-        Ok((withdrawal_tx.id, deposit_tx.id))
+        crate::commands::atomic::with_savepoint(self.database, "account_transfer", |database| {
+            let from = database.account_read().id(from_account.id)?;
+            let to = database.account_read().id(to_account.id)?;
+            FundTransferService::new(database).validate_transfer(&from, &to, amount)?;
+            let (withdrawal, _) = crate::commands::transaction::create(
+                database,
+                &TransactionCategory::Withdrawal,
+                amount,
+                currency,
+                from.id,
+            )?;
+            let (deposit, _) = crate::commands::transaction::create(
+                database,
+                &TransactionCategory::Deposit,
+                amount,
+                currency,
+                to.id,
+            )?;
+            Ok((withdrawal.id, deposit.id))
+        })
     }
 
     /// Validates if a transfer is allowed between two accounts
@@ -108,6 +116,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn test_transfer_between_accounts_creates_transactions() {
         // Given: A fund transfer service with real sqlite database
         let mut database = SqliteDatabase::new_in_memory();
@@ -138,6 +147,14 @@ mod tests {
             )
             .expect("child account should be created");
 
+        crate::commands::transaction::create(
+            &mut database,
+            &TransactionCategory::Deposit,
+            dec!(1000),
+            &Currency::USD,
+            from_account.id,
+        )
+        .unwrap();
         // And: Transfer parameters
         let amount = dec!(500);
         let currency = Currency::USD;
@@ -166,15 +183,32 @@ mod tests {
             .transaction_read()
             .all_transactions(to_account.id, &currency)
             .expect("child transactions should be readable");
-        assert_eq!(source_transactions.len(), 1);
+        assert_eq!(source_transactions.len(), 2);
         assert_eq!(child_transactions.len(), 1);
 
         let source_transaction = source_transactions
-            .first()
+            .iter()
+            .find(|tx| tx.category == TransactionCategory::Withdrawal)
             .expect("source transaction should exist");
         assert_eq!(source_transaction.id, withdrawal_tx_id);
         assert_eq!(source_transaction.category, TransactionCategory::Withdrawal);
-        assert_eq!(source_transaction.amount, dec!(-500));
+        assert_eq!(source_transaction.amount, dec!(500));
+        assert_eq!(
+            database
+                .account_balance_read()
+                .for_currency(from_account.id, &currency)
+                .unwrap()
+                .total_available,
+            dec!(500)
+        );
+        assert_eq!(
+            database
+                .account_balance_read()
+                .for_currency(to_account.id, &currency)
+                .unwrap()
+                .total_available,
+            dec!(500)
+        );
 
         let child_transaction = child_transactions
             .first()

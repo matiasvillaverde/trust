@@ -1,0 +1,34 @@
+   Compiling db-sqlite v0.3.5 (/var/folders/93/r_zs561x7h7_kvqrrmj_bgn00000gn/T/trust-security-audit-14f63ktc/source/db-sqlite)
+   Compiling alpaca-broker v0.3.5 (/var/folders/93/r_zs561x7h7_kvqrrmj_bgn00000gn/T/trust-security-audit-14f63ktc/source/alpaca-broker)
+   Compiling core v0.3.5 (/var/folders/93/r_zs561x7h7_kvqrrmj_bgn00000gn/T/trust-security-audit-14f63ktc/source/core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.49s
+     Running unittests src/lib.rs (/var/folders/93/r_zs561x7h7_kvqrrmj_bgn00000gn/T/trust-security-audit-14f63ktc/source/target/debug/deps/advisor-1164c55611c641a3)
+
+running 1 test
+test error::audit_secret_proof::audit_http_error_exposes_query_secret ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 22 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (/var/folders/93/r_zs561x7h7_kvqrrmj_bgn00000gn/T/trust-security-audit-14f63ktc/source/target/debug/deps/alpaca_broker-c67aa50c57267017)
+
+running 1 test
+test sync_trade::tests::audit_standalone_market_close_is_ignored ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 124 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (/var/folders/93/r_zs561x7h7_kvqrrmj_bgn00000gn/T/trust-security-audit-14f63ktc/source/target/debug/deps/core-b987442540617205)
+
+running 3 tests
+test commands::trade::audit_fee_proof::audit_fee_for_unrelated_order_is_charged ... ok
+test commands::trade::audit_transition_proof::audit_partial_fill_transition_rejected ... ok
+test services::event_distribution_service::tests::test_handle_trade_closed_event_executes_distribution_and_audit_trail ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 492 filtered out; finished in 0.01s
+
+     Running unittests src/lib.rs (/var/folders/93/r_zs561x7h7_kvqrrmj_bgn00000gn/T/trust-security-audit-14f63ktc/source/target/debug/deps/db_sqlite-6112fdeb054a0902)
+
+running 2 tests
+test backup::tests::audit_backup_omits_execution_and_policy_tables ... ok
+test backup::tests::audit_dry_run_accepts_broken_foreign_key ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 185 filtered out; finished in 0.02s

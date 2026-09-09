@@ -789,9 +789,19 @@ impl ArgDispatcher {
     fn dispatch_distribution(&mut self, sub_matches: &ArgMatches) -> Result<(), CliError> {
         match parse_distribution_subcommand(sub_matches) {
             DistributionSubcommand::Configure(configure_matches) => {
+                self.ensure_protected_keyword(
+                    configure_matches,
+                    ReportOutputFormat::Text,
+                    "distribution configuration",
+                )?;
                 self.configure_distribution(configure_matches)?
             }
             DistributionSubcommand::Execute(execute_matches) => {
+                self.ensure_protected_keyword(
+                    execute_matches,
+                    ReportOutputFormat::Text,
+                    "distribution execution",
+                )?;
                 self.execute_distribution(execute_matches)?
             }
             DistributionSubcommand::History(history_matches) => {
@@ -2078,7 +2088,7 @@ impl ArgDispatcher {
     }
 
     fn market_snapshot_payload(
-        account_id: Uuid,
+        account: &Account,
         requested_at: DateTime<Utc>,
         snapshot: &model::MarketSnapshotV2,
     ) -> Value {
@@ -2091,11 +2101,11 @@ impl ArgDispatcher {
             "schema_version": 1,
             "generated_at": requested_at.to_rfc3339(),
             "source": {
-                "broker": "alpaca",
-                "provider": "alpaca_market_data"
+                "broker": account.broker_kind.as_str(),
+                "provider": format!("{}_market_data", account.broker_kind)
             },
             "scope": {
-                "account_id": account_id.to_string(),
+                "account_id": account.id.to_string(),
                 "symbol": snapshot.symbol,
             },
             "provenance": {
@@ -2133,7 +2143,7 @@ impl ArgDispatcher {
     }
 
     fn market_data_stream_payload(
-        account_id: Uuid,
+        account: &Account,
         requested_at: DateTime<Utc>,
         request: &MarketDataStreamRequest,
         events: &[model::MarketDataStreamEvent],
@@ -2155,11 +2165,11 @@ impl ArgDispatcher {
             "schema_version": 1,
             "generated_at": requested_at.to_rfc3339(),
             "source": {
-                "broker": "alpaca",
-                "provider": "alpaca_market_data_stream"
+                "broker": account.broker_kind.as_str(),
+                "provider": format!("{}_market_data_stream", account.broker_kind)
             },
             "scope": {
-                "account_id": account_id.to_string(),
+                "account_id": account.id.to_string(),
                 "symbols": request.symbols,
                 "channels": request.channels_raw,
             },
@@ -2175,7 +2185,7 @@ impl ArgDispatcher {
     }
 
     fn market_data_bars_payload(
-        account_id: Uuid,
+        account: &Account,
         requested_at: DateTime<Utc>,
         symbol: &str,
         timeframe_raw: &str,
@@ -2202,11 +2212,11 @@ impl ArgDispatcher {
             "schema_version": 1,
             "generated_at": requested_at.to_rfc3339(),
             "source": {
-                "broker": "alpaca",
-                "provider": "alpaca_market_data"
+                "broker": account.broker_kind.as_str(),
+                "provider": format!("{}_market_data", account.broker_kind)
             },
             "scope": {
-                "account_id": account_id.to_string(),
+                "account_id": account.id.to_string(),
                 "symbol": symbol,
             },
             "request": {
@@ -2310,7 +2320,7 @@ impl ArgDispatcher {
                 println!("source: {source}");
             }
             ReportOutputFormat::Json => {
-                let payload = Self::market_snapshot_payload(account.id, requested_at, &snapshot);
+                let payload = Self::market_snapshot_payload(&account, requested_at, &snapshot);
                 Self::print_json(&payload)?;
             }
         }
@@ -2389,8 +2399,8 @@ impl ArgDispatcher {
                     "schema_version": 1,
                     "generated_at": requested_at.to_rfc3339(),
                     "source": {
-                        "broker": "alpaca",
-                        "provider": "alpaca_market_data"
+                        "broker": account.broker_kind.as_str(),
+                        "provider": format!("{}_market_data", account.broker_kind)
                     },
                     "scope": {
                         "account_id": account.id.to_string(),
@@ -2448,8 +2458,8 @@ impl ArgDispatcher {
                     "schema_version": 1,
                     "generated_at": requested_at.to_rfc3339(),
                     "source": {
-                        "broker": "alpaca",
-                        "provider": "alpaca_market_data"
+                        "broker": account.broker_kind.as_str(),
+                        "provider": format!("{}_market_data", account.broker_kind)
                     },
                     "scope": {
                         "account_id": account.id.to_string(),
@@ -2500,8 +2510,8 @@ impl ArgDispatcher {
                     "schema_version": 1,
                     "generated_at": requested_at.to_rfc3339(),
                     "source": {
-                        "broker": "alpaca",
-                        "provider": "alpaca_market_data"
+                        "broker": account.broker_kind.as_str(),
+                        "provider": format!("{}_market_data", account.broker_kind)
                     },
                     "scope": {
                         "account_id": account.id.to_string(),
@@ -2607,7 +2617,7 @@ impl ArgDispatcher {
             }
             ReportOutputFormat::Json => {
                 let payload =
-                    Self::market_data_stream_payload(account.id, requested_at, &request, &events);
+                    Self::market_data_stream_payload(&account, requested_at, &request, &events);
                 Self::print_json(&payload)?;
             }
         }
@@ -2682,7 +2692,7 @@ impl ArgDispatcher {
             }
             ReportOutputFormat::Json => {
                 let payload = Self::market_data_bars_payload(
-                    account.id,
+                    &account,
                     requested_at,
                     &symbol,
                     timeframe_raw,
@@ -7505,7 +7515,7 @@ impl ArgDispatcher {
                     "report": "attribution",
                     "schema_version": 1,
                     "generated_at": Utc::now().to_rfc3339(),
-                    "source": { "broker": "alpaca", "provider": "trust_core" },
+                    "source": { "broker": account.broker_kind.as_str(), "provider": "trust_core" },
                     "scope": {
                         "account_id": account.id.to_string(),
                         "from": from.to_string(),
@@ -7890,7 +7900,7 @@ impl ArgDispatcher {
                     "report": "benchmark",
                     "schema_version": 1,
                     "generated_at": Utc::now().to_rfc3339(),
-                    "source": { "broker": "alpaca", "provider": "trust_core" },
+                    "source": { "broker": account.broker_kind.as_str(), "provider": "trust_core" },
                     "scope": {
                         "account_id": account.id.to_string(),
                         "benchmark": benchmark_symbol,
@@ -8000,7 +8010,7 @@ impl ArgDispatcher {
                     "report": "timeline",
                     "schema_version": 1,
                     "generated_at": Utc::now().to_rfc3339(),
-                    "source": { "broker": "alpaca", "provider": "trust_core" },
+                    "source": { "broker": account.broker_kind.as_str(), "provider": "trust_core" },
                     "scope": {
                         "account_id": account.id.to_string(),
                         "granularity": granularity,
@@ -10140,6 +10150,7 @@ impl ArgDispatcher {
         let amount = Decimal::from_str_exact(amount_str)
             .map_err(|_| CliError::new("invalid_decimal", "Invalid --amount decimal"))?;
 
+        self.ensure_protected_keyword(matches, ReportOutputFormat::Text, "account transfer")?;
         let currency = Currency::USD;
         let (withdrawal_id, deposit_id) = self
             .trust
@@ -12559,7 +12570,11 @@ mod tests {
             source: MarketSnapshotSource::QuoteTrade,
         };
 
-        let payload = ArgDispatcher::market_snapshot_payload(Uuid::nil(), requested_at, &snapshot);
+        let payload = ArgDispatcher::market_snapshot_payload(
+            &model::Account::default(),
+            requested_at,
+            &snapshot,
+        );
         assert_eq!(payload["report"], "market_data_snapshot");
         assert_eq!(payload["scope"]["symbol"], "AAPL");
         assert_eq!(payload["provenance"]["source_kind"], "quote_trade");
@@ -12596,8 +12611,12 @@ mod tests {
             },
         ];
 
-        let payload =
-            ArgDispatcher::market_data_stream_payload(Uuid::nil(), requested_at, &request, &events);
+        let payload = ArgDispatcher::market_data_stream_payload(
+            &model::Account::default(),
+            requested_at,
+            &request,
+            &events,
+        );
         assert_eq!(payload["report"], "market_data_stream");
         assert_eq!(payload["scope"]["symbols"][0], "AAPL");
         assert_eq!(payload["request"]["max_events"], 2);
@@ -12671,7 +12690,10 @@ mod tests {
         }];
 
         let payload = ArgDispatcher::market_data_bars_payload(
-            Uuid::nil(),
+            &model::Account {
+                broker_kind: model::BrokerKind::Ibkr,
+                ..model::Account::default()
+            },
             requested_at,
             "AAPL",
             "1m",
@@ -12680,6 +12702,8 @@ mod tests {
             &bars,
         );
         assert_eq!(payload["report"], "market_data_bars");
+        assert_eq!(payload["source"]["broker"], "ibkr");
+        assert_eq!(payload["source"]["provider"], "ibkr_market_data");
         assert_eq!(payload["scope"]["symbol"], "AAPL");
         assert_eq!(payload["request"]["timeframe"], "1m");
         assert_eq!(payload["data"]["count"], 1);
@@ -19873,6 +19897,7 @@ mod tests {
 
     #[test]
     fn test_accounts_transfer_moves_balance_between_accounts() {
+        std::env::set_var("TRUST_PROTECTED_KEYWORD_EXPECTED", "transfer-test");
         let mut dispatcher = test_dispatcher();
         let parent = dispatcher
             .trust
@@ -19914,6 +19939,8 @@ mod tests {
                 "50",
                 "--reason",
                 "rebalance",
+                "--confirm-protected",
+                "transfer-test",
             ]);
         assert!(
             dispatcher.dispatch_accounts(&transfer).is_ok(),
@@ -19939,6 +19966,7 @@ mod tests {
                 .all(|balance| balance.total_balance >= Decimal::ZERO),
             "child balances should remain non-negative after transfer"
         );
+        std::env::remove_var("TRUST_PROTECTED_KEYWORD_EXPECTED");
     }
 
     #[test]
@@ -20146,6 +20174,11 @@ mod tests {
 
     #[test]
     fn test_distribution_dispatch_paths_cover_parse_and_service_edges() {
+        let _guard = env_guard();
+        std::env::set_var(
+            "TRUST_PROTECTED_KEYWORD_EXPECTED",
+            "distribution-test-keyword",
+        );
         let mut dispatcher = test_dispatcher();
         let account = dispatcher
             .trust
@@ -20176,6 +20209,8 @@ mod tests {
                 "100",
                 "--password",
                 "strong-password",
+                "--confirm-protected",
+                "distribution-test-keyword",
             ]);
         let _ = dispatcher.dispatch_distribution(&configure);
 
@@ -20189,6 +20224,8 @@ mod tests {
                 &account.id.to_string(),
                 "--amount",
                 "abc",
+                "--confirm-protected",
+                "distribution-test-keyword",
             ]);
         let execute_error = dispatcher
             .dispatch_distribution(&execute_invalid_amount)
@@ -20222,6 +20259,8 @@ mod tests {
                 &account.id.to_string(),
             ]);
         let _ = dispatcher.dispatch_distribution(&rules);
+        std::env::remove_var("TRUST_PROTECTED_KEYWORD_EXPECTED");
+        std::env::remove_var("TRUST_PROTECTED_KEYWORD_EXPECTED");
     }
 
     #[test]

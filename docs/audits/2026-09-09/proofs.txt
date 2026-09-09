@@ -1,0 +1,18 @@
+   Compiling advisor v0.3.5 (/var/folders/93/r_zs561x7h7_kvqrrmj_bgn00000gn/T/trust-security-audit-14f63ktc/source/advisor)
+   Compiling core v0.3.5 (/var/folders/93/r_zs561x7h7_kvqrrmj_bgn00000gn/T/trust-security-audit-14f63ktc/source/core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.97s
+     Running tests/audit_findings.rs (/var/folders/93/r_zs561x7h7_kvqrrmj_bgn00000gn/T/trust-security-audit-14f63ktc/source/target/debug/deps/audit_findings-7069c33740048ebb)
+
+running 5 tests
+test audit_funding_failure_leaves_funded_status ... failed funding status=funded, funded amount=0
+ok
+test audit_short_funding_ignores_rule_read_failure ... short funding rejected with configured cap, accepted after rules became unreadable
+ok
+test audit_short_profit_is_inverted ... short sell 10 at 100 buy back at 80: pnl=-200, account=9800
+ok
+test audit_stale_fill_replays ... stale fill replay accepted: capital_in_market=2000, account balance=8000
+ok
+test audit_transfer_overspends_and_leaves_projection_stale ... transferred 15000 from 10000 account; cached available=10000
+ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s

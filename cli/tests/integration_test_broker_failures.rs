@@ -438,7 +438,7 @@ impl Broker for DuplicateOrderIdBroker {
             id: trade.entry.id,
             broker_order_id: Some(Uuid::new_v4().to_string()),
             status: OrderStatus::Accepted,
-            ..Default::default()
+            ..trade.entry.clone()
         };
         let entry_dup = Order {
             id: trade.entry.id, // Same ID
@@ -447,7 +447,7 @@ impl Broker for DuplicateOrderIdBroker {
             filled_quantity: 500.into(),
             average_filled_price: Some(dec!(40)),
             filled_at: Some(now()),
-            ..Default::default()
+            ..trade.entry.clone()
         };
         Ok((
             Status::Submitted,
@@ -500,19 +500,19 @@ impl Broker for StatusMismatchBroker {
             id: trade.entry.id,
             broker_order_id: Some(Uuid::new_v4().to_string()),
             status: OrderStatus::Accepted, // NOT filled
-            ..Default::default()
+            ..trade.entry.clone()
         };
         let target = Order {
             id: trade.target.id,
             broker_order_id: Some(Uuid::new_v4().to_string()),
             status: OrderStatus::Held,
-            ..Default::default()
+            ..trade.target.clone()
         };
         let stop = Order {
             id: trade.safety_stop.id,
             broker_order_id: Some(Uuid::new_v4().to_string()),
             status: OrderStatus::Held,
-            ..Default::default()
+            ..trade.safety_stop.clone()
         };
         Ok((
             Status::Filled,
@@ -691,19 +691,19 @@ fn test_execution_fetch_failure_does_not_block_sync() {
             average_filled_price: Some(dec!(40)),
             status: OrderStatus::Filled,
             filled_at: Some(now()),
-            ..Default::default()
+            ..trade.entry.clone()
         };
         let target = Order {
             id: trade.target.id,
             broker_order_id: Some(Uuid::new_v4().to_string()),
             status: OrderStatus::Accepted,
-            ..Default::default()
+            ..trade.target.clone()
         };
         let stop = Order {
             id: trade.safety_stop.id,
             broker_order_id: Some(Uuid::new_v4().to_string()),
             status: OrderStatus::Held,
-            ..Default::default()
+            ..trade.safety_stop.clone()
         };
         (Status::Filled, vec![entry, target, stop])
     });
@@ -737,7 +737,7 @@ fn test_fee_fetch_failure_does_not_block_close() {
             average_filled_price: Some(dec!(40)),
             status: OrderStatus::Filled,
             filled_at: Some(now()),
-            ..Default::default()
+            ..trade.entry.clone()
         };
         let target = Order {
             id: trade.target.id,
@@ -746,13 +746,13 @@ fn test_fee_fetch_failure_does_not_block_close() {
             average_filled_price: Some(dec!(50)),
             status: OrderStatus::Filled,
             filled_at: Some(now()),
-            ..Default::default()
+            ..trade.target.clone()
         };
         let stop = Order {
             id: trade.safety_stop.id,
             broker_order_id: Some(Uuid::new_v4().to_string()),
             status: OrderStatus::Canceled,
-            ..Default::default()
+            ..trade.safety_stop.clone()
         };
         (Status::ClosedTarget, vec![entry, target, stop])
     });
@@ -788,19 +788,19 @@ fn test_transient_failures_then_success_no_corruption() {
             average_filled_price: Some(dec!(40)),
             status: OrderStatus::Filled,
             filled_at: Some(now()),
-            ..Default::default()
+            ..trade.entry.clone()
         };
         let target = Order {
             id: trade.target.id,
             broker_order_id: Some(Uuid::new_v4().to_string()),
             status: OrderStatus::Accepted,
-            ..Default::default()
+            ..trade.target.clone()
         };
         let stop = Order {
             id: trade.safety_stop.id,
             broker_order_id: Some(Uuid::new_v4().to_string()),
             status: OrderStatus::Held,
-            ..Default::default()
+            ..trade.safety_stop.clone()
         };
         (Status::Filled, vec![entry, target, stop])
     });
@@ -1121,19 +1121,19 @@ fn test_sync_failure_on_one_trade_does_not_affect_others() {
             average_filled_price: Some(dec!(40)),
             status: OrderStatus::Filled,
             filled_at: Some(now()),
-            ..Default::default()
+            ..trade.entry.clone()
         };
         let target = Order {
             id: trade.target.id,
             broker_order_id: Some(Uuid::new_v4().to_string()),
             status: OrderStatus::Accepted,
-            ..Default::default()
+            ..trade.target.clone()
         };
         let stop = Order {
             id: trade.safety_stop.id,
             broker_order_id: Some(Uuid::new_v4().to_string()),
             status: OrderStatus::Held,
-            ..Default::default()
+            ..trade.safety_stop.clone()
         };
         (Status::Filled, vec![entry, target, stop])
     });

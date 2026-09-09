@@ -382,6 +382,8 @@ fn test_account_create_list_balance_and_transfer_cli_round_trip() {
             "250",
             "--reason",
             "quarterly-tax-reserve",
+            "--confirm-protected",
+            PROTECTED_KEYWORD,
         ],
     );
     assert!(
@@ -422,8 +424,8 @@ fn test_account_create_list_balance_and_transfer_cli_round_trip() {
     let detailed_stdout = String::from_utf8_lossy(&detailed_balance.stdout);
     assert!(detailed_stdout.contains("primary account"));
     assert!(detailed_stdout.contains("tax reserve"));
-    assert!(detailed_stdout.contains("USD total=1000"));
-    assert!(detailed_stdout.contains("USD total=250"));
+    assert!(detailed_stdout.contains("USD total=750"));
+    assert!(detailed_stdout.contains("USD total=500"));
 }
 
 #[test]

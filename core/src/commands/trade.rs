@@ -7,7 +7,6 @@ use model::{
     Account, AccountBalance, Broker, BrokerError, BrokerKind, BrokerLog, DatabaseFactory,
     DraftTrade, Execution, ExecutionSide, ExecutionSource, FeeActivity, Order, OrderCategory,
     OrderStatus, Status, Trade, TradeBalance, TradeCategory, TradingVehicleCategory, Transaction,
-    TransactionCategory,
 };
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
@@ -18,38 +17,7 @@ use uuid::Uuid;
 
 type SyncWithBrokerResult = Result<(Status, Vec<Order>, BrokerLog, bool, Trade), Box<dyn Error>>;
 
-fn with_savepoint<T>(
-    database: &mut dyn DatabaseFactory,
-    name: &str,
-    operation: impl FnOnce(&mut dyn DatabaseFactory) -> Result<T, Box<dyn Error>>,
-) -> Result<T, Box<dyn Error>> {
-    database.begin_savepoint(name)?;
-    match operation(database) {
-        Ok(value) => {
-            database.release_savepoint(name)?;
-            Ok(value)
-        }
-        Err(operation_error) => {
-            let rollback_error = database.rollback_to_savepoint(name).err();
-            let release_error = database.release_savepoint(name).err();
-            if rollback_error.is_none() && release_error.is_none() {
-                return Err(operation_error);
-            }
-
-            let mut message = format!(
-                "operation failed inside savepoint '{name}': {}",
-                operation_error
-            );
-            if let Some(error) = rollback_error {
-                message.push_str(&format!("; rollback failed: {error}"));
-            }
-            if let Some(error) = release_error {
-                message.push_str(&format!("; release failed: {error}"));
-            }
-            Err(message.into())
-        }
-    }
-}
+use super::atomic::with_savepoint;
 
 fn update_trade_status_and_projection(
     trade: &Trade,
@@ -97,78 +65,84 @@ pub fn create_trade_with_safety_order_category(
     safety_order_category: OrderCategory,
     database: &mut dyn DatabaseFactory,
 ) -> Result<Trade, Box<dyn std::error::Error>> {
-    if trade.quantity <= Decimal::ZERO {
-        return Err(format!(
-            "Trade quantity must be greater than zero, got {}",
-            trade.quantity
-        )
-        .into());
-    }
-    validate_broker_asset_support(&trade)?;
+    with_savepoint(
+        database,
+        "create_trade_with_safety_order_category",
+        |database| {
+            if trade.quantity <= Decimal::ZERO {
+                return Err(format!(
+                    "Trade quantity must be greater than zero, got {}",
+                    trade.quantity
+                )
+                .into());
+            }
+            validate_broker_asset_support(&trade)?;
 
-    // 1. Create Stop-loss Order
-    let stop = match safety_order_category {
-        OrderCategory::Stop => commands::order::create_stop(
-            trade.trading_vehicle.id,
-            trade.quantity,
-            stop_price,
-            &trade.currency,
-            &trade.category,
-            database,
-        )?,
-        OrderCategory::StopLimit => commands::order::create_stop_with_category(
-            trade.trading_vehicle.id,
-            trade.quantity,
-            stop_price,
-            &trade.currency,
-            &trade.category,
-            &safety_order_category,
-            database,
-        )?,
-        _ => {
-            return Err(format!(
+            // 1. Create Stop-loss Order
+            let stop = match safety_order_category {
+                OrderCategory::Stop => commands::order::create_stop(
+                    trade.trading_vehicle.id,
+                    trade.quantity,
+                    stop_price,
+                    &trade.currency,
+                    &trade.category,
+                    database,
+                )?,
+                OrderCategory::StopLimit => commands::order::create_stop_with_category(
+                    trade.trading_vehicle.id,
+                    trade.quantity,
+                    stop_price,
+                    &trade.currency,
+                    &trade.category,
+                    &safety_order_category,
+                    database,
+                )?,
+                _ => {
+                    return Err(format!(
                 "Safety order category must be stop or stop_limit, got {safety_order_category}"
             )
-            .into());
-        }
-    };
+                    .into());
+                }
+            };
 
-    // 2. Create Entry Order
-    let entry = commands::order::create_entry(
-        trade.trading_vehicle.id,
-        trade.quantity,
-        entry_price,
-        &trade.currency,
-        &trade.category,
-        database,
-    )?;
+            // 2. Create Entry Order
+            let entry = commands::order::create_entry(
+                trade.trading_vehicle.id,
+                trade.quantity,
+                entry_price,
+                &trade.currency,
+                &trade.category,
+                database,
+            )?;
 
-    // 3. Create Target Order
-    let target = commands::order::create_target(
-        trade.trading_vehicle.id,
-        trade.quantity,
-        target_price,
-        &trade.currency,
-        &trade.category,
-        database,
-    )?;
+            // 3. Create Target Order
+            let target = commands::order::create_target(
+                trade.trading_vehicle.id,
+                trade.quantity,
+                target_price,
+                &trade.currency,
+                &trade.category,
+                database,
+            )?;
 
-    // 4. Create Trade
-    let draft = DraftTrade {
-        account: trade.account,
-        trading_vehicle: trade.trading_vehicle,
-        quantity: trade.quantity,
-        currency: trade.currency,
-        category: trade.category,
-        thesis: trade.thesis,
-        sector: trade.sector,
-        asset_class: trade.asset_class,
-        context: trade.context,
-    };
+            // 4. Create Trade
+            let draft = DraftTrade {
+                account: trade.account,
+                trading_vehicle: trade.trading_vehicle,
+                quantity: trade.quantity,
+                currency: trade.currency,
+                category: trade.category,
+                thesis: trade.thesis,
+                sector: trade.sector,
+                asset_class: trade.asset_class,
+                context: trade.context,
+            };
 
-    database
-        .trade_write()
-        .create_trade(draft, &stop, &entry, &target)
+            database
+                .trade_write()
+                .create_trade(draft, &stop, &entry, &target)
+        },
+    )
 }
 
 fn validate_broker_asset_support(trade: &DraftTrade) -> Result<(), Box<dyn std::error::Error>> {
@@ -195,70 +169,6 @@ fn validate_broker_asset_support(trade: &DraftTrade) -> Result<(), Box<dyn std::
 
 fn vehicle_broker_is(vehicle: &model::TradingVehicle, broker: &str) -> bool {
     vehicle.broker.trim().eq_ignore_ascii_case(broker)
-}
-
-pub fn update_status(
-    trade: &Trade,
-    status: Status,
-    database: &mut dyn DatabaseFactory,
-) -> Result<(Trade, Option<Transaction>), Box<dyn Error>> {
-    match status {
-        Status::Filled if trade.status == Status::Submitted => {
-            let (trade, tx) = fill_trade_internal(trade, dec!(0), database, false)?;
-            return Ok((trade, Some(tx)));
-        }
-        Status::Filled if trade.status == Status::Filled => {
-            return Ok((trade.clone(), None)); // Nothing to update.
-        }
-        Status::ClosedStopLoss if trade.status == Status::ClosedStopLoss => {
-            return Ok((trade.clone(), None)); // Nothing to update.
-        }
-        Status::ClosedStopLoss => {
-            let trade = if trade.status == Status::Submitted {
-                // We also update the trade entry.
-                let (filled_trade, _) = fill_trade_internal(trade, dec!(0), database, false)?;
-                filled_trade
-            } else {
-                // The incoming trade snapshot is already the latest persisted state.
-                trade.clone()
-            };
-            if trade.status == Status::Filled {
-                // We also update the trade stop loss
-                let (trade, _) = stop_executed_internal(&trade, dec!(0), database, false)?;
-                let (tx, _, _) = commands::transaction::transfer_to_account_from(&trade, database)?;
-
-                return Ok((trade, Some(tx)));
-            }
-        }
-        Status::ClosedTarget if trade.status == Status::ClosedTarget => {
-            return Ok((trade.clone(), None)); // Nothing to update.
-        }
-        Status::ClosedTarget => {
-            let trade = if trade.status == Status::Submitted {
-                // We also update the trade entry.
-                let (filled_trade, _) = fill_trade_internal(trade, dec!(0), database, false)?;
-                filled_trade
-            } else {
-                // The incoming trade snapshot is already the latest persisted state.
-                trade.clone()
-            };
-            if trade.status == Status::Filled || trade.status == Status::Canceled {
-                // It can be canceled if the target was updated.
-                // We also update the trade stop loss
-                let (trade, _) = target_executed_internal(&trade, dec!(0), database, false)?;
-                let (tx, _, _) = commands::transaction::transfer_to_account_from(&trade, database)?;
-
-                return Ok((trade, Some(tx)));
-            }
-        }
-        Status::Submitted if trade.status == Status::Submitted => {
-            return Ok((trade.clone(), None));
-        }
-        _ => {
-            return Err(format!("Status can not be updated in trade: {status:?}").into());
-        }
-    }
-    Err(format!("Unsupported status transition in trade update: {status:?}").into())
 }
 
 fn fill_trade_internal(
@@ -291,7 +201,20 @@ pub fn fill_trade(
     fee: Decimal,
     database: &mut dyn DatabaseFactory,
 ) -> Result<(Trade, Transaction), Box<dyn Error>> {
-    fill_trade_internal(trade, fee, database, true)
+    with_savepoint(database, "fill_trade", |database| {
+        let mut current = latest_trade_snapshot(trade, database)?;
+        if !(matches!(current.status, Status::Funded | Status::Submitted)) {
+            return Err("Invalid persisted trade status for manual execution".into());
+        }
+        if fee < Decimal::ZERO {
+            return Err("Execution fee cannot be negative".into());
+        }
+        // Only the explicit execution price is accepted from the caller snapshot.
+        current.entry.average_filled_price = trade.entry.average_filled_price;
+        let trade = &current;
+
+        fill_trade_internal(trade, fee, database, true)
+    })
 }
 
 fn target_executed_internal(
@@ -324,7 +247,20 @@ pub fn target_executed(
     fee: Decimal,
     database: &mut dyn DatabaseFactory,
 ) -> Result<(Trade, Transaction), Box<dyn Error>> {
-    target_executed_internal(trade, fee, database, true)
+    with_savepoint(database, "target_executed", |database| {
+        let mut current = latest_trade_snapshot(trade, database)?;
+        if !(current.status == Status::Filled) {
+            return Err("Invalid persisted trade status for manual execution".into());
+        }
+        if fee < Decimal::ZERO {
+            return Err("Execution fee cannot be negative".into());
+        }
+        // Only the explicit execution price is accepted from the caller snapshot.
+        current.target.average_filled_price = trade.target.average_filled_price;
+        let trade = &current;
+
+        target_executed_internal(trade, fee, database, true)
+    })
 }
 
 fn stop_executed_internal(
@@ -357,7 +293,20 @@ pub fn stop_executed(
     fee: Decimal,
     database: &mut dyn DatabaseFactory,
 ) -> Result<(Trade, Transaction), Box<dyn Error>> {
-    stop_executed_internal(trade, fee, database, true)
+    with_savepoint(database, "stop_executed", |database| {
+        let mut current = latest_trade_snapshot(trade, database)?;
+        if !(current.status == Status::Filled) {
+            return Err("Invalid persisted trade status for manual execution".into());
+        }
+        if fee < Decimal::ZERO {
+            return Err("Execution fee cannot be negative".into());
+        }
+        // Only the explicit execution price is accepted from the caller snapshot.
+        current.safety_stop.average_filled_price = trade.safety_stop.average_filled_price;
+        let trade = &current;
+
+        stop_executed_internal(trade, fee, database, true)
+    })
 }
 
 pub fn stop_acquired(
@@ -365,10 +314,12 @@ pub fn stop_acquired(
     fee: Decimal,
     database: &mut dyn DatabaseFactory,
 ) -> Result<(Transaction, Transaction, TradeBalance, AccountBalance), Box<dyn std::error::Error>> {
-    let (trade, tx_stop) = stop_executed(trade, fee, database)?;
-    let (tx_payment, account_balance, trade_balance) =
-        commands::transaction::transfer_to_account_from(&trade, database)?;
-    Ok((tx_stop, tx_payment, trade_balance, account_balance))
+    with_savepoint(database, "stop_acquired", |database| {
+        let (trade, tx_stop) = stop_executed(trade, fee, database)?;
+        let (tx_payment, account_balance, trade_balance) =
+            commands::transaction::transfer_to_account_from(&trade, database)?;
+        Ok((tx_stop, tx_payment, trade_balance, account_balance))
+    })
 }
 
 pub fn target_acquired(
@@ -376,30 +327,34 @@ pub fn target_acquired(
     fee: Decimal,
     database: &mut dyn DatabaseFactory,
 ) -> Result<(Transaction, Transaction, TradeBalance, AccountBalance), Box<dyn std::error::Error>> {
-    let (trade, tx_target) = target_executed(trade, fee, database)?;
-    let (tx_payment, account_balance, trade_balance) =
-        commands::transaction::transfer_to_account_from(&trade, database)?;
-    Ok((tx_target, tx_payment, trade_balance, account_balance))
+    with_savepoint(database, "target_acquired", |database| {
+        let (trade, tx_target) = target_executed(trade, fee, database)?;
+        let (tx_payment, account_balance, trade_balance) =
+            commands::transaction::transfer_to_account_from(&trade, database)?;
+        Ok((tx_target, tx_payment, trade_balance, account_balance))
+    })
 }
 
 pub fn cancel_funded(
     trade: &Trade,
     database: &mut dyn DatabaseFactory,
 ) -> Result<(TradeBalance, AccountBalance, Transaction), Box<dyn std::error::Error>> {
-    // 1. Load latest persisted trade snapshot to prevent stale-state replay.
-    let current_trade = latest_trade_snapshot(trade, database)?;
+    with_savepoint(database, "cancel_funded", |database| {
+        // 1. Load latest persisted trade snapshot to prevent stale-state replay.
+        let current_trade = latest_trade_snapshot(trade, database)?;
 
-    // 2. Verify trade can be canceled
-    crate::validators::trade::can_cancel_funded(&current_trade)?;
+        // 2. Verify trade can be canceled
+        crate::validators::trade::can_cancel_funded(&current_trade)?;
 
-    // 3. Update Trade Status
-    let _ = update_trade_status_and_projection(&current_trade, Status::Canceled, database)?;
+        // 3. Update Trade Status
+        let _ = update_trade_status_and_projection(&current_trade, Status::Canceled, database)?;
 
-    // 4. Transfer funds back to account
-    let (tx, account_o, trade_o) =
-        commands::transaction::transfer_to_account_from(&current_trade, database)?;
+        // 4. Transfer funds back to account
+        let (tx, account_o, trade_o) =
+            commands::transaction::transfer_to_account_from(&current_trade, database)?;
 
-    Ok((trade_o, account_o, tx))
+        Ok((trade_o, account_o, tx))
+    })
 }
 
 pub fn cancel_submitted(
@@ -413,7 +368,12 @@ pub fn cancel_submitted(
     // 2. Verify trade can be canceled
     crate::validators::trade::can_cancel_submitted(&current_trade)?;
     let operation_id = Uuid::new_v4();
-    let broker_name = broker.kind().as_str().to_string();
+    let broker_name = database
+        .account_read()
+        .id(current_trade.account_id)?
+        .broker_kind
+        .as_str()
+        .to_string();
     let attempt_details =
         serde_json::json!({"capital_release":"blocked_until_zero_fill_confirmation"});
     audit::record(
@@ -461,6 +421,7 @@ pub fn cancel_submitted(
     // 4. Release local capital only after the broker adapter has confirmed cancellation, and
     // persist all accounting changes atomically.
     with_savepoint(database, "persist_broker_cancellation", |database| {
+        ensure_snapshot_unchanged(database, &current_trade)?;
         let _ = update_trade_status_and_projection(&current_trade, Status::Canceled, database)?;
         let (tx, account_o, trade_o) =
             commands::transaction::transfer_to_account_from(&current_trade, database)?;
@@ -483,6 +444,29 @@ pub fn cancel_submitted(
     })
 }
 
+fn pending_order_change(
+    database: &mut dyn DatabaseFactory,
+    trade: &Trade,
+    role: &str,
+) -> Result<Option<audit::AuditEvent>, Box<dyn Error>> {
+    let logs = database.log_read().read_all_logs_for_trade(trade.id)?;
+    let events = audit::ordered_events(&logs)?;
+    Ok(events
+        .into_iter()
+        .rev()
+        .find(|event| {
+            event.event_type == "order.modify"
+                && event
+                    .details
+                    .get("order_role")
+                    .and_then(serde_json::Value::as_str)
+                    == Some(role)
+        })
+        .filter(|event| matches!(event.outcome.as_str(), "attempted" | "outcome_unknown")))
+}
+
+// Keep the financial operation and its validation in one reviewable sequence.
+#[allow(clippy::too_many_lines)]
 pub fn modify_stop(
     trade: &Trade,
     account: &Account,
@@ -490,28 +474,42 @@ pub fn modify_stop(
     broker: &mut dyn Broker,
     database: &mut dyn DatabaseFactory,
 ) -> Result<Trade, Box<dyn std::error::Error>> {
-    // 1. Load latest persisted trade snapshot and verify it can be modified.
-    let current_trade = latest_trade_snapshot(trade, database)?;
-    crate::validators::trade::can_modify_stop(&current_trade, new_stop_price)?;
-    let operation_id = Uuid::new_v4();
-    let broker_name = broker.kind().as_str().to_string();
-    let details = serde_json::json!({"order_role":"safety_stop","old_price":current_trade.safety_stop.unit_price.to_string(),"new_price":new_stop_price.to_string()});
-    audit::record(
+    let (current_trade, account, operation_id, broker_name) = with_savepoint(
         database,
-        &current_trade,
-        &broker_name,
-        AuditRecord {
-            operation_id,
-            event_type: "order.modify",
-            outcome: "attempted",
-            prior_status: current_trade.status,
-            resulting_status: current_trade.status,
-            details: &details,
+        "stop_intent",
+        |database| {
+            // 1. Load latest persisted trade snapshot and verify it can be modified.
+            let current_trade = latest_trade_snapshot(trade, database)?;
+            if pending_order_change(database, &current_trade, "safety_stop")?.is_some() {
+                return Err("Previous stop modification is unresolved; sync with the broker before modifying again".into());
+            }
+            if account.id != current_trade.account_id {
+                return Err("Stop modification account mismatch".into());
+            }
+            crate::validators::trade::can_modify_stop(&current_trade, new_stop_price)?;
+            let operation_id = Uuid::new_v4();
+            let account = database.account_read().id(current_trade.account_id)?;
+            let broker_name = account.broker_kind.as_str().to_string();
+            let details = serde_json::json!({"order_role":"safety_stop","old_price":current_trade.safety_stop.unit_price.to_string(),"new_price":new_stop_price.to_string()});
+            audit::record(
+                database,
+                &current_trade,
+                &broker_name,
+                AuditRecord {
+                    operation_id,
+                    event_type: "order.modify",
+                    outcome: "attempted",
+                    prior_status: current_trade.status,
+                    resulting_status: current_trade.status,
+                    details: &details,
+                },
+            )?;
+
+            Ok((current_trade, account, operation_id, broker_name))
         },
     )?;
-
     // 2. Update Trade on the broker
-    let new_broker_id = match broker.modify_stop(&current_trade, account, new_stop_price) {
+    let new_broker_id = match broker.modify_stop(&current_trade, &account, new_stop_price) {
         Ok(id) => id,
         Err(error) => {
             let outcome = if error
@@ -522,8 +520,7 @@ pub fn modify_stop(
             } else {
                 "outcome_unknown"
             };
-            let details =
-                serde_json::json!({"order_role":"safety_stop","local_state_changed":false});
+            let details = serde_json::json!({"order_role":"safety_stop","local_state_changed":false,"new_price":new_stop_price.to_string()});
             audit::record(
                 database,
                 &current_trade,
@@ -541,35 +538,48 @@ pub fn modify_stop(
         }
     };
 
-    // 3. Modify stop order
-    commands::order::modify(
-        &current_trade.safety_stop,
-        new_stop_price,
-        new_broker_id,
-        &mut *database.order_write(),
-    )?;
+    with_savepoint(database, "stop_acknowledgement", |database| {
+        let latest = latest_trade_snapshot(&current_trade, database)?;
+        let pending = pending_order_change(database, &latest, "safety_stop")?;
+        if pending
+            .as_ref()
+            .is_none_or(|event| event.operation_id != operation_id.to_string())
+        {
+            return Ok(latest);
+        }
+        ensure_snapshot_unchanged(database, &current_trade)?;
+        // 3. Modify stop order
+        commands::order::modify(
+            &current_trade.safety_stop,
+            new_stop_price,
+            new_broker_id,
+            &mut *database.order_write(),
+        )?;
 
-    // 4. Refresh Trade
-    let trade = database.trade_read().read_trade(current_trade.id)?;
-    let details =
-        serde_json::json!({"order_role":"safety_stop","new_price":new_stop_price.to_string()});
-    audit::record(
-        database,
-        &trade,
-        &broker_name,
-        AuditRecord {
-            operation_id,
-            event_type: "order.modify",
-            outcome: "acknowledged",
-            prior_status: current_trade.status,
-            resulting_status: trade.status,
-            details: &details,
-        },
-    )?;
+        // 4. Refresh Trade
+        let trade = database.trade_read().read_trade(current_trade.id)?;
+        let details =
+            serde_json::json!({"order_role":"safety_stop","new_price":new_stop_price.to_string()});
+        audit::record(
+            database,
+            &trade,
+            &broker_name,
+            AuditRecord {
+                operation_id,
+                event_type: "order.modify",
+                outcome: "acknowledged",
+                prior_status: current_trade.status,
+                resulting_status: trade.status,
+                details: &details,
+            },
+        )?;
 
-    Ok(trade)
+        Ok(trade)
+    })
 }
 
+// Keep the broker mutation and its guarded acknowledgement in one sequence.
+#[allow(clippy::too_many_lines)]
 pub fn modify_target(
     trade: &Trade,
     account: &Account,
@@ -577,28 +587,46 @@ pub fn modify_target(
     broker: &mut dyn Broker,
     database: &mut dyn DatabaseFactory,
 ) -> Result<Trade, Box<dyn std::error::Error>> {
-    // 1. Load latest persisted trade snapshot and verify it can be modified.
-    let current_trade = latest_trade_snapshot(trade, database)?;
-    crate::validators::trade::can_modify_target(&current_trade)?;
-    let operation_id = Uuid::new_v4();
-    let broker_name = broker.kind().as_str().to_string();
-    let details = serde_json::json!({"order_role":"target","old_price":current_trade.target.unit_price.to_string(),"new_price":new_price.to_string()});
-    audit::record(
+    let (current_trade, account, operation_id, broker_name) = with_savepoint(
         database,
-        &current_trade,
-        &broker_name,
-        AuditRecord {
-            operation_id,
-            event_type: "order.modify",
-            outcome: "attempted",
-            prior_status: current_trade.status,
-            resulting_status: current_trade.status,
-            details: &details,
+        "target_intent",
+        |database| {
+            // 1. Load latest persisted trade snapshot and verify it can be modified.
+            let current_trade = latest_trade_snapshot(trade, database)?;
+            crate::validators::trade::can_modify_target(&current_trade)?;
+            if pending_order_change(database, &current_trade, "target")?.is_some() {
+                return Err("Previous target modification is unresolved; sync with the broker before modifying again".into());
+            }
+            let operation_id = Uuid::new_v4();
+            if account.id != current_trade.account_id {
+                return Err("Target modification account mismatch".into());
+            }
+            if new_price <= Decimal::ZERO {
+                return Err("Target price must be positive".into());
+            }
+            let account = database.account_read().id(current_trade.account_id)?;
+            let broker_name = account.broker_kind.as_str().to_string();
+            let details = serde_json::json!({"order_role":"target","old_price":current_trade.target.unit_price.to_string(),"new_price":new_price.to_string()});
+            audit::record(
+                database,
+                &current_trade,
+                &broker_name,
+                AuditRecord {
+                    operation_id,
+                    event_type: "order.modify",
+                    outcome: "attempted",
+                    prior_status: current_trade.status,
+                    resulting_status: current_trade.status,
+                    details: &details,
+                },
+            )?;
+
+            Ok((current_trade, account, operation_id, broker_name))
         },
     )?;
 
     // 2. Update Trade on the broker
-    let new_broker_id = match broker.modify_target(&current_trade, account, new_price) {
+    let new_broker_id = match broker.modify_target(&current_trade, &account, new_price) {
         Ok(id) => id,
         Err(error) => {
             let outcome = if error
@@ -609,7 +637,7 @@ pub fn modify_target(
             } else {
                 "outcome_unknown"
             };
-            let details = serde_json::json!({"order_role":"target","local_state_changed":false});
+            let details = serde_json::json!({"order_role":"target","local_state_changed":false,"new_price":new_price.to_string()});
             audit::record(
                 database,
                 &current_trade,
@@ -627,57 +655,69 @@ pub fn modify_target(
         }
     };
 
-    // 3. Modify stop order
-    commands::order::modify(
-        &current_trade.target,
-        new_price,
-        new_broker_id,
-        &mut *database.order_write(),
-    )?;
+    with_savepoint(database, "target_acknowledgement", |database| {
+        let latest = latest_trade_snapshot(&current_trade, database)?;
+        if pending_order_change(database, &latest, "target")?
+            .as_ref()
+            .is_none_or(|event| event.operation_id != operation_id.to_string())
+        {
+            return Ok(latest);
+        }
+        ensure_snapshot_unchanged(database, &current_trade)?;
+        // 3. Modify target order
+        commands::order::modify(
+            &current_trade.target,
+            new_price,
+            new_broker_id,
+            &mut *database.order_write(),
+        )?;
 
-    // 4. Refresh Trade
-    let trade = database.trade_read().read_trade(current_trade.id)?;
-    let details = serde_json::json!({"order_role":"target","new_price":new_price.to_string()});
-    audit::record(
-        database,
-        &trade,
-        &broker_name,
-        AuditRecord {
-            operation_id,
-            event_type: "order.modify",
-            outcome: "acknowledged",
-            prior_status: current_trade.status,
-            resulting_status: trade.status,
-            details: &details,
-        },
-    )?;
+        // 4. Refresh Trade
+        let trade = database.trade_read().read_trade(current_trade.id)?;
+        let details = serde_json::json!({"order_role":"target","new_price":new_price.to_string()});
+        audit::record(
+            database,
+            &trade,
+            &broker_name,
+            AuditRecord {
+                operation_id,
+                event_type: "order.modify",
+                outcome: "acknowledged",
+                prior_status: current_trade.status,
+                resulting_status: trade.status,
+                details: &details,
+            },
+        )?;
 
-    Ok(trade)
+        Ok(trade)
+    })
 }
 
 pub fn fund(
     trade: &Trade,
     database: &mut dyn DatabaseFactory,
 ) -> Result<(Trade, Transaction, AccountBalance, TradeBalance), Box<dyn std::error::Error>> {
-    // 1. Load latest persisted trade snapshot to prevent stale-state funding.
-    let current_trade = latest_trade_snapshot(trade, database)?;
+    with_savepoint(database, "fund", |database| {
+        // 1. Load latest persisted trade snapshot to prevent stale-state funding.
+        let current_trade = latest_trade_snapshot(trade, database)?;
 
-    // 2. Validate status and funding constraints against the persisted trade.
-    crate::validators::trade::can_fund(&current_trade)?;
-    crate::validators::funding::can_fund(&current_trade, database)?;
+        // 2. Validate status and funding constraints against the persisted trade.
+        crate::validators::trade::can_fund(&current_trade)?;
+        crate::validators::funding::can_fund(&current_trade, database)?;
 
-    // 3. Update trade status to funded
-    let mut funded_trade =
-        update_trade_status_and_projection(&current_trade, Status::Funded, database)?;
+        // 3. Update trade status to funded
+        let mut funded_trade =
+            update_trade_status_and_projection(&current_trade, Status::Funded, database)?;
 
-    // 4. Create transaction to fund the trade
-    let (transaction, account_balance, trade_balance) =
-        commands::transaction::transfer_to_fund_trade(&current_trade, database)?;
-    // Keep the returned trade snapshot consistent with persisted projections.
-    funded_trade.balance = trade_balance.clone();
+        // 4. Create transaction to fund the trade
+        let (transaction, account_balance, trade_balance) =
+            commands::transaction::transfer_to_fund_trade(&current_trade, database)?;
+        // Keep the returned trade snapshot consistent with persisted projections.
+        funded_trade.balance = trade_balance.clone();
 
-    // 5. Return data objects
-    Ok((funded_trade, transaction, account_balance, trade_balance))
+        // 5. Return data objects
+        Ok((funded_trade, transaction, account_balance, trade_balance))
+    })
 }
 
 // Keep the external mutation and its durable intent/outcome records in one linear review surface.
@@ -687,42 +727,51 @@ pub fn submit(
     database: &mut dyn DatabaseFactory,
     broker: &mut dyn Broker,
 ) -> Result<(Trade, BrokerLog), Box<dyn std::error::Error>> {
-    // 1. Load latest persisted trade snapshot to prevent stale-state submission.
-    let current_trade = latest_trade_snapshot(trade, database)?;
+    let (current_trade, account, mut submitted, operation_id, broker_name) =
+        with_savepoint(database, "submit_intent", |database| {
+            // 1. Load latest persisted trade snapshot to prevent stale-state submission.
+            let current_trade = latest_trade_snapshot(trade, database)?;
 
-    // 2. Validate that Trade can be submitted
-    crate::validators::trade::can_submit(&current_trade)?;
-    let operation_id = Uuid::new_v4();
-    let broker_name = broker.kind().as_str().to_string();
-    let attempt_details = serde_json::json!({
-        "entry_order_ref": current_trade.entry.id.to_string(),
-        "target_order_ref": current_trade.target.id.to_string(),
-        "stop_order_ref": current_trade.safety_stop.id.to_string(),
-        "quantity": current_trade.entry.quantity.to_string()
-    });
-    audit::record(
-        database,
-        &current_trade,
-        &broker_name,
-        AuditRecord {
-            operation_id,
-            event_type: "trade.submit",
-            outcome: "attempted",
-            prior_status: current_trade.status,
-            resulting_status: Status::Submitted,
-            details: &attempt_details,
-        },
-    )?;
+            // 2. Validate that Trade can be submitted
+            crate::validators::trade::can_submit(&current_trade)?;
+            let operation_id = Uuid::new_v4();
+            let broker_name = database
+                .account_read()
+                .id(current_trade.account_id)?
+                .broker_kind
+                .as_str()
+                .to_string();
+            let attempt_details = serde_json::json!({
+                "entry_order_ref": current_trade.entry.id.to_string(),
+                "target_order_ref": current_trade.target.id.to_string(),
+                "stop_order_ref": current_trade.safety_stop.id.to_string(),
+                "quantity": current_trade.entry.quantity.to_string()
+            });
+            audit::record(
+                database,
+                &current_trade,
+                &broker_name,
+                AuditRecord {
+                    operation_id,
+                    event_type: "trade.submit",
+                    outcome: "attempted",
+                    prior_status: current_trade.status,
+                    resulting_status: Status::Submitted,
+                    details: &attempt_details,
+                },
+            )?;
 
-    // 3. Persist a durable submission intent before crossing the external boundary. A crash or
-    // local acknowledgement failure must leave the trade non-resubmittable and reconcilable.
-    let account = database.account_read().id(current_trade.account_id)?;
-    let mut submitted = database
-        .trade_write()
-        .update_trade_status(Status::Submitted, &current_trade)?;
-    submitted.balance = database
-        .trade_read()
-        .read_trade_balance(current_trade.balance.id)?;
+            // 3. Persist a durable submission intent before crossing the external boundary. A crash or
+            // local acknowledgement failure must leave the trade non-resubmittable and reconcilable.
+            let account = database.account_read().id(current_trade.account_id)?;
+            let mut submitted = database
+                .trade_write()
+                .update_trade_status(Status::Submitted, &current_trade)?;
+            submitted.balance = database
+                .trade_read()
+                .read_trade_balance(current_trade.balance.id)?;
+            Ok((current_trade, account, submitted, operation_id, broker_name))
+        })?;
     let (log, order_id) = match broker.submit_trade(&current_trade, &account) {
         Ok(acknowledgement) => acknowledgement,
         Err(error)
@@ -730,9 +779,13 @@ pub fn submit(
                 .downcast_ref::<BrokerError>()
                 .is_some_and(BrokerError::is_retry_safe_mutation) =>
         {
-            database
-                .trade_write()
-                .update_trade_status(Status::Funded, &submitted)?;
+            with_savepoint(database, "submit_retry_safe", |database| {
+                ensure_snapshot_unchanged(database, &submitted)?;
+                database
+                    .trade_write()
+                    .update_trade_status(Status::Funded, &submitted)?;
+                Ok(())
+            })?;
             let details = serde_json::json!({"intent_retained":false,"safe_to_retry":true});
             audit::record(
                 database,
@@ -775,6 +828,7 @@ pub fn submit(
     // 4. Persist acknowledgement details atomically. The durable Submitted state remains in place
     // if this fails, blocking duplicate submission while reconciliation repairs missing IDs/logs.
     let persisted = with_savepoint(database, "persist_broker_submission", |database| {
+        ensure_snapshot_unchanged(database, &submitted)?;
         database
             .log_write()
             .create_log(log.log.as_str(), &current_trade)?;
@@ -817,7 +871,19 @@ pub fn sync_with_broker(
     database: &mut dyn DatabaseFactory,
     broker: &mut dyn Broker,
 ) -> SyncWithBrokerResult {
-    let broker_name = broker.kind().as_str().to_string();
+    let polled_trade = latest_trade_snapshot(trade, database)?;
+    if account.id != polled_trade.account_id {
+        return Err("Sync account identity mismatch".into());
+    }
+    let persisted_account = database.account_read().id(polled_trade.account_id)?;
+    let account = &persisted_account;
+    let trade = &polled_trade;
+    let broker_name = database
+        .account_read()
+        .id(trade.account_id)?
+        .broker_kind
+        .as_str()
+        .to_string();
     // Best-effort execution reconciliation window.
     // This is intentionally outside the DB savepoint because it may involve broker I/O.
     let after = database
@@ -841,7 +907,7 @@ pub fn sync_with_broker(
             vec![]
         }
     };
-    let fees = match broker.fetch_fee_activities(trade, account, after) {
+    let fees = match broker.fetch_fee_activities(trade, account, None) {
         Ok(fees) => fees,
         Err(e) => {
             eprintln!("Fee reconciliation failed for trade {}: {e}", trade.id);
@@ -849,27 +915,64 @@ pub fn sync_with_broker(
         }
     };
     // 2. Persist the whole sync lifecycle atomically.
-    let (transitioned_to_closed, persisted_trade) =
-        with_savepoint(database, "sync_trade_lifecycle", |database| {
+    let (transitioned_to_closed, persisted_trade) = with_savepoint(
+        database,
+        "sync_trade_lifecycle",
+        |database| {
             // 2.1 Resolve broker updates against the latest persisted trade snapshot.
-            // Perf: `read_trade` is expensive (joins / multiple reads). In the common case the caller
-            // passes the latest persisted snapshot; validate that via a lightweight status read and
-            // only fall back to `read_trade` when needed.
-            let persisted_status = database.trade_read().read_trade_status(trade.id)?;
-            let current_trade = if persisted_status == trade.status {
-                trade.clone()
-            } else {
-                database.trade_read().read_trade(trade.id)?
-            };
+            let current_trade = database.trade_read().read_trade(trade.id)?;
+            if current_trade.updated_at != polled_trade.updated_at
+                || [
+                    (&current_trade.entry, &polled_trade.entry),
+                    (&current_trade.target, &polled_trade.target),
+                    (&current_trade.safety_stop, &polled_trade.safety_stop),
+                ]
+                .iter()
+                .any(|(current, polled)| current.updated_at != polled.updated_at)
+            {
+                return Err(
+                    "Trade changed during broker reconciliation; sync again using a fresh snapshot"
+                        .into(),
+                );
+            }
+            let persisted_status = current_trade.status;
             let was_closed = persisted_status == Status::ClosedTarget
                 || persisted_status == Status::ClosedStopLoss;
-            let is_closed = status == Status::ClosedTarget || status == Status::ClosedStopLoss;
-            let transitioned_to_closed = is_closed && !was_closed;
             let resolved = resolve_orders_for_sync(&current_trade, &orders)?;
 
             // 2.3 Validate payload before mutating DB state.
             validate_sync_payload(&current_trade, account, status, &resolved)?;
 
+            for (role, resolved_order) in [
+                ("safety_stop", &resolved.stop),
+                ("target", &resolved.target),
+            ] {
+                if orders.iter().any(|order| order.id == resolved_order.id) {
+                    if let Some(pending) = pending_order_change(database, &current_trade, role)? {
+                        if pending
+                            .details
+                            .get("new_price")
+                            .and_then(serde_json::Value::as_str)
+                            .and_then(|price| price.parse::<Decimal>().ok())
+                            == Some(resolved_order.unit_price)
+                        {
+                            audit::record(
+                                database,
+                                &current_trade,
+                                &broker_name,
+                                AuditRecord {
+                                    operation_id: Uuid::parse_str(&pending.operation_id)?,
+                                    event_type: "order.modify",
+                                    outcome: "reconciled",
+                                    prior_status: current_trade.status,
+                                    resulting_status: status,
+                                    details: &serde_json::json!({"order_role":role,"new_price":resolved_order.unit_price.to_string()}),
+                                },
+                            )?;
+                        }
+                    }
+                }
+            }
             // 2.4 Persist order changes only when broker state actually changed.
             {
                 let mut order_write = database.order_write();
@@ -890,14 +993,15 @@ pub fn sync_with_broker(
                 &resolved,
                 account.id,
                 &trade.trading_vehicle.symbol,
-                broker.kind(),
+                account.broker_kind,
             );
             let mut trade_with_synced_orders = current_trade;
             trade_with_synced_orders.entry = resolved.entry;
             trade_with_synced_orders.target = resolved.target;
             trade_with_synced_orders.safety_stop = resolved.stop;
             normalized_executions.extend(reconciled_executions.clone());
-            let (trade, _) = update_status(&trade_with_synced_orders, status, database)?;
+            let trade =
+                super::reconciliation::reconcile(database, &trade_with_synced_orders, status)?;
             // 2.6 Persist executions (fills) for execution-level accounting, idempotently.
             //
             // Important: we only attribute executions to this trade when the broker order ID matches
@@ -906,7 +1010,10 @@ pub fn sync_with_broker(
             reconcile_fee_activities_for_trade(database, &trade, &fees)?;
 
             // 2.6 Ensure sibling exit orders are consistently closed in terminal states.
-            reconcile_sibling_exit_orders(&trade, status, database)?;
+            reconcile_sibling_exit_orders(&trade, trade.status, database)?;
+            let transitioned_to_closed =
+                matches!(trade.status, Status::ClosedTarget | Status::ClosedStopLoss)
+                    && !was_closed;
             let details = serde_json::json!({
                 "orders_received": orders.len(),
                 "executions_reconciled": reconciled_executions.len(),
@@ -922,14 +1029,21 @@ pub fn sync_with_broker(
                     event_type: "trade.sync",
                     outcome: "reconciled",
                     prior_status: trade_with_synced_orders.status,
-                    resulting_status: status,
+                    resulting_status: trade.status,
                     details: &details,
                 },
             )?;
             Ok((transitioned_to_closed, trade))
-        })?;
+        },
+    )?;
 
-    Ok((status, orders, log, transitioned_to_closed, persisted_trade))
+    Ok((
+        persisted_trade.status,
+        orders,
+        log,
+        transitioned_to_closed,
+        persisted_trade,
+    ))
 }
 
 fn persist_executions_for_trade(
@@ -996,6 +1110,29 @@ fn persist_executions_for_trade(
     Ok(())
 }
 
+fn ensure_snapshot_unchanged(
+    database: &mut dyn DatabaseFactory,
+    expected: &Trade,
+) -> Result<(), Box<dyn Error>> {
+    let current = database.trade_read().read_trade(expected.id)?;
+    if current.updated_at != expected.updated_at
+        || current.status != expected.status
+        || [
+            (&current.entry, &expected.entry),
+            (&current.target, &expected.target),
+            (&current.safety_stop, &expected.safety_stop),
+        ]
+        .iter()
+        .any(|(current, expected)| current.updated_at != expected.updated_at)
+    {
+        return Err(
+            "Trade changed while awaiting broker response; preserve newer state and sync again"
+                .into(),
+        );
+    }
+    Ok(())
+}
+
 fn derive_trade_update_executions(
     previous_trade: &Trade,
     resolved: &ResolvedSyncOrders,
@@ -1029,7 +1166,7 @@ fn derive_trade_update_executions(
         let Some(broker_order_id) = updated_order.broker_order_id.clone() else {
             continue;
         };
-        let Some(price) = updated_order.average_filled_price else {
+        let Some(average_price) = updated_order.average_filled_price else {
             continue;
         };
         let executed_at = updated_order
@@ -1039,6 +1176,22 @@ fn derive_trade_update_executions(
             .filled_quantity
             .checked_sub(previous_order.filled_quantity)
         else {
+            continue;
+        };
+        // A cumulative average is not the price of the newest fill. Recover
+        // that fill's cash delta before deriving its unit price.
+        let previous_cash = if previous_order.filled_quantity.is_zero() {
+            Some(Decimal::ZERO)
+        } else {
+            previous_order
+                .average_filled_price
+                .and_then(|price| price.checked_mul(previous_order.filled_quantity))
+        };
+        let price = average_price
+            .checked_mul(updated_order.filled_quantity)
+            .and_then(|cash| previous_cash.and_then(|prior| cash.checked_sub(prior)))
+            .and_then(|cash| cash.checked_div(delta_qty));
+        let Some(price) = price.filter(|value| *value > Decimal::ZERO) else {
             continue;
         };
         let qty = delta_qty;
@@ -1091,95 +1244,48 @@ fn is_integer_decimal(value: Decimal) -> bool {
     value.fract().is_zero()
 }
 
+fn fee_role(trade: &Trade, fee: &FeeActivity) -> Option<bool> {
+    fee.broker_order_id.as_deref().and_then(|id| {
+        if trade.entry.broker_order_id.as_deref() == Some(id) {
+            Some(true)
+        } else if trade.target.broker_order_id.as_deref() == Some(id)
+            || trade.safety_stop.broker_order_id.as_deref() == Some(id)
+        {
+            Some(false)
+        } else {
+            None
+        }
+    })
+}
+
 fn reconcile_fee_activities_for_trade(
     database: &mut dyn DatabaseFactory,
     trade: &Trade,
     fees: &[FeeActivity],
 ) -> Result<(), Box<dyn Error>> {
-    if fees.is_empty() {
-        return Ok(());
-    }
-
-    let (allocated_open, allocated_close) = allocated_fee_totals_for_trade(trade, fees);
-    let (existing_open, existing_close) = existing_fee_totals_for_trade(database, trade.id)?;
-
-    if let Some(delta_open) = allocated_open.checked_sub(existing_open) {
-        if delta_open > Decimal::ZERO {
-            let _ = commands::transaction::transfer_opening_fee(delta_open, trade, database)?;
+    let broker = database.account_read().id(trade.account_id)?.broker_kind;
+    for fee in fees {
+        if fee.account_id != trade.account_id || fee.broker != broker.as_str() {
+            return Err("Fee broker/account identity mismatch".into());
         }
-    }
-    if let Some(delta_close) = allocated_close.checked_sub(existing_close) {
-        if delta_close > Decimal::ZERO {
-            let _ = commands::transaction::transfer_closing_fee(delta_close, trade, database)?;
+        let role = fee_role(trade, fee);
+        // Account-level or ambiguous activities are retained without charging any trade.
+        let first_allocation = database
+            .execution_write()
+            .record_fee_activity(fee, role.map(|_| trade.id))?;
+        if first_allocation {
+            match role {
+                Some(true) => {
+                    commands::transaction::transfer_opening_fee(fee.amount, trade, database)?;
+                }
+                Some(false) => {
+                    commands::transaction::transfer_closing_fee(fee.amount, trade, database)?;
+                }
+                None => {}
+            }
         }
     }
     Ok(())
-}
-
-fn existing_fee_totals_for_trade(
-    database: &mut dyn DatabaseFactory,
-    trade_id: uuid::Uuid,
-) -> Result<(Decimal, Decimal), Box<dyn Error>> {
-    let transactions = database
-        .transaction_read()
-        .all_trade_transactions(trade_id)?;
-    let mut open = Decimal::ZERO;
-    let mut close = Decimal::ZERO;
-
-    for transaction in transactions {
-        match transaction.category {
-            TransactionCategory::FeeOpen(_) => {
-                open = open.checked_add(transaction.amount).unwrap_or(open);
-            }
-            TransactionCategory::FeeClose(_) => {
-                close = close.checked_add(transaction.amount).unwrap_or(close);
-            }
-            _ => {}
-        }
-    }
-    Ok((open, close))
-}
-
-fn allocated_fee_totals_for_trade(trade: &Trade, fees: &[FeeActivity]) -> (Decimal, Decimal) {
-    let mut open = Decimal::ZERO;
-    let mut close = Decimal::ZERO;
-    let symbol = trade.trading_vehicle.symbol.as_str();
-    let entry_day = trade.entry.filled_at.map(|d| d.date());
-    let exit_day = match trade.status {
-        Status::ClosedTarget => trade.target.filled_at.map(|d| d.date()),
-        Status::ClosedStopLoss => trade.safety_stop.filled_at.map(|d| d.date()),
-        _ => None,
-    };
-
-    for fee in fees {
-        // Direct matching by broker order id has highest priority.
-        if let Some(fee_order_id) = fee.broker_order_id.as_deref() {
-            if trade.entry.broker_order_id.as_deref() == Some(fee_order_id) {
-                open = open.checked_add(fee.amount).unwrap_or(open);
-                continue;
-            }
-            if trade.target.broker_order_id.as_deref() == Some(fee_order_id)
-                || trade.safety_stop.broker_order_id.as_deref() == Some(fee_order_id)
-            {
-                close = close.checked_add(fee.amount).unwrap_or(close);
-                continue;
-            }
-        }
-
-        // Heuristic matching: symbol + day fallback.
-        if fee.symbol.as_deref() == Some(symbol) {
-            let fee_day = fee.occurred_at.date();
-            if Some(fee_day) == entry_day {
-                open = open.checked_add(fee.amount).unwrap_or(open);
-                continue;
-            }
-            if Some(fee_day) == exit_day {
-                close = close.checked_add(fee.amount).unwrap_or(close);
-            }
-        }
-    }
-
-    (open, close)
 }
 
 fn validate_sync_payload(
@@ -1197,6 +1303,18 @@ fn validate_sync_payload(
     }
 
     validate_sync_transition(trade, status)?;
+    for (old, new) in [
+        (&trade.entry, &resolved.entry),
+        (&trade.target, &resolved.target),
+        (&trade.safety_stop, &resolved.stop),
+    ] {
+        if new.quantity <= Decimal::ZERO
+            || new.unit_price <= Decimal::ZERO
+            || new.filled_quantity < old.filled_quantity
+        {
+            return Err("Invalid or regressing broker order snapshot".into());
+        }
+    }
 
     match status {
         Status::Submitted => {
@@ -1217,11 +1335,9 @@ fn validate_sync_payload(
             ensure_order_filled(&resolved.entry, "entry")?;
         }
         Status::ClosedTarget => {
-            ensure_order_filled(&resolved.entry, "entry")?;
             ensure_order_filled(&resolved.target, "target")?;
         }
         Status::ClosedStopLoss => {
-            ensure_order_filled(&resolved.entry, "entry")?;
             ensure_order_filled(&resolved.stop, "stop")?;
         }
         _ => {}
@@ -1241,9 +1357,34 @@ fn should_persist_order_update(current: &Order, resolved: &Order) -> bool {
         || current.cancelled_at != resolved.cancelled_at
         || current.closed_at != resolved.closed_at
         || current.category != resolved.category
+        || current.unit_price != resolved.unit_price
+        || current.quantity != resolved.quantity
 }
 
 fn validate_sync_transition(trade: &Trade, status: Status) -> Result<(), Box<dyn Error>> {
+    if matches!(
+        trade.status,
+        Status::Submitted | Status::PartiallyFilled | Status::Filled
+    ) && matches!(
+        status,
+        Status::PartiallyFilled
+            | Status::Filled
+            | Status::Canceled
+            | Status::Expired
+            | Status::Rejected
+            | Status::ClosedTarget
+            | Status::ClosedStopLoss
+    ) {
+        return Ok(());
+    }
+    if trade.status == status
+        && matches!(
+            status,
+            Status::Canceled | Status::Expired | Status::Rejected
+        )
+    {
+        return Ok(());
+    }
     match status {
         Status::Filled if trade.status == Status::Submitted || trade.status == Status::Filled => {
             Ok(())
@@ -1282,6 +1423,9 @@ fn merge_sync_order_state(base: &Order, update: &Order) -> Order {
     let mut merged = base.clone();
     merged.broker_order_id = update.broker_order_id.clone();
     merged.status = update.status;
+    merged.unit_price = update.unit_price;
+    merged.quantity = update.quantity;
+    merged.category = update.category;
     merged.filled_quantity = update.filled_quantity;
     merged.average_filled_price = update.average_filled_price;
     merged.submitted_at = update.submitted_at;
@@ -1399,10 +1543,10 @@ fn is_terminal_order_status(status: OrderStatus) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        allocated_fee_totals_for_trade, derive_trade_update_executions, ensure_order_filled,
-        is_integer_decimal, is_terminal_order_status, must_reject_fractional_qty,
-        resolve_orders_for_sync, should_persist_order_update, validate_broker_asset_support,
-        validate_sync_transition, ResolvedSyncOrders,
+        derive_trade_update_executions, ensure_order_filled, fee_role, is_integer_decimal,
+        is_terminal_order_status, must_reject_fractional_qty, resolve_orders_for_sync,
+        should_persist_order_update, validate_broker_asset_support, validate_sync_transition,
+        ResolvedSyncOrders,
     };
     use model::{
         BrokerError, BrokerKind, Currency, DraftTrade, ExecutionSource, FeeActivity, OrderCategory,
@@ -1495,7 +1639,7 @@ mod tests {
     }
 
     #[test]
-    fn test_allocate_fee_totals_by_symbol_and_day() {
+    fn fees_without_order_identity_are_not_allocated() {
         let mut trade = Trade::default();
         trade.trading_vehicle.symbol = "AAPL".to_string();
         trade.entry.filled_at = Some(
@@ -1514,15 +1658,13 @@ mod tests {
 
         let entry_day = trade.entry.filled_at.unwrap().date();
         let exit_day = trade.target.filled_at.unwrap().date();
-        let fees = vec![
+        let fees = [
             sample_fee(dec!(1.25), Some("AAPL"), entry_day),
             sample_fee(dec!(0.75), Some("AAPL"), exit_day),
             sample_fee(dec!(9.99), Some("MSFT"), exit_day),
         ];
 
-        let (open, close) = allocated_fee_totals_for_trade(&trade, &fees);
-        assert_eq!(open, dec!(1.25));
-        assert_eq!(close, dec!(0.75));
+        assert!(fees.iter().all(|fee| fee_role(&trade, fee).is_none()));
     }
 
     #[test]
@@ -1706,6 +1848,7 @@ mod tests {
             stop: previous.safety_stop.clone(),
         };
         resolved.entry.filled_quantity = 10.into();
+        resolved.entry.average_filled_price = Some(dec!(101));
         resolved.entry.filled_at = Some(
             chrono::NaiveDate::from_ymd_opt(2026, 2, 18)
                 .unwrap()
@@ -1735,7 +1878,9 @@ mod tests {
             .all(|row| row.source == ExecutionSource::TradeUpdates));
         assert!(rows.iter().all(|row| row.broker == "ibkr"));
         assert!(rows.iter().all(|row| row.symbol == "AAPL"));
-        assert!(rows.iter().any(|row| row.qty == dec!(5)));
+        assert!(rows
+            .iter()
+            .any(|row| row.qty == dec!(5) && row.price == dec!(101.5)));
         assert!(rows.iter().any(|row| row.qty == dec!(10)));
     }
 
@@ -1766,40 +1911,62 @@ pub fn close(
     database: &mut dyn DatabaseFactory,
     broker: &mut dyn Broker,
 ) -> Result<(TradeBalance, BrokerLog), Box<dyn std::error::Error>> {
-    // 1. Load latest persisted trade snapshot to prevent stale-state replay.
-    let current_trade = latest_trade_snapshot(trade, database)?;
+    let (current_trade, pending_trade, account, operation_id, broker_name) =
+        with_savepoint(database, "close_intent", |database| {
+            // 1. Load latest persisted trade snapshot to prevent stale-state replay.
+            let current_trade = latest_trade_snapshot(trade, database)?;
 
-    // 2. Verify trade can be closed
-    crate::validators::trade::can_close(&current_trade)?;
-    let operation_id = Uuid::new_v4();
-    let broker_name = broker.kind().as_str().to_string();
-    let attempt_details = serde_json::json!({
-        "target_order_ref": current_trade.target.id.to_string(),
-        "protective_stop_retained": true,
-        "quantity": current_trade.entry.quantity.to_string()
-    });
-    audit::record(
-        database,
-        &current_trade,
-        &broker_name,
-        AuditRecord {
-            operation_id,
-            event_type: "trade.close",
-            outcome: "attempted",
-            prior_status: current_trade.status,
-            resulting_status: current_trade.status,
-            details: &attempt_details,
-        },
-    )?;
+            // 2. Verify trade can be closed
+            crate::validators::trade::can_close(&current_trade)?;
+            if pending_order_change(database, &current_trade, "target")?.is_some() {
+                return Err(
+                    "Previous target modification is unresolved; sync before requesting a close"
+                        .into(),
+                );
+            }
+            let operation_id = Uuid::new_v4();
+            let broker_name = database
+                .account_read()
+                .id(current_trade.account_id)?
+                .broker_kind
+                .as_str()
+                .to_string();
+            let attempt_details = serde_json::json!({
+                "target_order_ref": current_trade.target.id.to_string(),
+                "protective_stop_retention": "adapter_must_preserve",
+                "quantity": current_trade.entry.quantity.to_string()
+            });
+            audit::record(
+                database,
+                &current_trade,
+                &broker_name,
+                AuditRecord {
+                    operation_id,
+                    event_type: "trade.close",
+                    outcome: "attempted",
+                    prior_status: current_trade.status,
+                    resulting_status: current_trade.status,
+                    details: &attempt_details,
+                },
+            )?;
 
-    // 3. Persist the market-exit intent before crossing the external boundary. Even when the
-    // acknowledgement is lost, stale callers must be unable to issue another close.
-    let mut pending_target = current_trade.target.clone();
-    pending_target.category = OrderCategory::Market;
-    database.order_write().update(&pending_target)?;
+            // 3. Persist the market-exit intent before crossing the external boundary. Even when the
+            // acknowledgement is lost, stale callers must be unable to issue another close.
+            let mut pending_target = current_trade.target.clone();
+            pending_target.category = OrderCategory::Market;
+            database.order_write().update(&pending_target)?;
 
-    // 4. Submit the market-exit request. Errors are outcome-ambiguous, so retain the durable intent.
-    let account = database.account_read().id(current_trade.account_id)?;
+            // 4. Submit the market-exit request. Errors are outcome-ambiguous, so retain the durable intent.
+            let account = database.account_read().id(current_trade.account_id)?;
+            let pending_trade = database.trade_read().read_trade(current_trade.id)?;
+            Ok((
+                current_trade,
+                pending_trade,
+                account,
+                operation_id,
+                broker_name,
+            ))
+        })?;
     let (mut target_order, log) = match broker.close_trade(&current_trade, &account) {
         Ok(acknowledgement) => acknowledgement,
         Err(error)
@@ -1807,7 +1974,11 @@ pub fn close(
                 .downcast_ref::<BrokerError>()
                 .is_some_and(BrokerError::is_retry_safe_mutation) =>
         {
-            database.order_write().update(&current_trade.target)?;
+            with_savepoint(database, "close_retry_safe", |database| {
+                ensure_snapshot_unchanged(database, &pending_trade)?;
+                database.order_write().update(&current_trade.target)?;
+                Ok(())
+            })?;
             let details = serde_json::json!({"intent_retained":false,"safe_to_retry":true});
             audit::record(
                 database,
@@ -1862,6 +2033,7 @@ pub fn close(
     // market exit. Keep the trade open and the stop locally active until sync confirms the fill
     // and the broker-cancelled sibling. Persist the acknowledgement atomically.
     with_savepoint(database, "persist_broker_close_request", |database| {
+        ensure_snapshot_unchanged(database, &pending_trade)?;
         database
             .log_write()
             .create_log(log.log.as_str(), &current_trade)?;

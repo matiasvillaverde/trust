@@ -64,35 +64,34 @@ echo "Installing trust ${TAG} for ${TARGET}..."
 
 # ---------- download ----------
 
-TMPDIR=$(mktemp -d)
-trap 'rm -rf "$TMPDIR"' EXIT
+TRUST_INSTALL_TMP=$(mktemp -d)
+trap 'rm -rf "$TRUST_INSTALL_TMP"' EXIT
 
-curl -fSL -o "${TMPDIR}/${ARCHIVE}" "${BASE_URL}/${ARCHIVE}" \
+curl -fSL -o "${TRUST_INSTALL_TMP}/${ARCHIVE}" "${BASE_URL}/${ARCHIVE}" \
   || die "Failed to download ${BASE_URL}/${ARCHIVE}"
 
-# ---------- verify checksum (if available) ----------
+# ---------- verify checksum (required) ----------
 
-if curl -fSL -o "${TMPDIR}/${CHECKSUM_FILE}" "${BASE_URL}/${CHECKSUM_FILE}" 2>/dev/null; then
-  echo "Verifying checksum..."
-  cd "$TMPDIR"
-  if command -v shasum >/dev/null 2>&1; then
-    shasum -a 256 -c "$CHECKSUM_FILE" || die "Checksum verification failed"
-  elif command -v sha256sum >/dev/null 2>&1; then
-    sha256sum -c "$CHECKSUM_FILE" || die "Checksum verification failed"
-  else
-    echo "Warning: no sha256 tool found, skipping checksum verification"
-  fi
-  cd - >/dev/null
+curl -fSL -o "${TRUST_INSTALL_TMP}/${CHECKSUM_FILE}" "${BASE_URL}/${CHECKSUM_FILE}" \
+  || die "Required checksum download failed"
+if command -v shasum >/dev/null 2>&1; then
+  ACTUAL_SHA=$(shasum -a 256 "${TRUST_INSTALL_TMP}/${ARCHIVE}" | cut -d ' ' -f1)
+elif command -v sha256sum >/dev/null 2>&1; then
+  ACTUAL_SHA=$(sha256sum "${TRUST_INSTALL_TMP}/${ARCHIVE}" | cut -d ' ' -f1)
 else
-  echo "Warning: checksum file not available, skipping verification"
+  die "A SHA-256 verification tool is required"
 fi
+EXPECTED_SHA=$(awk 'NR == 1 { print $1 }' "${TRUST_INSTALL_TMP}/${CHECKSUM_FILE}")
+[ "${#EXPECTED_SHA}" -eq 64 ] || die "Invalid checksum manifest"
+case "$EXPECTED_SHA" in *[!0-9a-fA-F]*) die "Invalid checksum manifest" ;; esac
+[ "$ACTUAL_SHA" = "$EXPECTED_SHA" ] || die "Checksum verification failed"
 
 # ---------- extract & install ----------
 
 mkdir -p "$INSTALL_DIR"
-tar xzf "${TMPDIR}/${ARCHIVE}" -C "$TMPDIR"
+tar xzf "${TRUST_INSTALL_TMP}/${ARCHIVE}" -C "$TRUST_INSTALL_TMP"
 # The binary is named 'trust' inside the archive
-cp "${TMPDIR}/trust" "${INSTALL_DIR}/trust"
+cp "${TRUST_INSTALL_TMP}/trust" "${INSTALL_DIR}/trust"
 chmod +x "${INSTALL_DIR}/trust"
 
 echo "Installed trust to ${INSTALL_DIR}/trust"

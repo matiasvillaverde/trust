@@ -24,6 +24,12 @@ impl DistributionCommandBuilder {
             Command::new("configure")
                 .about("Configure distribution rules for an account")
                 .arg(
+                    Arg::new("confirm-protected")
+                        .long("confirm-protected")
+                        .value_name("KEYWORD")
+                        .help("Protected mutation keyword"),
+                )
+                .arg(
                     Arg::new("account-id")
                         .long("account-id")
                         .short('a')
@@ -86,6 +92,12 @@ impl DistributionCommandBuilder {
         self.subcommands.push(
             Command::new("execute")
                 .about("Execute profit distribution for an account")
+                .arg(
+                    Arg::new("confirm-protected")
+                        .long("confirm-protected")
+                        .value_name("KEYWORD")
+                        .help("Protected mutation keyword"),
+                )
                 .arg(
                     Arg::new("account-id")
                         .long("account-id")

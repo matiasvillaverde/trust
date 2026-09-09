@@ -5,6 +5,7 @@ use crate::parsing::{
 };
 use chrono::{DateTime, NaiveDateTime, Utc};
 use model::{BarTimeframe, MarketBar, MarketQuote, MarketTradeTick, TradingVehicleCategory};
+use rust_decimal::{prelude::ToPrimitive, Decimal};
 use std::error::Error;
 
 pub(crate) fn get_bars(
@@ -39,6 +40,14 @@ fn market_bars_from_history_response(
         .and_then(serde_json::Value::as_array)
         .ok_or("IBKR history response did not include data")?;
     let mut out = Vec::with_capacity(bars.len());
+    let volume_factor = if response.get("volumeFactor").is_some() {
+        decimal_field(response, "volumeFactor")?
+    } else {
+        Decimal::ONE
+    };
+    if volume_factor <= Decimal::ZERO {
+        return Err("IBKR history volumeFactor must be positive".into());
+    }
     for bar in bars {
         let Some(time) = parse_epoch_datetime(bar.get("t")) else {
             continue;
@@ -52,10 +61,27 @@ fn market_bars_from_history_response(
             high: decimal_field(bar, "h")?,
             low: decimal_field(bar, "l")?,
             close: decimal_field(bar, "c")?,
-            volume: u64_field_optional(bar, "v").unwrap_or(0),
+            volume: history_volume(bar, volume_factor)?,
         });
     }
     Ok(out)
+}
+
+fn history_volume(bar: &serde_json::Value, factor: Decimal) -> Result<u64, Box<dyn Error>> {
+    if bar.get("v").is_none() {
+        return Ok(0);
+    }
+    // Client Portal history reports fractional volume with a response-level multiplier.
+    // Never truncate it or silently turn a malformed/nonrepresentable value into zero.
+    let volume = decimal_field(bar, "v")?
+        .checked_mul(factor)
+        .ok_or("IBKR history volume overflow")?;
+    if !volume.fract().is_zero() {
+        return Err("IBKR history scaled volume is not a whole number".into());
+    }
+    volume
+        .to_u64()
+        .ok_or_else(|| "IBKR history volume is outside the supported range".into())
 }
 
 pub(crate) fn get_latest_quote(
@@ -118,12 +144,52 @@ pub(crate) fn format_ibkr_datetime(value: NaiveDateTime) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        format_ibkr_datetime, history_bar, history_period, market_bars_from_history_response,
+        format_ibkr_datetime, history_bar, history_period, history_volume,
+        market_bars_from_history_response,
     };
     use chrono::{DateTime, Utc};
     use model::{BarTimeframe, MarketBar};
     use rust_decimal_macros::dec;
     use serde_json::json;
+
+    #[test]
+    fn history_volume_scales_fractional_gateway_values_exactly() {
+        assert_eq!(
+            history_volume(&json!({"v": 1097822.05}), dec!(40)).expect("scaled volume"),
+            43_912_882
+        );
+        assert_eq!(
+            history_volume(&json!({"v": "12.34"}), dec!(100)).expect("string volume"),
+            1234
+        );
+        for invalid in [
+            json!({"v": -1}),
+            json!({"v": "invalid"}),
+            json!({"v": "0.001"}),
+            json!({"v": "18446744073709551616"}),
+        ] {
+            assert!(history_volume(&invalid, dec!(1)).is_err());
+        }
+    }
+
+    #[test]
+    fn history_response_applies_volume_factor_and_rejects_invalid_factors() {
+        let time = DateTime::parse_from_rfc3339("2026-09-01T08:00:00Z")
+            .expect("time")
+            .with_timezone(&Utc);
+        let mut response = json!({"volumeFactor": 40, "data": [{"t": time.timestamp_millis(), "o": 10, "h": 11, "l": 9, "c": 10, "v": 1097822.05}]});
+        let bars = market_bars_from_history_response(&response, time, time).expect("bars");
+        assert_eq!(bars.first().expect("bar").volume, 43_912_882);
+        for invalid in [
+            json!(0),
+            json!(-1),
+            json!("invalid"),
+            serde_json::Value::Null,
+        ] {
+            *response.get_mut("volumeFactor").expect("factor") = invalid;
+            assert!(market_bars_from_history_response(&response, time, time).is_err());
+        }
+    }
 
     #[test]
     fn history_period_scales_with_requested_timeframe() {

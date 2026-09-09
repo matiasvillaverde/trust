@@ -369,6 +369,35 @@ mod tests {
     }
 
     #[test]
+    fn facade_routes_all_configured_brokers_in_either_order() {
+        for kinds in [
+            [BrokerKind::Alpaca, BrokerKind::Ibkr],
+            [BrokerKind::Ibkr, BrokerKind::Alpaca],
+        ] {
+            let facade = crate::TrustFacade::new_with_brokers(
+                Box::new(db_sqlite::SqliteDatabase::new_in_memory()),
+                kinds
+                    .iter()
+                    .map(|kind| Box::new(StubBroker::new(*kind)) as Box<dyn Broker>)
+                    .collect(),
+            );
+            for kind in kinds {
+                let account = Account {
+                    broker_kind: kind,
+                    ..Account::default()
+                };
+                let quote = facade.broker.get_latest_quote("AAPL", &account).unwrap();
+                assert_eq!(quote.symbol, format!("{kind}-AAPL"));
+                let (_, ids) = facade
+                    .broker
+                    .submit_trade(&Trade::default(), &account)
+                    .unwrap();
+                assert_eq!(ids.entry, format!("{kind}-entry"));
+            }
+        }
+    }
+
+    #[test]
     fn registry_routes_submit_trade_by_account_broker_kind() {
         let registry = BrokerRegistry::from_many(vec![
             Box::new(StubBroker::new(BrokerKind::Alpaca)),

@@ -342,11 +342,40 @@ fn protected_keyword_matches(expected: &str, provided: &str) -> bool {
 /// It is a facade that provides a simple interface for interacting with the
 /// core library.
 impl TrustFacade {
+    fn financial_transaction<T>(
+        &mut self,
+        name: &str,
+        operation: impl FnOnce(&mut Self) -> Result<T, Box<dyn std::error::Error>>,
+    ) -> Result<T, Box<dyn std::error::Error>> {
+        self.factory.begin_savepoint(name)?;
+        let result = operation(self).and_then(|value| {
+            self.factory.release_savepoint(name)?;
+            Ok(value)
+        });
+        match result {
+            Ok(value) => Ok(value),
+            Err(error) => {
+                self.distribution_rules_cache.clear();
+                self.level_snapshot_cache.clear();
+                let rollback = self.factory.rollback_to_savepoint(name);
+                let release = self.factory.release_savepoint(name);
+                if rollback.is_err() || release.is_err() {
+                    return Err(format!("Financial operation failed: {error}; rollback={rollback:?}; release={release:?}").into());
+                }
+                Err(error)
+            }
+        }
+    }
+
     /// Creates a new instance of Trust.
     pub fn new(factory: Box<dyn DatabaseFactory>, broker: Box<dyn Broker>) -> Self {
+        Self::with_broker_registry(factory, BrokerRegistry::from_single(broker))
+    }
+
+    fn with_broker_registry(factory: Box<dyn DatabaseFactory>, registry: BrokerRegistry) -> Self {
         TrustFacade {
             factory,
-            broker: Box::new(BrokerRegistry::from_single(broker)),
+            broker: Box::new(registry),
             protected_mode: false,
             protected_authorized: false,
             distribution_rules_cache: HashMap::new(),
@@ -360,7 +389,7 @@ impl TrustFacade {
         factory: Box<dyn DatabaseFactory>,
         brokers: Vec<Box<dyn Broker>>,
     ) -> Self {
-        Self::new(factory, Box::new(BrokerRegistry::from_many(brokers)))
+        Self::with_broker_registry(factory, BrokerRegistry::from_many(brokers))
     }
 
     /// Enables protected-mutation enforcement for this facade instance.
@@ -1446,44 +1475,24 @@ impl TrustFacade {
 
         let is_closed = status == Status::ClosedTarget || status == Status::ClosedStopLoss;
         if is_closed {
-            let processing_complete = self
-                .factory
-                .log_read()
-                .read_all_logs_for_trade(persisted_trade.id)?
-                .iter()
-                .any(|entry| entry.log == CLOSE_PROCESSING_COMPLETE_LOG);
-            if !processing_complete {
-                // The durable marker is written only after all financial close processing succeeds.
-                // A later sync retries this block when a prior attempt failed after close persistence.
-                let close_reason = synced_close_reason(status, persisted_trade.target.category);
-                self.factory.begin_savepoint(CLOSE_PROCESSING_SAVEPOINT)?;
-                let processing_result = self
-                    .handle_trade_closed_event_from_trade(&persisted_trade, close_reason)
-                    .and_then(|()| {
-                        self.factory
-                            .log_write()
-                            .create_log(CLOSE_PROCESSING_COMPLETE_LOG, &persisted_trade)
-                            .map(|_| ())
-                    });
-                if let Err(processing_error) = processing_result {
-                    let rollback_error = self
+            self.financial_transaction(CLOSE_PROCESSING_SAVEPOINT, |facade| {
+                // Claim post-close work under the same writer reservation as its marker.
+                let processing_complete = facade
+                    .factory
+                    .log_read()
+                    .read_all_logs_for_trade(persisted_trade.id)?
+                    .iter()
+                    .any(|entry| entry.log == CLOSE_PROCESSING_COMPLETE_LOG);
+                if !processing_complete {
+                    let close_reason = synced_close_reason(status, persisted_trade.target.category);
+                    facade.handle_trade_closed_event_from_trade(&persisted_trade, close_reason)?;
+                    facade
                         .factory
-                        .rollback_to_savepoint(CLOSE_PROCESSING_SAVEPOINT)
-                        .err();
-                    let release_error = self
-                        .factory
-                        .release_savepoint(CLOSE_PROCESSING_SAVEPOINT)
-                        .err();
-                    return Err(format!(
-                        "close processing failed for trade {}: {processing_error}; rollback error: {}; release error: {}",
-                        persisted_trade.id,
-                        rollback_error.map_or_else(|| "none".to_string(), |error| error.to_string()),
-                        release_error.map_or_else(|| "none".to_string(), |error| error.to_string())
-                    )
-                    .into());
+                        .log_write()
+                        .create_log(CLOSE_PROCESSING_COMPLETE_LOG, &persisted_trade)?;
                 }
-                self.factory.release_savepoint(CLOSE_PROCESSING_SAVEPOINT)?;
-            }
+                Ok(())
+            })?;
         }
 
         if transitioned_to_closed {
@@ -1589,9 +1598,11 @@ impl TrustFacade {
         fee: Decimal,
     ) -> Result<(Transaction, Transaction, TradeBalance, AccountBalance), Box<dyn std::error::Error>>
     {
-        let result = commands::trade::stop_acquired(trade, fee, &mut *self.factory)?;
-        self.handle_trade_closed_event(trade.id, CloseReason::StopLoss)?;
-        Ok(result)
+        self.financial_transaction("stop_trade_complete", |facade| {
+            let result = commands::trade::stop_acquired(trade, fee, &mut *facade.factory)?;
+            facade.handle_trade_closed_event(trade.id, CloseReason::StopLoss)?;
+            Ok(result)
+        })
     }
 
     /// Close an open trade at market price.
@@ -1672,9 +1683,11 @@ impl TrustFacade {
         fee: Decimal,
     ) -> Result<(Transaction, Transaction, TradeBalance, AccountBalance), Box<dyn std::error::Error>>
     {
-        let result = commands::trade::target_acquired(trade, fee, &mut *self.factory)?;
-        self.handle_trade_closed_event(trade.id, CloseReason::Target)?;
-        Ok(result)
+        self.financial_transaction("target_acquired_complete", |facade| {
+            let result = commands::trade::target_acquired(trade, fee, &mut *facade.factory)?;
+            facade.handle_trade_closed_event(trade.id, CloseReason::Target)?;
+            Ok(result)
+        })
     }
 
     fn handle_trade_closed_event(
@@ -2297,6 +2310,7 @@ impl TrustFacade {
         currency: Currency,
         reason: &str,
     ) -> Result<(Uuid, Uuid), Box<dyn std::error::Error>> {
+        self.consume_protected_authorization("transfer_between_accounts")?;
         // Get accounts
         let from_account = self.factory.account_read().id(from_account_id)?;
         let to_account = self.factory.account_read().id(to_account_id)?;

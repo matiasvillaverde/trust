@@ -10,6 +10,9 @@ impl TradeCapitalInMarket {
         trade_id: Uuid,
         database: &mut dyn ReadTransactionDB,
     ) -> Result<Decimal, Box<dyn std::error::Error>> {
+        if let Some(exposure) = database.trade_market_exposure(trade_id)? {
+            return Ok(exposure);
+        }
         let mut total = dec!(0);
 
         for tx in database.all_trade_transactions(trade_id)? {
@@ -19,7 +22,7 @@ impl TradeCapitalInMarket {
                 }
                 TransactionCategory::OpenTrade(_) => {
                     // This is money that we have used to enter the market.
-                    total = total.checked_add(tx.amount)
+                    total = total.checked_add(tx.amount.abs())
                         .ok_or_else(|| format!("Arithmetic overflow in addition: {} + {}", total, tx.amount))?
                 }
                 TransactionCategory::CloseTarget(_)
@@ -49,6 +52,22 @@ mod tests {
     use super::*;
     use crate::mocks::read_transaction_db_mocks::MockDatabase;
     use rust_decimal_macros::dec;
+
+    #[test]
+    fn signed_short_cover_clears_fallback_exposure() {
+        let trade_id = Uuid::new_v4();
+        let mut database = MockDatabase::new();
+        database.set_transaction(TransactionCategory::OpenTrade(trade_id), dec!(-1000));
+        assert_eq!(
+            TradeCapitalInMarket::calculate(trade_id, &mut database).unwrap(),
+            dec!(1000)
+        );
+        database.set_transaction(TransactionCategory::CloseTarget(trade_id), dec!(-800));
+        assert_eq!(
+            TradeCapitalInMarket::calculate(trade_id, &mut database).unwrap(),
+            dec!(0)
+        );
+    }
 
     #[test]
     fn test_calculate_with_empty_transactions() {
@@ -145,13 +164,15 @@ mod tests {
     }
 
     #[test]
-    fn test_calculate_is_negative() {
+    fn short_sale_credit_has_positive_exposure() {
         let mut database = MockDatabase::new();
 
         database.set_transaction(TransactionCategory::OpenTrade(Uuid::new_v4()), dec!(-100));
 
-        TradeCapitalInMarket::calculate(Uuid::new_v4(), &mut database)
-            .expect_err("TradeCapitalInMarket: capital funded is negative: -100");
+        assert_eq!(
+            TradeCapitalInMarket::calculate(Uuid::new_v4(), &mut database).unwrap(),
+            dec!(100)
+        );
     }
 
     #[test]

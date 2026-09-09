@@ -52,6 +52,26 @@ fn execute_sql_or_exit(connection: &mut SqliteConnection, sql: &str, context: &s
     }
 }
 
+// Only this known additive upgrade is automatic. Older schema upgrades remain
+// explicit; preflight rejects them before any broker-facing facade is constructed.
+fn upgrade_existing_schema(
+    connection: &mut SqliteConnection,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
+    const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
+    const FEE_LEDGER_VERSION: &str = "20260909000001";
+    connection.immediate_transaction(|connection| {
+        let pending = connection.pending_migrations(MIGRATIONS)?;
+        if pending.iter().any(|migration| migration.name().version().to_string() != FEE_LEDGER_VERSION) {
+            return Err("Database schema requires the repository migration workflow before startup; back up the database and run make migration for this database".into());
+        }
+        for migration in pending {
+            connection.run_migration(migration.as_ref())?;
+        }
+        Ok(())
+    })
+}
+
 impl std::fmt::Debug for SqliteDatabase {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SqliteDatabase")
@@ -94,7 +114,17 @@ impl DatabaseFactory for SqliteDatabase {
     }
 
     fn begin_savepoint(&mut self, name: &str) -> Result<(), Box<dyn Error>> {
-        self.execute_savepoint_statement("SAVEPOINT", name)
+        self.execute_savepoint_statement("SAVEPOINT", name)?;
+        // Acquire the SQLite writer reservation before callers read preconditions.
+        // This also works inside nested savepoints and the test transaction.
+        let reservation = diesel::sql_query("UPDATE accounts SET id = id WHERE 0")
+            .execute(&mut *lock_connection_or_exit(&self.connection));
+        if let Err(error) = reservation {
+            self.execute_savepoint_statement("ROLLBACK TO SAVEPOINT", name)?;
+            self.execute_savepoint_statement("RELEASE SAVEPOINT", name)?;
+            return Err(error.into());
+        }
+        Ok(())
     }
 
     fn release_savepoint(&mut self, name: &str) -> Result<(), Box<dyn Error>> {
@@ -237,7 +267,7 @@ impl SqliteDatabase {
         savepoint: &str,
     ) -> Result<(), Box<dyn Error>> {
         Self::validate_savepoint_name(savepoint)?;
-        let sql = format!("{statement} {savepoint}");
+        let sql = format!("{statement} \"{savepoint}\"");
         let mut connection = lock_connection_or_exit(&self.connection);
         sql_query(sql).execute(&mut *connection)?;
         Ok(())
@@ -330,7 +360,6 @@ impl SqliteDatabase {
 
     /// Establish a connection to the SQLite database.
     fn establish_connection(database_url: &str) -> SqliteConnection {
-        let db_exists = std::path::Path::new(database_url).exists();
         // Use the database URL to establish a connection to the SQLite database
         let mut connection = match SqliteConnection::establish(database_url) {
             Ok(connection) => connection,
@@ -339,7 +368,18 @@ impl SqliteDatabase {
             }
         };
 
-        // Run migrations only if it is a new DB
+        // Inspect the connected schema rather than the URL's filesystem spelling:
+        // SQLite file: URLs and empty pre-created files must follow the same policy.
+        let db_exists = match diesel::select(diesel::dsl::sql::<diesel::sql_types::Bool>(
+            "EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%')",
+        ))
+        .get_result::<bool>(&mut connection)
+        {
+            Ok(exists) => exists,
+            Err(error) => fatal_database_error("Failed to inspect database schema", error),
+        };
+
+        // New databases receive the complete embedded schema.
         if !db_exists {
             use diesel_migrations::*;
             pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
@@ -348,6 +388,16 @@ impl SqliteDatabase {
             }
         }
 
+        if db_exists {
+            execute_sql_or_exit(
+                &mut connection,
+                "PRAGMA busy_timeout = 5000",
+                "Failed to configure migration lock timeout",
+            );
+            if let Err(error) = upgrade_existing_schema(&mut connection) {
+                fatal_database_error("Database upgrade preflight failed", error);
+            }
+        }
         Self::configure_connection(&mut connection);
         connection
     }
@@ -459,16 +509,16 @@ impl WriteTransactionDB for SqliteDatabase {
         withdrawal_category: TransactionCategory,
         deposit_category: TransactionCategory,
     ) -> Result<(Transaction, Transaction), Box<dyn Error>> {
-        let withdrawal_amount = Decimal::ZERO
-            .checked_sub(amount)
-            .ok_or("Invalid withdrawal amount")?;
+        if amount <= Decimal::ZERO {
+            return Err("Transfer amount must be positive".into());
+        }
         let connection = &mut lock_connection_or_exit(&self.connection);
 
         connection.transaction::<(Transaction, Transaction), Box<dyn Error>, _>(|conn| {
             let withdrawal_tx = WorkerTransaction::create_transaction(
                 conn,
                 from_account.id,
-                withdrawal_amount,
+                amount,
                 currency,
                 withdrawal_category,
             )?;
@@ -666,7 +716,95 @@ impl WriteLevelDB for SqliteDatabase {
     }
 }
 
+fn market_exposure(trade: &Trade) -> Result<Option<Decimal>, Box<dyn Error>> {
+    if trade.entry.filled_quantity == Decimal::ZERO {
+        return Ok(None);
+    }
+    let exited = trade
+        .target
+        .filled_quantity
+        .checked_add(trade.safety_stop.filled_quantity)
+        .ok_or("Exit quantity overflow")?;
+    let remaining = trade
+        .entry
+        .filled_quantity
+        .checked_sub(exited)
+        .ok_or("Position quantity overflow")?;
+    if remaining < Decimal::ZERO {
+        return Err("Exit quantity exceeds entry fills".into());
+    }
+    let price = trade
+        .entry
+        .average_filled_price
+        .ok_or("Entry fills lack average price")?;
+    if price <= Decimal::ZERO {
+        return Err("Invalid entry fill price".into());
+    }
+    remaining
+        .checked_mul(price)
+        .map(Some)
+        .ok_or_else(|| "Market exposure overflow".into())
+}
+
 impl ReadTransactionDB for SqliteDatabase {
+    fn trade_market_exposure(&mut self, trade_id: Uuid) -> Result<Option<Decimal>, Box<dyn Error>> {
+        let trade = self.trade_read().read_trade(trade_id)?;
+        market_exposure(&trade)
+    }
+
+    fn account_market_exposure(
+        &mut self,
+        account_id: Uuid,
+        currency: &Currency,
+    ) -> Result<Option<Decimal>, Box<dyn Error>> {
+        let mut total = Decimal::ZERO;
+        for status in [
+            Status::Funded,
+            Status::Submitted,
+            Status::PartiallyFilled,
+            Status::Filled,
+            Status::Canceled,
+            Status::Expired,
+            Status::Rejected,
+        ] {
+            for trade in self
+                .trade_read()
+                .read_trades_with_status(account_id, status)?
+            {
+                if trade.currency != *currency {
+                    continue;
+                }
+                let transactions = self.transaction_read().all_trade_transactions(trade.id)?;
+                let amount = if status == Status::Funded {
+                    transactions
+                        .iter()
+                        .filter(|tx| matches!(tx.category, TransactionCategory::FundTrade(_)))
+                        .try_fold(Decimal::ZERO, |total, tx| {
+                            total.checked_add(tx.amount).ok_or("Funding overflow")
+                        })?
+                } else if let Some(exposure) = market_exposure(&trade)? {
+                    exposure
+                } else {
+                    transactions
+                        .iter()
+                        .try_fold(Decimal::ZERO, |total, tx| match tx.category {
+                            TransactionCategory::OpenTrade(_) => total
+                                .checked_add(tx.amount.abs())
+                                .ok_or("Exposure overflow"),
+                            TransactionCategory::CloseTarget(_)
+                            | TransactionCategory::CloseSafetyStop(_)
+                            | TransactionCategory::CloseSafetyStopSlippage(_) => Ok(Decimal::ZERO),
+                            _ => Ok(total),
+                        })?
+                };
+                total = total
+                    .checked_add(amount)
+                    .ok_or("Account exposure overflow")?;
+            }
+        }
+        Ok(Some(total))
+    }
+
     fn all_account_transactions_excluding_taxes(
         &mut self,
         account_id: Uuid,
@@ -979,6 +1117,18 @@ impl ReadExecutionDB for SqliteDatabase {
 }
 
 impl WriteExecutionDB for SqliteDatabase {
+    fn record_fee_activity(
+        &mut self,
+        fee: &model::FeeActivity,
+        trade_id: Option<Uuid>,
+    ) -> Result<bool, Box<dyn Error>> {
+        crate::workers::WorkerFee::record(
+            &mut lock_connection_or_exit(&self.connection),
+            fee,
+            trade_id,
+        )
+    }
+
     fn upsert_execution(&mut self, execution: &Execution) -> Result<Execution, Box<dyn Error>> {
         WorkerExecution::upsert(&mut lock_connection_or_exit(&self.connection), execution)
     }
@@ -998,6 +1148,52 @@ mod tests {
 
     fn unique_temp_path(label: &str, extension: &str) -> PathBuf {
         std::env::temp_dir().join(format!("trust-{label}-{}.{}", Uuid::new_v4(), extension))
+    }
+
+    #[test]
+    fn existing_database_automatically_adds_only_the_fee_ledger() {
+        use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
+        const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
+        let path = unique_temp_path("fee-upgrade", "db");
+        let url = path.to_str().unwrap();
+        let database = SqliteDatabase::new(url);
+        let account = create_account(&database, "preserved-on-upgrade");
+        {
+            let mut connection = database.connection.lock().unwrap();
+            assert_eq!(
+                connection
+                    .revert_last_migration(MIGRATIONS)
+                    .unwrap()
+                    .to_string(),
+                "20260909000001"
+            );
+        }
+        drop(database);
+        let upgraded = SqliteDatabase::new(&format!("file:{url}"));
+        assert_eq!(upgraded.account_read().id(account.id).unwrap(), account);
+        let backup_path = unique_temp_path("upgraded-backup", "json");
+        upgraded.export_backup_to_path(&backup_path).unwrap();
+        drop(upgraded);
+        let reopened = SqliteDatabase::new(url);
+        assert_eq!(reopened.account_read().id(account.id).unwrap(), account);
+        drop(reopened);
+        std::fs::remove_file(backup_path).unwrap();
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn older_schema_requires_explicit_migration_without_partial_upgrade() {
+        use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
+        const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
+        let mut connection = SqliteConnection::establish(":memory:").unwrap();
+        connection.run_pending_migrations(MIGRATIONS).unwrap();
+        connection.revert_last_migration(MIGRATIONS).unwrap();
+        connection.revert_last_migration(MIGRATIONS).unwrap();
+        assert!(upgrade_existing_schema(&mut connection)
+            .unwrap_err()
+            .to_string()
+            .contains("repository migration workflow"));
+        assert_eq!(connection.pending_migrations(MIGRATIONS).unwrap().len(), 2);
     }
 
     fn create_account(database: &SqliteDatabase, name: &str) -> Account {

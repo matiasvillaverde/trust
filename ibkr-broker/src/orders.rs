@@ -7,6 +7,21 @@ use serde_json::{json, Value};
 use std::collections::HashSet;
 use std::error::Error;
 
+fn decimal_json_number(value: Decimal) -> Result<serde_json::Number, Box<dyn Error>> {
+    Ok(value.to_string().parse()?)
+}
+
+#[test]
+fn decimal_order_numbers_preserve_exact_precision() {
+    let raw = "1234567890.123456789012345678";
+    let value: Decimal = raw.parse().unwrap();
+    let number = decimal_json_number(value).unwrap();
+    assert_eq!(number.to_string(), raw);
+    assert!(serde_json::json!({ "quantity": number })
+        .get("quantity")
+        .is_some_and(Value::is_number));
+}
+
 pub(crate) fn build_bracket_orders(
     trade: &Trade,
     account_id: &str,
@@ -26,22 +41,22 @@ pub(crate) fn build_bracket_orders(
     Ok(vec![
         json!({
             "acctId": account_id,
-            "conid": conid,
+            "conid": conid.parse::<u64>()?,
             "secType": sec_type,
             "cOID": entry_ref,
             "referrer": "trust-entry",
             "orderType": "LMT",
             "listingExchange": listing_exchange,
             "outsideRTH": trade.entry.extended_hours,
-            "price": trade.entry.unit_price.to_string(),
+            "price": decimal_json_number(trade.entry.unit_price)?,
             "side": entry_side(trade.category),
             "ticker": symbol,
             "tif": tif,
-            "quantity": trade.entry.quantity.to_string(),
+            "quantity": decimal_json_number(trade.entry.quantity)?,
         }),
         json!({
             "acctId": account_id,
-            "conid": conid,
+            "conid": conid.parse::<u64>()?,
             "secType": sec_type,
             "cOID": target_ref,
             "parentId": normalize_order_ref(&trade.entry),
@@ -49,16 +64,16 @@ pub(crate) fn build_bracket_orders(
             "orderType": "LMT",
             "listingExchange": listing_exchange,
             "outsideRTH": trade.target.extended_hours,
-            "price": trade.target.unit_price.to_string(),
+            "price": decimal_json_number(trade.target.unit_price)?,
             "side": exit_side,
             "ticker": symbol,
             "tif": tif_string(trade.target.time_in_force),
-            "quantity": trade.target.quantity.to_string(),
+            "quantity": decimal_json_number(trade.target.quantity)?,
             "isClose": true,
         }),
         json!({
             "acctId": account_id,
-            "conid": conid,
+            "conid": conid.parse::<u64>()?,
             "secType": sec_type,
             "cOID": stop_ref,
             "parentId": normalize_order_ref(&trade.entry),
@@ -66,11 +81,11 @@ pub(crate) fn build_bracket_orders(
             "orderType": "STP",
             "listingExchange": listing_exchange,
             "outsideRTH": trade.safety_stop.extended_hours,
-            "price": trade.safety_stop.unit_price.to_string(),
+            "price": decimal_json_number(trade.safety_stop.unit_price)?,
             "side": exit_side,
             "ticker": symbol,
             "tif": tif_string(trade.safety_stop.time_in_force),
-            "quantity": trade.safety_stop.quantity.to_string(),
+            "quantity": decimal_json_number(trade.safety_stop.quantity)?,
             "isClose": true,
         }),
     ])
@@ -117,7 +132,7 @@ pub(crate) fn build_close_order(
 ) -> Result<Value, Box<dyn Error>> {
     Ok(json!({
         "acctId": account_id,
-        "conid": conid,
+        "conid": conid.parse::<u64>()?,
         "secType": sec_type_for_vehicle(&trade.trading_vehicle)?,
         "parentId": normalize_order_ref(&trade.entry),
         "referrer": "trust-manual-close",
@@ -127,7 +142,7 @@ pub(crate) fn build_close_order(
         "side": exit_side(trade.category),
         "ticker": trade.trading_vehicle.symbol.to_uppercase(),
         "tif": tif_string(trade.target.time_in_force),
-        "quantity": trade.target.quantity.to_string(),
+        "quantity": decimal_json_number(trade.target.quantity)?,
         "isClose": true,
     }))
 }
@@ -147,18 +162,18 @@ pub(crate) fn build_modify_order(
 
     Ok(json!({
         "acctId": account_id,
-        "conid": conid,
+        "conid": conid.parse::<u64>()?,
         "secType": sec_type_for_vehicle(&trade.trading_vehicle)?,
         "parentId": normalize_order_ref(&trade.entry),
         "referrer": referrer,
         "orderType": order_type,
         "listingExchange": listing_exchange(&trade.trading_vehicle),
         "outsideRTH": order.extended_hours,
-        "price": new_price.to_string(),
+        "price": decimal_json_number(new_price)?,
         "side": exit_side(trade.category),
         "ticker": trade.trading_vehicle.symbol.to_uppercase(),
         "tif": tif_string(order.time_in_force),
-        "quantity": order.quantity.to_string(),
+        "quantity": decimal_json_number(order.quantity)?,
         "isClose": true,
     }))
 }
@@ -183,6 +198,22 @@ pub(crate) fn map_live_order(base: &Order, live_order: &Value) -> Result<Order, 
         .or_else(|| string_field_optional(live_order, "order_status"))
         .unwrap_or_else(|| "unknown".to_string());
     order.status = map_ibkr_order_status(&status_text)?;
+
+    let live_price = match order.category {
+        model::OrderCategory::Stop | model::OrderCategory::StopLimit => {
+            decimal_field_optional_any(live_order, &["auxPrice", "stopPrice", "price"])
+        }
+        model::OrderCategory::Limit => {
+            decimal_field_optional_any(live_order, &["price", "limitPrice"])
+        }
+        _ => None,
+    };
+    if let Some(price) = live_price {
+        if price <= Decimal::ZERO {
+            return Err("Invalid live order price".into());
+        }
+        order.unit_price = price;
+    }
 
     if let Some(filled_quantity) =
         decimal_field_optional_any(live_order, &["filledQuantity", "filled_qty"])
@@ -313,6 +344,38 @@ pub(crate) fn tracked_order_refs(trade: &Trade) -> HashSet<String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn market_price_zero_does_not_block_fill_reconciliation() {
+        let base = model::Order {
+            category: model::OrderCategory::Market,
+            ..Default::default()
+        };
+        let mapped = super::map_live_order(
+            &base,
+            &serde_json::json!({"status":"Filled", "price":0, "filledQuantity":1, "avgPrice":100}),
+        )
+        .unwrap();
+        assert_eq!(mapped.filled_quantity, rust_decimal::Decimal::ONE);
+        assert_eq!(
+            mapped.average_filled_price,
+            Some(rust_decimal::Decimal::from(100))
+        );
+    }
+
+    #[test]
+    fn stop_trigger_uses_aux_price_when_regular_price_is_zero() {
+        let base = model::Order {
+            category: model::OrderCategory::Stop,
+            ..Default::default()
+        };
+        let mapped = super::map_live_order(
+            &base,
+            &serde_json::json!({"status":"Submitted", "price":0, "auxPrice":95}),
+        )
+        .unwrap();
+        assert_eq!(mapped.unit_price, rust_decimal::Decimal::from(95));
+    }
+
     use super::{find_live_order_by_ref, normalize_order_ref};
     use model::Order;
     use serde_json::json;

@@ -10,13 +10,14 @@ use diesel::prelude::*;
 use diesel::sql_query;
 use diesel::sql_types::{BigInt, Integer, Text};
 use serde::{Deserialize, Serialize};
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::Path;
 use uuid::Uuid;
 
 const BACKUP_FORMAT: &str = "trust-backup";
-const BACKUP_VERSION_V1: u32 = 1;
+// Version 2 requires every financial and risk-policy table; incomplete v1 exports are rejected.
+const BACKUP_VERSION: u32 = 2;
 const MAX_BACKUP_BYTES: usize = 16 * 1024 * 1024;
 
 /// Errors returned by backup/export/import operations.
@@ -68,7 +69,20 @@ pub struct ImportReport {
     pub cleared_rows: u64,
 }
 
-/// JSON backup envelope.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Queryable, Insertable)]
+#[diesel(table_name = schema::fee_activities)]
+pub struct FeeActivityRow {
+    pub id: String,
+    pub broker: String,
+    pub account_id: String,
+    pub broker_activity_id: String,
+    pub broker_order_id: Option<String>,
+    pub amount: String,
+    pub occurred_at: chrono::NaiveDateTime,
+    pub trade_id: Option<String>,
+}
+
+/// Complete version 2 JSON backup envelope. The Rust type name is retained for source compatibility.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BackupEnvelopeV1 {
     pub format: String,
@@ -85,6 +99,12 @@ pub struct BackupSchema {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BackupTablesV1 {
+    pub fee_activities: Vec<FeeActivityRow>,
+    pub advisory_thresholds: Vec<AdvisoryThresholdRow>,
+    pub level_adjustment_rules: Vec<LevelAdjustmentRuleRow>,
+    pub distribution_history: Vec<DistributionHistoryRow>,
+    pub distribution_rules: Vec<DistributionRuleRow>,
+    pub executions: Vec<ExecutionRow>,
     pub accounts: Vec<AccountRow>,
     pub accounts_balances: Vec<AccountBalanceRow>,
     pub rules: Vec<RuleRow>,
@@ -96,13 +116,98 @@ pub struct BackupTablesV1 {
     pub logs: Vec<LogRow>,
     pub levels: Vec<LevelRow>,
     pub level_changes: Vec<LevelChangeRow>,
-    #[serde(default)]
     pub session_plans: Vec<SessionPlanRow>,
-    #[serde(default)]
     pub mistakes: Vec<MistakeRow>,
-    #[serde(default)]
     pub trade_events: Vec<TradeEventRow>,
     pub trade_grades: Vec<TradeGradeRow>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Queryable, Insertable)]
+#[diesel(table_name = schema::executions)]
+pub struct ExecutionRow {
+    pub id: String,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
+    pub deleted_at: Option<NaiveDateTime>,
+    pub broker: String,
+    pub source: String,
+    pub account_id: String,
+    pub trade_id: Option<String>,
+    pub order_id: Option<String>,
+    pub broker_execution_id: String,
+    pub broker_order_id: Option<String>,
+    pub symbol: String,
+    pub side: String,
+    pub qty: String,
+    pub price: String,
+    pub executed_at: NaiveDateTime,
+    pub raw_json: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Queryable, Insertable)]
+#[diesel(table_name = schema::distribution_rules)]
+pub struct DistributionRuleRow {
+    pub id: String,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
+    pub account_id: String,
+    pub earnings_percent: String,
+    pub tax_percent: String,
+    pub reinvestment_percent: String,
+    pub minimum_threshold: String,
+    pub configuration_password_hash: String,
+    pub insurance_percent: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Queryable, Insertable)]
+#[diesel(table_name = schema::distribution_history)]
+pub struct DistributionHistoryRow {
+    pub id: String,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
+    pub source_account_id: String,
+    pub trade_id: Option<String>,
+    pub original_amount: String,
+    pub distribution_date: NaiveDateTime,
+    pub earnings_amount: Option<String>,
+    pub tax_amount: Option<String>,
+    pub reinvestment_amount: Option<String>,
+    pub insurance_amount: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Queryable, Insertable)]
+#[diesel(table_name = schema::level_adjustment_rules)]
+pub struct LevelAdjustmentRuleRow {
+    pub id: String,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
+    pub deleted_at: Option<NaiveDateTime>,
+    pub account_id: String,
+    pub monthly_loss_downgrade_pct: String,
+    pub single_loss_downgrade_pct: String,
+    pub upgrade_profitable_trades: i32,
+    pub upgrade_win_rate_pct: String,
+    pub upgrade_consecutive_wins: i32,
+    pub cooldown_profitable_trades: i32,
+    pub cooldown_win_rate_pct: String,
+    pub cooldown_consecutive_wins: i32,
+    pub recovery_profitable_trades: i32,
+    pub recovery_win_rate_pct: String,
+    pub recovery_consecutive_wins: i32,
+    pub min_trades_at_level_for_upgrade: i32,
+    pub max_changes_in_30_days: i32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Queryable, Insertable)]
+#[diesel(table_name = schema::advisory_thresholds)]
+pub struct AdvisoryThresholdRow {
+    pub id: String,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
+    pub account_id: String,
+    pub sector_limit_pct: String,
+    pub asset_class_limit_pct: String,
+    pub single_position_limit_pct: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Queryable, Insertable)]
@@ -428,6 +533,12 @@ fn read_applied_migrations(conn: &mut SqliteConnection) -> Result<Vec<String>, B
 }
 
 const ALLOWED_TABLES: &[&str] = &[
+    "fee_activities",
+    "advisory_thresholds",
+    "level_adjustment_rules",
+    "distribution_history",
+    "distribution_rules",
+    "executions",
     "accounts",
     "accounts_balances",
     "logs",
@@ -467,6 +578,12 @@ fn read_table_count(conn: &mut SqliteConnection, table: &str) -> Result<i64, Bac
 fn clear_all_tables(conn: &mut SqliteConnection) -> Result<u64, BackupError> {
     // Delete children before parents to satisfy FK constraints with FK checks enabled.
     let tables = [
+        "fee_activities",
+        "advisory_thresholds",
+        "level_adjustment_rules",
+        "distribution_history",
+        "distribution_rules",
+        "executions",
         "mistakes",
         "session_plans",
         "trade_events",
@@ -519,6 +636,24 @@ fn insert_all(conn: &mut SqliteConnection, tables: &BackupTablesV1) -> Result<u6
     insert_and_add!(schema::trade_events::table, &tables.trade_events);
     insert_and_add!(schema::trade_grades::table, &tables.trade_grades);
 
+    insert_and_add!(schema::executions::table, &tables.executions);
+    insert_and_add!(
+        schema::distribution_rules::table,
+        &tables.distribution_rules
+    );
+    insert_and_add!(
+        schema::distribution_history::table,
+        &tables.distribution_history
+    );
+    insert_and_add!(
+        schema::level_adjustment_rules::table,
+        &tables.level_adjustment_rules
+    );
+    insert_and_add!(
+        schema::advisory_thresholds::table,
+        &tables.advisory_thresholds
+    );
+    insert_and_add!(schema::fee_activities::table, &tables.fee_activities);
     Ok(inserted)
 }
 
@@ -538,12 +673,18 @@ fn read_backup_at(
 ) -> Result<BackupEnvelopeV1, BackupError> {
     Ok(BackupEnvelopeV1 {
         format: BACKUP_FORMAT.to_string(),
-        version: BACKUP_VERSION_V1,
+        version: BACKUP_VERSION,
         exported_at,
         schema: BackupSchema {
             diesel_migrations: read_applied_migrations(conn)?,
         },
         tables: BackupTablesV1 {
+            fee_activities: schema::fee_activities::table.load(conn)?,
+            advisory_thresholds: schema::advisory_thresholds::table.load(conn)?,
+            level_adjustment_rules: schema::level_adjustment_rules::table.load(conn)?,
+            distribution_history: schema::distribution_history::table.load(conn)?,
+            distribution_rules: schema::distribution_rules::table.load(conn)?,
+            executions: schema::executions::table.load(conn)?,
             accounts: schema::accounts::table.load(conn)?,
             accounts_balances: schema::accounts_balances::table.load(conn)?,
             rules: schema::rules::table.load(conn)?,
@@ -565,7 +706,7 @@ fn read_backup_at(
 
 /// Read a full backup snapshot from the given connection.
 pub fn read_backup(conn: &mut SqliteConnection) -> Result<BackupEnvelopeV1, BackupError> {
-    read_backup_at(conn, Utc::now())
+    conn.transaction(|tx| read_backup_at(tx, Utc::now()))
 }
 
 /// Export a full backup to a writer as pretty JSON.
@@ -581,8 +722,29 @@ pub fn export_to_writer(
 
 /// Export a full backup to a JSON file.
 pub fn export_to_path(conn: &mut SqliteConnection, path: &Path) -> Result<(), BackupError> {
-    let file = File::create(path)?;
-    export_to_writer(conn, file)
+    let directory = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let temporary = directory.join(format!(".trust-backup-{}.tmp", Uuid::new_v4()));
+    let result = (|| {
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut file = options.open(&temporary)?;
+        export_to_writer(conn, &mut file)?;
+        file.sync_all()?;
+        std::fs::rename(&temporary, path)?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+    }
+    result
 }
 
 /// Load a backup envelope from a reader.
@@ -620,7 +782,7 @@ fn validate_backup_metadata(
             backup.format
         )));
     }
-    if backup.version != BACKUP_VERSION_V1 {
+    if backup.version != BACKUP_VERSION {
         return Err(BackupError::Invalid(format!(
             "unsupported backup version: {}",
             backup.version
@@ -659,6 +821,256 @@ fn validate_backup_rows(backup: &BackupEnvelopeV1) -> Result<(), BackupError> {
     validate_account_uuid_rows(&backup.tables)?;
     validate_trade_uuid_rows(&backup.tables)?;
     validate_review_uuid_rows(&backup.tables)?;
+    validate_financial_fields(&backup.tables)?;
+    validate_policy_rows(&backup.tables)?;
+    Ok(())
+}
+
+const DECIMAL_FIELDS: &[&str] = &[
+    "amount",
+    "qty",
+    "price",
+    "quantity",
+    "unit_price",
+    "filled_quantity",
+    "average_filled_price",
+    "funding",
+    "capital_in_market",
+    "capital_out_market",
+    "taxed",
+    "total_performance",
+    "total_balance",
+    "total_in_trade",
+    "total_available",
+    "taxes_percentage",
+    "earnings_percentage",
+    "trailing_percentage",
+    "trailing_price",
+    "risk_multiplier",
+    "earnings_percent",
+    "tax_percent",
+    "reinvestment_percent",
+    "insurance_percent",
+    "minimum_threshold",
+    "original_amount",
+    "earnings_amount",
+    "tax_amount",
+    "reinvestment_amount",
+    "insurance_amount",
+    "sector_limit_pct",
+    "asset_class_limit_pct",
+    "single_position_limit_pct",
+    "monthly_loss_downgrade_pct",
+    "single_loss_downgrade_pct",
+    "upgrade_win_rate_pct",
+    "cooldown_win_rate_pct",
+    "recovery_win_rate_pct",
+    "fixed_income_face_value",
+    "fixed_income_coupon_rate_pct",
+];
+
+fn validate_decimal_field(table: &str, field: &str, text: &str) -> Result<(), BackupError> {
+    use rust_decimal::Decimal;
+    let value = text
+        .parse::<Decimal>()
+        .map_err(|_| BackupError::Invalid(format!("Invalid decimal in {table}.{field}")))?;
+    let positive = matches!(
+        field,
+        "qty"
+            | "quantity"
+            | "unit_price"
+            | "price"
+            | "average_filled_price"
+            | "risk_multiplier"
+            | "fixed_income_face_value"
+    ) || (table == "fee_activities" && field == "amount");
+    let nonnegative = matches!(
+        field,
+        "filled_quantity"
+            | "funding"
+            | "capital_in_market"
+            | "minimum_threshold"
+            | "original_amount"
+            | "earnings_amount"
+            | "tax_amount"
+            | "reinvestment_amount"
+            | "insurance_amount"
+    );
+    let loss_threshold = table == "level_adjustment_rules"
+        && matches!(
+            field,
+            "monthly_loss_downgrade_pct" | "single_loss_downgrade_pct"
+        );
+    let percentage = !loss_threshold
+        && (field.ends_with("_pct")
+            || field.ends_with("_percent")
+            || field.ends_with("_percentage"));
+    let ceiling = if table == "distribution_rules" {
+        Decimal::ONE
+    } else {
+        Decimal::from(100)
+    };
+    if (positive && value <= Decimal::ZERO)
+        || (nonnegative && value < Decimal::ZERO)
+        || (loss_threshold && value >= Decimal::ZERO)
+        || (percentage && (value < Decimal::ZERO || value > ceiling))
+    {
+        return Err(BackupError::Invalid(format!(
+            "Financial value outside domain bounds in {table}.{field}"
+        )));
+    }
+    Ok(())
+}
+
+// Keep cross-field policy and ledger constraints together for restore review.
+#[allow(clippy::too_many_lines)]
+fn validate_policy_rows(tables: &BackupTablesV1) -> Result<(), BackupError> {
+    use rust_decimal::Decimal;
+    for rule in &tables.distribution_rules {
+        let total = [
+            &rule.earnings_percent,
+            &rule.tax_percent,
+            &rule.reinvestment_percent,
+            &rule.insurance_percent,
+        ]
+        .iter()
+        .try_fold(Decimal::ZERO, |total, value| {
+            value
+                .parse::<Decimal>()
+                .ok()
+                .and_then(|value| total.checked_add(value))
+        });
+        if total != Some(Decimal::ONE) {
+            return Err(BackupError::Invalid(
+                "distribution_rules percentages must sum to 1".into(),
+            ));
+        }
+    }
+    for rule in &tables.level_adjustment_rules {
+        if [
+            rule.upgrade_profitable_trades,
+            rule.upgrade_consecutive_wins,
+            rule.cooldown_profitable_trades,
+            rule.cooldown_consecutive_wins,
+            rule.recovery_profitable_trades,
+            rule.recovery_consecutive_wins,
+            rule.min_trades_at_level_for_upgrade,
+            rule.max_changes_in_30_days,
+        ]
+        .iter()
+        .any(|value| *value <= 0)
+        {
+            return Err(BackupError::Invalid(
+                "level_adjustment_rules counts must be positive".into(),
+            ));
+        }
+    }
+    for row in &tables.orders {
+        if row
+            .filled_quantity
+            .as_deref()
+            .and_then(|value| value.parse::<Decimal>().ok())
+            > row.quantity.parse::<Decimal>().ok()
+        {
+            return Err(BackupError::Invalid(
+                "orders.filled_quantity exceeds quantity".into(),
+            ));
+        }
+    }
+    for row in &tables.transactions {
+        if !matches!(
+            row.category.as_str(),
+            "open_trade"
+                | "close_target"
+                | "close_safety_stop"
+                | "close_safety_stop_slippage"
+                | "payment_from_trade"
+        ) && row
+            .amount
+            .parse::<Decimal>()
+            .is_ok_and(|value| value < Decimal::ZERO)
+        {
+            return Err(BackupError::Invalid(
+                "transactions.amount is negative for an unsigned cash flow".into(),
+            ));
+        }
+    }
+    for row in &tables.fee_activities {
+        if row.broker_activity_id.is_empty() {
+            return Err(BackupError::Invalid(
+                "fee_activities requires an activity identity".into(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_financial_fields(tables: &BackupTablesV1) -> Result<(), BackupError> {
+    let value = serde_json::to_value(tables)?;
+    let table_map = value
+        .as_object()
+        .ok_or_else(|| BackupError::Invalid("Invalid table envelope".into()))?;
+    for (table, rows) in table_map {
+        let rows = rows
+            .as_array()
+            .ok_or_else(|| BackupError::Invalid(format!("Invalid rows in {table}")))?;
+        for row in rows {
+            let fields = row
+                .as_object()
+                .ok_or_else(|| BackupError::Invalid(format!("Invalid row in {table}")))?;
+            for (field, value) in fields {
+                let Some(text) = value.as_str() else {
+                    continue;
+                };
+                if field == "id"
+                    || matches!(
+                        field.as_str(),
+                        "account_id" | "source_account_id" | "trade_id" | "order_id"
+                    )
+                {
+                    validate_uuid_field(table, field, text)?;
+                }
+                if DECIMAL_FIELDS.contains(&field.as_str()) {
+                    validate_decimal_field(table, field, text)?;
+                }
+                let valid = match (table.as_str(), field.as_str()) {
+                    (_, "currency") => text.parse::<model::Currency>().is_ok(),
+                    ("trades", "status") => text.parse::<model::Status>().is_ok(),
+                    ("trades", "category") => text.parse::<model::TradeCategory>().is_ok(),
+                    ("orders", "status") => text.parse::<model::OrderStatus>().is_ok(),
+                    ("orders", "category") => text.parse::<model::OrderCategory>().is_ok(),
+                    ("orders", "action") => text.parse::<model::OrderAction>().is_ok(),
+                    ("orders", "time_in_force") => text.parse::<model::TimeInForce>().is_ok(),
+                    ("accounts", "environment") => text.parse::<model::Environment>().is_ok(),
+                    ("accounts", "account_type") => matches!(
+                        text,
+                        "primary" | "earnings" | "tax_reserve" | "reinvestment" | "insurance"
+                    ),
+                    (_, "broker_kind") | ("executions" | "fee_activities", "broker") => {
+                        text.parse::<model::BrokerKind>().is_ok()
+                    }
+                    ("trading_vehicles", "category") => {
+                        text.parse::<model::TradingVehicleCategory>().is_ok()
+                    }
+                    ("transactions", "category") => {
+                        let trade_id = fields
+                            .get("trade_id")
+                            .and_then(serde_json::Value::as_str)
+                            .and_then(|value| Uuid::parse_str(value).ok());
+                        model::TransactionCategory::parse(text, trade_id).is_ok()
+                    }
+                    ("executions", "side") => text.parse::<model::ExecutionSide>().is_ok(),
+                    ("executions", "source") => text.parse::<model::ExecutionSource>().is_ok(),
+                    _ => true,
+                };
+                if !valid {
+                    return Err(BackupError::Invalid(format!(
+                        "Invalid domain value in {table}.{field}"
+                    )));
+                }
+            }
+        }
+    }
     Ok(())
 }
 
@@ -752,35 +1164,12 @@ pub fn import_backup(
 ) -> Result<ImportReport, BackupError> {
     validate_backup_metadata(conn, backup)?;
 
-    if options.dry_run {
-        return Ok(ImportReport {
-            inserted_rows: 0,
-            cleared_rows: 0,
-        });
-    }
-
-    conn.transaction(|tx| {
+    let result = conn.transaction(|tx| {
         let mut cleared_rows: u64 = 0;
         match options.mode {
             ImportMode::Strict => {
                 // Fail early if any known table contains rows.
-                let tables = [
-                    "accounts",
-                    "accounts_balances",
-                    "rules",
-                    "transactions",
-                    "trading_vehicles",
-                    "orders",
-                    "trades_balances",
-                    "trades",
-                    "logs",
-                    "levels",
-                    "level_changes",
-                    "mistakes",
-                    "trade_events",
-                    "trade_grades",
-                ];
-                for table in tables {
+                for table in ALLOWED_TABLES {
                     let count = read_table_count(tx, table)?;
                     if count != 0 {
                         return Err(BackupError::Invalid(format!(
@@ -796,11 +1185,25 @@ pub fn import_backup(
 
         let inserted_rows = insert_all(tx, &backup.tables)?;
         validate_foreign_keys(tx)?;
+        if options.dry_run {
+            return Err(BackupError::Diesel(
+                diesel::result::Error::RollbackTransaction,
+            ));
+        }
         Ok(ImportReport {
             inserted_rows,
             cleared_rows,
         })
-    })
+    });
+    match result {
+        Err(BackupError::Diesel(diesel::result::Error::RollbackTransaction)) if options.dry_run => {
+            Ok(ImportReport {
+                inserted_rows: 0,
+                cleared_rows: 0,
+            })
+        }
+        other => other,
+    }
 }
 
 #[cfg(test)]
@@ -912,12 +1315,18 @@ mod tests {
 
         BackupEnvelopeV1 {
             format: BACKUP_FORMAT.to_string(),
-            version: BACKUP_VERSION_V1,
+            version: BACKUP_VERSION,
             exported_at: fixed_exported_at(),
             schema: BackupSchema {
                 diesel_migrations: Vec::new(),
             },
             tables: BackupTablesV1 {
+                fee_activities: Vec::new(),
+                advisory_thresholds: Vec::new(),
+                level_adjustment_rules: Vec::new(),
+                distribution_history: Vec::new(),
+                distribution_rules: Vec::new(),
+                executions: Vec::new(),
                 accounts: vec![account],
                 accounts_balances: vec![AccountBalanceRow {
                     id: account_balance_id,
@@ -1132,6 +1541,87 @@ mod tests {
                 }],
             },
         }
+    }
+
+    #[test]
+    fn backup_table_manifest_covers_the_entire_application_schema() {
+        #[derive(QueryableByName)]
+        struct TableName {
+            #[diesel(sql_type = Text)]
+            name: String,
+        }
+        let mut conn = establish();
+        let mut actual: Vec<String> = sql_query("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name != '__diesel_schema_migrations'")
+            .load::<TableName>(&mut conn).unwrap().into_iter().map(|row| row.name).collect();
+        actual.sort();
+        let mut expected: Vec<String> = ALLOWED_TABLES
+            .iter()
+            .map(|name| (*name).to_string())
+            .collect();
+        expected.sort();
+        assert_eq!(actual, expected);
+        let backup = read_backup(&mut conn).unwrap();
+        let json = serde_json::to_value(&backup.tables).unwrap();
+        let mut exported: Vec<String> = json.as_object().unwrap().keys().cloned().collect();
+        exported.sort();
+        assert_eq!(actual, exported);
+    }
+
+    #[test]
+    fn dry_run_checks_foreign_keys_and_strict_emptiness_without_changes() {
+        let mut conn = establish();
+        let mut backup = read_backup(&mut conn).unwrap();
+        backup.tables.fee_activities.push(FeeActivityRow {
+            id: uuid_text(990),
+            broker: "alpaca".into(),
+            account_id: uuid_text(991),
+            broker_activity_id: "fee-1".into(),
+            broker_order_id: None,
+            amount: "1".into(),
+            occurred_at: fixed_dt(),
+            trade_id: None,
+        });
+        assert!(import_backup(
+            &mut conn,
+            &backup,
+            ImportOptions {
+                mode: ImportMode::Strict,
+                dry_run: true
+            }
+        )
+        .is_err());
+        assert_eq!(read_table_count(&mut conn, "fee_activities").unwrap(), 0);
+        backup.tables.fee_activities.clear();
+        insert_account(&mut conn, uuid_text(992), "existing");
+        assert!(import_backup(
+            &mut conn,
+            &backup,
+            ImportOptions {
+                mode: ImportMode::Strict,
+                dry_run: true
+            }
+        )
+        .is_err());
+        assert_eq!(read_table_count(&mut conn, "accounts").unwrap(), 1);
+    }
+
+    #[test]
+    fn invalid_financial_values_are_rejected_before_restore() {
+        let mut conn = establish();
+        let mut backup = read_backup(&mut conn).unwrap();
+        let mut account = account_row(uuid_text(993), "invalid decimal");
+        account.taxes_percentage = "NaN".into();
+        backup.tables.accounts.push(account);
+        assert!(import_backup(
+            &mut conn,
+            &backup,
+            ImportOptions {
+                mode: ImportMode::Replace,
+                dry_run: true
+            }
+        )
+        .is_err());
+        assert_eq!(read_table_count(&mut conn, "accounts").unwrap(), 0);
     }
 
     #[test]
@@ -1380,6 +1870,117 @@ mod tests {
                 "expected error to mention {expected}, got {error}"
             );
         }
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn insert_extended_backup_rows(
+        conn: &mut SqliteConnection,
+        account: &str,
+        trade: &str,
+        order: &str,
+    ) {
+        let dt = fixed_dt();
+        diesel::insert_into(schema::executions::table)
+            .values(ExecutionRow {
+                id: uuid_text(701),
+                created_at: dt,
+                updated_at: dt,
+                deleted_at: Some(dt),
+                broker: "alpaca".into(),
+                source: "account_activities".into(),
+                account_id: account.into(),
+                trade_id: Some(trade.into()),
+                order_id: Some(order.into()),
+                broker_execution_id: "backup-execution".into(),
+                broker_order_id: Some("broker-order".into()),
+                symbol: "AAPL".into(),
+                side: "buy".into(),
+                qty: "2.5".into(),
+                price: "100.125".into(),
+                executed_at: dt,
+                raw_json: Some("{}".into()),
+            })
+            .execute(conn)
+            .unwrap();
+        diesel::insert_into(schema::fee_activities::table)
+            .values(FeeActivityRow {
+                id: uuid_text(702),
+                broker: "alpaca".into(),
+                account_id: account.into(),
+                broker_activity_id: "backup-fee".into(),
+                broker_order_id: Some("broker-order".into()),
+                amount: "0.0123".into(),
+                occurred_at: dt,
+                trade_id: Some(trade.into()),
+            })
+            .execute(conn)
+            .unwrap();
+        diesel::insert_into(schema::distribution_rules::table)
+            .values(DistributionRuleRow {
+                id: uuid_text(703),
+                created_at: dt,
+                updated_at: dt,
+                account_id: account.into(),
+                earnings_percent: "0.2".into(),
+                tax_percent: "0.25".into(),
+                reinvestment_percent: "0.5".into(),
+                minimum_threshold: "10".into(),
+                configuration_password_hash: "fixture-hash".into(),
+                insurance_percent: "0.05".into(),
+            })
+            .execute(conn)
+            .unwrap();
+        diesel::insert_into(schema::distribution_history::table)
+            .values(DistributionHistoryRow {
+                id: uuid_text(704),
+                created_at: dt,
+                updated_at: dt,
+                source_account_id: account.into(),
+                trade_id: Some(trade.into()),
+                original_amount: "100".into(),
+                distribution_date: dt,
+                earnings_amount: Some("20".into()),
+                tax_amount: Some("25".into()),
+                reinvestment_amount: Some("50".into()),
+                insurance_amount: Some("5".into()),
+            })
+            .execute(conn)
+            .unwrap();
+        diesel::insert_into(schema::advisory_thresholds::table)
+            .values(AdvisoryThresholdRow {
+                id: uuid_text(705),
+                created_at: dt,
+                updated_at: dt,
+                account_id: account.into(),
+                sector_limit_pct: "30".into(),
+                asset_class_limit_pct: "60".into(),
+                single_position_limit_pct: "10".into(),
+            })
+            .execute(conn)
+            .unwrap();
+        diesel::insert_into(schema::level_adjustment_rules::table)
+            .values(LevelAdjustmentRuleRow {
+                id: uuid_text(706),
+                created_at: dt,
+                updated_at: dt,
+                deleted_at: None,
+                account_id: account.into(),
+                monthly_loss_downgrade_pct: "-5".into(),
+                single_loss_downgrade_pct: "-2".into(),
+                upgrade_profitable_trades: 10,
+                upgrade_win_rate_pct: "60".into(),
+                upgrade_consecutive_wins: 3,
+                cooldown_profitable_trades: 4,
+                cooldown_win_rate_pct: "50".into(),
+                cooldown_consecutive_wins: 2,
+                recovery_profitable_trades: 5,
+                recovery_win_rate_pct: "55".into(),
+                recovery_consecutive_wins: 3,
+                min_trades_at_level_for_upgrade: 10,
+                max_changes_in_30_days: 2,
+            })
+            .execute(conn)
+            .unwrap();
     }
 
     #[test]
@@ -1700,6 +2301,8 @@ mod tests {
             .execute(&mut conn1)
             .unwrap();
 
+        insert_extended_backup_rows(&mut conn1, &account_id, &trade_id, &order_entry_id);
+
         let fixed_exported_at = DateTime::<Utc>::from_naive_utc_and_offset(dt0, Utc);
         let backup1 = read_backup_at(&mut conn1, fixed_exported_at).unwrap();
 
@@ -1708,7 +2311,7 @@ mod tests {
 
         let backup_from_json = read_backup_from_reader(&json[..]).unwrap();
         assert_eq!(backup_from_json.format, BACKUP_FORMAT);
-        assert_eq!(backup_from_json.version, BACKUP_VERSION_V1);
+        assert_eq!(backup_from_json.version, BACKUP_VERSION);
 
         let mut conn2 = establish();
         let report = import_backup(
@@ -1720,7 +2323,7 @@ mod tests {
             },
         )
         .unwrap();
-        assert!(report.inserted_rows > 0);
+        assert_eq!(report.inserted_rows, 23);
 
         let backup2 = read_backup_at(&mut conn2, fixed_exported_at).unwrap();
         assert_eq!(backup1.schema, backup2.schema);
@@ -1773,10 +2376,11 @@ mod tests {
     fn backup_should_reject_malformed_uuids() {
         let malformed_backup = serde_json::json!({
             "format": "trust-backup",
-            "version": 1,
+            "version": 2,
             "exported_at": "2026-01-01T00:00:00Z",
             "schema": { "diesel_migrations": [] },
             "tables": {
+                "fee_activities": [], "executions": [], "distribution_rules": [], "distribution_history": [], "level_adjustment_rules": [], "advisory_thresholds": [],
                 "accounts": [{
                     "id": "NOT-A-VALID-UUID",
                     "created_at": "2026-01-01T00:00:00",
@@ -1802,7 +2406,8 @@ mod tests {
                 "trades": [],
                 "trades_balances": [],
                 "trading_vehicles": [],
-                "transactions": []
+                "transactions": [],
+                "session_plans": [], "mistakes": [], "trade_events": []
             }
         });
 
@@ -1813,7 +2418,94 @@ mod tests {
     }
 
     #[test]
-    fn legacy_backup_json_applies_serde_defaults() {
+    fn restore_rejects_invalid_domains_and_financial_policy_values() {
+        let mut conn = establish();
+        let mut backup = read_backup_at(&mut conn, fixed_exported_at()).unwrap();
+        backup
+            .tables
+            .accounts
+            .push(account_row(uuid_text(901), "validation"));
+        assert!(validate_backup_rows(&backup).is_ok());
+        backup.tables.accounts.first_mut().unwrap().broker_kind = "unknown".into();
+        assert!(validate_backup_rows(&backup)
+            .unwrap_err()
+            .to_string()
+            .contains("broker_kind"));
+        backup.tables.accounts.first_mut().unwrap().broker_kind = "alpaca".into();
+        backup.tables.accounts.first_mut().unwrap().account_type = "unknown".into();
+        assert!(validate_backup_rows(&backup)
+            .unwrap_err()
+            .to_string()
+            .contains("account_type"));
+        backup.tables.accounts.first_mut().unwrap().account_type = "primary".into();
+        backup.tables.transactions.push(TransactionRow {
+            id: uuid_text(902),
+            created_at: fixed_dt(),
+            updated_at: fixed_dt(),
+            deleted_at: None,
+            currency: "USD".into(),
+            category: "unknown".into(),
+            amount: "1".into(),
+            account_id: uuid_text(901),
+            trade_id: None,
+        });
+        assert!(validate_backup_rows(&backup)
+            .unwrap_err()
+            .to_string()
+            .contains("category"));
+        for (table, field, value) in [
+            ("fee_activities", "amount", "-1"),
+            ("fee_activities", "amount", "0"),
+            ("distribution_rules", "earnings_percent", "1.1"),
+            ("advisory_thresholds", "sector_limit_pct", "101"),
+            ("level_adjustment_rules", "monthly_loss_downgrade_pct", "5"),
+            ("level_adjustment_rules", "upgrade_win_rate_pct", "-1"),
+        ] {
+            assert!(
+                validate_decimal_field(table, field, value).is_err(),
+                "{table}.{field}"
+            );
+        }
+        backup.tables.distribution_rules.push(DistributionRuleRow {
+            id: uuid_text(903),
+            created_at: fixed_dt(),
+            updated_at: fixed_dt(),
+            account_id: uuid_text(901),
+            earnings_percent: "0.2".into(),
+            tax_percent: "0.2".into(),
+            reinvestment_percent: "0.2".into(),
+            insurance_percent: "0.2".into(),
+            minimum_threshold: "10".into(),
+            configuration_password_hash: String::new(),
+        });
+        assert!(validate_policy_rows(&backup.tables)
+            .unwrap_err()
+            .to_string()
+            .contains("sum to 1"));
+    }
+
+    #[test]
+    fn version_two_requires_every_table_even_when_empty() {
+        let mut conn = establish();
+        let backup = read_backup_at(&mut conn, fixed_exported_at()).unwrap();
+        let complete = serde_json::to_value(backup).unwrap();
+        for table in ALLOWED_TABLES {
+            let mut incomplete = complete.clone();
+            incomplete
+                .get_mut("tables")
+                .unwrap()
+                .as_object_mut()
+                .unwrap()
+                .remove(*table);
+            assert!(
+                serde_json::from_value::<BackupEnvelopeV1>(incomplete).is_err(),
+                "missing table {table} must not silently become empty"
+            );
+        }
+    }
+
+    #[test]
+    fn incomplete_legacy_backup_is_rejected() {
         let account_id = uuid_text(101);
         let trading_vehicle_id = uuid_text(102);
         let legacy_backup = serde_json::json!({
@@ -1865,26 +2557,13 @@ mod tests {
             }
         });
 
-        let backup = read_backup_from_reader(std::io::Cursor::new(
+        let result = read_backup_from_reader(std::io::Cursor::new(
             serde_json::to_vec(&legacy_backup).unwrap(),
-        ))
-        .expect("legacy backup should deserialize with defaults");
-
-        let account = backup.tables.accounts.first().expect("account row");
-        assert_eq!(account.account_type, "primary");
-        assert_eq!(account.parent_account_id, None);
-        assert_eq!(account.broker_kind, "alpaca");
-        assert_eq!(account.broker_account_id, None);
-
-        let vehicle = backup
-            .tables
-            .trading_vehicles
-            .first()
-            .expect("trading vehicle row");
-        assert_eq!(vehicle.fixed_income_face_value, None);
-        assert_eq!(vehicle.fixed_income_coupon_rate_pct, None);
-        assert_eq!(vehicle.fixed_income_maturity_date, None);
-        assert_eq!(vehicle.fixed_income_coupon_frequency_per_year, None);
+        ));
+        assert!(
+            result.is_err(),
+            "Incomplete v1 exports must not replace a complete database"
+        );
     }
 
     #[test]
@@ -2011,6 +2690,19 @@ mod tests {
             .to_string()
             .contains("foreign key violations detected"));
         assert_eq!(read_table_count(&mut target, "transactions").unwrap(), 0);
+    }
+
+    #[test]
+    fn failed_export_preserves_the_previous_backup() {
+        let mut conn = establish();
+        let path = temp_backup_path();
+        std::fs::write(&path, b"previous-good-backup").unwrap();
+        sql_query("DROP TABLE fee_activities")
+            .execute(&mut conn)
+            .unwrap();
+        assert!(export_to_path(&mut conn, &path).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), b"previous-good-backup");
+        std::fs::remove_file(path).unwrap();
     }
 
     #[test]

@@ -46,6 +46,8 @@ mod dialogs;
 mod dispatcher;
 mod display_precision;
 mod exporters;
+#[cfg(test)]
+mod feature_inventory_tests;
 mod protected_keyword;
 #[cfg(test)]
 mod test_support;

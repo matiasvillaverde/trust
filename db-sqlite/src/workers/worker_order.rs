@@ -66,6 +66,8 @@ impl WorkerOrder {
         diesel::update(orders::table)
             .filter(orders::id.eq(&order.id.to_string()))
             .set((
+                orders::unit_price.eq(order.unit_price.to_string()),
+                orders::quantity.eq(order.quantity.to_string()),
                 orders::updated_at.eq(now),
                 orders::broker_order_id.eq(order.broker_order_id.clone()),
                 orders::status.eq(order.status.to_string()),

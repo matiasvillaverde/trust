@@ -211,19 +211,19 @@ fn entry_filled_at(trade: &Trade, price: Decimal) -> (Status, Vec<Order>) {
         average_filled_price: Some(price),
         status: OrderStatus::Filled,
         filled_at: Some(Utc::now().naive_utc()),
-        ..Default::default()
+        ..trade.entry.clone()
     };
     let target = Order {
         id: trade.target.id,
         broker_order_id: Some(Uuid::new_v4().to_string()),
         status: OrderStatus::Accepted,
-        ..Default::default()
+        ..trade.target.clone()
     };
     let stop = Order {
         id: trade.safety_stop.id,
         broker_order_id: Some(Uuid::new_v4().to_string()),
         status: OrderStatus::Held,
-        ..Default::default()
+        ..trade.safety_stop.clone()
     };
     (Status::Filled, vec![entry, target, stop])
 }
@@ -240,7 +240,7 @@ fn target_filled_at(
         average_filled_price: Some(entry_price),
         status: OrderStatus::Filled,
         filled_at: Some(Utc::now().naive_utc()),
-        ..Default::default()
+        ..trade.entry.clone()
     };
     let target = Order {
         id: trade.target.id,
@@ -249,13 +249,13 @@ fn target_filled_at(
         average_filled_price: Some(target_price),
         status: OrderStatus::Filled,
         filled_at: Some(Utc::now().naive_utc()),
-        ..Default::default()
+        ..trade.target.clone()
     };
     let stop = Order {
         id: trade.safety_stop.id,
         broker_order_id: Some(Uuid::new_v4().to_string()),
         status: OrderStatus::Canceled,
-        ..Default::default()
+        ..trade.safety_stop.clone()
     };
     (Status::ClosedTarget, vec![entry, target, stop])
 }
@@ -272,13 +272,13 @@ fn stop_filled_at(
         average_filled_price: Some(entry_price),
         status: OrderStatus::Filled,
         filled_at: Some(Utc::now().naive_utc()),
-        ..Default::default()
+        ..trade.entry.clone()
     };
     let target = Order {
         id: trade.target.id,
         broker_order_id: Some(Uuid::new_v4().to_string()),
         status: OrderStatus::Canceled,
-        ..Default::default()
+        ..trade.target.clone()
     };
     let stop = Order {
         id: trade.safety_stop.id,
@@ -287,7 +287,7 @@ fn stop_filled_at(
         average_filled_price: Some(stop_price),
         status: OrderStatus::Filled,
         filled_at: Some(Utc::now().naive_utc()),
-        ..Default::default()
+        ..trade.safety_stop.clone()
     };
     (Status::ClosedStopLoss, vec![entry, target, stop])
 }
@@ -701,8 +701,8 @@ fn test_profitable_trade_lifecycle_queryable_transaction_count() {
 }
 
 #[test]
-fn test_profitable_trade_with_slippage_has_two_payments() {
-    // Entry fill with slippage adds an extra PaymentFromTrade
+fn test_profitable_trade_closed_in_one_sync_has_one_combined_payment() {
+    // A single cumulative snapshot releases the slippage refund and final return together.
     let mut trust = new_facade(SyncBroker::new(|t| {
         target_filled_at(t, dec!(39.9), dec!(52.9))
     }));
@@ -717,8 +717,8 @@ fn test_profitable_trade_with_slippage_has_two_payments() {
         .filter(|t| matches!(t.category, TransactionCategory::PaymentFromTrade(_)))
         .count();
     assert_eq!(
-        payment_count, 2,
-        "two PaymentFromTrade: slippage refund + final return"
+        payment_count, 1,
+        "one combined PaymentFromTrade: slippage refund + final return"
     );
 }
 
@@ -1398,9 +1398,9 @@ fn test_sync_idempotency_no_duplicate_transactions_on_close() {
         .iter()
         .filter(|t| matches!(t.category, TransactionCategory::PaymentFromTrade(_)))
         .count();
-    // 2 PaymentFromTrade: slippage refund + final return (not duplicated)
+    // One combined return from the first closed snapshot, never duplicated.
     assert_eq!(
-        payment_count, 2,
+        payment_count, 1,
         "multiple syncs should not duplicate PaymentFromTrade"
     );
 

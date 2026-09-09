@@ -562,6 +562,14 @@ mod tests {
             )
             .expect("distribution rules should be stored");
 
+        crate::commands::transaction::create(
+            &mut database,
+            &model::TransactionCategory::Deposit,
+            dec!(10000),
+            &Currency::USD,
+            source_account.id,
+        )
+        .unwrap();
         let mut trade = create_persisted_trade(&mut database, &source_account);
         trade.status = Status::ClosedTarget;
         trade.balance.total_performance = dec!(1000);
@@ -592,7 +600,19 @@ mod tests {
 
         let source_transactions =
             account_transactions(&database, source_account.id, &Currency::USD, "source");
-        assert_transaction_total(&source_transactions, dec!(-1000));
+        let withdrawals: Vec<_> = source_transactions
+            .into_iter()
+            .filter(|tx| tx.category == model::TransactionCategory::Withdrawal)
+            .collect();
+        assert_transaction_total(&withdrawals, dec!(1000));
+        assert_eq!(
+            database
+                .account_balance_read()
+                .for_currency(source_account.id, &Currency::USD)
+                .unwrap()
+                .total_available,
+            dec!(9000)
+        );
 
         let earnings_transactions =
             account_transactions(&database, earnings_account.id, &Currency::USD, "earnings");

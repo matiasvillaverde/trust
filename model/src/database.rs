@@ -86,6 +86,8 @@ pub trait DatabaseFactory {
     /// Begins a named savepoint.
     ///
     /// Savepoints can be nested and are compatible with existing outer transactions.
+    /// A successful begin must serialize competing writers before callers read
+    /// financial preconditions; a deferred transaction alone is insufficient.
     fn begin_savepoint(&mut self, name: &str) -> Result<(), Box<dyn Error>>;
 
     /// Releases a previously opened named savepoint.
@@ -262,6 +264,22 @@ pub trait OrderWrite {
 
 /// Trait for reading transaction data from the database
 pub trait ReadTransactionDB {
+    /// Live cost-basis exposure when cumulative fill quantities are available.
+    fn trade_market_exposure(
+        &mut self,
+        _trade_id: Uuid,
+    ) -> Result<Option<Decimal>, Box<dyn Error>> {
+        Ok(None)
+    }
+    /// Account exposure including partially filled and partially canceled positions.
+    fn account_market_exposure(
+        &mut self,
+        _account_id: Uuid,
+        _currency: &Currency,
+    ) -> Result<Option<Decimal>, Box<dyn Error>> {
+        Ok(None)
+    }
+
     /// Retrieves all account transactions excluding tax transactions
     fn all_account_transactions_excluding_taxes(
         &mut self,
@@ -380,6 +398,17 @@ pub trait ReadExecutionDB {
 
 /// Trait for writing execution data to the database.
 pub trait WriteExecutionDB {
+    /// Persist an account-scoped fee identity, optionally allocating it to a trade.
+    /// Returns true only for its first allocation. Unattributable fees remain unallocated.
+    /// Implementations must reject conflicting reuse of an identity.
+    fn record_fee_activity(
+        &mut self,
+        _fee: &crate::FeeActivity,
+        _trade_id: Option<Uuid>,
+    ) -> Result<bool, Box<dyn Error>> {
+        Err("Fee activity persistence is unsupported".into())
+    }
+
     /// Insert an execution if not already present (idempotent).
     ///
     /// Dedupe is expected to be enforced by `(broker, account_id, broker_execution_id)`.

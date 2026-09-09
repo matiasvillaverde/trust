@@ -1,0 +1,39 @@
+{
+  "unit-tests-isolated.log": {
+    "suites": 7,
+    "passed": 983,
+    "failed": 16,
+    "ignored": 0
+  },
+  "cli-tests.log": {
+    "suites": 28,
+    "passed": 1314,
+    "failed": 0,
+    "ignored": 1
+  },
+  "integration-tests.log": {
+    "suites": 9,
+    "passed": 59,
+    "failed": 0,
+    "ignored": 0
+  },
+  "baseline_commit": "affd95cf048ce48e7919f7da9db7393a848ca317",
+  "fmt": "passed",
+  "clippy": "passed; future incompatibility warning for proc-macro-error2 2.0.1",
+  "network_policy": "deny all network for builds, tests, and secret scan",
+  "blocked_tests": "2 advisor socket mock tests filtered after permission-denied failures; 16 IBKR lib socket mock tests failed with permission denied. No ignored live broker tests run.",
+  "secret_scan": {
+    "tool": "TruffleHog 3.97.4",
+    "scope": "tracked HEAD snapshot, not Git history",
+    "verification": false,
+    "findings": 0
+  },
+  "temporary_workspace": "/var/folders/93/r_zs561x7h7_kvqrrmj_bgn00000gn/T/trust-security-audit-14f63ktc",
+  "concurrent_worktree_edits": [
+    "core/src/lib.rs",
+    "core/src/broker_registry.rs",
+    "ibkr-broker/src/client.rs"
+  ],
+  "concurrent_edit_status": "Not made by this audit; preserved; appear to address nested registry finding F17; not included in baseline verification.",
+  "new_defect_reproduction_tests": 12
+}

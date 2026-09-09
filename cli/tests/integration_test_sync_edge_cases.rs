@@ -201,11 +201,19 @@ impl Broker for StatefulBroker {
     fn fetch_fee_activities(
         &self,
         _trade: &Trade,
-        _account: &Account,
+        account: &Account,
         _after: Option<chrono::DateTime<Utc>>,
     ) -> Result<Vec<FeeActivity>, Box<dyn Error>> {
         let state = self.state.lock().unwrap();
-        Ok(state.fees.clone())
+        Ok(state
+            .fees
+            .iter()
+            .cloned()
+            .map(|mut fee| {
+                fee.account_id = account.id;
+                fee
+            })
+            .collect())
     }
 }
 
@@ -269,7 +277,7 @@ fn make_filled_entry(trade: &Trade, price: Decimal) -> Order {
         average_filled_price: Some(price),
         status: OrderStatus::Filled,
         filled_at: Some(now()),
-        ..Default::default()
+        ..trade.entry.clone()
     }
 }
 
@@ -281,7 +289,7 @@ fn make_filled_target(trade: &Trade, price: Decimal) -> Order {
         average_filled_price: Some(price),
         status: OrderStatus::Filled,
         filled_at: Some(now()),
-        ..Default::default()
+        ..trade.target.clone()
     }
 }
 
@@ -293,7 +301,7 @@ fn make_filled_stop(trade: &Trade, price: Decimal) -> Order {
         average_filled_price: Some(price),
         status: OrderStatus::Filled,
         filled_at: Some(now()),
-        ..Default::default()
+        ..trade.safety_stop.clone()
     }
 }
 
@@ -530,7 +538,7 @@ fn test_fee_activity_matched_by_broker_order_id() {
                 average_filled_price: Some(dec!(40)),
                 status: OrderStatus::Filled,
                 filled_at: Some(now()),
-                ..Default::default()
+                ..trade.entry.clone()
             };
             let target = make_accepted_order(&trade.target);
             let stop = make_held_order(&trade.safety_stop);
@@ -583,7 +591,7 @@ fn test_fee_activity_matched_by_broker_order_id() {
 }
 
 #[test]
-fn test_fee_activity_matched_by_symbol_and_day_heuristic() {
+fn test_fee_activity_without_order_identity_is_unallocated() {
     // Fee has no broker_order_id, but matches symbol + day
     let broker = StatefulBroker::with_fees(
         |trade| {
@@ -594,7 +602,7 @@ fn test_fee_activity_matched_by_symbol_and_day_heuristic() {
                 average_filled_price: Some(dec!(40)),
                 status: OrderStatus::Filled,
                 filled_at: Some(now()),
-                ..Default::default()
+                ..trade.entry.clone()
             };
             let target = make_accepted_order(&trade.target);
             let stop = make_held_order(&trade.safety_stop);
@@ -632,12 +640,10 @@ fn test_fee_activity_matched_by_symbol_and_day_heuristic() {
         .iter()
         .filter(|t| matches!(t.category, TransactionCategory::FeeOpen(_)))
         .collect();
-    assert_eq!(
-        fee_txs.len(),
-        1,
-        "fee should match via symbol+day heuristic"
+    assert!(
+        fee_txs.is_empty(),
+        "Ambiguous symbol/day fees must not charge a trade"
     );
-    assert_eq!(fee_txs[0].amount, dec!(3.25));
 }
 
 #[test]
@@ -705,7 +711,7 @@ fn test_fee_not_duplicated_on_resync() {
                 average_filled_price: Some(dec!(40)),
                 status: OrderStatus::Filled,
                 filled_at: Some(now()),
-                ..Default::default()
+                ..trade.entry.clone()
             };
             let target = make_accepted_order(&trade.target);
             let stop = make_held_order(&trade.safety_stop);
@@ -772,7 +778,7 @@ fn test_closing_fee_matched_to_target_order() {
                 average_filled_price: Some(dec!(50)),
                 status: OrderStatus::Filled,
                 filled_at: Some(now()),
-                ..Default::default()
+                ..trade.target.clone()
             };
             let stop = make_canceled_order(&trade.safety_stop);
             (Status::ClosedTarget, vec![entry, target, stop])
@@ -1448,7 +1454,7 @@ fn test_fee_exceeding_available_balance_fails() {
                 average_filled_price: Some(dec!(40)),
                 status: OrderStatus::Filled,
                 filled_at: Some(now()),
-                ..Default::default()
+                ..trade.entry.clone()
             };
             let target = make_accepted_order(&trade.target);
             let stop = make_held_order(&trade.safety_stop);

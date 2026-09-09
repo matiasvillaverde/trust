@@ -109,6 +109,12 @@ impl AccountCommandBuilder {
             Command::new("transfer")
                 .about("Transfer funds between accounts in hierarchy")
                 .arg(
+                    Arg::new("confirm-protected")
+                        .long("confirm-protected")
+                        .value_name("KEYWORD")
+                        .help("Authorize the protected account transfer"),
+                )
+                .arg(
                     Arg::new("from")
                         .long("from")
                         .short('f')

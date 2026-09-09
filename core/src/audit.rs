@@ -80,47 +80,49 @@ pub(crate) fn record(
     broker: &str,
     record: AuditRecord<'_>,
 ) -> Result<BrokerLog, Box<dyn Error>> {
-    let previous_hash = database
-        .log_read()
-        .read_latest_log_for_trade_with_prefix(trade.id, PREFIX)?
-        .map(|log| validated_event_hash(&log))
-        .transpose()?
-        .unwrap_or_else(|| GENESIS_HASH.to_string());
-    let event_id = Uuid::new_v4().to_string();
-    let operation_id = record.operation_id.to_string();
-    let occurred_at = chrono::Utc::now().to_rfc3339();
-    let trade_id = trade.id.to_string();
-    let account_id = trade.account_id.to_string();
-    let prior_status = record.prior_status.to_string();
-    let resulting_status = record.resulting_status.to_string();
-    let actor = bounded_identity("TRUST_AUDIT_ACTOR", "USER", "unknown");
-    let request_id = bounded_identity(
-        "TRUST_AUDIT_REQUEST_ID",
-        "TRUST_REQUEST_ID",
-        &record.operation_id.to_string(),
-    );
-    let mut event = AuditEvent {
-        version: 2,
-        event_id,
-        operation_id,
-        occurred_at,
-        trade_id,
-        account_id,
-        broker: broker.to_string(),
-        event_type: record.event_type.to_string(),
-        outcome: record.outcome.to_string(),
-        prior_status,
-        resulting_status,
-        actor,
-        request_id,
-        process_id: std::process::id(),
-        details: record.details.clone(),
-        previous_hash,
-        event_hash: String::new(),
-    };
-    event.event_hash = hash_event(&event)?;
-    let encoded = format!("{PREFIX}{}", serde_json::to_string(&event)?);
-    database.log_write().create_log(&encoded, trade)
+    crate::commands::atomic::with_savepoint(database, "audit_append", |database| {
+        let previous_hash = database
+            .log_read()
+            .read_latest_log_for_trade_with_prefix(trade.id, PREFIX)?
+            .map(|log| validated_event_hash(&log))
+            .transpose()?
+            .unwrap_or_else(|| GENESIS_HASH.to_string());
+        let event_id = Uuid::new_v4().to_string();
+        let operation_id = record.operation_id.to_string();
+        let occurred_at = chrono::Utc::now().to_rfc3339();
+        let trade_id = trade.id.to_string();
+        let account_id = trade.account_id.to_string();
+        let prior_status = record.prior_status.to_string();
+        let resulting_status = record.resulting_status.to_string();
+        let actor = bounded_identity("TRUST_AUDIT_ACTOR", "USER", "unknown");
+        let request_id = bounded_identity(
+            "TRUST_AUDIT_REQUEST_ID",
+            "TRUST_REQUEST_ID",
+            &record.operation_id.to_string(),
+        );
+        let mut event = AuditEvent {
+            version: 2,
+            event_id,
+            operation_id,
+            occurred_at,
+            trade_id,
+            account_id,
+            broker: broker.to_string(),
+            event_type: record.event_type.to_string(),
+            outcome: record.outcome.to_string(),
+            prior_status,
+            resulting_status,
+            actor,
+            request_id,
+            process_id: std::process::id(),
+            details: record.details.clone(),
+            previous_hash,
+            event_hash: String::new(),
+        };
+        event.event_hash = hash_event(&event)?;
+        let encoded = format!("{PREFIX}{}", serde_json::to_string(&event)?);
+        database.log_write().create_log(&encoded, trade)
+    })
 }
 
 pub(crate) fn verify(logs: &[BrokerLog]) -> Result<usize, Box<dyn Error>> {

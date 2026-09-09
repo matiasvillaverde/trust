@@ -1,0 +1,8 @@
+   Compiling core v0.3.5 (/var/folders/93/r_zs561x7h7_kvqrrmj_bgn00000gn/T/trust-security-audit-14f63ktc/source/core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.37s
+     Running unittests src/lib.rs (/var/folders/93/r_zs561x7h7_kvqrrmj_bgn00000gn/T/trust-security-audit-14f63ktc/source/target/debug/deps/core-c4b96e61dd01d76c)
+
+running 1 test
+test broker_registry::tests::audit_nested_registry_blocks_ibkr ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 495 filtered out; finished in 0.01s

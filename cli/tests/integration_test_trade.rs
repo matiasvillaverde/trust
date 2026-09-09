@@ -746,7 +746,7 @@ impl BrokerResponse {
             filled_at: None,
             expired_at: None,
             cancelled_at: None,
-            ..Default::default()
+            ..trade.entry.clone()
         };
 
         let target = Order {
@@ -758,7 +758,7 @@ impl BrokerResponse {
             filled_at: None,
             expired_at: None,
             cancelled_at: None,
-            ..Default::default()
+            ..trade.target.clone()
         };
 
         let stop = Order {
@@ -770,7 +770,7 @@ impl BrokerResponse {
             filled_at: None,
             expired_at: None,
             cancelled_at: None,
-            ..Default::default()
+            ..trade.safety_stop.clone()
         };
 
         (Status::Submitted, vec![entry, target, stop])
@@ -786,7 +786,7 @@ impl BrokerResponse {
             filled_at: Some(Utc::now().naive_utc()),
             expired_at: None,
             cancelled_at: None,
-            ..Default::default()
+            ..trade.entry.clone()
         };
 
         let target = Order {
@@ -798,7 +798,7 @@ impl BrokerResponse {
             filled_at: None,
             expired_at: None,
             cancelled_at: None,
-            ..Default::default()
+            ..trade.target.clone()
         };
 
         let stop = Order {
@@ -810,7 +810,7 @@ impl BrokerResponse {
             filled_at: None,
             expired_at: None,
             cancelled_at: None,
-            ..Default::default()
+            ..trade.safety_stop.clone()
         };
 
         (Status::Filled, vec![entry, target, stop])
@@ -826,7 +826,7 @@ impl BrokerResponse {
             filled_at: Some(Utc::now().naive_utc()),
             expired_at: None,
             cancelled_at: None,
-            ..Default::default()
+            ..trade.entry.clone()
         };
 
         let target = Order {
@@ -838,7 +838,7 @@ impl BrokerResponse {
             filled_at: Some(Utc::now().naive_utc()),
             expired_at: None,
             cancelled_at: None,
-            ..Default::default()
+            ..trade.target.clone()
         };
 
         let stop = Order {
@@ -850,7 +850,7 @@ impl BrokerResponse {
             filled_at: None,
             expired_at: None,
             cancelled_at: None,
-            ..Default::default()
+            ..trade.safety_stop.clone()
         };
 
         (Status::ClosedTarget, vec![entry, target, stop])
@@ -866,7 +866,7 @@ impl BrokerResponse {
             filled_at: Some(Utc::now().naive_utc()),
             expired_at: None,
             cancelled_at: None,
-            ..Default::default()
+            ..trade.entry.clone()
         };
 
         let target = Order {
@@ -878,7 +878,7 @@ impl BrokerResponse {
             filled_at: None,
             expired_at: None,
             cancelled_at: None,
-            ..Default::default()
+            ..trade.target.clone()
         };
 
         let stop = Order {
@@ -890,7 +890,7 @@ impl BrokerResponse {
             filled_at: Some(Utc::now().naive_utc()),
             expired_at: None,
             cancelled_at: None,
-            ..Default::default()
+            ..trade.safety_stop.clone()
         };
 
         (Status::ClosedStopLoss, vec![entry, target, stop])
@@ -906,7 +906,7 @@ impl BrokerResponse {
             filled_at: Some(Utc::now().naive_utc()),
             expired_at: None,
             cancelled_at: None,
-            ..Default::default()
+            ..trade.entry.clone()
         };
 
         let stop = Order {
@@ -918,7 +918,7 @@ impl BrokerResponse {
             filled_at: Some(Utc::now().naive_utc()),
             expired_at: None,
             cancelled_at: None,
-            ..Default::default()
+            ..trade.safety_stop.clone()
         };
 
         (Status::ClosedStopLoss, vec![entry, stop])
@@ -933,7 +933,7 @@ impl BrokerResponse {
             filled_at: None,
             expired_at: None,
             cancelled_at: None,
-            ..Default::default()
+            ..trade.target.clone()
         })
     }
 }
@@ -1168,21 +1168,21 @@ fn orders_short_trade_filled(trade: &Trade) -> (Status, Vec<Order>) {
         average_filled_price: Some(dec!(11)), // Better than expected $10
         status: OrderStatus::Filled,
         filled_at: Some(Utc::now().naive_utc()),
-        ..Default::default()
+        ..trade.entry.clone()
     };
 
     let target = Order {
         id: trade.target.id,
         broker_order_id: Some(Uuid::new_v4().to_string()),
         status: OrderStatus::Accepted,
-        ..Default::default()
+        ..trade.target.clone()
     };
 
     let stop = Order {
         id: trade.safety_stop.id,
         broker_order_id: Some(Uuid::new_v4().to_string()),
         status: OrderStatus::Held,
-        ..Default::default()
+        ..trade.safety_stop.clone()
     };
 
     (Status::Filled, vec![entry, target, stop])

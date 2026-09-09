@@ -59,41 +59,68 @@ impl<'a> ProfitDistributionService<'a> {
         currency: &Currency,
         trade_id: Option<Uuid>,
     ) -> Result<DistributionResult, Box<dyn Error>> {
-        // Calculate the distribution first
-        let mut result = self.calculate_distribution(profit_amount, rules)?;
+        crate::commands::atomic::with_savepoint(self.database, "profit_distribution", |database| {
+            // Calculate the distribution first
+            let mut result = rules
+                .calculate_distribution(profit_amount)
+                .map_err(|error| -> Box<dyn Error> { error.into() })?;
 
-        // Update the source account ID to match the provided account
-        result.source_account_id = source_account.id;
+            // Update the source account ID to match the provided account
+            result.source_account_id = source_account.id;
 
-        let target_accounts = DistributionTargetRefs {
-            earnings: earnings_account,
-            tax: tax_account,
-            reinvestment: reinvestment_account,
-            insurance: insurance_account,
-        };
-        let legs = build_distribution_legs(&result, &target_accounts, trade_id)?;
-        validate_distribution_legs(self.database, source_account, &target_accounts, &legs)?;
+            let target_accounts = DistributionTargetRefs {
+                earnings: earnings_account,
+                tax: tax_account,
+                reinvestment: reinvestment_account,
+                insurance: insurance_account,
+            };
+            let legs = build_distribution_legs(&result, &target_accounts, trade_id)?;
+            validate_distribution_legs(database, source_account, &target_accounts, &legs)?;
 
-        let plan = DistributionExecutionPlan {
-            source_account_id: source_account.id,
-            currency: *currency,
-            trade_id,
-            original_amount: result.original_amount,
-            distribution_date: result.distribution_date,
-            legs,
-            earnings_amount: result.earnings_amount,
-            tax_amount: result.tax_amount,
-            reinvestment_amount: result.reinvestment_amount,
-            insurance_amount: result.insurance_amount,
-        };
+            let plan = DistributionExecutionPlan {
+                source_account_id: source_account.id,
+                currency: *currency,
+                trade_id,
+                original_amount: result.original_amount,
+                distribution_date: result.distribution_date,
+                legs,
+                earnings_amount: result.earnings_amount,
+                tax_amount: result.tax_amount,
+                reinvestment_amount: result.reinvestment_amount,
+                insurance_amount: result.insurance_amount,
+            };
 
-        let deposit_ids = self
-            .database
-            .distribution_write()
-            .execute_distribution_plan_atomic(&plan)?;
+            let outgoing = plan.legs.iter().try_fold(Decimal::ZERO, |total, leg| {
+                total
+                    .checked_add(leg.amount)
+                    .ok_or("Distribution amount overflow")
+            })?;
+            crate::validators::transaction::can_transfer_withdraw(
+                outgoing,
+                currency,
+                source_account.id,
+                database.account_balance_read().as_mut(),
+            )?;
+            let deposit_ids = database
+                .distribution_write()
+                .execute_distribution_plan_atomic(&plan)?;
 
-        result.transactions_created = deposit_ids;
-        Ok(result)
+            let source = database.account_read().id(source_account.id)?;
+            crate::commands::balance::calculate_account(database, &source, currency)?;
+            for leg in &plan.legs {
+                let target = database.account_read().id(leg.to_account_id)?;
+                if database
+                    .account_balance_read()
+                    .for_currency(target.id, currency)
+                    .is_err()
+                {
+                    database.account_balance_write().create(&target, currency)?;
+                }
+                crate::commands::balance::calculate_account(database, &target, currency)?;
+            }
+            result.transactions_created = deposit_ids;
+            Ok(result)
+        })
     }
 
     /// Transfers funds between accounts in hierarchy
@@ -309,6 +336,23 @@ mod tests {
             )
             .expect("reinvestment account should be created");
 
+        database
+            .transaction_write()
+            .create_transaction_by_account_id(
+                source_account.id,
+                dec!(10000),
+                &Currency::USD,
+                TransactionCategory::Deposit,
+            )
+            .unwrap();
+        let balance = database
+            .account_balance_write()
+            .create(&source_account, &Currency::USD)
+            .unwrap();
+        database
+            .account_balance_write()
+            .update(&balance, dec!(10000), dec!(0), dec!(10000), dec!(0))
+            .unwrap();
         (
             source_account,
             earnings_account,
@@ -422,6 +466,10 @@ mod tests {
     }
 
     fn assert_source_withdrawals(transactions: &[model::Transaction], expected_total: Decimal) {
+        let transactions: Vec<_> = transactions
+            .iter()
+            .filter(|tx| tx.category == TransactionCategory::Withdrawal)
+            .collect();
         assert_eq!(transactions.len(), 3);
         assert!(transactions
             .iter()
@@ -802,7 +850,7 @@ mod tests {
 
         let source_transactions =
             account_transactions(&database, source_account.id, &currency, "source");
-        assert_source_withdrawals(&source_transactions, dec!(-1000));
+        assert_source_withdrawals(&source_transactions, dec!(1000));
 
         let earnings_transactions =
             account_transactions(&database, earnings_account.id, &currency, "earnings");

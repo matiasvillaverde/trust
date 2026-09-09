@@ -66,13 +66,21 @@ fn validate_enough_capital(trade: &Trade, balance: &AccountBalance) -> FundingVa
     }
 }
 
-fn sorted_rules(account_id: Uuid, database: &mut dyn DatabaseFactory) -> Vec<Rule> {
+fn sorted_rules(
+    account_id: Uuid,
+    database: &mut dyn DatabaseFactory,
+) -> Result<Vec<Rule>, Box<FundValidationError>> {
     let mut rules = database
         .rule_read()
         .read_all_rules(account_id)
-        .unwrap_or_else(|_| vec![]);
+        .map_err(|error| {
+            Box::new(FundValidationError {
+                code: FundValidationErrorCode::NotEnoughFunds,
+                message: format!("Cannot load mandatory risk rules: {error}"),
+            })
+        })?;
     rules.sort_by_key(|rule| rule.priority);
-    rules
+    Ok(rules)
 }
 
 fn validate_rules(
@@ -81,7 +89,7 @@ fn validate_rules(
     database: &mut dyn DatabaseFactory,
 ) -> FundingValidationResult {
     // Get rules by priority
-    let rules = sorted_rules(trade.account_id, database);
+    let rules = sorted_rules(trade.account_id, database)?;
     let mut risk_per_month = dec!(100.0); // Default to 100% of the available capital
 
     // Match rules by name
@@ -121,14 +129,18 @@ fn validate_level_adjusted_quantity(
     trade: &Trade,
     database: &mut dyn DatabaseFactory,
 ) -> FundingValidationResult {
-    if trade.category == TradeCategory::Short {
-        return Ok(());
-    }
-
     let sizing = QuantityCalculator::maximum_quantity_with_level(
         trade.account_id,
-        trade.entry.unit_price,
-        trade.safety_stop.unit_price,
+        if trade.category == TradeCategory::Short {
+            trade.safety_stop.unit_price
+        } else {
+            trade.entry.unit_price
+        },
+        if trade.category == TradeCategory::Short {
+            trade.entry.unit_price
+        } else {
+            trade.safety_stop.unit_price
+        },
         &trade.currency,
         database,
     )
@@ -569,7 +581,7 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_level_adjusted_quantity_skips_short_trades() {
+    fn test_validate_level_adjusted_quantity_does_not_skip_short_trades() {
         let mut database = SqliteDatabase::new_in_memory();
         let trade = Trade {
             category: TradeCategory::Short,
@@ -585,7 +597,7 @@ mod tests {
             ..Default::default()
         };
 
-        assert!(validate_level_adjusted_quantity(&trade, &mut database).is_ok());
+        assert!(validate_level_adjusted_quantity(&trade, &mut database).is_err());
     }
 
     #[test]

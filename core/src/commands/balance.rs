@@ -147,7 +147,7 @@ fn reduce_trade_capital_in_market(
 ) -> Result<Decimal, Box<dyn Error>> {
     match category {
         TransactionCategory::OpenTrade(_) => {
-            checked_add(current, amount, "trade capital_in_market increase")
+            checked_add(current, amount.abs(), "trade capital_in_market increase")
         }
         TransactionCategory::CloseTarget(_)
         | TransactionCategory::CloseSafetyStop(_)
@@ -271,9 +271,12 @@ fn in_trade_delta_for_status_transition(
     new_status: Status,
 ) -> Result<Option<Decimal>, Box<dyn Error>> {
     match (trade.status, new_status) {
-        (Status::Funded, Status::Submitted) | (Status::Funded, Status::Canceled) => Ok(Some(
-            checked_neg(trade.balance.funding, "status transition funded")?,
-        )),
+        (Status::Funded, Status::Submitted)
+        | (Status::Funded, Status::Filled)
+        | (Status::Funded, Status::Canceled) => Ok(Some(checked_neg(
+            trade.balance.funding,
+            "status transition funded",
+        )?)),
         (Status::Filled, Status::ClosedTarget)
         | (Status::Filled, Status::ClosedStopLoss)
         | (Status::Filled, Status::Expired)
@@ -1028,20 +1031,16 @@ mod tests {
     }
 
     #[test]
-    fn reduce_trade_projection_rejects_negative_capital_in_market() {
+    fn short_sale_credit_preserves_positive_market_exposure() {
         let current = sample_trade_balance();
-
-        let error = reduce_trade_projection(
+        let updated = reduce_trade_projection(
             current,
             TransactionCategory::OpenTrade(Uuid::new_v4()),
             dec!(-1),
         )
-        .expect_err("trade capital in market must not project negative");
-
-        assert_eq!(
-            error.to_string(),
-            "trade projection invariant failed: capital_in_market is negative (-1)"
-        );
+        .unwrap();
+        assert_eq!(updated.capital_in_market, dec!(1));
+        assert_eq!(updated.capital_out_market, dec!(1001));
     }
 
     #[test]

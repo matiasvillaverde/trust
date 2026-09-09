@@ -1,7 +1,8 @@
 name: Release
 
 permissions:
-  contents: write
+  contents: read
+  checks: write
 
 on:
   push:
@@ -9,11 +10,20 @@ on:
       - v[0-9]+.*
 
 jobs:
+  validate:
+    uses: ./.github/workflows/rust.yaml
+    permissions:
+      contents: read
+      checks: write
+
   create-release:
+    needs: validate
+    permissions:
+      contents: write
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: taiki-e/create-gh-release-action@v1
+      - uses: actions/checkout@a37ce9120846195fa4ece8f58b268e6043cb2f26 # v3
+      - uses: taiki-e/create-gh-release-action@eba8ea96c86cca8a37f1b56e94b4d13301fba651 # v1
         with:
           # (optional) Path to changelog.
           # changelog: CHANGELOG.md
@@ -21,6 +31,9 @@ jobs:
           token: ${{ secrets.RELEASE_TOKEN }}
 
   upload-assets:
+    needs: [validate, create-release]
+    permissions:
+      contents: write
     strategy:
       matrix:
         include:
@@ -35,13 +48,13 @@ jobs:
             os: macos-latest
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@a37ce9120846195fa4ece8f58b268e6043cb2f26 # v3
       - name: Install cross-compilation tools
-        uses: taiki-e/setup-cross-toolchain-action@v1
+        uses: taiki-e/setup-cross-toolchain-action@12b7ad4acfa95a1476779d6c06699b96ec1691f8 # v1
         with:
           target: ${{ matrix.target }}
         if: startsWith(matrix.os, 'ubuntu')
-      - uses: taiki-e/upload-rust-binary-action@v1
+      - uses: taiki-e/upload-rust-binary-action@f0d45ae91ee7b8ee928de7a9d04d893a08bcbec6 # v1
         with:
           # (required) Comma-separated list of binary names (non-extension portion of filename) to build and upload.
           # Note that glob pattern is not supported yet.
@@ -51,7 +64,7 @@ jobs:
           # (required) GitHub token for uploading assets to GitHub Releases.
           token: ${{ secrets.GITHUB_TOKEN }}
           # (optional) Tool to build binaries (cargo, or cross)
-          build_tool: ${{ matrix.build_tool }}
+          build_tool: cargo
           # (optional) On which platform to distribute the `.tar.gz` file.
           # [default value: unix]
           # [possible values: all, unix, windows, none]
@@ -65,3 +78,5 @@ jobs:
           #     - $tag    - Tag of this release.
           # When multiple binary names are specified, default archive name or $bin variable cannot be used.
           archive: $tag-$target
+          checksum: sha256
+          locked: true

@@ -157,7 +157,7 @@ impl fmt::Debug for CalendarCredentials {
 }
 
 /// Partial advisor configuration update.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Clone, Default, PartialEq, Eq)]
 pub struct AdvisorConfigUpdate {
     /// Calendar provider to persist.
     pub calendar_provider: Option<CalendarProvider>,
@@ -165,6 +165,19 @@ pub struct AdvisorConfigUpdate {
     pub calendar_api_key: Option<String>,
     /// Claude API key to persist.
     pub claude_api_key: Option<String>,
+}
+
+impl fmt::Debug for AdvisorConfigUpdate {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AdvisorConfigUpdate")
+            .field("calendar_provider", &self.calendar_provider)
+            .field(
+                "calendar_api_key_configured",
+                &self.calendar_api_key.is_some(),
+            )
+            .field("claude_api_key_configured", &self.claude_api_key.is_some())
+            .finish()
+    }
 }
 
 impl AdvisorConfigUpdate {
@@ -384,5 +397,21 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("unsupported calendar provider"));
+    }
+}
+
+#[cfg(test)]
+mod update_redaction_tests {
+    #[test]
+    fn config_update_debug_redacts_both_keys() {
+        let update = super::AdvisorConfigUpdate {
+            calendar_api_key: Some("calendar-secret-marker".into()),
+            claude_api_key: Some("claude-secret-marker".into()),
+            ..Default::default()
+        };
+        let debug = format!("{update:?}");
+        assert!(!debug.contains("calendar-secret-marker"));
+        assert!(!debug.contains("claude-secret-marker"));
+        assert!(debug.contains("configured: true"));
     }
 }

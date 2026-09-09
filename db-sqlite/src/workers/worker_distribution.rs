@@ -249,9 +249,7 @@ impl DistributionWrite for DistributionDB {
                     return Err("Distribution leg amount must be positive".into());
                 }
 
-                let withdrawal_amount = Decimal::ZERO
-                    .checked_sub(leg.amount)
-                    .ok_or("Invalid withdrawal amount")?;
+                let withdrawal_amount = leg.amount;
 
                 let withdrawal_id = leg.forced_withdrawal_tx_id.unwrap_or_else(Uuid::new_v4);
                 let deposit_id = leg.forced_deposit_tx_id.unwrap_or_else(Uuid::new_v4);
@@ -1149,7 +1147,7 @@ mod tests {
         assert_eq!(source_transactions.len(), 3);
         assert!(source_transactions
             .iter()
-            .all(|transaction| transaction.amount < Decimal::ZERO));
+            .all(|transaction| transaction.amount > Decimal::ZERO));
 
         let earnings_transaction = database
             .transaction_read()

@@ -1,0 +1,267 @@
+--- /dev/null
++++ b/core/tests/audit_findings.rs
+@@ -0,0 +1,146 @@
++use core::TrustFacade;
++use db_sqlite::SqliteDatabase;
++use model::{
++    Account, Broker, BrokerKind, BrokerLog, Currency, DraftTrade, Environment, Order, OrderIds,
++    Status, Trade, TradeCategory, TradingVehicleCategory, TransactionCategory,
++};
++use rust_decimal::Decimal;
++use rust_decimal_macros::dec;
++use std::error::Error;
++
++struct NoopBroker;
++
++impl Broker for NoopBroker {
++    fn kind(&self) -> BrokerKind {
++        BrokerKind::Alpaca
++    }
++
++    fn submit_trade(
++        &self,
++        _trade: &Trade,
++        _account: &Account,
++    ) -> Result<(BrokerLog, OrderIds), Box<dyn Error>> {
++        Ok((
++            BrokerLog::default(),
++            OrderIds {
++                stop: "stop".to_string(),
++                entry: "entry".to_string(),
++                target: "target".to_string(),
++            },
++        ))
++    }
++
++    fn sync_trade(
++        &self,
++        _trade: &Trade,
++        _account: &Account,
++    ) -> Result<(Status, Vec<Order>, BrokerLog), Box<dyn Error>> {
++        Ok((Status::Submitted, Vec::new(), BrokerLog::default()))
++    }
++
++    fn close_trade(
++        &self,
++        trade: &Trade,
++        _account: &Account,
++    ) -> Result<(Order, BrokerLog), Box<dyn Error>> {
++        Ok((trade.target.clone(), BrokerLog::default()))
++    }
++
++    fn cancel_trade(&self, _trade: &Trade, _account: &Account) -> Result<(), Box<dyn Error>> {
++        Ok(())
++    }
++
++    fn modify_stop(
++        &self,
++        _trade: &Trade,
++        _account: &Account,
++        _new_stop_price: Decimal,
++    ) -> Result<String, Box<dyn Error>> {
++        Ok("stop".to_string())
++    }
++
++    fn modify_target(
++        &self,
++        _trade: &Trade,
++        _account: &Account,
++        _new_price: Decimal,
++    ) -> Result<String, Box<dyn Error>> {
++        Ok("target".to_string())
++    }
++}
++
++
++fn seed(facade: &mut TrustFacade, side: TradeCategory) -> (Account, Trade) {
++    let account = facade.create_account("audit", "audit", Environment::Paper, dec!(0), dec!(0)).unwrap();
++    facade.create_transaction(&account, &TransactionCategory::Deposit, dec!(10000), &Currency::USD).unwrap();
++    let vehicle = facade.create_trading_vehicle("AUDIT", None, &TradingVehicleCategory::Stock, "ibkr").unwrap();
++    let (stop, target) = if side == TradeCategory::Long { (dec!(90), dec!(120)) } else { (dec!(110), dec!(80)) };
++    let trade = facade.create_trade(DraftTrade { account: account.clone(), trading_vehicle: vehicle, quantity: dec!(10), currency: Currency::USD, category: side, thesis: None, sector: None, asset_class: None, context: None }, stop, dec!(100), target).unwrap();
++    (account, trade)
++}
++fn facade() -> TrustFacade { TrustFacade::new(Box::new(SqliteDatabase::new_in_memory()), Box::new(NoopBroker)) }
++
++#[test]
++fn audit_short_profit_is_inverted() {
++    let mut f=facade(); let (account,t)=seed(&mut f, TradeCategory::Short);
++    let (mut funded,_,_,_)=f.fund_trade(&t).unwrap();
++    funded.entry.average_filled_price=Some(dec!(100));
++    let (mut filled,_)=f.fill_trade(&funded,dec!(0)).unwrap();
++    filled.target.average_filled_price=Some(dec!(80));
++    f.target_acquired(&filled,dec!(0)).unwrap();
++    let closed=f.read_trade(t.id).unwrap();
++    let balance=f.search_balance(account.id,&Currency::USD).unwrap();
++    println!("short sell 10 at 100 buy back at 80: pnl={}, account={}",closed.balance.total_performance,balance.total_available);
++    assert_eq!(closed.balance.total_performance,dec!(-200));
++    assert_eq!(balance.total_available,dec!(9800));
++}
++#[test]
++fn audit_stale_fill_replays() {
++    let mut f=facade(); let (account,t)=seed(&mut f,TradeCategory::Long);
++    let (mut funded,_,_,_)=f.fund_trade(&t).unwrap(); funded.entry.average_filled_price=Some(dec!(100));
++    f.fill_trade(&funded,dec!(0)).unwrap();
++    let replay=f.fill_trade(&funded,dec!(0));
++    assert!(replay.is_ok());
++    let persisted=f.read_trade(t.id).unwrap();
++    let balance=f.search_balance(account.id,&Currency::USD).unwrap();
++    println!("stale fill replay accepted: capital_in_market={}, account balance={}",persisted.balance.capital_in_market,balance.total_balance);
++    assert_eq!(persisted.balance.capital_in_market,dec!(2000));
++
++}
++#[test]
++fn audit_transfer_overspends_and_leaves_projection_stale() {
++    let mut f=facade(); let (account,_)=seed(&mut f,TradeCategory::Long);
++    let child=f.create_account_with_hierarchy("child","audit",Environment::Paper,dec!(0),dec!(0),model::AccountType::Earnings,Some(account.id)).unwrap();
++    f.transfer_between_accounts(account.id,child.id,dec!(15000),Currency::USD,"audit").unwrap();
++    let balance=f.search_balance(account.id,&Currency::USD).unwrap();
++    println!("transferred 15000 from 10000 account; cached available={}",balance.total_available);
++    assert_eq!(balance.total_available,dec!(10000));
++}
++#[test]
++fn audit_funding_failure_leaves_funded_status() {
++    use diesel::{Connection,RunQueryDsl};
++    let path=std::env::temp_dir().join(format!("trust-audit-{}.db",uuid::Uuid::new_v4()));
++    let url=path.to_str().unwrap();
++    let mut f=TrustFacade::new(Box::new(SqliteDatabase::new(url)),Box::new(NoopBroker));
++    let (_,t)=seed(&mut f,TradeCategory::Long);
++    let mut conn=diesel::SqliteConnection::establish(url).unwrap();
++    diesel::sql_query("CREATE TRIGGER audit_fail_funding BEFORE INSERT ON transactions WHEN NEW.category = 'fund_trade' BEGIN SELECT RAISE(ABORT, 'audit injected failure'); END").execute(&mut conn).unwrap();
++    assert!(f.fund_trade(&t).is_err());
++    let persisted=f.read_trade(t.id).unwrap();
++    println!("failed funding status={}, funded amount={}",persisted.status,persisted.balance.funding);
++    assert_eq!(persisted.status,Status::Funded); assert_eq!(persisted.balance.funding,dec!(0));
++}
++#[test]
++fn audit_short_funding_ignores_rule_read_failure() {
++    use diesel::{Connection,RunQueryDsl};
++    let path=std::env::temp_dir().join(format!("trust-audit-{}.db",uuid::Uuid::new_v4()));
++    let url=path.to_str().unwrap();
++    let mut f=TrustFacade::new(Box::new(SqliteDatabase::new(url)),Box::new(NoopBroker));
++    let (account,t)=seed(&mut f,TradeCategory::Short);
++    f.create_rule(&account,&model::RuleName::RiskPerTrade(0.01),"tight cap",&model::RuleLevel::Error).unwrap();
++    assert!(f.fund_trade(&t).is_err());
++    let mut conn=diesel::SqliteConnection::establish(url).unwrap();
++    diesel::sql_query("DROP TABLE rules").execute(&mut conn).unwrap();
++    assert!(f.fund_trade(&t).is_ok());
++    println!("short funding rejected with configured cap, accepted after rules became unreadable");
++}
+--- a/core/src/commands/trade.rs
++++ b/core/src/commands/trade.rs
+@@ -1886,3 +1886,24 @@
+ 
+     Ok((current_trade.balance, log))
+ }
++
++#[cfg(test)]
++mod audit_transition_proof {
++ #[test] fn audit_partial_fill_transition_rejected() {
++ let result=super::validate_sync_transition(&model::Trade { status: model::Status::Submitted, ..Default::default() },model::Status::PartiallyFilled);
++ assert!(result.is_err());
++ }
++}
++
++#[cfg(test)]
++mod audit_fee_proof {
++ #[test]
++ fn audit_fee_for_unrelated_order_is_charged() {
++  let time=chrono::Utc::now().naive_utc();
++  let mut t=model::Trade::default();t.status=model::Status::ClosedTarget;
++  t.entry.filled_at=Some(time);t.target.filled_at=Some(time);
++  let fee=model::FeeActivity {broker:"alpaca".into(),broker_activity_id:"audit-fee".into(),account_id:t.account_id,broker_order_id:Some("unrelated-order".into()),symbol:Some(t.trading_vehicle.symbol.clone()),activity_type:"FEE".into(),amount:rust_decimal_macros::dec!(1),occurred_at:time,raw_json:None};
++  let (open,close)=super::allocated_fee_totals_for_trade(&t,&[fee]);
++  assert_eq!(open,rust_decimal_macros::dec!(1));assert_eq!(close,rust_decimal_macros::dec!(0));
++ }
++}
+--- a/core/src/broker_registry.rs
++++ b/core/src/broker_registry.rs
+@@ -471,4 +471,15 @@
+         assert!(err.to_string().contains("ibkr"));
+         assert!(err.to_string().contains("ibkr-main"));
+     }
++
++    #[test]
++    fn audit_nested_registry_blocks_ibkr() {
++        let facade=crate::TrustFacade::new_with_brokers(
++            Box::new(db_sqlite::SqliteDatabase::new_in_memory()),
++            vec![Box::new(StubBroker::new(BrokerKind::Alpaca)),Box::new(StubBroker::new(BrokerKind::Ibkr))],
++        );
++        let account=Account {broker_kind:BrokerKind::Ibkr,..Default::default()};
++        let error=facade.broker.get_latest_quote("AAPL",&account).unwrap_err();
++        assert!(error.to_string().contains("not configured"));
++    }
+ }
+--- a/alpaca-broker/src/sync_trade.rs
++++ b/alpaca-broker/src/sync_trade.rs
+@@ -599,4 +599,25 @@
+             "Should not find entry order"
+         );
+     }
+-}
++
++    #[test]
++    fn audit_standalone_market_close_is_ignored() {
++        let mut trade=Trade::default(); trade.status=Status::Filled;
++        trade.entry.status=model::OrderStatus::Filled;
++        trade.entry.broker_order_id=Some(Uuid::nil().to_string());
++        let old_target=Uuid::new_v4(); let new_target=Uuid::new_v4(); let stop_id=Uuid::new_v4();
++        trade.target.broker_order_id=Some(new_target.to_string());
++        trade.target.category=model::OrderCategory::Market;
++        trade.safety_stop.broker_order_id=Some(stop_id.to_string());
++        let mut entry=default(); entry.client_order_id=trade.entry.id.to_string();
++        entry.status=AlpacaStatus::Filled; entry.average_fill_price=Some(Num::from(100));
++        let mut old=default();old.id=Id(old_target);old.status=AlpacaStatus::Canceled;
++        let mut stop=default();stop.id=Id(stop_id);stop.status=AlpacaStatus::Canceled;
++        entry.legs=vec![old,stop];
++        let mut close=default();close.id=Id(new_target);close.status=AlpacaStatus::Filled;
++        close.average_fill_price=Some(Num::from(110));
++        let (status,updates)=sync_trade(&trade,vec![entry,close]).unwrap();
++        assert_eq!(status,Status::Filled);
++        assert!(!updates.iter().any(|o|o.id==trade.target.id && o.status==model::OrderStatus::Filled));
++    }
++}
+--- a/advisor/src/error.rs
++++ b/advisor/src/error.rs
+@@ -76,3 +76,15 @@
+         AdvisorError::Http(value.to_string())
+     }
+ }
++
++#[cfg(test)]
++mod audit_secret_proof {
++ #[test]
++ fn audit_http_error_exposes_query_secret() {
++   let url="http://127.0.0.1:9/?apikey=SYNTHETIC_AUDIT_VALUE";
++   let client=reqwest::blocking::Client::builder().no_proxy().timeout(std::time::Duration::from_millis(100)).build().unwrap();
++   let error=client.get(url).send().unwrap_err();
++   let exposed=super::AdvisorError::from(error).to_string();
++   assert!(exposed.contains("SYNTHETIC_AUDIT_VALUE"));
++ }
++}
+--- a/db-sqlite/src/backup.rs
++++ b/db-sqlite/src/backup.rs
+@@ -2030,4 +2030,22 @@
+ 
+         std::fs::remove_file(path).expect("temporary backup file should be removed");
+     }
+-}
++
++    #[test]
++    fn audit_dry_run_accepts_broken_foreign_key() {
++        let mut conn=establish();let mut b=empty_backup(&mut conn);
++        let mut row=account_row(uuid_text(901),"audit");row.parent_account_id=Some(uuid_text(902));b.tables.accounts.push(row);
++        assert!(import_backup(&mut conn,&b,ImportOptions {mode:ImportMode::Strict,dry_run:true}).is_ok());
++        assert!(import_backup(&mut conn,&b,ImportOptions {mode:ImportMode::Strict,dry_run:false}).is_err());
++    }
++    #[test]
++    fn audit_backup_omits_execution_and_policy_tables() {
++        let mut conn=establish();let b=empty_backup(&mut conn);
++        let v=serde_json::to_value(&b).unwrap();let tables=v.get("tables").unwrap();
++        for name in ["executions","distribution_rules","distribution_history","level_adjustment_rules","advisory_thresholds"] {assert!(tables.get(name).is_none());assert!(read_table_exists(&mut conn,name));}
++    }
++    fn read_table_exists(conn:&mut SqliteConnection,name:&str)->bool {
++        use diesel::sql_types::Text;
++        let rows:Vec<CountRow>=sql_query("SELECT COUNT(*) AS count FROM sqlite_master WHERE type='table' AND name=?1").bind::<Text,_>(name).load(conn).unwrap();rows.first().unwrap().count==1
++    }
++}

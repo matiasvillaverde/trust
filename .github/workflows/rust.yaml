@@ -1,6 +1,7 @@
 name: Rust CI
 
 on:
+  workflow_call:
   push:
     branches: [ main ]
   pull_request:
@@ -29,7 +30,7 @@ jobs:
     name: Quick Checks
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
     - name: Install system dependencies
       run: |
@@ -37,8 +38,9 @@ jobs:
         sudo apt-get install -y libdbus-1-dev pkg-config libssl-dev build-essential
 
     - name: Install Rust
-      uses: dtolnay/rust-toolchain@1.93.0
+      uses: dtolnay/rust-toolchain@283fb51ee3c8a49cd7c8ff30102f3fcf3cfbe0e1 # 1.93.0
       with:
+        toolchain: 1.93.0
         components: rustfmt
 
     - name: Check formatting
@@ -53,7 +55,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: quick-checks
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
     - name: Install system dependencies
       run: |
@@ -61,12 +63,13 @@ jobs:
         sudo apt-get install -y libdbus-1-dev pkg-config libssl-dev build-essential
 
     - name: Install Rust
-      uses: dtolnay/rust-toolchain@1.93.0
+      uses: dtolnay/rust-toolchain@283fb51ee3c8a49cd7c8ff30102f3fcf3cfbe0e1 # 1.93.0
       with:
+        toolchain: 1.93.0
         components: clippy
 
     - name: Cache dependencies
-      uses: actions/cache@v5
+      uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
       with:
         path: |
           ~/.cargo/registry
@@ -78,7 +81,7 @@ jobs:
           ${{ runner.os }}-cargo-
 
     - name: Cache cargo tools binaries
-      uses: actions/cache@v5
+      uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
       id: tools-cache
       with:
         path: |
@@ -133,7 +136,7 @@ jobs:
           - name: "Doc tests"
             cmd: "cargo test --locked --doc"
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
     - name: Install system dependencies
       run: |
@@ -141,10 +144,12 @@ jobs:
         sudo apt-get install -y libdbus-1-dev pkg-config libssl-dev build-essential
 
     - name: Install Rust
-      uses: dtolnay/rust-toolchain@1.93.0
+      uses: dtolnay/rust-toolchain@283fb51ee3c8a49cd7c8ff30102f3fcf3cfbe0e1 # 1.93.0
+      with:
+        toolchain: 1.93.0
 
     - name: Cache dependencies
-      uses: actions/cache@v5
+      uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
       with:
         path: |
           ~/.cargo/registry
@@ -167,7 +172,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: quick-checks
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
     - name: Install system dependencies
       run: |
@@ -175,7 +180,9 @@ jobs:
         sudo apt-get install -y libdbus-1-dev pkg-config libssl-dev build-essential
 
     - name: Install Rust
-      uses: dtolnay/rust-toolchain@1.93.0
+      uses: dtolnay/rust-toolchain@283fb51ee3c8a49cd7c8ff30102f3fcf3cfbe0e1 # 1.93.0
+      with:
+        toolchain: 1.93.0
 
     - name: Verify report JSON snapshots (no updates)
       run: cargo test --locked -p trust-cli --test integration_test_report_json_snapshots
@@ -185,7 +192,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: quick-checks
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
     - name: Install system dependencies
       run: |
@@ -193,8 +200,9 @@ jobs:
         sudo apt-get install -y libdbus-1-dev pkg-config libssl-dev build-essential
 
     - name: Install Rust
-      uses: dtolnay/rust-toolchain@1.93.0
+      uses: dtolnay/rust-toolchain@283fb51ee3c8a49cd7c8ff30102f3fcf3cfbe0e1 # 1.93.0
       with:
+        toolchain: 1.93.0
         components: llvm-tools-preview
 
     - name: Install cargo-llvm-cov
@@ -219,7 +227,7 @@ jobs:
     needs: quick-checks
     timeout-minutes: 45
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
     - name: Install system dependencies
       run: |
@@ -227,10 +235,12 @@ jobs:
         sudo apt-get install -y libdbus-1-dev pkg-config libssl-dev build-essential
 
     - name: Install Rust
-      uses: dtolnay/rust-toolchain@1.93.0
+      uses: dtolnay/rust-toolchain@283fb51ee3c8a49cd7c8ff30102f3fcf3cfbe0e1 # 1.93.0
+      with:
+        toolchain: 1.93.0
 
     - name: Cache dependencies
-      uses: actions/cache@v5
+      uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
       with:
         path: |
           ~/.cargo/registry
@@ -250,7 +260,7 @@ jobs:
     needs: quick-checks
     timeout-minutes: 30
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
     - name: Install system dependencies
       run: |
@@ -258,10 +268,12 @@ jobs:
         sudo apt-get install -y libdbus-1-dev pkg-config libssl-dev build-essential
 
     - name: Install Rust
-      uses: dtolnay/rust-toolchain@1.93.0
+      uses: dtolnay/rust-toolchain@283fb51ee3c8a49cd7c8ff30102f3fcf3cfbe0e1 # 1.93.0
+      with:
+        toolchain: 1.93.0
 
     - name: Cache dependencies
-      uses: actions/cache@v5
+      uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
       with:
         path: |
           ~/.cargo/registry
@@ -282,7 +294,7 @@ jobs:
     # Run in parallel with other jobs
     needs: quick-checks
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
     - name: Install system dependencies
       run: |
@@ -290,10 +302,12 @@ jobs:
         sudo apt-get install -y libdbus-1-dev pkg-config libssl-dev build-essential
 
     - name: Install Rust
-      uses: dtolnay/rust-toolchain@1.93.0
+      uses: dtolnay/rust-toolchain@283fb51ee3c8a49cd7c8ff30102f3fcf3cfbe0e1 # 1.93.0
+      with:
+        toolchain: 1.93.0
 
     - name: Cache dependencies
-      uses: actions/cache@v5
+      uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
       with:
         path: |
           ~/.cargo/registry
@@ -315,8 +329,8 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
-    - uses: actions/checkout@v6
-    - uses: rustsec/audit-check@v2.0.0
+    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+    - uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
 
