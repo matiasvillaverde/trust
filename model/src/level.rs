@@ -6,7 +6,7 @@ use std::str::FromStr;
 use uuid::Uuid;
 
 /// Trading level for an account and its corresponding risk profile.
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Debug, Clone, serde::Serialize)]
 pub struct Level {
     /// Unique level row id.
     pub id: Uuid,
@@ -31,7 +31,7 @@ pub struct Level {
 }
 
 /// Configurable rules used by level transition policies.
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Debug, Clone, serde::Serialize)]
 pub struct LevelAdjustmentRules {
     /// Monthly loss threshold (%) to trigger downgrade.
     pub monthly_loss_downgrade_pct: Decimal,
@@ -62,7 +62,7 @@ pub struct LevelAdjustmentRules {
 }
 
 /// Immutable audit record for a level change event.
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Debug, Clone, serde::Serialize)]
 pub struct LevelChange {
     /// Unique level change id.
     pub id: Uuid,
@@ -87,7 +87,7 @@ pub struct LevelChange {
 }
 
 /// Current account-level trading state.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub enum LevelStatus {
     /// Normal operation.
     Normal,
@@ -98,7 +98,7 @@ pub enum LevelStatus {
 }
 
 /// Direction for a level transition.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub enum LevelDirection {
     /// Level is increased.
     Upgrade,
@@ -107,7 +107,7 @@ pub enum LevelDirection {
 }
 
 /// Typed trigger for level-change events.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub enum LevelTrigger {
     /// Manual operator intervention.
     ManualOverride,
@@ -132,7 +132,7 @@ pub enum LevelTrigger {
 }
 
 /// Domain-level validation and transition errors.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub enum LevelError {
     /// Level must be between 0 and 4.
     InvalidLevel(u8),
@@ -145,7 +145,7 @@ pub enum LevelError {
 }
 
 /// Validation errors for configurable level-adjustment rules.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub enum LevelRulesError {
     /// Field must be strictly negative (loss threshold).
     LossThresholdMustBeNegative(&'static str),
@@ -443,7 +443,7 @@ impl LevelTrigger {
 }
 
 /// Parsing failure for [`LevelStatus`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub struct LevelStatusParseError;
 
 impl std::error::Error for LevelStatusParseError {}
@@ -468,7 +468,7 @@ impl FromStr for LevelStatus {
 }
 
 /// Parsing failure for [`LevelTrigger`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub struct LevelTriggerParseError;
 
 impl std::error::Error for LevelTriggerParseError {}

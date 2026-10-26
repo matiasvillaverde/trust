@@ -141,12 +141,12 @@ fn withdraw(
     Ok((transaction, updated_balance))
 }
 
-pub fn transfer_to_fund_trade(
+pub(super) fn transfer_to_fund_trade(
     trade: &Trade,
     database: &mut dyn DatabaseFactory,
 ) -> Result<(Transaction, AccountBalance, TradeBalance), Box<dyn Error>> {
-    // 1. Validate that trade can be fund
-    crate::validators::funding::can_fund(trade, database)?;
+    // The owning fund savepoint validates before changing status. Revalidating
+    // here would count the new reservation before its ledger legs exist.
 
     // Use the calculator to determine the required capital based on trade type.
     // For short trades, this uses the stop price (worst case) to ensure we have

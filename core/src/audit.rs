@@ -240,7 +240,10 @@ fn hash_event(event: &AuditEvent) -> Result<String, Box<dyn Error>> {
     }
     let canonical = canonicalize_json(value);
     let bytes = serde_json::to_vec(&canonical)?;
-    Ok(format!("{:x}", Sha256::digest(bytes)))
+    Ok(Sha256::digest(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect())
 }
 
 fn canonicalize_json(value: Value) -> Value {

@@ -626,8 +626,11 @@ impl ReadTransactionDB for PositiveTransactionRead {
     fn all_account_transactions_excluding_taxes(
         &mut self,
         _account_id: Uuid,
-        _currency: &Currency,
+        currency: &Currency,
     ) -> Result<Vec<Transaction>, Box<dyn Error>> {
+        if *currency != Currency::USD {
+            return Ok(Vec::new());
+        }
         Ok(vec![transaction_fixture(
             TransactionCategory::Deposit,
             Decimal::from(10_000),
@@ -764,8 +767,11 @@ impl ReadTransactionDB for DrawdownEquityOverflowRead {
     fn all_account_transactions_excluding_taxes(
         &mut self,
         _account_id: Uuid,
-        _currency: &Currency,
+        currency: &Currency,
     ) -> Result<Vec<Transaction>, Box<dyn Error>> {
+        if *currency != Currency::USD {
+            return Ok(Vec::new());
+        }
         Ok(vec![
             transaction_fixture(TransactionCategory::Deposit, Decimal::MAX, 0),
             transaction_fixture(TransactionCategory::Deposit, Decimal::MAX, 1),
@@ -832,8 +838,11 @@ impl ReadTransactionDB for DrawdownMetricsOverflowRead {
     fn all_account_transactions_excluding_taxes(
         &mut self,
         _account_id: Uuid,
-        _currency: &Currency,
+        currency: &Currency,
     ) -> Result<Vec<Transaction>, Box<dyn Error>> {
+        if *currency != Currency::USD {
+            return Ok(Vec::new());
+        }
         Ok(vec![
             transaction_fixture(TransactionCategory::Deposit, Decimal::ONE, 0),
             transaction_fixture(TransactionCategory::Withdrawal, Decimal::MAX, 1),

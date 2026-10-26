@@ -5,9 +5,10 @@ edition = "2021"
 license = "GPL-3.0-only"
 
 [dependencies]
+serde.workspace = true
 model = { package = "trust-model", path = "../model", version = "0.3.2" }
 chrono = { workspace = true }
-keyring = { workspace = true }
+trust-credentials = { workspace = true }
 reqwest = { workspace = true }
 rust_decimal = { workspace = true }
 serde_json = { workspace = true }

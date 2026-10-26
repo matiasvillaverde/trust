@@ -1,0 +1,26 @@
+{
+  "listen": "0.0.0.0:8000",
+  "public_url": "https://trust.example.com",
+  "issuer": "https://identity.example.com/realms/trust",
+  "jwks_file": "/etc/trust/jwks.json",
+  "database": "/data/financial.db",
+  "journal": "/data/control.db",
+  "allow_live": false,
+  "reconcile_interval_seconds": 30,
+  "max_token_lifetime_seconds": 3600,
+  "queue_capacity": 64,
+  "allowed_origins": [],
+  "revoked_token_ids": [],
+  "grants": {
+    "REPLACE_WITH_OWNER_SUBJECT": {
+      "all_accounts": true,
+      "scopes": ["trust:read", "trust:preview", "trust:trade", "trust:reconcile", "trust:journal", "trust:policy", "trust:admin"],
+      "allow_live": false
+    },
+    "REPLACE_WITH_AGENT_SUBJECT": {
+      "accounts": ["00000000-0000-0000-0000-000000000001"],
+      "scopes": ["trust:read", "trust:preview"],
+      "allow_live": false
+    }
+  }
+}

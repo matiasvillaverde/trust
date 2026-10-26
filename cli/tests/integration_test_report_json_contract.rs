@@ -1,3 +1,4 @@
+#![cfg(feature = "legacy-cli")]
 use chrono::{NaiveDate, NaiveDateTime};
 use core::TrustFacade;
 use db_sqlite::SqliteDatabase;
@@ -15,7 +16,7 @@ use std::str::FromStr;
 use uuid::Uuid;
 
 fn cli_bin_path() -> String {
-    if let Ok(bin) = std::env::var("CARGO_BIN_EXE_trust") {
+    if let Ok(bin) = std::env::var("CARGO_BIN_EXE_trust-legacy") {
         return bin;
     }
 
@@ -25,13 +26,13 @@ fn cli_bin_path() -> String {
             .join("..")
             .join("target")
             .join("debug")
-            .join("trust"),
+            .join("trust-legacy"),
         manifest_dir
             .join("..")
             .join("target")
             .join("llvm-cov-target")
             .join("debug")
-            .join("trust"),
+            .join("trust-legacy"),
     ];
     for candidate in &candidates {
         if candidate.exists() {
@@ -41,7 +42,7 @@ fn cli_bin_path() -> String {
 
     if let Ok(current_exe) = std::env::current_exe() {
         if let Some(debug_dir) = current_exe.parent().and_then(Path::parent) {
-            let sibling_bin = debug_dir.join("trust");
+            let sibling_bin = debug_dir.join("trust-legacy");
             if sibling_bin.exists() {
                 return sibling_bin.to_string_lossy().to_string();
             }
@@ -232,8 +233,8 @@ fn seed_account_with_closed_performance_series(
                     thesis: Some(format!("adjusted metrics trade {index}")),
                     context: Some("varied close fees".to_string()),
                 },
-                dec!(100),
                 dec!(95),
+                dec!(100),
                 dec!(110),
             )
             .expect("create trade");
@@ -349,8 +350,8 @@ fn seed_account_with_wash_sale(database_url: &str) -> Uuid {
                 thesis: Some("wash sale loss".to_string()),
                 context: None,
             },
-            dec!(100),
             dec!(90),
+            dec!(100),
             dec!(120),
         )
         .expect("create loss trade");
@@ -399,8 +400,8 @@ fn seed_account_with_wash_sale(database_url: &str) -> Uuid {
                 thesis: Some("replacement buy".to_string()),
                 context: None,
             },
-            dec!(95),
             dec!(88),
+            dec!(95),
             dec!(115),
         )
         .expect("create replacement trade");
@@ -467,8 +468,8 @@ fn seed_closed_tax_trade(
                 thesis: Some(spec.thesis.to_string()),
                 context: None,
             },
-            spec.entry_price,
             spec.stop_price,
+            spec.entry_price,
             spec.target_price,
         )
         .expect("create tax trade");

@@ -1275,10 +1275,7 @@ fn bug_040_rule_with_negative_risk_percentage() {
         "negative risk",
         &RuleLevel::Error,
     );
-    // BUG: Negative risk percentage might be accepted
-    if result.is_ok() {
-        println!("BUG: Negative risk percentage (-5%) was accepted as a rule");
-    }
+    assert!(result.is_err(), "invalid or duplicate risk rule must fail");
 }
 
 #[test]
@@ -1293,10 +1290,7 @@ fn bug_041_rule_with_over_100_percent_risk() {
         "absurd risk",
         &RuleLevel::Error,
     );
-    // BUG: Risk percentages > 100% should be rejected
-    if result.is_ok() {
-        println!("BUG: Risk percentage > 100% (200%) was accepted");
-    }
+    assert!(result.is_err(), "invalid or duplicate risk rule must fail");
 }
 
 #[test]
@@ -3119,9 +3113,7 @@ fn bug_119_rule_with_zero_risk_per_trade() {
         "zero risk",
         &RuleLevel::Error,
     );
-    if result.is_ok() {
-        println!("BUG: Zero risk per trade (0%) was accepted as a rule");
-    }
+    assert!(result.is_ok(), "zero is an intentional no-new-risk policy");
 }
 
 #[test]
@@ -3136,9 +3128,7 @@ fn bug_120_rule_with_zero_risk_per_month() {
         "zero monthly",
         &RuleLevel::Error,
     );
-    if result.is_ok() {
-        println!("BUG: Zero risk per month (0%) was accepted as a rule");
-    }
+    assert!(result.is_ok(), "zero is an intentional no-new-risk policy");
 }
 
 #[test]
@@ -3161,12 +3151,7 @@ fn bug_121_duplicate_rules_same_type() {
         "risk 5%",
         &RuleLevel::Error,
     );
-    // BUG: Should this be allowed? Which one takes priority?
-    if result.is_ok() {
-        println!(
-            "BUG: Duplicate RiskPerTrade rules accepted (2% and 5%). Ambiguous which applies."
-        );
-    }
+    assert!(result.is_err(), "invalid or duplicate risk rule must fail");
 }
 
 #[test]
@@ -3181,9 +3166,7 @@ fn bug_122_rule_with_nan_like_risk() {
         "inf",
         &RuleLevel::Error,
     );
-    if result.is_ok() {
-        println!("BUG: Infinity risk per trade was accepted");
-    }
+    assert!(result.is_err(), "invalid or duplicate risk rule must fail");
 }
 
 #[test]
@@ -3197,9 +3180,7 @@ fn bug_123_rule_with_nan_risk() {
         "nan",
         &RuleLevel::Error,
     );
-    if result.is_ok() {
-        println!("BUG: NaN risk per trade was accepted");
-    }
+    assert!(result.is_err(), "invalid or duplicate risk rule must fail");
 }
 
 // ─────────────────────────────────────────────────────────────────

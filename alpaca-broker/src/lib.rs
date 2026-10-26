@@ -112,6 +112,44 @@ pub(crate) fn alpaca_order_symbol(trade: &Trade) -> String {
 
 /// Generic Broker API
 impl Broker for AlpacaBroker {
+    fn instrument_metadata(
+        &self,
+        account: &Account,
+        symbol: &str,
+        category: model::TradingVehicleCategory,
+    ) -> Result<model::database::TradingVehicleUpsert, Box<dyn Error>> {
+        let metadata = Self::fetch_asset_metadata(account, symbol)?;
+        let compatible = metadata.category == category
+            || metadata.category == model::TradingVehicleCategory::Stock
+                && category == model::TradingVehicleCategory::Etf;
+        if !compatible {
+            return Err("Broker instrument category does not match requested category".into());
+        }
+        Ok(model::database::TradingVehicleUpsert {
+            symbol: metadata.symbol,
+            isin: None,
+            category,
+            broker: "alpaca".into(),
+            broker_asset_id: Some(metadata.broker_identifier),
+            exchange: Some(metadata.exchange),
+            broker_asset_class: Some(metadata.category.to_string()),
+            broker_asset_status: Some(
+                if metadata.is_active {
+                    "active"
+                } else {
+                    "inactive"
+                }
+                .into(),
+            ),
+            tradable: Some(metadata.tradable),
+            marginable: Some(metadata.marginable),
+            shortable: Some(metadata.shortable),
+            easy_to_borrow: Some(metadata.easy_to_borrow),
+            fractionable: Some(metadata.fractionable),
+            fixed_income: None,
+        })
+    }
+
     fn kind(&self) -> BrokerKind {
         BrokerKind::Alpaca
     }

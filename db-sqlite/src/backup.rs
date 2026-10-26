@@ -270,6 +270,8 @@ pub struct RuleRow {
     pub level: String,
     pub account_id: String,
     pub active: bool,
+    #[serde(default)]
+    pub risk_decimal: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Queryable, Insertable)]
@@ -871,8 +873,7 @@ const DECIMAL_FIELDS: &[&str] = &[
 
 fn validate_decimal_field(table: &str, field: &str, text: &str) -> Result<(), BackupError> {
     use rust_decimal::Decimal;
-    let value = text
-        .parse::<Decimal>()
+    let value = Decimal::from_str_exact(text)
         .map_err(|_| BackupError::Invalid(format!("Invalid decimal in {table}.{field}")))?;
     let positive = matches!(
         field,
@@ -926,6 +927,23 @@ fn validate_decimal_field(table: &str, field: &str, text: &str) -> Result<(), Ba
 #[allow(clippy::too_many_lines)]
 fn validate_policy_rows(tables: &BackupTablesV1) -> Result<(), BackupError> {
     use rust_decimal::Decimal;
+    for row in &tables.rules {
+        let text = row
+            .risk_decimal
+            .clone()
+            .unwrap_or_else(|| row.risk.to_string());
+        let invalid = || {
+            BackupError::Invalid(
+                "rules.risk percentage is outside its supported range or precision".into(),
+            )
+        };
+        let exact = Decimal::from_str_exact(&text).map_err(|_| invalid())?;
+        let risk = text.parse::<f32>().map_err(|_| invalid())?;
+        let rule = model::RuleName::parse(&row.name, risk).map_err(|_| invalid())?;
+        if rule.risk_decimal().ok() != Some(exact) {
+            return Err(invalid());
+        }
+    }
     for rule in &tables.distribution_rules {
         let total = [
             &rule.earnings_percent,
@@ -1353,6 +1371,7 @@ mod tests {
                     level: "normal".to_string(),
                     account_id: account_id.clone(),
                     active: true,
+                    risk_decimal: None,
                 }],
                 transactions: vec![TransactionRow {
                     id: transaction_id,
@@ -2172,6 +2191,7 @@ mod tests {
                 level: "error".to_string(),
                 account_id: account_id.clone(),
                 active: true,
+                risk_decimal: None,
             })
             .execute(&mut conn1)
             .unwrap();

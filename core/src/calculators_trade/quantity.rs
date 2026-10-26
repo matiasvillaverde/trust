@@ -1,7 +1,8 @@
-use model::{Currency, DatabaseFactory, RuleName};
+#[cfg(test)]
+use model::RuleName;
+use model::{Currency, DatabaseFactory};
 use rust_decimal::{Decimal, RoundingStrategy};
 use rust_decimal_macros::dec;
-use std::str::FromStr;
 use uuid::Uuid;
 
 use crate::calculators_account::AccountCapitalAvailable;
@@ -11,7 +12,7 @@ pub struct QuantityCalculator;
 
 const MAX_QUANTITY_DECIMAL_PLACES: u32 = 8;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct LevelAdjustedQuantity {
     pub base_quantity: Decimal,
     pub level_multiplier: Decimal,
@@ -32,58 +33,32 @@ impl QuantityCalculator {
             database.transaction_read().as_mut(),
         )?;
 
-        // Get rules by priority
-        let mut rules = database.rule_read().read_all_rules(account_id)?;
-        rules.sort_by_key(|rule| rule.priority);
-
-        let mut risk_per_month = dec!(100.0); // Default to 100% of the available capital
-
-        // match rules by name
-        for rule in rules {
-            match rule.name {
-                RuleName::RiskPerMonth(risk) => {
-                    risk_per_month =
-                        RiskCalculator::calculate_max_percentage_to_risk_current_month(
-                            risk, account_id, currency, database,
-                        )?;
-                }
-                RuleName::RiskPerTrade(risk) => {
-                    let risk_decimal = Decimal::from_f32_retain(risk)
-                        .ok_or_else(|| format!("Failed to convert risk {risk} to Decimal"))?;
-                    if risk_per_month < risk_decimal {
-                        return Ok(Decimal::ZERO); // No capital to risk this month, so quantity is 0. AKA: No trade.
-                    } else {
-                        let risk_per_trade = QuantityCalculator::max_quantity_per_trade(
-                            total_available,
-                            entry_price,
-                            stop_price,
-                            risk,
-                        );
-                        return Ok(risk_per_trade);
-                    }
-                }
-            }
+        if entry_price <= Decimal::ZERO {
+            return Err(format!("Invalid entry price {entry_price} for quantity calculation (must be greater than 0)").into());
         }
-
-        // If there are no rules, return the maximum quantity based on available funds
-        if entry_price <= dec!(0.0) {
-            return Err(format!(
-                "Invalid entry price {entry_price} for quantity calculation (must be greater than 0)"
-            )
-            .into());
+        if stop_price < Decimal::ZERO {
+            return Err("Stop price must not be negative".into());
         }
-        if total_available <= dec!(0.0) {
+        let rules = database.rule_read().read_all_rules(account_id)?;
+        let (per_trade, per_month) =
+            RiskCalculator::effective_rules(account_id, currency, &rules, database)?;
+        if total_available <= Decimal::ZERO || per_trade.is_some_and(|risk| risk > per_month) {
             return Ok(Decimal::ZERO);
         }
-        let max_quantity = total_available.checked_div(entry_price).ok_or_else(|| {
-            format!("Division by zero or overflow: {total_available} / {entry_price}")
-        })?;
-        let max_quantity = if max_quantity < Decimal::ZERO {
-            Decimal::ZERO
-        } else {
-            max_quantity
-        };
-        Ok(Self::conservative_quantity(max_quantity))
+        // A short reserves stop notional; the preview must match the funding gate.
+        let funding_price = entry_price.max(stop_price);
+        if rules.is_empty() {
+            let maximum = total_available.checked_div(funding_price).ok_or_else(|| {
+                format!("Division by zero or overflow: {total_available} / {funding_price}")
+            })?;
+            return Ok(Self::conservative_quantity(maximum));
+        }
+        Ok(Self::quantity_for_risk(
+            total_available,
+            funding_price,
+            entry_price.min(stop_price),
+            per_trade.unwrap_or(per_month),
+        ))
     }
 
     pub fn maximum_quantity_with_level(
@@ -97,7 +72,8 @@ impl QuantityCalculator {
             Self::maximum_quantity(account_id, entry_price, stop_price, currency, database)?;
         let level = database.level_read().level_for_account(account_id)?;
         let final_quantity =
-            Self::apply_multiplier_to_quantity(base_quantity, level.risk_multiplier);
+            Self::apply_multiplier_to_quantity(base_quantity, level.risk_multiplier)
+                .min(base_quantity);
 
         Ok(LevelAdjustedQuantity {
             base_quantity,
@@ -120,11 +96,24 @@ impl QuantityCalculator {
             .round_dp_with_strategy(MAX_QUANTITY_DECIMAL_PLACES, RoundingStrategy::ToZero)
     }
 
+    #[cfg(test)]
     fn max_quantity_per_trade(
         available: Decimal,
         entry_price: Decimal,
         stop_price: Decimal,
         risk: f32,
+    ) -> Decimal {
+        let Ok(risk) = RuleName::RiskPerTrade(risk).risk_decimal() else {
+            return Decimal::ZERO;
+        };
+        Self::quantity_for_risk(available, entry_price, stop_price, risk)
+    }
+
+    fn quantity_for_risk(
+        available: Decimal,
+        entry_price: Decimal,
+        stop_price: Decimal,
+        risk: Decimal,
     ) -> Decimal {
         if available <= dec!(0.0) {
             return Decimal::ZERO;
@@ -141,7 +130,7 @@ impl QuantityCalculator {
             raw_price_diff
         };
 
-        if price_diff <= dec!(0.0) || !risk.is_finite() || risk <= 0.0 {
+        if price_diff <= dec!(0.0) || risk <= Decimal::ZERO {
             return Decimal::ZERO;
         }
 
@@ -153,11 +142,7 @@ impl QuantityCalculator {
             return Decimal::ZERO; // Multiplication overflow
         };
 
-        let Ok(risk_decimal) = Decimal::from_str(&risk.to_string()) else {
-            return Decimal::ZERO; // Failed to convert risk to Decimal
-        };
-
-        let Some(risk_percent) = risk_decimal.checked_div(dec!(100.0)) else {
+        let Some(risk_percent) = risk.checked_div(dec!(100.0)) else {
             return Decimal::ZERO; // Division overflow
         };
 
@@ -573,7 +558,8 @@ mod tests {
         let mut database = SqliteDatabase::new_in_memory();
         let account = create_test_account(&mut database, "quantity-monthly-allowance");
         create_test_deposit(&mut database, &account, dec!(10_000));
-        create_test_rule(&mut database, &account, RuleName::RiskPerTrade(101.0), 1);
+        create_test_rule(&mut database, &account, RuleName::RiskPerTrade(2.0), 1);
+        create_test_rule(&mut database, &account, RuleName::RiskPerMonth(1.0), 2);
 
         let quantity = QuantityCalculator::maximum_quantity(
             account.id,
@@ -618,7 +604,7 @@ mod tests {
             LevelAdjustedQuantity {
                 base_quantity: 4.into(),
                 level_multiplier: dec!(1.5),
-                final_quantity: 6.into(),
+                final_quantity: 4.into(),
             }
         );
     }

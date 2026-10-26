@@ -1,5 +1,4 @@
 use apca::ApiInfo;
-use keyring::Entry;
 use model::{Account, Environment};
 use std::error::Error;
 use std::{
@@ -8,9 +7,46 @@ use std::{
 };
 
 pub fn read_api_key(env: &Environment, account: &Account) -> Result<ApiInfo, Box<dyn Error>> {
-    let keys = Keys::read(env, &account.name)?;
+    let keys = if let Some(path) = std::env::var_os("TRUST_ALPACA_CREDENTIALS_FILE") {
+        let bytes = std::fs::read(path).map_err(|_| "Cannot read Alpaca credential file")?;
+        file_credentials(&bytes, env, account.id)?
+    } else {
+        Keys::read(env, &account.name)?
+    };
     let info = ApiInfo::from_parts(keys.url, keys.key_id, keys.secret)?;
     Ok(info)
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FileCredentials {
+    environment: String,
+    key_id: String,
+    secret: String,
+}
+
+fn file_credentials(
+    bytes: &[u8],
+    environment: &Environment,
+    account_id: uuid::Uuid,
+) -> Result<Keys, Box<dyn Error>> {
+    let entries: std::collections::BTreeMap<uuid::Uuid, FileCredentials> =
+        serde_json::from_slice(bytes).map_err(|_| "Invalid Alpaca credential file")?;
+    let entry = entries
+        .get(&account_id)
+        .ok_or("No Alpaca credentials for this account")?;
+    if entry.environment != environment.to_string()
+        || entry.key_id.trim().is_empty()
+        || entry.secret.trim().is_empty()
+    {
+        return Err("Alpaca credentials do not match account environment or are empty".into());
+    }
+    // Secret files cannot redirect keys to an arbitrary endpoint.
+    let url = match environment {
+        Environment::Paper => "https://paper-api.alpaca.markets",
+        Environment::Live => "https://api.alpaca.markets",
+    };
+    Ok(Keys::new(&entry.key_id, &entry.secret, url))
 }
 
 /// API keys for connecting to Alpaca broker
@@ -74,25 +110,31 @@ impl Keys {
     }
 
     /// Read API keys from keychain
-    pub fn read(environment: &Environment, account_name: &str) -> keyring::Result<Keys> {
-        let entry = Entry::new(account_name, environment.to_string().as_str())?;
+    pub fn read(environment: &Environment, account_name: &str) -> trust_credentials::Result<Keys> {
+        let entry = trust_credentials::entry(account_name, environment.to_string().as_str())?;
         let password = entry.get_password()?;
         let keys = Keys::from_str(password.as_str()).map_err(|_| {
-            keyring::Error::PlatformFailure("Failed to parse Keys from string".to_string().into())
+            trust_credentials::Error::PlatformFailure(
+                "Failed to parse Keys from string".to_string().into(),
+            )
         })?;
         Ok(keys)
     }
 
     /// Store API keys in keychain
-    pub fn store(self, environment: &Environment, account_name: &str) -> keyring::Result<Keys> {
-        let entry = Entry::new(account_name, environment.to_string().as_str())?;
+    pub fn store(
+        self,
+        environment: &Environment,
+        account_name: &str,
+    ) -> trust_credentials::Result<Keys> {
+        let entry = trust_credentials::entry(account_name, environment.to_string().as_str())?;
         entry.set_password(self.to_keychain_string().as_str())?;
         Ok(self)
     }
 
     /// Delete API keys from keychain
-    pub fn delete(environment: &Environment, account_name: &str) -> keyring::Result<()> {
-        let entry = Entry::new(account_name, environment.to_string().as_str())?;
+    pub fn delete(environment: &Environment, account_name: &str) -> trust_credentials::Result<()> {
+        let entry = trust_credentials::entry(account_name, environment.to_string().as_str())?;
         entry.delete_credential()?;
         Ok(())
     }
@@ -167,5 +209,21 @@ mod tests {
     #[test]
     fn from_str_extra_tokens_should_error() {
         assert!(Keys::from_str("https://example.com key_id secret EXTRA_DATA more_stuff").is_err());
+    }
+}
+
+#[cfg(test)]
+mod file_credential_tests {
+    use super::*;
+    #[test]
+    fn mounted_credentials_bind_account_and_environment_without_custom_endpoints() {
+        let account = uuid::Uuid::new_v4();
+        let bytes=serde_json::to_vec(&serde_json::json!({account.to_string():{"environment":"paper","key_id":"test-only","secret":"test-only"}})).unwrap();
+        let keys = file_credentials(&bytes, &Environment::Paper, account).unwrap();
+        assert_eq!(keys.url, "https://paper-api.alpaca.markets");
+        assert!(file_credentials(&bytes, &Environment::Live, account).is_err());
+        assert!(file_credentials(&bytes, &Environment::Paper, uuid::Uuid::new_v4()).is_err());
+        let invalid=serde_json::to_vec(&serde_json::json!({account.to_string():{"environment":"paper","key_id":"test-only","secret":"test-only","url":"https://attacker.invalid"}})).unwrap();
+        assert!(file_credentials(&invalid, &Environment::Paper, account).is_err());
     }
 }

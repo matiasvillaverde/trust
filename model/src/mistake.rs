@@ -4,15 +4,15 @@ use std::str::FromStr;
 use uuid::Uuid;
 
 /// Error returned when parsing an invalid Munger tendency tag.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub struct MungerTendencyParseError;
 
 /// Error returned when parsing an invalid comma-separated tendency tag list.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub struct MungerTendencyListParseError;
 
 /// Trading-relevant Munger tendency tag.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub enum MungerTendency {
     /// #1 Reward/Punishment Superresponse.
     RewardPunishment,
@@ -156,11 +156,11 @@ pub fn parse_munger_tendencies(
 }
 
 /// Error returned when parsing an invalid mistake error type.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub struct MistakeErrorTypeParseError;
 
 /// Whether the mistake was an act of commission or omission.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub enum MistakeErrorType {
     /// A trade/action was taken that should not have been taken.
     Commission,
@@ -191,7 +191,7 @@ impl FromStr for MistakeErrorType {
 }
 
 /// Structured post-trade bias analysis.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct Mistake {
     /// Unique mistake record identifier.
     pub id: Uuid,

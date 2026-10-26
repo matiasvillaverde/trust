@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 
 /// Supported bar timeframes for market data retrieval.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[allow(clippy::enum_variant_names)]
 pub enum BarTimeframe {
     /// One-minute bars.
@@ -14,7 +14,7 @@ pub enum BarTimeframe {
 }
 
 /// OHLCV bar for a symbol.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct MarketBar {
     /// Bar timestamp (start of the bar).
     pub time: DateTime<Utc>,
@@ -35,7 +35,7 @@ pub struct MarketBar {
 /// This is intentionally minimal and broker-agnostic. It is derived from the
 /// latest available market bar when a broker does not expose richer typed
 /// snapshot endpoints.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct MarketSnapshot {
     /// Symbol associated with this snapshot.
     pub symbol: String,
@@ -54,7 +54,7 @@ pub struct MarketSnapshot {
 }
 
 /// A best bid/ask quote for a symbol.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct MarketQuote {
     /// Symbol associated with this quote.
     pub symbol: String,
@@ -71,7 +71,7 @@ pub struct MarketQuote {
 }
 
 /// A market trade tick for a symbol.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct MarketTradeTick {
     /// Symbol associated with this trade.
     pub symbol: String,
@@ -84,7 +84,7 @@ pub struct MarketTradeTick {
 }
 
 /// Origin used to compose a [`MarketSnapshotV2`].
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub enum MarketSnapshotSource {
     /// Snapshot was composed from quote + trade data.
     QuoteTrade,
@@ -93,7 +93,7 @@ pub enum MarketSnapshotSource {
 }
 
 /// Richer market snapshot for LLM-friendly consumption.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct MarketSnapshotV2 {
     /// Symbol associated with this snapshot.
     pub symbol: String,
@@ -118,7 +118,7 @@ pub struct MarketSnapshotV2 {
 }
 
 /// Streaming channel emitted by a broker.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub enum MarketDataChannel {
     /// Aggregate bars.
     Bars,
@@ -129,7 +129,7 @@ pub enum MarketDataChannel {
 }
 
 /// Single normalized market-data streaming event.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct MarketDataStreamEvent {
     /// Emitted channel.
     pub channel: MarketDataChannel,

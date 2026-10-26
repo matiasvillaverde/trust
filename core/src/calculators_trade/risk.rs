@@ -1,4 +1,4 @@
-use model::{Currency, DatabaseFactory};
+use model::{Currency, DatabaseFactory, Rule, RuleName};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use uuid::Uuid;
@@ -9,6 +9,32 @@ use crate::calculators_trade::TradeCapitalNotAtRisk;
 pub struct RiskCalculator;
 
 impl RiskCalculator {
+    /// Resolve caps by rule type, independent of persisted ordering. Duplicate rules
+    /// can only tighten a cap. A monthly-only policy remains an enforced limit.
+    pub fn effective_rules(
+        account_id: Uuid,
+        currency: &Currency,
+        rules: &[Rule],
+        database: &mut dyn DatabaseFactory,
+    ) -> Result<(Option<Decimal>, Decimal), Box<dyn std::error::Error>> {
+        let mut per_trade: Option<Decimal> = None;
+        let mut per_month = dec!(100);
+        for rule in rules {
+            let risk = rule.name.risk_decimal()?;
+            match rule.name {
+                RuleName::RiskPerTrade(_) => {
+                    per_trade = Some(per_trade.map_or(risk, |previous| previous.min(risk)))
+                }
+                RuleName::RiskPerMonth(value) => {
+                    per_month = per_month.min(Self::calculate_max_percentage_to_risk_current_month(
+                        value, account_id, currency, database,
+                    )?)
+                }
+            }
+        }
+        Ok((per_trade, per_month))
+    }
+
     pub fn calculate_max_percentage_to_risk_current_month(
         risk: f32,
         account_id: Uuid,
@@ -22,16 +48,17 @@ impl RiskCalculator {
             database.transaction_read().as_mut(),
         )?;
 
+        if total_available <= Decimal::ZERO {
+            return Ok(Decimal::ZERO);
+        }
+
         // Calculate the capital of the open trades that is not at risk.
         let total_capital_not_at_risk =
             TradeCapitalNotAtRisk::calculate(account_id, currency, database.trade_read().as_mut())?;
 
         // Calculate the total capital at the beginning of the month.
-        let total_beginning_of_month = AccountCapitalBeginningOfMonth::calculate(
-            account_id,
-            currency,
-            database.transaction_read().as_mut(),
-        )?;
+        let total_beginning_of_month =
+            AccountCapitalBeginningOfMonth::risk_reference(account_id, currency, database)?;
 
         let available_to_risk = RiskCalculator::calculate_capital_allowed_to_risk(
             total_beginning_of_month,
@@ -56,7 +83,7 @@ impl RiskCalculator {
         total_capital_not_at_risk: Decimal,
         risk: f32,
     ) -> Decimal {
-        let Some(risk_decimal) = Decimal::from_f32_retain(risk) else {
+        let Ok(risk_decimal) = RuleName::RiskPerMonth(risk).risk_decimal() else {
             return dec!(0.0); // Failed to convert risk to Decimal
         };
 

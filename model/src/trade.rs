@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 /// Trade entity - represents a single trade.
 /// Trade is the most important entity of the trust model.
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Debug, Clone, serde::Serialize)]
 pub struct Trade {
     /// Unique identifier for the trade
     pub id: Uuid,
@@ -120,7 +120,7 @@ impl std::fmt::Display for Trade {
 }
 
 /// The status an order can have.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Default)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Default, serde::Serialize)]
 pub enum Status {
     /// The trade has been created and waiting for
     /// funding. This is the usual initial state of trade.
@@ -183,7 +183,7 @@ impl std::fmt::Display for Status {
 }
 
 /// Error returned when parsing an invalid trade status string
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize)]
 pub struct TradeStatusParseError;
 impl std::str::FromStr for Status {
     type Err = TradeStatusParseError;
@@ -205,7 +205,7 @@ impl std::str::FromStr for Status {
 }
 
 /// The category of the trade - Being a bull or a bear
-#[derive(PartialEq, Debug, Clone, Copy, Default)]
+#[derive(PartialEq, Debug, Clone, Copy, Default, serde::Serialize)]
 pub enum TradeCategory {
     /// Long trade - Bull - buy an asset and sell it later at a higher price
     #[default]
@@ -230,7 +230,7 @@ impl std::fmt::Display for TradeCategory {
     }
 }
 /// Error returned when parsing an invalid trade category string
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize)]
 pub struct TradeCategoryParseError;
 impl std::str::FromStr for TradeCategory {
     type Err = TradeCategoryParseError;
@@ -244,7 +244,7 @@ impl std::str::FromStr for TradeCategory {
 }
 
 /// Trade balance entity - represents the financial snapshot of a trade
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Debug, Clone, serde::Serialize)]
 pub struct TradeBalance {
     /// Unique identifier for the trade balance
     pub id: Uuid,
@@ -322,7 +322,7 @@ impl Default for TradeBalance {
 
 /// Lightweight view used by analytics (for example leveling snapshots) to avoid
 /// materializing full Trade graphs (orders/vehicles) when only performance is needed.
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Debug, Clone, serde::Serialize)]
 pub struct ClosedTradePerformance {
     /// Closed trade identifier.
     pub trade_id: Uuid,

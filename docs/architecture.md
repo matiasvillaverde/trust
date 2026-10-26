@@ -1,3 +1,7 @@
+# Service boundary
+
+The production flow is MCP/HTTP clients → authenticated `trust-service` → serialized `TrustFacade` → domain contracts → database/broker adapters. The service owns agent authorization, operation idempotency, and its separate audit journal. Broker credentials and storage remain server-side. See [service architecture and operations](service.md) for the new boundary. The sections below describe the existing core and legacy terminal internals.
+
 # Architecture
 
 Trust is organized as a Rust workspace with strict boundaries between domain types, business logic, persistence, brokers, and CLI presentation.
@@ -18,7 +22,7 @@ Trust is organized as a Rust workspace with strict boundaries between domain typ
 The intended runtime flow is:
 
 ```text
-CLI -> core::TrustFacade -> model traits -> db/broker implementations
+MCP/CLI -> service -> core::TrustFacade -> model traits -> db/broker implementations
 ```
 
 The CLI should not call the database or broker directly for business decisions. It parses arguments, asks dialogs, calls core, and renders results. Core validates and coordinates state transitions. Database and broker crates implement the traits defined in `trust-model`.

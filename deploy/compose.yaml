@@ -1,0 +1,35 @@
+services:
+  trust:
+    image: trust-service:local
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    init: true
+    user: "10001:10001"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 1g
+    cpus: 2
+    stop_grace_period: 120s
+    ports: ["127.0.0.1:8000:8000"]
+    volumes:
+      - trust-data:/data
+      - ./config.local.json:/etc/trust/config.json:ro
+      - ./jwks.json:/etc/trust/jwks.json:ro
+      # Mount optional secrets individually, then set their file path in config/env.
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m,mode=1777
+    environment:
+      TRUST_IBKR_URL: "${TRUST_IBKR_URL:-https://host.docker.internal:5000/v1/api}"
+      TRUST_IBKR_ALLOW_INSECURE_TLS: "false"
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+volumes:
+  trust-data:

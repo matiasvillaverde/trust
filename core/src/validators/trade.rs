@@ -122,8 +122,11 @@ pub enum TradeValidationErrorCode {
 }
 
 #[derive(Debug)]
+/// Trade lifecycle validation failure, safe to present to authenticated clients.
 pub struct TradeValidationError {
+    /// Machine-readable reason for rejection.
     pub code: TradeValidationErrorCode,
+    /// Domain validation detail without broker credentials.
     pub message: String,
 }
 

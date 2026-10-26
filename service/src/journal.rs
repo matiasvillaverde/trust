@@ -1,0 +1,368 @@
+use crate::{
+    auth::Identity,
+    error::{Result, ServiceError},
+};
+use rusqlite::{params, Connection, OptionalExtension};
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
+use std::{collections::BTreeSet, path::Path};
+use uuid::Uuid;
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Reply {
+    pub schema_version: u32,
+    pub request_id: Uuid,
+    pub operation_id: Option<Uuid>,
+    pub data: Option<Value>,
+    pub error: Option<ServiceError>,
+    pub next_actions: Vec<String>,
+}
+
+impl Reply {
+    pub fn from_result(
+        request_id: Uuid,
+        operation_id: Option<Uuid>,
+        result: Result<Value>,
+    ) -> Self {
+        match result {
+            Ok(data) => Self {
+                schema_version: 1,
+                request_id,
+                operation_id,
+                data: Some(data),
+                error: None,
+                next_actions: vec![],
+            },
+            Err(error) => Self {
+                schema_version: 1,
+                request_id,
+                operation_id,
+                next_actions: vec![error.next_action.clone()],
+                data: None,
+                error: Some(error),
+            },
+        }
+    }
+}
+
+pub enum Claim {
+    New(Uuid),
+    Existing(Reply),
+}
+
+pub struct Journal {
+    connection: Connection,
+}
+
+pub fn digest(value: &Value) -> Result<String> {
+    // serde_json's default map is a BTreeMap, so key order is canonical here.
+    let bytes = serde_json::to_vec(value).map_err(|_| ServiceError::internal())?;
+    Ok(Sha256::digest(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect())
+}
+
+impl Journal {
+    pub fn open(path: &Path) -> Result<Self> {
+        let connection = Connection::open(path).map_err(|_| ServiceError::internal())?;
+        connection
+            .busy_timeout(std::time::Duration::from_secs(5))
+            .map_err(|_| ServiceError::internal())?;
+        let version: i64 = connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .map_err(|_| ServiceError::internal())?;
+        if version > 1 {
+            return Err(ServiceError::invalid(
+                "Control database schema is newer than this service.",
+            ));
+        }
+        connection
+            .execute_batch(include_str!("../migrations/0001_control/up.sql"))
+            .map_err(|_| ServiceError::internal())?;
+        let journal = Self { connection };
+        journal.verify()?;
+        // A crash can occur after a broker accepted an order or a local write committed.
+        // Persisted intent is never automatically re-executed.
+        journal
+            .connection
+            .execute(
+                "UPDATE operations SET state = 'outcome_unknown' WHERE state = 'running'",
+                [],
+            )
+            .map_err(|_| ServiceError::internal())?;
+        Ok(journal)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn claim(
+        &mut self,
+        identity: &Identity,
+        key: &str,
+        tool: &str,
+        account: Option<Uuid>,
+        arguments: &Value,
+        request: Uuid,
+        accounts: &BTreeSet<Uuid>,
+    ) -> Result<Claim> {
+        let request_hash = digest(&json!({"tool":tool,"arguments":arguments}))?;
+        if let Some((operation_id, hash, state, response, stored_accounts)) = self.connection.query_row(
+            "SELECT id, request_hash, state, response, account_ids FROM operations WHERE subject=?1 AND request_key=?2",
+            params![identity.subject, key],
+            |row| Ok((row.get::<_,String>(0)?,row.get::<_,String>(1)?,row.get::<_,String>(2)?,row.get::<_,Option<String>>(3)?,row.get::<_,String>(4)?))
+        ).optional().map_err(|_| ServiceError::internal())? {
+            if hash != request_hash { return Err(ServiceError::new("idempotency_conflict","This key was already used for a different request.","Use the original request to inspect its outcome; use a new key only for a distinct intent.")); }
+            let original_accounts:BTreeSet<Uuid>=serde_json::from_str(&stored_accounts).map_err(|_|ServiceError::internal())?;
+            for account in original_accounts { identity.check(crate::catalog::find(tool)?.scope,Some(account))?; }
+            let id = Uuid::parse_str(&operation_id).map_err(|_| ServiceError::internal())?;
+            if let Some(response) = response {
+                let mut reply: Reply = serde_json::from_str(&response).map_err(|_| ServiceError::internal())?;
+                reply.request_id = request;
+                return Ok(Claim::Existing(reply));
+            }
+            return Ok(Claim::Existing(Reply::from_result(request, Some(id), Err(ServiceError::new(&state,"The original operation has no confirmed completion record.","Inspect trade state and reconcile with the broker. Do not repeat the mutation with a new key.")))));
+        }
+        let id = Uuid::new_v4();
+        let transaction = self
+            .connection
+            .transaction()
+            .map_err(|_| ServiceError::internal())?;
+        transaction.execute("INSERT INTO operations (id,subject,request_key,tool,account_id,request_hash,state,created_at,account_ids) VALUES (?1,?2,?3,?4,?5,?6,'running',?7,?8)",params![id.to_string(),identity.subject,key,tool,account.map(|v|v.to_string()),request_hash,chrono::Utc::now().to_rfc3339(),serde_json::to_string(accounts).map_err(|_|ServiceError::internal())?]).map_err(|_| ServiceError::internal())?;
+        append(
+            &transaction,
+            identity,
+            request,
+            Some(id),
+            tool,
+            account,
+            "attempted",
+            Some(&request_hash),
+        )?;
+        transaction.commit().map_err(|_| ServiceError::internal())?;
+        Ok(Claim::New(id))
+    }
+
+    pub fn finish(
+        &mut self,
+        identity: &Identity,
+        tool: &str,
+        account: Option<Uuid>,
+        reply: &Reply,
+    ) -> Result<()> {
+        let id = reply.operation_id.ok_or_else(ServiceError::internal)?;
+        let response = serde_json::to_string(reply).map_err(|_| ServiceError::internal())?;
+        let state = if reply
+            .error
+            .as_ref()
+            .is_some_and(|error| error.code == "outcome_unknown")
+        {
+            "outcome_unknown"
+        } else if reply.error.is_some() {
+            "failed"
+        } else {
+            "completed"
+        };
+        let transaction = self
+            .connection
+            .transaction()
+            .map_err(|_| ServiceError::internal())?;
+        let changed = transaction.execute("UPDATE operations SET state=?1,response=?2 WHERE id=?3 AND subject=?4 AND state='running'",params![state,response,id.to_string(),identity.subject]).map_err(|_| ServiceError::internal())?;
+        if changed != 1 {
+            return Err(ServiceError::internal());
+        }
+        let response_hash =
+            digest(&serde_json::to_value(reply).map_err(|_| ServiceError::internal())?)?;
+        append(
+            &transaction,
+            identity,
+            reply.request_id,
+            Some(id),
+            tool,
+            account,
+            state,
+            Some(&response_hash),
+        )?;
+        transaction.commit().map_err(|_| ServiceError::internal())?;
+        Ok(())
+    }
+
+    pub fn record(
+        &mut self,
+        identity: &Identity,
+        request: Uuid,
+        tool: &str,
+        account: Option<Uuid>,
+        outcome: &str,
+    ) -> Result<()> {
+        let tx = self
+            .connection
+            .transaction()
+            .map_err(|_| ServiceError::internal())?;
+        append(&tx, identity, request, None, tool, account, outcome, None)?;
+        tx.commit().map_err(|_| ServiceError::internal())
+    }
+
+    pub fn operation(&self, identity: &Identity, key: &str) -> Result<Value> {
+        let row = self.connection.query_row("SELECT id,tool,account_id,state,response,account_ids FROM operations WHERE subject=?1 AND request_key=?2",params![identity.subject,key],|row|Ok((row.get::<_,String>(0)?,row.get::<_,String>(1)?,row.get::<_,Option<String>>(2)?,row.get::<_,String>(3)?,row.get::<_,Option<String>>(4)?,row.get::<_,String>(5)?))).optional().map_err(|_|ServiceError::internal())?.ok_or_else(||ServiceError::new("not_found","Operation not found.","Use the same identity and original idempotency key."))?;
+        let account = row
+            .2
+            .as_deref()
+            .map(Uuid::parse_str)
+            .transpose()
+            .map_err(|_| ServiceError::internal())?;
+        let tool = crate::catalog::find(&row.1)?;
+        identity.check(tool.scope, account)?;
+        let accounts: BTreeSet<Uuid> =
+            serde_json::from_str(&row.5).map_err(|_| ServiceError::internal())?;
+        for account in accounts {
+            identity.check(tool.scope, Some(account))?;
+        }
+        if !tool.account_required && tool.scope == "trust:admin" && !identity.grant.all_accounts {
+            return Err(ServiceError::forbidden());
+        }
+        let response = row
+            .4
+            .as_deref()
+            .map(serde_json::from_str::<Value>)
+            .transpose()
+            .map_err(|_| ServiceError::internal())?;
+        Ok(json!({"operation_id":row.0,"tool":row.1,"state":row.3,"result":response}))
+    }
+
+    pub fn list(&self, identity: &Identity, after: u64, limit: u64) -> Result<Value> {
+        let after = i64::try_from(after)
+            .map_err(|_| ServiceError::invalid("Audit cursor is too large."))?;
+        let mut stmt = self
+            .connection
+            .prepare(
+                "SELECT sequence,event FROM audit WHERE sequence>?1 ORDER BY sequence LIMIT 2000",
+            )
+            .map_err(|_| ServiceError::internal())?;
+        let rows = stmt
+            .query_map([after], |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|_| ServiceError::internal())?;
+        let mut events = Vec::new();
+        let mut cursor = u64::try_from(after).map_err(|_| ServiceError::internal())?;
+        for row in rows {
+            let (sequence, text) = row.map_err(|_| ServiceError::internal())?;
+            let sequence = u64::try_from(sequence).map_err(|_| ServiceError::internal())?;
+            cursor = sequence;
+            let event: Value = serde_json::from_str(&text).map_err(|_| ServiceError::internal())?;
+            let account = event
+                .get("account_id")
+                .and_then(Value::as_str)
+                .map(Uuid::parse_str)
+                .transpose()
+                .map_err(|_| ServiceError::internal())?;
+            let own =
+                event.get("subject").and_then(Value::as_str) == Some(identity.subject.as_str());
+            if own && account.is_none_or(|id| identity.permits_account(id))
+                || identity.permits("trust:admin") && identity.grant.all_accounts
+            {
+                events.push(json!({"sequence":sequence,"event":event}));
+            }
+            if u64::try_from(events.len()).map_err(|_| ServiceError::internal())? >= limit {
+                break;
+            }
+        }
+        Ok(json!({"events":events,"next_cursor":cursor}))
+    }
+
+    pub fn verify(&self) -> Result<Value> {
+        let mut stmt = self
+            .connection
+            .prepare("SELECT event,previous_hash,event_hash FROM audit ORDER BY sequence")
+            .map_err(|_| ServiceError::internal())?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })
+            .map_err(|_| ServiceError::internal())?;
+        let mut previous = "GENESIS".to_owned();
+        let mut count = 0u64;
+        for row in rows {
+            let (event, stored_previous, hash) = row.map_err(|_| ServiceError::internal())?;
+            if previous != stored_previous || chain_hash(&previous, &event) != hash {
+                return Err(ServiceError::new(
+                    "audit_integrity_failed",
+                    "The service audit chain is inconsistent.",
+                    "Stop mutations and restore trusted evidence before restarting.",
+                ));
+            }
+            previous = hash;
+            count = count.saturating_add(1);
+        }
+        Ok(json!({"events":count,"head_hash":previous}))
+    }
+}
+
+fn chain_hash(previous: &str, event: &str) -> String {
+    let mut hash = Sha256::new();
+    hash.update(previous.as_bytes());
+    hash.update(b"\n");
+    hash.update(event.as_bytes());
+    hash.finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+#[allow(clippy::too_many_arguments)]
+fn append(
+    connection: &Connection,
+    identity: &Identity,
+    request: Uuid,
+    operation: Option<Uuid>,
+    tool: &str,
+    account: Option<Uuid>,
+    outcome: &str,
+    content_hash: Option<&str>,
+) -> Result<()> {
+    let previous = connection
+        .query_row(
+            "SELECT event_hash FROM audit ORDER BY sequence DESC LIMIT 1",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|_| ServiceError::internal())?
+        .unwrap_or_else(|| "GENESIS".into());
+    let event=serde_json::to_string(&json!({"version":1,"at":chrono::Utc::now().to_rfc3339(),"subject":identity.subject,"client_id":identity.client_id,"request_id":request,"operation_id":operation,"tool":tool,"account_id":account,"outcome":outcome,"content_hash":content_hash})).map_err(|_|ServiceError::internal())?;
+    let hash = chain_hash(&previous, &event);
+    connection
+        .execute(
+            "INSERT INTO audit(event,previous_hash,event_hash) VALUES (?1,?2,?3)",
+            params![event, previous, hash],
+        )
+        .map_err(|_| ServiceError::internal())?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod compatibility_tests {
+    use super::*;
+
+    #[test]
+    fn existing_operation_and_audit_hashes_survive_dependency_upgrades(
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        // Frozen outputs from sha2 0.10.9 and serde_json 1.0.149.
+        let value =
+            json!({"tool":"capital_deposit","arguments":{"amount":"10.25","currency":"usd"}});
+        assert_eq!(
+            digest(&value)?,
+            "a3a04d3da5d38b0bcc9670fdd753636eb645bd0f3ce5b67c3fc077f218a176df"
+        );
+        assert_eq!(
+            chain_hash("GENESIS", &serde_json::to_string(&value)?),
+            "d4fa4e538707847da2451cd3c33b8b8d0766708e70cc42785837249df5227646"
+        );
+        Ok(())
+    }
+}

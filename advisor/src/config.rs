@@ -1,5 +1,4 @@
 use crate::error::AdvisorError;
-use keyring::Entry;
 use std::fmt::{self, Display, Formatter};
 use std::str::FromStr;
 
@@ -205,16 +204,16 @@ struct KeychainSecretStore;
 
 impl SecretStore for KeychainSecretStore {
     fn read(&self, name: &'static str) -> Result<Option<String>, AdvisorError> {
-        let entry = Entry::new(SERVICE, name)?;
+        let entry = trust_credentials::entry(SERVICE, name)?;
         match entry.get_password() {
             Ok(value) => Ok(Some(value)),
-            Err(keyring::Error::NoEntry) => Ok(None),
+            Err(trust_credentials::Error::NoEntry) => Ok(None),
             Err(error) => Err(error.into()),
         }
     }
 
     fn write(&self, name: &'static str, value: &str) -> Result<(), AdvisorError> {
-        let entry = Entry::new(SERVICE, name)?;
+        let entry = trust_credentials::entry(SERVICE, name)?;
         entry.set_password(value)?;
         Ok(())
     }

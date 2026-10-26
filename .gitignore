@@ -12,6 +12,19 @@ target/
 # Ignore all database files
 db-sqlite/*.db
 *.db
+*.db-wal
+*.db-shm
+*.db-journal
+*.sqlite
+*.sqlite3
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite3-wal
+*.sqlite3-shm
+
+# Python caches from workflow validation
+__pycache__/
+*.py[cod]
 
 # Diesel migrations are source files, even on machines with global *.sql ignores.
 !db-sqlite/migrations/**/*.sql
@@ -28,3 +41,9 @@ db-sqlite/*.db
 
 # Local scratch/backup worktrees
 trust-wt-db-backup/
+
+# Service deployment secrets and local data
+/deploy/config.local.json
+/deploy/jwks.json
+/deploy/secrets/
+/.local/

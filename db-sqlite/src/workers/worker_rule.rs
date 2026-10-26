@@ -3,6 +3,7 @@ use crate::schema::rules;
 use chrono::{NaiveDateTime, Utc};
 use diesel::prelude::*;
 use model::{Account, Rule, RuleLevel, RuleName};
+use rust_decimal::prelude::ToPrimitive;
 use std::error::Error;
 use std::str::FromStr;
 use tracing::error;
@@ -20,6 +21,7 @@ impl WorkerRule {
         level: &RuleLevel,
         account: &Account,
     ) -> Result<Rule, Box<dyn Error>> {
+        let risk = name.risk_decimal()?;
         let uuid = Uuid::new_v4().to_string();
         let now = Utc::now().naive_utc();
 
@@ -29,13 +31,16 @@ impl WorkerRule {
             updated_at: now,
             deleted_at: None,
             name: name.to_string(),
-            #[allow(clippy::cast_possible_truncation)]
-            risk: name.risk() as i32,
+            risk: risk
+                .trunc()
+                .to_i32()
+                .ok_or("Invalid legacy risk percentage")?,
             description: description.to_string(),
-            priority: priority as i32,
+            priority: i32::try_from(priority)?,
             level: level.to_string(),
             account_id: account.id.to_string(),
             active: true,
+            risk_decimal: Some(risk.to_string()),
         };
 
         diesel::insert_into(rules::table)
@@ -112,15 +117,27 @@ struct RuleSQLite {
     level: String,
     account_id: String,
     active: bool,
+    risk_decimal: Option<String>,
 }
 
 impl TryFrom<RuleSQLite> for Rule {
     type Error = ConversionError;
 
     fn try_from(value: RuleSQLite) -> Result<Self, Self::Error> {
-        #[allow(clippy::cast_precision_loss)]
-        let name = RuleName::parse(&value.name, value.risk as f32)
+        let risk_text = value.risk_decimal.unwrap_or_else(|| value.risk.to_string());
+        let risk = risk_text
+            .parse::<f32>()
+            .map_err(|_| ConversionError::new("risk", "Invalid risk percentage"))?;
+        let name = RuleName::parse(&value.name, risk)
             .map_err(|_| ConversionError::new("name", "Failed to parse rule name"))?;
+        let exact = rust_decimal::Decimal::from_str_exact(&risk_text)
+            .map_err(|_| ConversionError::new("risk", "Invalid exact risk percentage"))?;
+        if name.risk_decimal().ok() != Some(exact) {
+            return Err(ConversionError::new(
+                "risk",
+                "Risk percentage is outside its supported range or precision",
+            ));
+        }
         Ok(Rule {
             id: Uuid::parse_str(&value.id)
                 .map_err(|_| ConversionError::new("id", "Failed to parse rule ID"))?,
@@ -160,6 +177,7 @@ struct NewRule {
     level: String,
     account_id: String,
     active: bool,
+    risk_decimal: Option<String>,
 }
 
 #[cfg(test)]
@@ -198,6 +216,7 @@ mod tests {
             level: RuleLevel::Warning.to_string(),
             account_id: Uuid::new_v4().to_string(),
             active: true,
+            risk_decimal: None,
         }
     }
 

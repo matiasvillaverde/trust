@@ -1,3 +1,4 @@
+#![cfg(feature = "legacy-cli")]
 use core::TrustFacade;
 use db_sqlite::SqliteDatabase;
 use model::{
@@ -12,7 +13,7 @@ use std::process::Command;
 use uuid::Uuid;
 
 fn cli_bin_path() -> String {
-    if let Ok(bin) = std::env::var("CARGO_BIN_EXE_trust") {
+    if let Ok(bin) = std::env::var("CARGO_BIN_EXE_trust-legacy") {
         return bin;
     }
 
@@ -22,13 +23,13 @@ fn cli_bin_path() -> String {
             .join("..")
             .join("target")
             .join("debug")
-            .join("trust"),
+            .join("trust-legacy"),
         manifest_dir
             .join("..")
             .join("target")
             .join("llvm-cov-target")
             .join("debug")
-            .join("trust"),
+            .join("trust-legacy"),
     ];
     for candidate in &candidates {
         if candidate.exists() {
@@ -38,7 +39,7 @@ fn cli_bin_path() -> String {
 
     if let Ok(current_exe) = std::env::current_exe() {
         if let Some(debug_dir) = current_exe.parent().and_then(Path::parent) {
-            let sibling_bin = debug_dir.join("trust");
+            let sibling_bin = debug_dir.join("trust-legacy");
             if sibling_bin.exists() {
                 return sibling_bin.to_string_lossy().to_string();
             }

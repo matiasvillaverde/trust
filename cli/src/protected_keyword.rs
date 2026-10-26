@@ -1,5 +1,3 @@
-#[cfg(not(test))]
-use keyring::Entry;
 use std::error::Error;
 use std::sync::{Mutex, OnceLock};
 
@@ -23,7 +21,7 @@ struct KeyringCredentialStore;
 impl CredentialStore for KeyringCredentialStore {
     #[cfg(not(test))]
     fn get(&self) -> Result<String, Box<dyn Error>> {
-        let entry = Entry::new(SERVICE, USERNAME)?;
+        let entry = trust_credentials::entry(SERVICE, USERNAME)?;
         let password = entry.get_password()?;
         Ok(password)
     }
@@ -35,7 +33,7 @@ impl CredentialStore for KeyringCredentialStore {
 
     #[cfg(not(test))]
     fn set(&self, value: &str) -> Result<(), Box<dyn Error>> {
-        let entry = Entry::new(SERVICE, USERNAME)?;
+        let entry = trust_credentials::entry(SERVICE, USERNAME)?;
         entry.set_password(value)?;
         Ok(())
     }
@@ -47,7 +45,7 @@ impl CredentialStore for KeyringCredentialStore {
 
     #[cfg(not(test))]
     fn delete(&self) -> Result<(), Box<dyn Error>> {
-        let entry = Entry::new(SERVICE, USERNAME)?;
+        let entry = trust_credentials::entry(SERVICE, USERNAME)?;
         let _ = entry.delete_credential();
         Ok(())
     }

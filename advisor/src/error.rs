@@ -65,8 +65,8 @@ pub enum AdvisorError {
     },
 }
 
-impl From<keyring::Error> for AdvisorError {
-    fn from(value: keyring::Error) -> Self {
+impl From<trust_credentials::Error> for AdvisorError {
+    fn from(value: trust_credentials::Error) -> Self {
         AdvisorError::Keychain(value.to_string())
     }
 }

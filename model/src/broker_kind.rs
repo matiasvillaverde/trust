@@ -2,7 +2,7 @@ use std::fmt::{self, Display, Formatter};
 use std::str::FromStr;
 
 /// Supported broker integrations.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
 pub enum BrokerKind {
     /// Alpaca broker integration.
     Alpaca,
@@ -32,7 +32,7 @@ impl Display for BrokerKind {
 }
 
 /// Error returned when parsing an unsupported broker kind.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub struct BrokerKindParseError;
 
 impl FromStr for BrokerKind {

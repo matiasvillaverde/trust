@@ -1,5 +1,7 @@
 use crate::calculators_trade::{QuantityCalculator, RiskCalculator, TradeCapitalRequired};
-use model::{AccountBalance, DatabaseFactory, Rule, RuleName, Trade, TradeCategory};
+#[cfg(test)]
+use model::RuleName;
+use model::{AccountBalance, DatabaseFactory, Rule, Trade, TradeCategory};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use std::error::Error;
@@ -9,6 +11,22 @@ type FundingValidationResult = Result<(), Box<FundValidationError>>;
 
 // Validate if trade can be funded by checking account balance, available capital and rules
 pub fn can_fund(trade: &Trade, database: &mut dyn DatabaseFactory) -> FundingValidationResult {
+    if trade.entry.unit_price <= Decimal::ZERO
+        || trade.safety_stop.unit_price <= Decimal::ZERO
+        || trade.target.unit_price <= Decimal::ZERO
+        || trade.entry.quantity != trade.safety_stop.quantity
+        || trade.entry.quantity != trade.target.quantity
+        || (trade.category == TradeCategory::Long
+            && trade.target.unit_price <= trade.entry.unit_price)
+        || (trade.category == TradeCategory::Short
+            && trade.target.unit_price >= trade.entry.unit_price)
+    {
+        return Err(Box::new(FundValidationError {
+            code: FundValidationErrorCode::InvalidPriceDifference,
+            message: "Funding requires positive bracket prices, matching quantities and a target beyond entry in the trade direction".into(),
+        }));
+    }
+
     // 1. Read the cached account projection for the trade currency.
     // Projection updates are applied incrementally on every write path.
     match database
@@ -90,39 +108,20 @@ fn validate_rules(
 ) -> FundingValidationResult {
     // Get rules by priority
     let rules = sorted_rules(trade.account_id, database)?;
-    let mut risk_per_month = dec!(100.0); // Default to 100% of the available capital
-
-    // Match rules by name
-    for rule in rules {
-        match rule.name {
-            RuleName::RiskPerMonth(risk) => {
-                risk_per_month = RiskCalculator::calculate_max_percentage_to_risk_current_month(
-                    risk,
-                    trade.account_id,
-                    &trade.currency,
-                    database,
-                )
-                .map_err(|e| {
-                    Box::new(FundValidationError {
-                        code: FundValidationErrorCode::NotEnoughFunds,
-                        message: format!("Error calculating risk per month: {e}"),
-                    })
-                })?;
-            }
-            RuleName::RiskPerTrade(risk) => {
-                let risk_decimal = Decimal::from_f32_retain(risk).ok_or_else(|| {
-                    Box::new(FundValidationError {
-                        code: FundValidationErrorCode::NotEnoughFunds,
-                        message: format!("Failed to convert risk {risk} to decimal"),
-                    })
-                })?;
-                validate_risk_per_trade(trade, account_balance, risk_decimal, risk_per_month)?;
-            }
-        }
-    }
-
-    // If no rule is violated, return Ok
-    Ok(())
+    let (per_trade, per_month) =
+        RiskCalculator::effective_rules(trade.account_id, &trade.currency, &rules, database)
+            .map_err(|error| {
+                Box::new(FundValidationError {
+                    code: FundValidationErrorCode::NotEnoughFunds,
+                    message: format!("Error calculating risk per month or per trade: {error}"),
+                })
+            })?;
+    validate_risk_per_trade(
+        trade,
+        account_balance,
+        per_trade.unwrap_or(per_month),
+        per_month,
+    )
 }
 
 fn validate_level_adjusted_quantity(
@@ -283,8 +282,11 @@ fn calculate_price_diff(trade: &Trade) -> Result<Decimal, Box<FundValidationErro
 }
 
 #[derive(Debug, PartialEq)]
+/// Funding validation failure, safe to present to authenticated clients.
 pub struct FundValidationError {
+    /// Machine-readable reason for rejection.
     pub code: FundValidationErrorCode,
+    /// Domain validation detail without broker credentials.
     pub message: String,
 }
 
@@ -300,12 +302,19 @@ impl Error for FundValidationError {
     }
 }
 #[derive(Debug, PartialEq)]
+/// Funding risk and capital constraints.
 pub enum FundValidationErrorCode {
+    /// The proposed risk exceeds the per-trade limit.
     RiskPerTradeExceeded,
+    /// Monthly losses leave insufficient risk budget.
     RiskPerMonthExceeded,
+    /// Quantity exceeds the current level-adjusted limit.
     LevelAdjustedQuantityExceeded,
+    /// Entry and protective stop do not define valid risk.
     InvalidPriceDifference,
+    /// Quantity must be positive and representable.
     InvalidQuantity,
+    /// Available capital cannot fund the trade.
     NotEnoughFunds,
 }
 
@@ -399,6 +408,11 @@ mod tests {
             },
             safety_stop: Order {
                 unit_price: stop_price,
+                quantity: quantity.into(),
+                ..Default::default()
+            },
+            target: Order {
+                unit_price: entry_price.checked_add(dec!(1)).expect("test target price"),
                 quantity: quantity.into(),
                 ..Default::default()
             },
@@ -562,7 +576,7 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_rules_reports_risk_per_month_calculation_errors() {
+    fn test_validate_rules_rejects_zero_ledger_capital_even_with_stale_projection() {
         let mut database = SqliteDatabase::new_in_memory();
         let account = create_test_account(&database, "funding-risk-month-error");
         create_test_rule(&database, &account, RuleName::RiskPerMonth(2.0), 1);
@@ -576,8 +590,8 @@ mod tests {
 
         let error = validate_rules(&trade, &account_balance, &mut database).unwrap_err();
 
-        assert_eq!(error.code, FundValidationErrorCode::NotEnoughFunds);
-        assert!(error.message.contains("Error calculating risk per month"));
+        assert_eq!(error.code, FundValidationErrorCode::RiskPerTradeExceeded);
+        assert!(error.message.contains("maximum that can be at risk is 0"));
     }
 
     #[test]

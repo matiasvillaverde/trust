@@ -10,7 +10,7 @@ use rust_decimal_macros::dec;
 use uuid::Uuid;
 
 /// Represents an open trading position with its risk exposure
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct OpenPosition {
     /// The unique identifier of the trade
     pub trade_id: Uuid,
@@ -25,7 +25,7 @@ pub struct OpenPosition {
 }
 
 /// Calculator for capital at risk metrics
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize)]
 pub struct CapitalAtRiskCalculator;
 
 impl CapitalAtRiskCalculator {
@@ -40,30 +40,33 @@ impl CapitalAtRiskCalculator {
         let mut open_positions = Vec::new();
 
         // Get trades that could be open (Funded, Submitted, Filled)
-        let potential_open_statuses = [Status::Funded, Status::Submitted, Status::Filled];
+        let potential_open_statuses = [
+            Status::Funded,
+            Status::Submitted,
+            Status::PartiallyFilled,
+            Status::Filled,
+        ];
 
         let trades = if let Some(account_id) = account_id {
             let mut all_trades = Vec::new();
             for status in potential_open_statuses {
-                if let Ok(trades) = database
-                    .trade_read()
-                    .read_trades_with_status(account_id, status)
-                {
-                    all_trades.extend(trades);
-                }
+                all_trades.extend(
+                    database
+                        .trade_read()
+                        .read_trades_with_status(account_id, status)?,
+                );
             }
             all_trades
         } else {
             let mut all_trades = Vec::new();
             let accounts = database.account_read().all()?;
             for account in accounts {
-                for status in &[Status::Funded, Status::Submitted, Status::Filled] {
-                    if let Ok(trades) = database
-                        .trade_read()
-                        .read_trades_with_status(account.id, *status)
-                    {
-                        all_trades.extend(trades);
-                    }
+                for status in potential_open_statuses {
+                    all_trades.extend(
+                        database
+                            .trade_read()
+                            .read_trades_with_status(account.id, status)?,
+                    );
                 }
             }
             all_trades
@@ -110,6 +113,11 @@ impl CapitalAtRiskCalculator {
         trade: &Trade,
         database: &mut dyn DatabaseFactory,
     ) -> Result<bool, Box<dyn std::error::Error>> {
+        // An exit transaction may close only part of the position. Reconciliation
+        // deliberately retains PartiallyFilled while any exposure remains.
+        if trade.status == Status::PartiallyFilled {
+            return Ok(true);
+        }
         let transactions = database
             .transaction_read()
             .all_trade_transactions(trade.id)?;

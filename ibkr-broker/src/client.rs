@@ -30,7 +30,10 @@ impl IbkrClient {
             // Client Portal Gateway rejects requests without a User-Agent.
             .user_agent(concat!("trust/", env!("CARGO_PKG_VERSION")))
             .cookie_store(true)
-            .danger_accept_invalid_certs(config.allow_insecure_tls)
+            .tls_danger_accept_invalid_certs(config.allow_insecure_tls)
+            // A transport retry or redirect must never repeat or forward an order mutation.
+            .retry(reqwest::retry::never())
+            .redirect(reqwest::redirect::Policy::none())
             .timeout(Duration::from_secs(20))
             .build()?;
         Ok(Self { http, config })
@@ -43,6 +46,7 @@ impl IbkrClient {
         self.ensure_authenticated()?;
         let accounts = self.get_json_value("/iserver/accounts", &[])?;
         if let Some(account) = account {
+            ensure_session_environment(&accounts, account)?;
             let account_id = broker_account_id(account)?;
             ensure_account_is_accessible(&accounts, account_id)?;
             let selected =
@@ -53,6 +57,7 @@ impl IbkrClient {
                     return Err("IBKR selected account does not match configured account".into());
                 }
                 ensure_account_is_accessible(&confirmed, account_id)?;
+                ensure_session_environment(&confirmed, account)?;
             } else {
                 ensure_account_is_selected(&selected, account_id)?;
             }
@@ -342,6 +347,18 @@ fn ensure_order_acknowledgement(response: &Value) -> Result<(), Box<dyn Error>> 
     Err("IBKR response was neither an order acknowledgement nor a confirmation request".into())
 }
 
+fn ensure_session_environment(response: &Value, account: &Account) -> Result<(), Box<dyn Error>> {
+    // Do not trust the local account label to distinguish a live Gateway login.
+    let paper = response
+        .get("isPaper")
+        .and_then(Value::as_bool)
+        .ok_or("IBKR did not confirm the session environment; refusing broker access")?;
+    if paper != (account.environment == model::Environment::Paper) {
+        return Err("IBKR session environment does not match the configured account".into());
+    }
+    Ok(())
+}
+
 fn ensure_account_is_accessible(accounts: &Value, account_id: &str) -> Result<(), Box<dyn Error>> {
     let listed = accounts.get("accounts").unwrap_or(accounts);
     if listed.as_array().is_some_and(|values| {
@@ -551,6 +568,42 @@ mod tests {
     }
 
     #[test]
+    fn order_mutations_never_follow_http_redirects() {
+        let gateway = TcpListener::bind("127.0.0.1:0").unwrap();
+        let destination = TcpListener::bind("127.0.0.1:0").unwrap();
+        destination.set_nonblocking(true).unwrap();
+        let location = format!("http://{}/orders", destination.local_addr().unwrap());
+        let config =
+            ConnectionConfig::new(&format!("http://{}", gateway.local_addr().unwrap()), false)
+                .unwrap();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = gateway.accept().unwrap();
+            stream
+                .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                .unwrap();
+            let reader = BufReader::new(stream.try_clone().unwrap());
+            let headers: Vec<String> = reader
+                .lines()
+                .map(Result::unwrap)
+                .take_while(|line| !line.is_empty())
+                .collect();
+            assert!(headers
+                .first()
+                .is_some_and(|line| line.starts_with("POST /orders ")));
+            write!(stream, "HTTP/1.1 307 Temporary Redirect\r\nLocation: {location}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
+        });
+        let client = IbkrClient::from_config(config).unwrap();
+        assert!(client
+            .post_json_value("/orders", &json!({"quantity":"1"}))
+            .is_err());
+        server.join().unwrap();
+        assert_eq!(
+            destination.accept().unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
+        );
+    }
+
+    #[test]
     fn client_http_helpers_parse_successful_gateway_responses() {
         with_test_server(
             vec![
@@ -660,10 +713,19 @@ mod tests {
     #[test]
     fn already_selected_account_requires_fresh_identity_confirmation() {
         for (confirmation, accepted) in [
-            (r#"{"accounts":["DU123"],"selectedAccount":"DU123"}"#, true),
-            (r#"{"accounts":["DU123"],"selectedAccount":"DU999"}"#, false),
-            (r#"{"accounts":["DU123"]}"#, false),
-            (r#"{"accounts":["DU999"],"selectedAccount":"DU123"}"#, false),
+            (
+                r#"{"isPaper":true,"accounts":["DU123"],"selectedAccount":"DU123"}"#,
+                true,
+            ),
+            (
+                r#"{"isPaper":true,"accounts":["DU123"],"selectedAccount":"DU999"}"#,
+                false,
+            ),
+            (r#"{"isPaper":true,"accounts":["DU123"]}"#, false),
+            (
+                r#"{"isPaper":true,"accounts":["DU999"],"selectedAccount":"DU123"}"#,
+                false,
+            ),
         ] {
             with_test_server(
                 vec![
@@ -672,7 +734,11 @@ mod tests {
                         200,
                         r#"{"authenticated":true,"connected":true}"#,
                     ),
-                    ("GET /iserver/accounts", 200, r#"{"accounts":["DU123"]}"#),
+                    (
+                        "GET /iserver/accounts",
+                        200,
+                        r#"{"isPaper":true,"accounts":["DU123"]}"#,
+                    ),
                     (
                         "POST /iserver/account",
                         200,
@@ -705,7 +771,11 @@ mod tests {
                     200,
                     r#"{"authenticated":true,"connected":true,"established":true,"competing":false}"#,
                 ),
-                ("GET /iserver/accounts", 200, r#"{"accounts":["U1234567"]}"#),
+                (
+                    "GET /iserver/accounts",
+                    200,
+                    r#"{"isPaper":true,"accounts":["U1234567"]}"#,
+                ),
                 (
                     "POST /iserver/account",
                     200,
@@ -776,7 +846,11 @@ mod tests {
                     200,
                     r#"{"authenticated":true,"connected":true,"established":true,"competing":false}"#,
                 ),
-                ("GET /iserver/accounts", 200, r#"{"accounts":["U7654321"]}"#),
+                (
+                    "GET /iserver/accounts",
+                    200,
+                    r#"{"isPaper":true,"accounts":["U7654321"]}"#,
+                ),
             ],
             |base_url| {
                 let client = test_client(&base_url);
@@ -1088,5 +1162,23 @@ mod tests {
         )
         .expect("write response");
         stream.flush().expect("flush response");
+    }
+}
+
+#[cfg(test)]
+mod environment_tests {
+    use super::*;
+    #[test]
+    fn missing_or_mismatched_gateway_environment_is_rejected() {
+        let paper = Account::default();
+        assert!(ensure_session_environment(&json!({"isPaper":true}), &paper).is_ok());
+        assert!(ensure_session_environment(&json!({"isPaper":false}), &paper).is_err());
+        assert!(ensure_session_environment(&json!({}), &paper).is_err());
+        let live = Account {
+            environment: model::Environment::Live,
+            ..paper
+        };
+        assert!(ensure_session_environment(&json!({"isPaper":false}), &live).is_ok());
+        assert!(ensure_session_environment(&json!({"isPaper":true}), &live).is_err());
     }
 }

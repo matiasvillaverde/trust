@@ -233,6 +233,7 @@ diesel::table! {
         level -> Text,
         account_id -> Text,
         active -> Bool,
+        risk_decimal -> Nullable<Text>,
     }
 }
 

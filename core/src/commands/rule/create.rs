@@ -7,6 +7,7 @@ pub fn create(
     description: &str,
     level: &RuleLevel,
 ) -> Result<Rule, Box<dyn std::error::Error>> {
+    rule_name.risk_decimal()?;
     crate::validators::rule::can_create(rule_name, account, database.rule_read().as_mut())?;
     database.rule_write().create_rule(
         account,

@@ -1,11 +1,74 @@
-use model::{Currency, ReadTransactionDB, TransactionCategory};
+use chrono::{Datelike, Utc};
+use model::{Currency, DatabaseFactory, ReadTransactionDB, Status, TransactionCategory};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
+use std::collections::HashSet;
 use uuid::Uuid;
 
 pub struct AccountCapitalBeginningOfMonth;
 
 impl AccountCapitalBeginningOfMonth {
+    /// Opening ledger capital adjusted for current-month capital flows and
+    /// reservations carried into this month. Open trades retain their original
+    /// entry basis; this is not a mark-to-market broker-equity calculation.
+    pub fn risk_reference(
+        account_id: Uuid,
+        currency: &Currency,
+        database: &mut dyn DatabaseFactory,
+    ) -> Result<Decimal, Box<dyn std::error::Error>> {
+        let now = Utc::now();
+        let cutoff = now
+            .date_naive()
+            .with_day(1)
+            .and_then(|d| d.and_hms_opt(0, 0, 0))
+            .ok_or("Invalid UTC month boundary")?;
+        let mut reference =
+            Self::calculate(account_id, currency, database.transaction_read().as_mut())?;
+        let transactions = database
+            .transaction_read()
+            .all_transactions(account_id, currency)?;
+        let mut carried: HashSet<Uuid> = database
+            .trade_read()
+            .all_open_trades_for_currency(account_id, currency)?
+            .into_iter()
+            .map(|t| t.id)
+            .collect();
+        // A position opened last month and closed this month must not turn its
+        // returned collateral into apparent profit. Late fees do not move its exit date.
+        for status in [Status::ClosedTarget, Status::ClosedStopLoss] {
+            for trade in database
+                .trade_read()
+                .read_trades_with_status(account_id, status)?
+            {
+                if trade.currency == *currency && transactions.iter().any(|tx| tx.created_at >= cutoff && matches!(tx.category, TransactionCategory::CloseTarget(id) | TransactionCategory::CloseSafetyStop(id) | TransactionCategory::CloseSafetyStopSlippage(id) if id == trade.id)) {
+                    carried.insert(trade.id);
+                }
+            }
+        }
+        for tx in transactions {
+            let direction = if tx.created_at >= cutoff {
+                match tx.category {
+                    TransactionCategory::Deposit | TransactionCategory::PaymentEarnings(_) => 1,
+                    TransactionCategory::Withdrawal | TransactionCategory::WithdrawalEarnings => -1,
+                    _ => 0,
+                }
+            } else {
+                match tx.category {
+                    TransactionCategory::FundTrade(id) if carried.contains(&id) => 1,
+                    TransactionCategory::PaymentFromTrade(id) if carried.contains(&id) => -1,
+                    _ => 0,
+                }
+            };
+            reference = match direction {
+                1 => reference.checked_add(tx.amount),
+                -1 => reference.checked_sub(tx.amount),
+                _ => Some(reference),
+            }
+            .ok_or("Monthly risk reference overflow")?;
+        }
+        Ok(reference.max(Decimal::ZERO))
+    }
+
     pub fn calculate(
         account_id: Uuid,
         currency: &Currency,
@@ -19,12 +82,13 @@ impl AccountCapitalBeginningOfMonth {
             match transaction.category {
                 TransactionCategory::FundTrade(_)
                 | TransactionCategory::Withdrawal
+                | TransactionCategory::WithdrawalEarnings
                 | TransactionCategory::FeeOpen(_)
                 | TransactionCategory::FeeClose(_) => {
                     total = total.checked_sub(transaction.amount)
                         .ok_or_else(|| format!("Arithmetic overflow in subtraction: {} - {}", total, transaction.amount))?
                 }
-                TransactionCategory::PaymentFromTrade(_) => {
+                TransactionCategory::PaymentFromTrade(_) | TransactionCategory::PaymentEarnings(_) => {
                     total = total.checked_add(transaction.amount)
                         .ok_or_else(|| format!("Arithmetic overflow in addition: {} + {}", total, transaction.amount))?
                 }

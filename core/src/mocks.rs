@@ -52,7 +52,7 @@ pub mod read_transaction_db_mocks {
                 deleted_at: None,
                 currency: Currency::USD,
                 settlement_date: None,
-                status: Status::default(),
+                status: Status::Filled,
                 trading_vehicle: TradingVehicle::default(),
                 safety_stop: MockDatabase::order(
                     stop,
@@ -90,6 +90,16 @@ pub mod read_transaction_db_mocks {
                 quantity: quantity.into(),
                 category,
                 action,
+                status: if action == OrderAction::Buy {
+                    model::OrderStatus::Filled
+                } else {
+                    model::OrderStatus::New
+                },
+                filled_quantity: if action == OrderAction::Buy {
+                    quantity.into()
+                } else {
+                    Decimal::ZERO
+                },
                 ..Default::default()
             }
         }
@@ -222,7 +232,7 @@ pub mod read_transaction_db_mocks {
             database.set_trade(dec!(10), dec!(12), dec!(9), 5);
 
             let trades = database
-                .read_trades_with_status(Uuid::new_v4(), Status::New)
+                .read_trades_with_status(Uuid::new_v4(), Status::Filled)
                 .expect("seeded trades should be readable by status");
             assert_eq!(trades.len(), 1);
 
@@ -234,7 +244,7 @@ pub mod read_transaction_db_mocks {
             let status = database
                 .read_trade_status(Uuid::new_v4())
                 .expect("first seeded trade status should be readable");
-            assert_eq!(status, Status::New);
+            assert_eq!(status, Status::Filled);
 
             let balance = database
                 .read_trade_balance(Uuid::new_v4())

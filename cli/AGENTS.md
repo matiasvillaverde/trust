@@ -2,6 +2,8 @@
 
 This file extends the repository `AGENTS.md` for `cli/`.
 
+The default `trust` binary uses `src/client_main.rs` and calls the authenticated service only. It must not construct a facade, access a financial database, or load broker credentials. The sections below apply to the feature-gated `trust-legacy` binary (`src/main.rs`). Legacy integration tests use `--features legacy-cli`.
+
 ## Layers
 
 - `src/main.rs`, `src/commands.rs`, `src/commands/`: Clap tree and command builders.

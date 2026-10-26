@@ -6,7 +6,7 @@ use uuid::Uuid;
 use crate::calculators_account::AccountCapitalAvailable;
 
 /// Calculated trade hypothesis values for a single proposed position.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct TradeHypothesis {
     /// Available account capital in the selected currency.
     pub available_capital: Decimal,
@@ -38,7 +38,7 @@ pub struct TradeHypothesis {
 /// Calculator for pre-trade hypothesis analysis.
 pub struct TradeHypothesisCalculator;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 enum HypothesisSide {
     Long,
     Short,

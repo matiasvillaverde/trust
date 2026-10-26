@@ -12,7 +12,7 @@ use uuid::Uuid;
 const LONG_TERM_THRESHOLD_DAYS: u64 = 366;
 
 /// Error returned when tax analysis cannot be computed safely.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct TaxReportError {
     context: &'static str,
 }
@@ -32,7 +32,7 @@ impl Display for TaxReportError {
 impl Error for TaxReportError {}
 
 /// Holding-period tax bucket for a closed trade.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub enum TaxHoldingPeriod {
     /// Position held one year or less.
     ShortTerm,
@@ -51,7 +51,7 @@ impl TaxHoldingPeriod {
 }
 
 /// Short-term and long-term tax rates expressed as decimals between 0 and 1.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
 pub struct TaxRates {
     /// Rate applied to short-term taxable gains.
     pub short_term: Decimal,
@@ -72,7 +72,7 @@ impl TaxRates {
 }
 
 /// Optional report-time rate overrides.
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, serde::Serialize)]
 pub struct TaxRateOverrides {
     /// Override short-term rates for every account in the report.
     pub short_term: Option<Decimal>,
@@ -81,7 +81,7 @@ pub struct TaxRateOverrides {
 }
 
 /// Per-trade tax line.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct TaxTradeLine {
     /// Account that owns the trade.
     pub account_id: Uuid,
@@ -112,7 +112,7 @@ pub struct TaxTradeLine {
 }
 
 /// Aggregated account tax summary.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct TaxAccountSummary {
     /// Account identifier.
     pub account_id: Uuid,
@@ -143,7 +143,7 @@ pub struct TaxAccountSummary {
 }
 
 /// Realized gains tax report.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct TaxReport {
     /// Number of trades scanned.
     pub scanned_trade_count: usize,
@@ -178,7 +178,7 @@ pub struct TaxReport {
 }
 
 /// Stateless tax report calculator.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, serde::Serialize)]
 pub struct TaxService;
 
 impl TaxService {
@@ -241,7 +241,7 @@ impl TaxService {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 struct TaxSummaryAccumulator {
     gross_realized_gain: Decimal,
     gross_realized_loss: Decimal,

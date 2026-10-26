@@ -9,7 +9,7 @@ use rust_decimal_macros::dec;
 use std::collections::HashMap;
 
 /// Represents a group of trades with concentration metrics
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct ConcentrationGroup {
     /// Name of the group (sector or asset class)
     pub name: String,
@@ -24,7 +24,7 @@ pub struct ConcentrationGroup {
 }
 
 /// Result of concentration analysis
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, serde::Serialize)]
 pub struct ConcentrationAnalysis {
     /// Groups analyzed (sectors or asset classes)
     pub groups: Vec<ConcentrationGroup>,
@@ -35,7 +35,7 @@ pub struct ConcentrationAnalysis {
 }
 
 /// Warning about concentration risk
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, serde::Serialize)]
 pub struct ConcentrationWarning {
     /// Group name with high concentration
     pub group_name: String,
@@ -46,7 +46,7 @@ pub struct ConcentrationWarning {
 }
 
 /// Severity level of concentration warning
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, serde::Serialize)]
 pub enum WarningLevel {
     /// Moderate concentration (>50%)
     Moderate,
@@ -55,7 +55,7 @@ pub enum WarningLevel {
 }
 
 /// Calculator for portfolio concentration analysis
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize)]
 pub struct ConcentrationCalculator;
 
 impl ConcentrationCalculator {
@@ -188,7 +188,7 @@ impl ConcentrationCalculator {
 }
 
 /// Metadata field to analyze concentration by
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
 pub enum MetadataField {
     /// Analyze by sector
     Sector,

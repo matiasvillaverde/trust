@@ -67,6 +67,24 @@ impl std::fmt::Debug for BrokerRegistry {
 }
 
 impl Broker for BrokerRegistry {
+    fn instrument_metadata(
+        &self,
+        account: &Account,
+        symbol: &str,
+        category: model::TradingVehicleCategory,
+    ) -> Result<model::database::TradingVehicleUpsert, Box<dyn Error>> {
+        self.broker_for_account(account)?
+            .instrument_metadata(account, symbol, category)
+    }
+
+    fn preview_order(
+        &self,
+        trade: &Trade,
+        account: &Account,
+    ) -> Result<model::broker::BrokerOrderPreview, Box<dyn std::error::Error>> {
+        self.broker_for_account(account)?
+            .preview_order(trade, account)
+    }
     fn kind(&self) -> BrokerKind {
         self.fallback_kind
     }

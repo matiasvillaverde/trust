@@ -1,6 +1,6 @@
 [package]
 name = "trust-cli"
-description = "Risk-managed algorithmic trading CLI"
+description = "Terminal client for the Trust risk service"
 version = { workspace = true }
 edition = "2021"
 license = { workspace = true }
@@ -13,9 +13,19 @@ categories = ["command-line-utilities", "finance"]
 
 [[bin]]
 name = "trust"
+path = "src/client_main.rs"
+
+[[bin]]
+name = "trust-legacy"
 path = "src/main.rs"
+required-features = ["legacy-cli"]
+
+[features]
+default = []
+legacy-cli = []
 
 [dependencies]
+reqwest.workspace = true
 model = { package = "trust-model", path = "../model", version = "0.3.2" }
 core = { path = "../core", version = "0.3.2" }
 alpaca-broker = { path = "../alpaca-broker", version = "0.3.2" }
@@ -33,4 +43,4 @@ shellexpand = {workspace = true}
 uuid = {workspace = true}
 chrono = {workspace = true}
 serde_json = {workspace = true}
-keyring = {workspace = true}
+trust-credentials = {workspace = true}

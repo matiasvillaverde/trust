@@ -351,3 +351,54 @@ fn fixed_income_terms_migration_adds_and_removes_bond_columns() {
     .execute(&mut conn)
     .is_err());
 }
+
+#[test]
+fn fractional_risk_migration_preserves_legacy_values_and_rejects_lossy_downgrade() {
+    use diesel::connection::SimpleConnection;
+    let mut connection = SqliteConnection::establish(":memory:").unwrap();
+    connection.batch_execute("PRAGMA foreign_keys=ON; CREATE TABLE accounts(id TEXT PRIMARY KEY); CREATE TABLE rules(id TEXT PRIMARY KEY, account_id TEXT REFERENCES accounts(id), risk INTEGER NOT NULL); INSERT INTO accounts VALUES ('account'); INSERT INTO rules VALUES ('legacy','account',2);").unwrap();
+    let up = include_str!("../migrations/2026-10-26-000001_preserve_fractional_risk/up.sql");
+    let down = include_str!("../migrations/2026-10-26-000001_preserve_fractional_risk/down.sql");
+    connection.batch_execute(up).unwrap();
+    #[derive(QueryableByName)]
+    struct RiskRow {
+        #[diesel(sql_type = Integer)]
+        risk: i32,
+        #[diesel(sql_type = diesel::sql_types::Nullable<Text>)]
+        risk_decimal: Option<String>,
+    }
+    let row: RiskRow = sql_query("SELECT risk,risk_decimal FROM rules")
+        .get_result(&mut connection)
+        .unwrap();
+    assert_eq!(row.risk, 2);
+    assert!(row.risk_decimal.is_none());
+    connection
+        .batch_execute("UPDATE rules SET risk=0,risk_decimal='0.3'")
+        .unwrap();
+    let result =
+        connection.transaction::<(), diesel::result::Error, _>(|conn| conn.batch_execute(down));
+    assert!(
+        result.is_err(),
+        "downgrade must not silently truncate a fractional policy"
+    );
+    let row: RiskRow = sql_query("SELECT risk,risk_decimal FROM rules")
+        .get_result(&mut connection)
+        .unwrap();
+    assert_eq!(row.risk_decimal.as_deref(), Some("0.3"));
+    let check: Vec<ForeignKeyCheckRow> = sql_query("PRAGMA foreign_key_check")
+        .load(&mut connection)
+        .unwrap();
+    assert!(check.is_empty());
+    connection
+        .batch_execute("UPDATE rules SET risk=2,risk_decimal='2'")
+        .unwrap();
+    connection
+        .transaction::<(), diesel::result::Error, _>(|conn| conn.batch_execute(down))
+        .unwrap();
+    connection.batch_execute(up).unwrap();
+    let row: RiskRow = sql_query("SELECT risk,risk_decimal FROM rules")
+        .get_result(&mut connection)
+        .unwrap();
+    assert_eq!(row.risk, 2);
+    assert!(row.risk_decimal.is_none());
+}

@@ -7,7 +7,11 @@ license = "GPL-3.0-only"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+serde = {workspace = true}
 uuid = {workspace = true}
 chrono = {workspace = true}
 rust_decimal = {workspace = true}
 rust_decimal_macros = {workspace = true}
+
+[dev-dependencies]
+serde_json.workspace = true

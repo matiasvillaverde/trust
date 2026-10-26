@@ -3,7 +3,7 @@ use rust_decimal::Decimal;
 use uuid::Uuid;
 
 /// Normalized broker fee/pass-through activity.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct FeeActivity {
     /// Broker identifier (e.g. `alpaca`).
     pub broker: String,

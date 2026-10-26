@@ -1,3 +1,5 @@
+[Service deployment, MCP, authentication, and workflow skills](service.md) is the starting point for the current application.
+
 # Trust Documentation
 
 This directory contains the project documentation for Trust, a risk-managed trading system built as a Rust workspace.
@@ -14,3 +16,6 @@ This directory contains the project documentation for Trust, a risk-managed trad
 - [Interactive Brokers E2E](interactive-brokers-e2e.md)
 - [Multi-Asset Completion Audit](multi-asset-completion-audit.md)
 - [Trust Proof](trust-proof.md)
+- [Reliability: feature inventory](reliability/features.md)
+- [Reliability: extensive edge-case register](reliability/edge-cases.md)
+- [Reliability: test evidence and limits](reliability/verification.md)

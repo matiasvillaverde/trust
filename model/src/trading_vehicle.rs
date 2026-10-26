@@ -3,7 +3,7 @@ use rust_decimal::Decimal;
 use uuid::Uuid;
 
 /// TradingVehicle entity. Like a stock, ETF, bond, crypto, fiat, future, etc.
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Debug, Clone, serde::Serialize)]
 pub struct TradingVehicle {
     /// Unique identifier for the trading vehicle
     pub id: Uuid,
@@ -57,7 +57,7 @@ pub struct TradingVehicle {
 }
 
 /// Fixed-income terms attached to a trading vehicle when the instrument is a bond.
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Debug, Clone, serde::Serialize)]
 pub struct FixedIncomeTerms {
     /// Face/par value per bond unit.
     pub face_value: Option<Decimal>,
@@ -80,7 +80,7 @@ impl FixedIncomeTerms {
 }
 
 /// TradingVehicleCategory enum - represents the type of the trading vehicle.
-#[derive(PartialEq, Eq, Debug, Clone, Copy)]
+#[derive(PartialEq, Eq, Debug, Clone, Copy, serde::Serialize)]
 #[non_exhaustive] // This enum may be extended in the future
 pub enum TradingVehicleCategory {
     /// Stock like AAPL, TSLA, etc.
@@ -115,7 +115,7 @@ impl TradingVehicleCategory {
 // Implementations
 
 /// Error type for parsing trading vehicle category from string
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, serde::Serialize)]
 pub struct TradingVehicleCategoryParseError;
 
 impl std::str::FromStr for TradingVehicleCategory {

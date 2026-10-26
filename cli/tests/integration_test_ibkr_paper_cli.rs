@@ -1,3 +1,4 @@
+#![cfg(feature = "legacy-cli")]
 //! Opt-in, read-only broker checks through the real CLI, using an isolated local ledger.
 use core::TrustFacade;
 use db_sqlite::SqliteDatabase;
@@ -137,7 +138,7 @@ fn paper_market_data_and_benchmark_through_cli() {
     ]);
     let mut failures = Vec::new();
     for args in scenarios {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_trust"));
+        let mut command = Command::new(env!("CARGO_BIN_EXE_trust-legacy"));
         command
             .env_clear()
             .env("TRUST_DB_URL", database_url)

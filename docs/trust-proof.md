@@ -51,4 +51,4 @@ See `docs/interactive-brokers-e2e.md` for required environment variables. `make 
 
 - The live IBKR smoke test does not place real or paper orders; it relies on IBKR `/whatif` previews for live order-shape evidence.
 - The proof suite does not replace full `make ci`; it is a focused risk and multi-asset evidence set.
-- The claim that risk management is "impossible to break" depends on this suite staying mandatory in review and CI for changes touching risk, securities, broker submission, or bond analytics.
+- Passing this suite does not establish that risk management is impossible to break. Keep regression gates mandatory and review the broader [reliability register](reliability/edge-cases.md), including its untested external acceptance items.

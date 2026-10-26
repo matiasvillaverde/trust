@@ -1,7 +1,7 @@
-use keyring::Entry;
 use model::{Account, Environment};
 use std::fmt::{self, Display, Formatter};
 use std::str::FromStr;
+use trust_credentials::Entry;
 
 const DEFAULT_GATEWAY_URL: &str = "https://localhost:5000/v1/api";
 const ENV_URL: &str = "TRUST_IBKR_URL";
@@ -35,9 +35,9 @@ impl ConnectionConfig {
     }
 
     /// Read persisted settings for an account.
-    pub fn read(environment: &Environment, account: &Account) -> keyring::Result<Self> {
+    pub fn read(environment: &Environment, account: &Account) -> trust_credentials::Result<Self> {
         if let Some(config) = Self::from_env().map_err(|_| {
-            keyring::Error::PlatformFailure(
+            trust_credentials::Error::PlatformFailure(
                 "Failed to parse IBKR connection config from environment"
                     .to_string()
                     .into(),
@@ -49,21 +49,27 @@ impl ConnectionConfig {
         let entry = entry(environment, &account.name)?;
         match entry.get_password() {
             Ok(raw) => ConnectionConfig::from_str(&raw).map_err(|_| {
-                keyring::Error::PlatformFailure(
+                trust_credentials::Error::PlatformFailure(
                     "Failed to parse IBKR connection config from keychain"
                         .to_string()
                         .into(),
                 )
             }),
-            Err(keyring::Error::NoEntry) => Ok(Self::default()),
+            Err(trust_credentials::Error::NoEntry) => Ok(Self::default()),
             Err(error) => Err(error),
         }
     }
 
     /// Persist settings for an account.
-    pub fn store(self, environment: &Environment, account: &Account) -> keyring::Result<Self> {
+    pub fn store(
+        self,
+        environment: &Environment,
+        account: &Account,
+    ) -> trust_credentials::Result<Self> {
         Self::from_parts(&self.base_url, self.allow_insecure_tls).map_err(|_| {
-            keyring::Error::PlatformFailure("Invalid IBKR connection config".to_string().into())
+            trust_credentials::Error::PlatformFailure(
+                "Invalid IBKR connection config".to_string().into(),
+            )
         })?;
         let entry = entry(environment, &account.name)?;
         entry.set_password(&self.to_keychain_string())?;
@@ -71,10 +77,10 @@ impl ConnectionConfig {
     }
 
     /// Remove persisted settings for an account.
-    pub fn delete(environment: &Environment, account: &Account) -> keyring::Result<()> {
+    pub fn delete(environment: &Environment, account: &Account) -> trust_credentials::Result<()> {
         let entry = entry(environment, &account.name)?;
         match entry.delete_credential() {
-            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+            Ok(()) | Err(trust_credentials::Error::NoEntry) => Ok(()),
             Err(error) => Err(error),
         }
     }
@@ -153,8 +159,8 @@ impl FromStr for ConnectionConfig {
     }
 }
 
-fn entry(environment: &Environment, account_name: &str) -> keyring::Result<Entry> {
-    Entry::new(
+fn entry(environment: &Environment, account_name: &str) -> trust_credentials::Result<Entry> {
+    trust_credentials::entry(
         &format!("trust-ibkr:{account_name}"),
         environment.to_string().as_str(),
     )

@@ -10,7 +10,7 @@ chrono = { workspace = true }
 rust_decimal = { workspace = true }
 serde_json = { workspace = true, features = ["arbitrary_precision"] }
 reqwest = { workspace = true }
-keyring = { workspace = true }
+trust-credentials = { workspace = true }
 
 [dev-dependencies]
 core = { path = "../core", version = "0.3.2" }

@@ -41,6 +41,7 @@ use orders::{
     build_bracket_orders, build_close_order, build_modify_order, find_live_order_by_ref,
     map_live_order, map_trade_status, normalize_order_ref, validate_bracket_trade,
 };
+use rust_decimal::Decimal;
 use serde_json::Value;
 use std::error::Error;
 use support::{broker_account_id, ensure_trade_account};
@@ -69,6 +70,39 @@ fn ensure_bar_window(start: DateTime<Utc>, end: DateTime<Utc>) -> Result<(), Box
 pub struct IbkrBroker;
 
 impl Broker for IbkrBroker {
+    fn instrument_metadata(
+        &self,
+        account: &Account,
+        symbol: &str,
+        category: TradingVehicleCategory,
+    ) -> Result<model::database::TradingVehicleUpsert, Box<dyn Error>> {
+        let metadata = Self::fetch_contract_metadata_for_category(account, symbol, category)?;
+        Ok(model::database::TradingVehicleUpsert {
+            symbol: metadata.symbol,
+            isin: None,
+            category: metadata.category,
+            broker: "ibkr".into(),
+            broker_asset_id: Some(metadata.conid),
+            exchange: metadata.exchange,
+            broker_asset_class: Some(metadata.sec_type),
+            broker_asset_status: None,
+            tradable: None,
+            marginable: None,
+            shortable: None,
+            easy_to_borrow: None,
+            fractionable: None,
+            fixed_income: None,
+        })
+    }
+
+    fn preview_order(
+        &self,
+        trade: &Trade,
+        account: &Account,
+    ) -> Result<model::broker::BrokerOrderPreview, Box<dyn Error>> {
+        let response = Self::preview_trade(account, trade)?;
+        Ok(normalize_preview(&response))
+    }
     fn kind(&self) -> BrokerKind {
         BrokerKind::Ibkr
     }
@@ -436,6 +470,64 @@ impl IbkrBroker {
         let client = IbkrClient::for_account(account)?;
         client.prepare_trading_session(Some(account))?;
         fetch_contract_metadata_with_client(&client, symbol, category)
+    }
+}
+
+fn normalize_preview(response: &Value) -> model::broker::BrokerOrderPreview {
+    let estimate = |section: &str, field: &str| {
+        let raw = response
+            .get(section)
+            .and_then(|part| part.get(field))
+            .and_then(Value::as_str);
+        parse_preview_estimate(raw)
+    };
+    let mut warnings=vec!["Preview only. Missing currencies and range estimates remain unavailable; never assume the trade currency for account margin.".to_owned()];
+    if let Some(warning) = response
+        .get("warn")
+        .and_then(Value::as_str)
+        .filter(|text| !text.is_empty())
+    {
+        warnings.push(warning.to_owned());
+    }
+    model::broker::BrokerOrderPreview {
+        commission: estimate("amount", "commission"),
+        initial_margin_change: estimate("initial", "change"),
+        maintenance_margin_change: estimate("maintenance", "change"),
+        warnings,
+    }
+}
+
+fn parse_preview_estimate(raw: Option<&str>) -> model::broker::BrokerEstimate {
+    let missing = model::broker::BrokerEstimate {
+        amount: None,
+        currency: None,
+    };
+    let Some(raw) = raw else {
+        return missing;
+    };
+    let mut parts = raw.split_whitespace();
+    let Some(number) = parts.next() else {
+        return missing;
+    };
+    // Do not silently truncate ranges or guess locale-dependent separators.
+    if number
+        .chars()
+        .any(|ch| !ch.is_ascii_digit() && !matches!(ch, '.' | '-' | '+'))
+    {
+        return missing;
+    }
+    let Ok(amount) = number.parse::<Decimal>() else {
+        return missing;
+    };
+    let currency = parts
+        .next()
+        .and_then(|currency| currency.to_ascii_uppercase().parse().ok());
+    if parts.next().is_some() {
+        return missing;
+    }
+    model::broker::BrokerEstimate {
+        amount: Some(amount),
+        currency,
     }
 }
 
@@ -887,5 +979,34 @@ mod tests {
             assert_eq!(stored.base_url, "https://localhost:5000/v1/api");
             IbkrBroker::delete_connection(&Environment::Paper, &account).expect("deleted");
         }
+    }
+}
+
+#[cfg(test)]
+mod preview_estimate_tests {
+    use super::*;
+    #[test]
+    fn estimates_never_infer_currency_or_truncate_ranges() {
+        let estimate = parse_preview_estimate(Some("-123.45 EUR"));
+        assert_eq!(estimate.amount, Some(Decimal::new(-12345, 2)));
+        assert_eq!(estimate.currency, Some(model::Currency::EUR));
+        assert_eq!(parse_preview_estimate(Some("1.25")).currency, None);
+        for text in [
+            "1,25 USD",
+            "1.00 ... 2.00 USD",
+            "1-2 USD",
+            "NaN USD",
+            "1 USD extra",
+        ] {
+            assert_eq!(parse_preview_estimate(Some(text)).amount, None);
+        }
+        let preview = normalize_preview(
+            &serde_json::json!({"amount":{"commission":"1.20 USD"},"initial":{"change":"100 EUR"},"maintenance":{"change":"80 EUR"}}),
+        );
+        assert_eq!(preview.commission.currency, Some(model::Currency::USD));
+        assert_eq!(
+            preview.initial_margin_change.currency,
+            Some(model::Currency::EUR)
+        );
     }
 }

@@ -19,14 +19,13 @@ serde = {workspace = true}
 serde_json = {workspace = true}
 uuid = {workspace = true}
 chrono = {workspace = true}
-thiserror = {workspace = true}
 tracing = {workspace = true}
 argon2 = {workspace = true}
 password-hash = {workspace = true}
-rand_core = {workspace = true}
 advisor = { path = "../advisor", version = "0.3.2" }
 
 [dev-dependencies]
 db-sqlite = { path = "../db-sqlite", version = "0.3.2" }
 diesel = { workspace = true }
-proptest = "1"
+proptest = "1.12.0"
+tempfile = "3.27.0"

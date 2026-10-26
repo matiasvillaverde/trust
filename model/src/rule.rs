@@ -7,7 +7,7 @@ use uuid::Uuid;
 /// Rules can be used to limit the risk per trade or per month.
 /// Rules are a core functionality of Trust given that they are used to limit the risk.
 /// For more information about the rules, please check the documentation about rule names.
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Debug, Clone, serde::Serialize)]
 pub struct Rule {
     /// Unique identifier for the rule
     pub id: Uuid,
@@ -38,7 +38,7 @@ pub struct Rule {
 }
 
 /// RuleName entity - represents the name of a rule
-#[derive(PartialEq, Debug, Clone, Copy)]
+#[derive(PartialEq, Debug, Clone, Copy, serde::Serialize)]
 pub enum RuleName {
     /// The maximum risk per trade defined in percentage
     /// This rule is used to limit the risk per trade
@@ -85,11 +85,33 @@ impl fmt::Display for RuleName {
 }
 
 impl RuleName {
+    /// Interpret the legacy percentage boundary consistently without binary-float arithmetic.
+    /// Zero is a deliberate no-new-risk policy; values outside 0..=100 are invalid.
+    pub fn risk_decimal(&self) -> Result<rust_decimal::Decimal, InvalidRiskPercentage> {
+        let risk = self.risk();
+        if !risk.is_finite() || !(0.0..=100.0).contains(&risk) {
+            return Err(InvalidRiskPercentage);
+        }
+        rust_decimal::Decimal::from_str_exact(&risk.to_string()).map_err(|_| InvalidRiskPercentage)
+    }
+
     /// Returns all possible rule name types with default values
     pub fn all() -> Vec<RuleName> {
         vec![RuleName::RiskPerTrade(0.0), RuleName::RiskPerMonth(0.0)]
     }
 }
+
+/// A rule percentage cannot be represented safely in the supported range.
+#[derive(Debug)]
+pub struct InvalidRiskPercentage;
+
+impl fmt::Display for InvalidRiskPercentage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("Risk percentage must be finite, representable, and between 0 and 100")
+    }
+}
+
+impl std::error::Error for InvalidRiskPercentage {}
 
 impl RuleName {
     /// Returns the risk value associated with this rule
@@ -102,7 +124,7 @@ impl RuleName {
 }
 
 /// Error when parsing rule name from string fails
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, serde::Serialize)]
 pub struct RuleNameParseError;
 
 impl RuleName {
@@ -117,7 +139,7 @@ impl RuleName {
 }
 
 /// RuleLevel entity - represents the level of a rule
-#[derive(PartialEq, Debug, Clone, Copy)]
+#[derive(PartialEq, Debug, Clone, Copy, serde::Serialize)]
 pub enum RuleLevel {
     /// Just print a message in the logs to warn the user about something
     Advice,
@@ -147,7 +169,7 @@ impl fmt::Display for RuleLevel {
 }
 
 /// Error when parsing rule level from string fails
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize)]
 pub struct RuleLevelParseError;
 impl std::str::FromStr for RuleLevel {
     type Err = RuleLevelParseError;

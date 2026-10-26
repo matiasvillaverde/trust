@@ -109,7 +109,7 @@ impl WorkerTrade {
             .map_err(|_| ConversionError::new("status", "Failed to parse status").into())
     }
 
-    pub fn read_all_funded_trades_for_currency(
+    pub fn read_all_open_trades_for_currency(
         connection: &mut SqliteConnection,
         account_id: Uuid,
         currency: &Currency,
@@ -118,7 +118,17 @@ impl WorkerTrade {
             .filter(trades::deleted_at.is_null())
             .filter(trades::account_id.eq(account_id.to_string()))
             .filter(trades::currency.eq(currency.to_string()))
-            .filter(trades::status.eq(Status::Funded.to_string()))
+            .filter(
+                trades::status.eq_any(
+                    [
+                        Status::Funded,
+                        Status::Submitted,
+                        Status::PartiallyFilled,
+                        Status::Filled,
+                    ]
+                    .map(|status| status.to_string()),
+                ),
+            )
             .load::<TradeSQLite>(connection)
             .map_err(|error| {
                 error!("Error reading trades: {:?}", error);
@@ -1001,7 +1011,7 @@ mod tests {
             .expect("status should update");
         assert_eq!(funded.status, Status::Funded);
         assert_single_trade(
-            WorkerTrade::read_all_funded_trades_for_currency(
+            WorkerTrade::read_all_open_trades_for_currency(
                 &mut connection,
                 account.id,
                 &Currency::USD,
@@ -1065,7 +1075,7 @@ mod tests {
             .expect_err("missing table should fail trade status read");
         assert!(status_error.to_string().contains("trades"));
 
-        let funded_error = WorkerTrade::read_all_funded_trades_for_currency(
+        let funded_error = WorkerTrade::read_all_open_trades_for_currency(
             &mut connection,
             account_id,
             &Currency::USD,

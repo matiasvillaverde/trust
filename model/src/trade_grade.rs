@@ -2,11 +2,11 @@ use chrono::NaiveDateTime;
 use uuid::Uuid;
 
 /// Error returned when parsing an invalid grade string.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub struct GradeParseError;
 
 /// Letter grade representation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub enum Grade {
     /// Excellent outcome and process, top tier.
     APlus,
@@ -92,7 +92,7 @@ impl std::str::FromStr for Grade {
 }
 
 /// Trade grade entity stored in DB.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct TradeGrade {
     /// Unique grade record identifier.
     pub id: Uuid,

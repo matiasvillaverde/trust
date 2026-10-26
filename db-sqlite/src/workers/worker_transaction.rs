@@ -301,7 +301,7 @@ impl WorkerTransaction {
         let tx = transactions::table
             .filter(transactions::deleted_at.is_null())
             .filter(transactions::account_id.eq(account_id.to_string()))
-            .filter(transactions::created_at.le(first_day_of_month))
+            .filter(transactions::created_at.lt(first_day_of_month))
             .filter(transactions::currency.eq(currency.to_string()))
             .filter(transactions::category.eq_any(included_categories))
             .order((transactions::created_at.asc(), transactions::id.asc()))

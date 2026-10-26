@@ -1,81 +1,90 @@
-use model::{Currency, ReadTradeDB};
+use model::{Currency, Order, OrderStatus, ReadTradeDB, Trade, TradeCategory};
 use rust_decimal::Decimal;
-use rust_decimal_macros::dec;
 use uuid::Uuid;
 
 pub struct TradeCapitalNotAtRisk;
 
 impl TradeCapitalNotAtRisk {
-    /// This function calculates the total capital not at risk for a given account and currency.
-    /// The total capital not at risk is the sum of the capital not at risk for each open trade.
-    /// The capital not at risk for a trade is the difference between the entry price and the safety stop price.
-    /// The capital not at risk is the amount of money that is not at risk of being lost if the trade is closed.
-    ///
-    /// IMPORTANT: more capital can be at risk in case the safety stops has slippage.
-    ///
-    /// The capital not at risk is calculated as follows:
-    ///    (entry price - safety stop price) * quantity
+    /// Cash retained inside active trades plus proceeds at the planned stop,
+    /// allowing for entry orders that can still fill. This is a planned liquidation
+    /// value, not a guarantee against gaps, fees or failed protective orders.
     pub fn calculate(
         account_id: Uuid,
         currency: &Currency,
         database: &mut dyn ReadTradeDB,
     ) -> Result<Decimal, Box<dyn std::error::Error>> {
-        // Get all open trades for the account and currency from the database.
-        let open_trades = database.all_open_trades_for_currency(account_id, currency)?;
-
-        // Calculate the total capital not at risk by iterating over the open trades and accumulating the values.
-        let total_capital_not_at_risk = open_trades.iter().try_fold(
-            dec!(0.0),
-            |acc, trade| -> Result<Decimal, Box<dyn std::error::Error>> {
-                // Calculate the risk per share for the trade.
-                let risk_per_share = trade
-                    .entry
-                    .unit_price
-                    .checked_sub(trade.safety_stop.unit_price)
-                    .ok_or_else(|| {
-                        format!(
-                            "Arithmetic overflow in subtraction: {} - {}",
-                            trade.entry.unit_price, trade.safety_stop.unit_price
-                        )
-                    })?;
-
-                // Calculate the total capital not at risk for the trade and add it to the accumulator.
-                let capital_not_at_risk_per_trade = trade
-                    .entry
-                    .unit_price
-                    .checked_sub(risk_per_share)
-                    .ok_or_else(|| {
-                        format!(
-                            "Arithmetic overflow in subtraction: {} - {}",
-                            trade.entry.unit_price, risk_per_share
-                        )
-                    })?
-                    .checked_mul(trade.entry.quantity)
-                    .ok_or_else(|| {
-                        format!(
-                            "Arithmetic overflow in multiplication: {} * {}",
-                            trade
-                                .entry
-                                .unit_price
-                                .checked_sub(risk_per_share)
-                                .unwrap_or_default(),
-                            trade.entry.quantity
-                        )
-                    })?;
-
-                acc.checked_add(capital_not_at_risk_per_trade)
-                    .ok_or_else(|| {
-                        format!(
-                            "Arithmetic overflow in addition: {acc} + {capital_not_at_risk_per_trade}"
-                        )
-                        .into()
-                    })
-            },
-        )?;
-
-        // Return the total capital not at risk as the result of the function.
-        Ok(total_capital_not_at_risk)
+        database
+            .all_open_trades_for_currency(account_id, currency)?
+            .iter()
+            .try_fold(Decimal::ZERO, |total, trade| {
+                total
+                    .checked_add(protected_capital(trade)?)
+                    .ok_or_else(|| "Arithmetic overflow in addition of protected capital".into())
+            })
     }
+}
+
+fn filled(order: &Order) -> Decimal {
+    if (order.status == OrderStatus::Filled || order.filled_at.is_some())
+        && order.filled_quantity.is_zero()
+    {
+        order.quantity
+    } else {
+        order.filled_quantity
+    }
+}
+
+fn protected_capital(trade: &Trade) -> Result<Decimal, Box<dyn std::error::Error>> {
+    let entered = filled(&trade.entry);
+    let exited = filled(&trade.target)
+        .checked_add(filled(&trade.safety_stop))
+        .ok_or("Arithmetic overflow in addition of exit quantities")?;
+    let remaining = entered
+        .checked_sub(exited)
+        .ok_or("Arithmetic overflow in subtraction of exit quantities")?;
+    if entered < Decimal::ZERO || entered > trade.entry.quantity || remaining < Decimal::ZERO {
+        return Err("Invalid cumulative quantities in open risk calculation".into());
+    }
+    let pending = if entered == trade.entry.quantity
+        || matches!(
+            trade.entry.status,
+            OrderStatus::Filled
+                | OrderStatus::Canceled
+                | OrderStatus::Expired
+                | OrderStatus::Rejected
+        ) {
+        Decimal::ZERO
+    } else {
+        trade
+            .entry
+            .quantity
+            .checked_sub(entered)
+            .ok_or("Arithmetic overflow in subtraction of pending quantity")?
+    };
+    let exposure = remaining
+        .checked_add(pending)
+        .ok_or("Arithmetic overflow in addition of exposure")?;
+    let pending_notional = trade
+        .entry
+        .unit_price
+        .checked_mul(pending)
+        .ok_or("Arithmetic overflow in multiplication of pending notional")?;
+    let stop_notional = trade
+        .safety_stop
+        .unit_price
+        .checked_mul(exposure)
+        .ok_or("Arithmetic overflow in multiplication of stop notional")?;
+    // Shorts retain collateral AND sale proceeds; the stop is a cash debit.
+    let change = match trade.category {
+        TradeCategory::Long => stop_notional.checked_sub(pending_notional),
+        TradeCategory::Short => pending_notional.checked_sub(stop_notional),
+    }
+    .ok_or("Arithmetic overflow in subtraction of planned cash flows")?;
+    trade
+        .balance
+        .capital_out_market
+        .checked_add(change)
+        .ok_or_else(|| "Arithmetic overflow in addition of retained trade cash".into())
 }
 
 #[cfg(test)]
@@ -120,14 +129,13 @@ mod tests {
     }
 
     #[test]
-    fn test_calculate_reports_price_difference_overflow() {
-        let mut database = MockDatabase::new();
-        database.set_trade(Decimal::MAX, dec!(0), dec!(-1), 1);
-
-        let error = TradeCapitalNotAtRisk::calculate(Uuid::new_v4(), &Currency::USD, &mut database)
-            .unwrap_err();
-
-        assert!(error
+    fn protected_capital_reports_cash_flow_subtraction_overflow() {
+        let mut trade = Trade::default();
+        trade.entry.quantity = dec!(1);
+        trade.entry.unit_price = Decimal::MAX;
+        trade.safety_stop.unit_price = Decimal::MIN;
+        assert!(protected_capital(&trade)
+            .unwrap_err()
             .to_string()
             .contains("Arithmetic overflow in subtraction"));
     }
@@ -157,5 +165,45 @@ mod tests {
         assert!(error
             .to_string()
             .contains("Arithmetic overflow in addition"));
+    }
+    #[test]
+    fn partial_entries_exits_and_cancelled_remainders_preserve_planned_equity() {
+        // (side, entered, exited, entry terminal, retained cash, protected equity)
+        for (side, entered, exited, terminal, cash, expected) in [
+            (TradeCategory::Long, 0, 0, false, dec!(1000), dec!(900)),
+            (TradeCategory::Short, 0, 0, false, dec!(1100), dec!(1000)),
+            (TradeCategory::Long, 3, 0, false, dec!(700), dec!(900)),
+            (TradeCategory::Short, 3, 0, false, dec!(1400), dec!(1000)),
+            (TradeCategory::Long, 3, 0, true, dec!(0), dec!(270)),
+            (TradeCategory::Short, 3, 0, true, dec!(1400), dec!(1070)),
+            (TradeCategory::Long, 10, 4, true, dec!(480), dec!(1020)),
+            (TradeCategory::Long, 10, 4, true, dec!(0), dec!(540)),
+            (TradeCategory::Short, 10, 4, true, dec!(1780), dec!(1120)),
+        ] {
+            let mut trade = Trade {
+                category: side,
+                ..Trade::default()
+            };
+            trade.entry.quantity = dec!(10);
+            trade.entry.unit_price = dec!(100);
+            trade.entry.filled_quantity = Decimal::from(entered);
+            trade.entry.status = if terminal {
+                OrderStatus::Canceled
+            } else {
+                OrderStatus::PartiallyFilled
+            };
+            trade.target.filled_quantity = Decimal::from(exited);
+            trade.safety_stop.unit_price = if side == TradeCategory::Long {
+                dec!(90)
+            } else {
+                dec!(110)
+            };
+            trade.balance.capital_out_market = cash;
+            assert_eq!(
+                protected_capital(&trade).unwrap(),
+                expected,
+                "{side} entered {entered}, exited {exited}, terminal {terminal}"
+            );
+        }
     }
 }

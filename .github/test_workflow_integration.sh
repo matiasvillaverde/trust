@@ -60,9 +60,9 @@ fi
 result=$(validate_yaml ".github/workflows/release-on-version-bump.yaml")
 run_test "Valid YAML syntax" "true" "$result"
 
-# Test 3: Contains safe version parsing (no sed)
-result=$(check_workflow_pattern "cut -d'\"' -f2")
-run_test "Uses safe version parsing (cut)" "true" "$result"
+# Test 3: Validates manifest data before passing a release version to shell commands.
+result=$(check_workflow_pattern "python3 .github/scripts/read_version.py")
+run_test "Uses validated TOML version parsing" "true" "$result"
 
 # Test 4: Does not contain vulnerable sed command
 result=$(check_workflow_pattern "sed.*version.*\\\\1")
@@ -115,7 +115,7 @@ done
 run_test "All target platforms included" "true" "$all_targets_found"
 
 # Test 13: Uses official actions with pinned versions
-result=$(check_workflow_pattern "actions/checkout@v4")
+result=$(check_workflow_pattern "actions/checkout@[0-9a-f]\{40\}")
 run_test "Uses pinned action versions" "true" "$result"
 
 # Test 14: Workflow ends with newline

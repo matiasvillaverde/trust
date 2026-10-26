@@ -40,10 +40,7 @@ use advisor::{
     CorrelationAdvisory, CorrelationCalculator, CorrelationConfig, CorrelationRequest,
     RegimeConfig, RegimeFilter, RegimeRequest, RegimeSnapshot,
 };
-use argon2::{
-    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
-    Argon2,
-};
+use argon2::Argon2;
 pub use audit::{AuditEvent, AuditVerification};
 use broker_registry::BrokerRegistry;
 use calculators_fixed_income::{BondAnalytics, BondAnalyticsInput, FixedIncomeCalculator};
@@ -63,7 +60,7 @@ use model::{
     TradeEventSource, TradeEventType, TradingVehicle, TradingVehicleCategory, Transaction,
     TransactionCategory,
 };
-use rand_core::OsRng;
+use password_hash::{phc::PasswordHash, PasswordHasher, PasswordVerifier};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use uuid::Uuid;
@@ -102,6 +99,16 @@ pub struct TradingSummary {
     pub capital_at_risk: Vec<calculators_risk::OpenPosition>,
     /// Concentration data
     pub concentration: Vec<calculators_concentration::ConcentrationGroup>,
+}
+
+mod service_api;
+
+/// Typed validation failures that application clients may present without provider details.
+pub mod validation_errors {
+    pub use crate::validators::funding::{FundValidationError, FundValidationErrorCode};
+    pub use crate::validators::rule::RuleValidationError;
+    pub use crate::validators::trade::TradeValidationError;
+    pub use crate::validators::transaction::TransactionValidationError;
 }
 
 /// The main facade for interacting with the Trust financial trading system.
@@ -1237,10 +1244,16 @@ impl TrustFacade {
         &mut self,
         account_id: Uuid,
     ) -> Result<Vec<Transaction>, Box<dyn std::error::Error>> {
-        // Use USD as default currency for now
-        self.factory
-            .transaction_read()
-            .all_account_transactions_excluding_taxes(account_id, &Currency::USD)
+        let mut transactions = Vec::new();
+        for currency in Currency::all() {
+            transactions.extend(
+                self.factory
+                    .transaction_read()
+                    .all_account_transactions_excluding_taxes(account_id, &currency)?,
+            );
+        }
+        transactions.sort_by_key(|transaction| (transaction.created_at, transaction.id));
+        Ok(transactions)
     }
 
     /// Get all transactions across all accounts
@@ -1252,9 +1265,7 @@ impl TrustFacade {
         let mut all_transactions = Vec::new();
 
         for account in accounts {
-            if let Ok(txns) = self.get_account_transactions(account.id) {
-                all_transactions.extend(txns);
-            }
+            all_transactions.extend(self.get_account_transactions(account.id)?);
         }
 
         Ok(all_transactions)
@@ -2349,7 +2360,7 @@ impl TrustFacade {
         proposal: TradeProposal,
     ) -> Result<AdvisoryResult, Box<dyn std::error::Error>> {
         let thresholds = self.advisory_thresholds_for_account(proposal.account_id)?;
-        let open = self.open_trades_for_account(proposal.account_id);
+        let open = self.open_trades_for_account(proposal.account_id)?;
         let result = services::advisory::analyze_trade_proposal(&open, &proposal, &thresholds);
         self.advisory_history.push(AdvisoryHistoryEntry {
             account_id: proposal.account_id,
@@ -2379,7 +2390,7 @@ impl TrustFacade {
         account_id: Uuid,
     ) -> Result<PortfolioAdvisoryStatus, Box<dyn std::error::Error>> {
         let thresholds = self.advisory_thresholds_for_account(account_id)?;
-        let open = self.open_trades_for_account(account_id);
+        let open = self.open_trades_for_account(account_id)?;
         Ok(services::advisory::portfolio_status(&open, &thresholds))
     }
 
@@ -2423,19 +2434,20 @@ impl TrustFacade {
 }
 
 impl TrustFacade {
-    fn open_trades_for_account(&mut self, account_id: Uuid) -> Vec<Trade> {
+    fn open_trades_for_account(
+        &mut self,
+        account_id: Uuid,
+    ) -> Result<Vec<Trade>, Box<dyn StdError>> {
         let mut seen = std::collections::HashSet::new();
         let mut out = Vec::new();
         for status in [Status::Submitted, Status::Filled, Status::PartiallyFilled] {
-            if let Ok(trades) = self.search_trades(account_id, status) {
-                for trade in trades {
-                    if seen.insert(trade.id) {
-                        out.push(trade);
-                    }
+            for trade in self.search_trades(account_id, status)? {
+                if seen.insert(trade.id) {
+                    out.push(trade);
                 }
             }
         }
-        out
+        Ok(out)
     }
 
     fn resolve_distribution_accounts(
@@ -2500,10 +2512,9 @@ fn hash_distribution_password(password: &str) -> Result<String, Box<dyn std::err
         return Err("Distribution password must be at least 8 characters".into());
     }
 
-    let salt = SaltString::generate(&mut OsRng);
     let argon2 = Argon2::default();
     let hash = argon2
-        .hash_password(password.as_bytes(), &salt)
+        .hash_password(password.as_bytes())
         .map_err(|e| std::io::Error::other(e.to_string()))?;
     Ok(hash.to_string())
 }
@@ -2513,8 +2524,11 @@ fn verify_distribution_password(
     stored_hash: &str,
 ) -> Result<bool, Box<dyn std::error::Error>> {
     if stored_hash.starts_with("$argon2") {
-        let parsed = PasswordHash::new(stored_hash)
-            .map_err(|e| std::io::Error::other(format!("Invalid password hash: {e}")))?;
+        // Malformed stored credentials are always a mismatch. New PHC parsers validate
+        // salt lengths earlier than older versions; keep the same fail-closed outcome.
+        let Ok(parsed) = PasswordHash::new(stored_hash) else {
+            return Ok(false);
+        };
         Ok(Argon2::default()
             .verify_password(password.as_bytes(), &parsed)
             .is_ok())
@@ -2844,6 +2858,11 @@ mod tests {
         assert_ne!(argon_hash, second_argon_hash);
         assert!(verify_distribution_password(password, &argon_hash).unwrap());
         assert!(!verify_distribution_password("wrong password", &argon_hash).unwrap());
+
+        // Frozen output from argon2 0.5.3. Dependency upgrades must preserve stored passwords.
+        let prior_hash = "$argon2id$v=19$m=19456,t=2,p=1$dHJ1c3QtbGVnYWN5LXNhbHQ$VCHGeQkoFrhXsWqMrab08FWDQQrmFxkYrGfJJPCTHlU";
+        assert!(verify_distribution_password(password, prior_hash).unwrap());
+        assert!(!verify_distribution_password("wrong password", prior_hash).unwrap());
 
         let legacy_sha256_hash = "cbe6beb26479b568e48058e254b7c50b8d0fef2bd635a0f024ee3f80d1a7084d";
         assert!(!verify_distribution_password(password, legacy_sha256_hash).unwrap());

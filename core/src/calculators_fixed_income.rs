@@ -13,7 +13,7 @@ use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
 /// Input for a plain-vanilla bond position analysis.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct BondAnalyticsInput {
     /// Bond face/par value per unit.
     pub face_value: Decimal,
@@ -30,7 +30,7 @@ pub struct BondAnalyticsInput {
 }
 
 /// Inputs needed to calculate accrued interest for a bond settlement.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct BondAccruedInterestInput {
     /// Settlement date for the position analysis.
     pub settlement_date: NaiveDate,
@@ -45,7 +45,7 @@ pub struct BondAccruedInterestInput {
 }
 
 /// Supported day-count bases for accrued-interest estimates.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub enum DayCountBasis {
     /// Actual days elapsed over actual days in the coupon period.
     ActualActual,
@@ -66,7 +66,7 @@ impl Display for DayCountBasis {
 }
 
 /// Error returned when parsing a day-count basis fails.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub struct DayCountBasisParseError;
 
 impl FromStr for DayCountBasis {
@@ -83,7 +83,7 @@ impl FromStr for DayCountBasis {
 }
 
 /// Decimal-only bond position analytics.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct BondAnalytics {
     /// Total face value across the position.
     pub position_face_value: Decimal,
@@ -112,7 +112,7 @@ pub struct BondAnalytics {
 }
 
 /// Errors returned by fixed-income analytics.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub enum FixedIncomeError {
     /// Face/par value must be greater than zero.
     InvalidFaceValue,
@@ -154,7 +154,7 @@ impl Display for FixedIncomeError {
 impl Error for FixedIncomeError {}
 
 /// Calculator for fixed-income position analytics.
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize)]
 pub struct FixedIncomeCalculator;
 
 impl FixedIncomeCalculator {

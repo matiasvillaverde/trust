@@ -143,8 +143,11 @@ pub enum TransactionValidationErrorCode {
 }
 
 #[derive(Debug, PartialEq)]
+/// Ledger transaction validation failure, safe to present to authenticated clients.
 pub struct TransactionValidationError {
+    /// Machine-readable reason for rejection.
     pub code: TransactionValidationErrorCode,
+    /// Domain validation detail without broker credentials.
     pub message: String,
 }
 

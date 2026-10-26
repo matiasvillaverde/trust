@@ -55,7 +55,7 @@ impl PositionHeat {
 }
 
 /// Pairwise correlation result for two symbols.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct CorrelationPair {
     /// First symbol in the pair.
     pub left_symbol: String,
@@ -68,7 +68,7 @@ pub struct CorrelationPair {
 }
 
 /// Correlation advisory output for a candidate trade.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct CorrelationAdvisory {
     /// Highest correlation between the candidate and an open position.
     pub max_corr: Decimal,

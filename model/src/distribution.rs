@@ -4,7 +4,7 @@ use rust_decimal::Decimal;
 use uuid::Uuid;
 
 /// Distribution rules for profit allocation
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct DistributionRules {
     /// Unique identifier for the rules
     pub id: Uuid,
@@ -21,6 +21,7 @@ pub struct DistributionRules {
     /// Minimum profit threshold for distribution
     pub minimum_threshold: Decimal,
     /// Hash used to protect rule updates
+    #[serde(skip_serializing)]
     pub configuration_password_hash: String,
     /// When the rules were created
     pub created_at: NaiveDateTime,
@@ -29,7 +30,7 @@ pub struct DistributionRules {
 }
 
 /// Result of executing profit distribution
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct DistributionResult {
     /// Source account ID from which distribution originates
     pub source_account_id: Uuid,
@@ -50,7 +51,7 @@ pub struct DistributionResult {
 }
 
 /// Persisted history record for a distribution execution
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct DistributionHistory {
     /// Unique identifier for the history row
     pub id: Uuid,
@@ -77,7 +78,7 @@ pub struct DistributionHistory {
 }
 
 /// One leg of a distribution execution (source -> destination).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct DistributionExecutionLeg {
     /// Destination account receiving funds.
     pub to_account_id: Uuid,
@@ -94,7 +95,7 @@ pub struct DistributionExecutionLeg {
 }
 
 /// A full distribution execution request to be written atomically.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct DistributionExecutionPlan {
     /// Source account from which profit is being distributed.
     pub source_account_id: Uuid,
@@ -119,7 +120,7 @@ pub struct DistributionExecutionPlan {
 }
 
 /// Error types for distribution operations
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub enum DistributionError {
     /// Percentages don't sum to 100% (1.0)
     InvalidPercentageSum,
@@ -132,7 +133,7 @@ pub enum DistributionError {
 }
 
 /// Error raised when no distribution rules exist for an account.
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize)]
 pub struct DistributionRulesNotFound {
     /// Account missing distribution rules.
     pub account_id: Uuid,
@@ -564,5 +565,25 @@ mod tests {
             error.to_string(),
             format!("No distribution rules configured for account {account_id}")
         );
+    }
+}
+
+#[cfg(test)]
+mod serialization_tests {
+    use super::*;
+    #[test]
+    fn distribution_api_payload_never_exposes_the_configuration_password_hash() {
+        let mut rules = DistributionRules::new(
+            uuid::Uuid::new_v4(),
+            Decimal::new(25, 2),
+            Decimal::new(25, 2),
+            Decimal::new(25, 2),
+            Decimal::new(25, 2),
+            Decimal::ZERO,
+        );
+        rules.configuration_password_hash = "test-only-sensitive-hash".into();
+        let json = serde_json::to_string(&rules).unwrap();
+        assert!(!json.contains("configuration_password_hash"));
+        assert!(!json.contains("test-only-sensitive-hash"));
     }
 }

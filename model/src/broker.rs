@@ -121,10 +121,51 @@ pub struct OrderIds {
     pub target: String,
 }
 
+/// Broker estimates for an exact proposed order; these never authorize risk.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct BrokerOrderPreview {
+    /// Estimated commission, if supplied by the broker.
+    pub commission: BrokerEstimate,
+    /// Estimated change in initial margin.
+    pub initial_margin_change: BrokerEstimate,
+    /// Estimated change in maintenance margin.
+    pub maintenance_margin_change: BrokerEstimate,
+    /// Broker warnings; never silently accepted as trade authorization.
+    pub warnings: Vec<String>,
+}
+
+/// A broker estimate with explicit availability and currency provenance.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct BrokerEstimate {
+    /// Exact amount when the broker supplied a single unambiguous decimal value.
+    pub amount: Option<Decimal>,
+    /// Currency explicitly supplied by the broker; never inferred from the trade.
+    pub currency: Option<crate::Currency>,
+}
+
 /// Trait for implementing broker integrations
 pub trait Broker {
     /// Stable broker identity used for runtime dispatch.
     fn kind(&self) -> BrokerKind;
+
+    /// Resolve broker-native instrument identity without submitting an order.
+    fn instrument_metadata(
+        &self,
+        _account: &Account,
+        _symbol: &str,
+        _category: TradingVehicleCategory,
+    ) -> Result<crate::database::TradingVehicleUpsert, Box<dyn Error>> {
+        Err("Instrument lookup is not supported by this broker".into())
+    }
+
+    /// Estimate broker costs without submitting an order.
+    fn preview_order(
+        &self,
+        _trade: &Trade,
+        _account: &Account,
+    ) -> Result<BrokerOrderPreview, Box<dyn Error>> {
+        Err("Order preview is not supported by this broker".into())
+    }
 
     /// Submit a new trade to the broker
     fn submit_trade(

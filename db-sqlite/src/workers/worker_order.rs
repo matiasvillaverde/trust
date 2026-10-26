@@ -25,6 +25,8 @@ impl WorkerOrder {
         category: &OrderCategory,
         trading_vehicle: &TradingVehicle,
     ) -> Result<Order, Box<dyn Error>> {
+        nonnegative(unit_price, "unit_price")?;
+        nonnegative(quantity, "quantity")?;
         let new_order = NewOrder {
             quantity: quantity.to_string(),
             unit_price: unit_price.to_string(),
@@ -62,6 +64,11 @@ impl WorkerOrder {
         connection: &mut SqliteConnection,
         order: &Order,
     ) -> Result<Order, Box<dyn Error>> {
+        nonnegative(order.unit_price, "unit_price")?;
+        validate_quantities(order.quantity, order.filled_quantity)?;
+        if let Some(price) = order.average_filled_price {
+            nonnegative(price, "average_filled_price")?;
+        }
         let now: NaiveDateTime = Utc::now().naive_utc();
         diesel::update(orders::table)
             .filter(orders::id.eq(&order.id.to_string()))
@@ -94,6 +101,7 @@ impl WorkerOrder {
         new_price: Decimal,
         new_broker_id: String,
     ) -> Result<Order, Box<dyn Error>> {
+        nonnegative(new_price, "unit_price")?;
         let now: NaiveDateTime = Utc::now().naive_utc();
         diesel::update(orders::table)
             .filter(orders::id.eq(&order.id.to_string()))
@@ -194,10 +202,44 @@ struct OrderSQLite {
     closed_at: Option<NaiveDateTime>,
 }
 
+fn nonnegative(value: Decimal, field: &str) -> Result<Decimal, ConversionError> {
+    if value < Decimal::ZERO {
+        return Err(ConversionError::new(field, "Negative financial value"));
+    }
+    Ok(value)
+}
+
+fn exact_decimal(value: &str, field: &str) -> Result<Decimal, ConversionError> {
+    let value = Decimal::from_str_exact(value)
+        .map_err(|_| ConversionError::new(field, "Invalid exact decimal"))?;
+    nonnegative(value, field)
+}
+
+fn optional_decimal(value: Option<&str>, field: &str) -> Result<Option<Decimal>, ConversionError> {
+    value.map(|value| exact_decimal(value, field)).transpose()
+}
+
+fn validate_quantities(quantity: Decimal, filled: Decimal) -> Result<(), ConversionError> {
+    nonnegative(quantity, "quantity")?;
+    nonnegative(filled, "filled_quantity")?;
+    if filled > quantity {
+        return Err(ConversionError::new(
+            "filled_quantity",
+            "Exceeds order quantity",
+        ));
+    }
+    Ok(())
+}
+
 impl TryFrom<OrderSQLite> for Order {
     type Error = ConversionError;
 
     fn try_from(value: OrderSQLite) -> Result<Self, Self::Error> {
+        let quantity = exact_decimal(&value.quantity, "quantity")?;
+        let filled_quantity =
+            optional_decimal(value.filled_quantity.as_deref(), "filled_quantity")?
+                .unwrap_or(Decimal::ZERO);
+        validate_quantities(quantity, filled_quantity)?;
         Ok(Order {
             id: Uuid::parse_str(&value.id)
                 .map_err(|_| ConversionError::new("id", "Failed to parse order ID"))?,
@@ -205,13 +247,10 @@ impl TryFrom<OrderSQLite> for Order {
             created_at: value.created_at,
             updated_at: value.updated_at,
             deleted_at: value.deleted_at,
-            unit_price: Decimal::from_str(&value.unit_price)
-                .map_err(|_| ConversionError::new("unit_price", "Failed to parse unit price"))?,
+            unit_price: exact_decimal(&value.unit_price, "unit_price")?,
             currency: Currency::from_str(&value.currency)
                 .map_err(|_| ConversionError::new("currency", "Failed to parse currency"))?,
-            quantity: Decimal::from_str(&value.quantity)
-                .map_err(|_| ConversionError::new("quantity", "Failed to parse quantity"))?
-                .max(Decimal::ZERO),
+            quantity,
             action: OrderAction::from_str(&value.action)
                 .map_err(|_| ConversionError::new("action", "Failed to parse order action"))?,
             category: OrderCategory::from_str(&value.category)
@@ -224,25 +263,16 @@ impl TryFrom<OrderSQLite> for Order {
             time_in_force: TimeInForce::from_str(&value.time_in_force).map_err(|_| {
                 ConversionError::new("time_in_force", "Failed to parse time in force")
             })?,
-            trailing_percent: value
-                .trailing_percentage
-                .and_then(|p| Decimal::from_str(&p).ok()),
-            trailing_price: value
-                .trailing_price
-                .and_then(|p| Decimal::from_str(&p).ok()),
-            filled_quantity: value
-                .filled_quantity
-                .as_deref()
-                .map(Decimal::from_str)
-                .transpose()
-                .map_err(|_| {
-                    ConversionError::new("filled_quantity", "Failed to parse filled quantity")
-                })?
-                .unwrap_or(Decimal::ZERO)
-                .max(Decimal::ZERO),
-            average_filled_price: value
-                .average_filled_price
-                .and_then(|p| Decimal::from_str(&p).ok()),
+            trailing_percent: optional_decimal(
+                value.trailing_percentage.as_deref(),
+                "trailing_percentage",
+            )?,
+            trailing_price: optional_decimal(value.trailing_price.as_deref(), "trailing_price")?,
+            filled_quantity,
+            average_filled_price: optional_decimal(
+                value.average_filled_price.as_deref(),
+                "average_filled_price",
+            )?,
             extended_hours: value.extended_hours,
             submitted_at: value.submitted_at,
             filled_at: value.filled_at,
@@ -557,23 +587,95 @@ mod tests {
     }
 
     #[test]
-    fn order_sqlite_conversion_clamps_negative_quantities_and_ignores_invalid_optional_prices() {
-        let row = OrderSQLite {
-            quantity: "-10".to_string(),
-            trailing_percentage: Some("not-a-decimal".to_string()),
-            trailing_price: Some("still-not-decimal".to_string()),
-            filled_quantity: Some("-5".to_string()),
-            average_filled_price: Some("bad-price".to_string()),
-            ..base_sqlite_order()
-        };
+    fn invalid_order_writes_leave_persisted_values_unchanged() {
+        let mut conn = establish_connection();
+        let original = create_order(&mut conn);
+        for field in [
+            "quantity",
+            "filled_quantity",
+            "overfilled",
+            "unit_price",
+            "average_filled_price",
+        ] {
+            let mut invalid = original.clone();
+            match field {
+                "quantity" => invalid.quantity = dec!(-1),
+                "filled_quantity" => invalid.filled_quantity = dec!(-1),
+                "overfilled" => invalid.filled_quantity = dec!(101),
+                "unit_price" => invalid.unit_price = dec!(-1),
+                "average_filled_price" => invalid.average_filled_price = Some(dec!(-1)),
+                _ => unreachable!(),
+            }
+            assert!(WorkerOrder::update(&mut conn, &invalid).is_err(), "{field}");
+            let persisted = WorkerOrder::read(&mut conn, original.id).unwrap();
+            assert_eq!(
+                serde_json::to_value(&persisted).unwrap(),
+                serde_json::to_value(&original).unwrap()
+            );
+        }
+        assert!(
+            WorkerOrder::update_price(&mut conn, &original, dec!(-1), "invalid".into()).is_err()
+        );
+        let vehicle = trading_vehicle(&mut conn);
+        for (price, quantity) in [(dec!(-1), dec!(1)), (dec!(1), dec!(-1))] {
+            assert!(WorkerOrder::create(
+                &mut conn,
+                price,
+                &Currency::USD,
+                quantity,
+                &OrderAction::Buy,
+                &OrderCategory::Limit,
+                &vehicle
+            )
+            .is_err());
+        }
+        assert_eq!(
+            orders::table.count().get_result::<i64>(&mut conn).unwrap(),
+            1
+        );
+        let persisted = WorkerOrder::read(&mut conn, original.id).unwrap();
+        assert_eq!(
+            serde_json::to_value(&persisted).unwrap(),
+            serde_json::to_value(&original).unwrap()
+        );
+    }
 
-        let order = Order::try_from(row).expect("lossy optional values should not fail");
-
-        assert_eq!(order.quantity, Decimal::ZERO);
-        assert_eq!(order.filled_quantity, Decimal::ZERO);
-        assert_eq!(order.trailing_percent, None);
-        assert_eq!(order.trailing_price, None);
-        assert_eq!(order.average_filled_price, None);
+    #[test]
+    fn order_sqlite_conversion_rejects_corrupt_financial_values() {
+        for field in [
+            "unit_price",
+            "quantity",
+            "filled_quantity",
+            "trailing_percentage",
+            "trailing_price",
+            "average_filled_price",
+        ] {
+            for value in [
+                "-1",
+                "bad-decimal",
+                "0.00000000000000000000000000001",
+                "79228162514264337593543950336",
+            ] {
+                let mut row = base_sqlite_order();
+                match field {
+                    "unit_price" => row.unit_price = value.into(),
+                    "quantity" => row.quantity = value.into(),
+                    "filled_quantity" => row.filled_quantity = Some(value.into()),
+                    "trailing_percentage" => row.trailing_percentage = Some(value.into()),
+                    "trailing_price" => row.trailing_price = Some(value.into()),
+                    "average_filled_price" => row.average_filled_price = Some(value.into()),
+                    _ => unreachable!(),
+                }
+                assert_conversion_error(row, field);
+            }
+        }
+        assert_conversion_error(
+            OrderSQLite {
+                filled_quantity: Some("101".into()),
+                ..base_sqlite_order()
+            },
+            "filled_quantity",
+        );
     }
 
     #[test]

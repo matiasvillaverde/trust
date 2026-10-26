@@ -349,7 +349,7 @@ fn mock_session(server: &TestServer) {
     server.expect(MockExpectation::json(
         "GET",
         "/v1/api/iserver/accounts",
-        json!({ "accounts": ["U1234567"], "selectedAccount": "U1234567" }),
+        json!({ "isPaper": true, "accounts": ["U1234567"], "selectedAccount": "U1234567" }),
     ));
     server.expect(
         MockExpectation::json(

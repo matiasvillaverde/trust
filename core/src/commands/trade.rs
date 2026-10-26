@@ -171,6 +171,18 @@ fn vehicle_broker_is(vehicle: &model::TradingVehicle, broker: &str) -> bool {
     vehicle.broker.trim().eq_ignore_ascii_case(broker)
 }
 
+fn record_manual_execution(
+    order: &Order,
+    database: &mut dyn DatabaseFactory,
+) -> Result<(), Box<dyn Error>> {
+    let mut filled = order.clone();
+    filled.status = OrderStatus::Filled;
+    filled.filled_quantity = filled.quantity;
+    filled.filled_at = Some(Utc::now().naive_utc());
+    database.order_write().update(&filled)?;
+    Ok(())
+}
+
 fn fill_trade_internal(
     trade: &Trade,
     fee: Decimal,
@@ -186,6 +198,7 @@ fn fill_trade_internal(
     let (tx, _) = commands::transaction::transfer_to_fill_trade(trade, database)?;
 
     if record_order_timestamps {
+        record_manual_execution(&trade.entry, database)?;
         // Record timestamp when the order was opened
         commands::order::record_timestamp_filled(trade, database.order_write().as_mut())?;
     }
@@ -232,6 +245,7 @@ fn target_executed_internal(
     let (tx, _) = commands::transaction::transfer_to_close_target(trade, database)?;
 
     if record_order_timestamps {
+        record_manual_execution(&trade.target, database)?;
         // 3. Record timestamp when the target order was closed
         commands::order::record_timestamp_target(trade, database.order_write().as_mut())?;
     }
@@ -278,6 +292,7 @@ fn stop_executed_internal(
     let (tx, _) = commands::transaction::transfer_to_close_stop(trade, database)?;
 
     if record_order_timestamps {
+        record_manual_execution(&trade.safety_stop, database)?;
         // 3. Record timestamp when the stop order was closed
         commands::order::record_timestamp_stop(trade, database.order_write().as_mut())?;
     }
@@ -1018,7 +1033,7 @@ pub fn sync_with_broker(
                 "orders_received": orders.len(),
                 "executions_reconciled": reconciled_executions.len(),
                 "fees_reconciled": fees.len(),
-                "broker_response_sha256": format!("{:x}", sha2::Sha256::digest(log.log.as_bytes()))
+                "broker_response_sha256": sha2::Sha256::digest(log.log.as_bytes()).iter().map(|byte| format!("{byte:02x}")).collect::<String>()
             });
             audit::record(
                 database,

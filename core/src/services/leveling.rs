@@ -10,7 +10,7 @@ use tracing::{debug, info};
 use uuid::Uuid;
 
 /// Performance snapshot used to evaluate automatic level transitions.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct LevelPerformanceSnapshot {
     /// Number of profitable trades in the recent window.
     pub profitable_trades: u32,
@@ -25,7 +25,7 @@ pub struct LevelPerformanceSnapshot {
 }
 
 /// A policy decision to change levels.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct LevelDecision {
     /// Target level.
     pub target_level: u8,
@@ -38,7 +38,7 @@ pub struct LevelDecision {
 }
 
 /// Progress for one criterion in a transition path.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct LevelCriterionProgress {
     /// Criterion key, stable for machine consumption.
     pub key: &'static str,
@@ -55,7 +55,7 @@ pub struct LevelCriterionProgress {
 }
 
 /// Progress for a potential next transition.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct LevelPathProgress {
     /// Stable path identifier.
     pub path: &'static str,
@@ -72,7 +72,7 @@ pub struct LevelPathProgress {
 }
 
 /// Progress report that explains what is missing to move up/down.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct LevelProgressReport {
     /// Current level.
     pub current_level: u8,
@@ -99,7 +99,7 @@ pub trait LevelTransitionPolicy {
 }
 
 /// Default risk-first policy for automatic level transitions.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct DefaultLevelTransitionPolicy {
     rules: LevelAdjustmentRules,
 }
@@ -390,7 +390,7 @@ impl LevelTransitionPolicy for DefaultLevelTransitionPolicy {
 }
 
 /// Result for evaluate-and-apply workflows.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct LevelEvaluationOutcome {
     /// Current level before any optional apply.
     pub current_level: Level,
@@ -403,7 +403,7 @@ pub struct LevelEvaluationOutcome {
 }
 
 /// Service coordinating level reads, policy evaluation, and writes.
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize)]
 pub struct LevelingService<P: LevelTransitionPolicy> {
     policy: P,
     min_trades_at_level_for_upgrade: u32,

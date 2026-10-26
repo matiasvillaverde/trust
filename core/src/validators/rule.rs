@@ -25,8 +25,11 @@ pub enum RuleValidationErrorCode {
 }
 
 #[derive(Debug)]
+/// Risk rule validation failure, safe to present to authenticated clients.
 pub struct RuleValidationError {
+    /// Machine-readable reason for rejection.
     pub code: RuleValidationErrorCode,
+    /// Domain validation detail without broker credentials.
     pub message: String,
 }
 

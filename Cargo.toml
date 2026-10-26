@@ -8,45 +8,47 @@ members = [
     "ibkr-broker",
     "broker-sync",
     "advisor",
+    "service",
+    "credentials",
 ]
 resolver = "2"
 
 [workspace.package]
 version = "0.3.5"
 authors = ["Matias Villaverde <matiasvillaverde@protonmail.com>"]
-rust-version = "1.93.0"
+rust-version = "1.99.1"
 license = "GPL-3.0-only"
 repository = "https://github.com/matiasvillaverde/trust"
 readme = "README.md"
 
 [workspace.dependencies]
-chrono = { version = "0.4.43", features = ["serde"] }
-diesel = { version = "2.3.10", features = ["sqlite", "returning_clauses_for_sqlite_3_35", "chrono"] }
-diesel_migrations = "2.3.1"
-serde = { version = "1.0.219", features = ["derive"] }
-uuid = { version = "1.20.0", features = [
+chrono = { version = "0.4.45", features = ["serde"] }
+diesel = { version = "2.3.14", features = ["sqlite", "returning_clauses_for_sqlite_3_35", "chrono"] }
+diesel_migrations = "2.3.2"
+serde = { version = "1.0.229", features = ["derive"] }
+uuid = { version = "1.29.0", features = [
+    "serde",
     "v4",                # Lets you generate random UUIDs
     "fast-rng",          # Use a faster (but still sufficiently random) RNG
     "macro-diagnostics", # Enable better diagnostics for compile-time UUIDs
 ] }
-clap = { version = "4.5.58", features = ["derive"] }
-tabled = { version = "0.21.0" }
+clap = { version = "4.6.7", features = ["derive"] }
+tabled = { version = "0.22.0" }
 dialoguer = { version = "0.12.0", features = ["fuzzy-select"] }
-rust_decimal = "1.42.1"
+rust_decimal = "1.43.0"
 rust_decimal_macros = "1.40.0"
 tracing = "0.1.44"
-sha2 = "0.10.9"
+sha2 = "0.11.1"
 # NOTE: apca uses GPL-3.0 license. Consider alternatives if license compatibility becomes an issue.
-apca = "0.30.0"
+apca = "0.31.0"
 num-decimal = { version = "0.2.5", default-features = false }
 # USING: rust_decimal (MIT/Apache-2.0) instead of num-decimal for consistency
-tokio = {version = "1.49.0", default-features = false, features = ["net", "rt-multi-thread", "macros"]}
-futures-util = "0.3.31"
-shellexpand = "3.1.1"
-keyring = { version = "3.6.3", features = ["apple-native", "windows-native", "sync-secret-service"] }
-serde_json = "1.0.149"
-thiserror = "1.0.69"
-reqwest = { version = "0.12.24", default-features = false, features = ["blocking", "cookies", "json", "native-tls"] }
-argon2 = "0.5.3"
-password-hash = "0.5.0"
-rand_core = { version = "0.6.4", features = ["getrandom"] }
+tokio = {version = "1.54.1", default-features = false, features = ["net", "rt-multi-thread", "macros"]}
+futures-util = "0.3.34"
+shellexpand = "3.1.2"
+trust-credentials = { path = "credentials", version = "0.3.5" }
+serde_json = "1.0.154"
+thiserror = "2.0.21"
+reqwest = { version = "0.13.5", default-features = false, features = ["blocking", "cookies", "json", "query", "native-tls"] }
+argon2 = "0.6.0"
+password-hash = "0.6.1"

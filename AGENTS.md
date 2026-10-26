@@ -9,7 +9,9 @@ Trust is a Rust 2021 workspace for risk-managed trading. Financial correctness, 
 - `model` (`trust-model`): domain entities and the `Broker` and `DatabaseFactory` contracts.
 - `core`: business rules and orchestration through `TrustFacade`.
 - `db-sqlite`: Diesel/SQLite implementation of the database contracts.
-- `cli` (`trust-cli`, binary `trust`): Clap commands, dialogs, routing, output, and integration tests.
+- `service` (`trust-service`): authenticated HTTP/MCP boundary, single financial worker, durable operation journal, audit, and workflow skills.
+- `credentials` (`trust-credentials`): explicit native credential stores for local adapters and the legacy CLI; container secrets remain operator-mounted files.
+- `cli` (`trust-cli`, binary `trust`): thin HTTP client. Historical commands/dialogs remain in `trust-legacy` behind `legacy-cli` for migration and regression tests.
 - `alpaca-broker`: Alpaca implementation of `Broker`.
 - `ibkr-broker`: Interactive Brokers Client Portal implementation of `Broker`.
 - `broker-sync`: in-memory actor/session scaffold plus serialized messages and a separate connection state machine. Real websocket reconciliation is not wired into the actor yet.
@@ -18,7 +20,7 @@ Trust is a Rust 2021 workspace for risk-managed trading. Financial correctness, 
 The intended application flow is:
 
 ```text
-CLI -> core::TrustFacade -> model contracts -> database/broker adapters
+MCP/CLI -> service -> core::TrustFacade -> model contracts -> database/broker adapters
                          -> advisor services
 ```
 

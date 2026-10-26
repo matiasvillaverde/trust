@@ -15,6 +15,10 @@ export PATH := $(CARGO_HOME)/bin:$(PATH)
 DIESEL_CLI = diesel
 RUSTC = rustc
 CARGO = cargo
+CARGO_AUDIT_VERSION = 0.22.2
+CARGO_DENY_VERSION = 0.20.2
+CARGO_MACHETE_VERSION = 0.9.2
+CARGO_LLVM_COV_VERSION = 0.9.1
 
 # CI Configuration
 CARGO_FLAGS = --locked
@@ -151,7 +155,12 @@ test: setup
 .PHONY: test-single
 test-single: setup
 	@echo "$(BLUE)Running tests (single-threaded)...$(NC)"
-	@$(CARGO) test $(TEST_FLAGS) -- --test-threads=1
+	@$(CARGO) test $(TEST_FLAGS) --all-features -- --test-threads=1
+
+.PHONY: reliability
+reliability:
+	@python3 -m unittest discover -s scripts -p test_reliability.py
+	@python3 scripts/reliability.py
 
 .PHONY: trust-proof
 trust-proof:
@@ -164,9 +173,9 @@ trust-proof:
 	@$(CARGO) test -p trust-cli --test integration_test_risk_guards $(CARGO_FLAGS) -- --test-threads=1
 	@$(CARGO) test -p trust-cli --test architecture_guard $(CARGO_FLAGS)
 	@$(CARGO) test -p trust-cli trading_vehicle $(CARGO_FLAGS) -- --test-threads=1
-	@$(CARGO) test -p trust-cli --test integration_test_dispatcher_commands $(CARGO_FLAGS) test_bond_terms_update_and_metrics_cli_round_trip -- --test-threads=1
-	@$(CARGO) test -p trust-cli --test integration_test_dispatcher_commands $(CARGO_FLAGS) test_trading_vehicle_stats_cli_reports_multi_asset_bond_inventory -- --test-threads=1
-	@$(CARGO) test -p trust-cli --test integration_test_dispatcher_commands $(CARGO_FLAGS) test_trading_vehicle_search_cli_filters_missing_bond_terms_json -- --test-threads=1
+	@$(CARGO) test -p trust-cli --features legacy-cli --test integration_test_dispatcher_commands $(CARGO_FLAGS) test_bond_terms_update_and_metrics_cli_round_trip -- --test-threads=1
+	@$(CARGO) test -p trust-cli --features legacy-cli --test integration_test_dispatcher_commands $(CARGO_FLAGS) test_trading_vehicle_stats_cli_reports_multi_asset_bond_inventory -- --test-threads=1
+	@$(CARGO) test -p trust-cli --features legacy-cli --test integration_test_dispatcher_commands $(CARGO_FLAGS) test_trading_vehicle_search_cli_filters_missing_bond_terms_json -- --test-threads=1
 	@$(CARGO) test -p ibkr-broker --test http_integration $(CARGO_FLAGS) -- --test-threads=1
 	@$(CARGO) test -p ibkr-broker --test live_gateway_smoke_test $(CARGO_FLAGS)
 
@@ -241,7 +250,7 @@ lint:
 .PHONY: audit
 audit:
 	@echo "$(BLUE)Checking for security vulnerabilities...$(NC)"
-	@$(CARGO) audit
+	@$(CARGO) audit --deny warnings
 
 # Enhanced Quality Commands for Financial Application Standards
 .PHONY: lint-strict
@@ -253,11 +262,11 @@ lint-strict:
 security-check:
 	@echo "$(BLUE)Running comprehensive security and dependency checks...$(NC)"
 	@echo "$(YELLOW)Checking dependency security and licenses...$(NC)"
-	@$(CARGO) deny check advisories licenses
+	@$(CARGO) deny --all-features check
 	@echo "$(YELLOW)Checking for security vulnerabilities...$(NC)"
-	@$(CARGO) audit
+	@$(CARGO) audit --deny warnings
 	@echo "$(YELLOW)Checking for unused dependencies...$(NC)"
-	@$(CARGO) machete --with-metadata --skip-target-dir || echo "$(YELLOW)Warning: cargo-machete not installed or found possible unused deps$(NC)"
+	@$(CARGO) machete --with-metadata --skip-target-dir
 
 .PHONY: quality-gate
 quality-gate: fmt-check lint-strict security-check
@@ -265,7 +274,7 @@ quality-gate: fmt-check lint-strict security-check
 
 # CI Pipeline Commands
 .PHONY: ci
-ci: ci-fast ci-build ci-test ci-snapshots ci-coverage ci-perf
+ci: ci-fast ci-build ci-test ci-snapshots ci-coverage ci-perf security-check
 	@echo "$(GREEN)✓ Full CI pipeline passed!$(NC)"
 
 .PHONY: ci-fast
@@ -281,7 +290,7 @@ ci-test: setup
 .PHONY: ci-snapshots
 ci-snapshots:
 	@echo "$(BLUE)Verifying CLI report JSON snapshots...$(NC)"
-	@$(CARGO) test -p trust-cli --test integration_test_report_json_snapshots $(CARGO_FLAGS)
+	@$(CARGO) test -p trust-cli --features legacy-cli --test integration_test_report_json_snapshots $(CARGO_FLAGS)
 
 .PHONY: ci-coverage
 ci-coverage:
@@ -304,7 +313,7 @@ ci-coverage-strict:
 .PHONY: snapshots-update
 snapshots-update:
 	@echo "$(YELLOW)Updating CLI report JSON snapshots...$(NC)"
-	@UPDATE_SNAPSHOTS=1 $(CARGO) test -p trust-cli --test integration_test_report_json_snapshots $(CARGO_FLAGS)
+	@UPDATE_SNAPSHOTS=1 $(CARGO) test -p trust-cli --features legacy-cli --test integration_test_report_json_snapshots $(CARGO_FLAGS)
 
 .PHONY: ci-perf
 ci-perf:
@@ -353,15 +362,15 @@ perf-gate:
 install-tools:
 	@echo "$(BLUE)Installing development tools...$(NC)"
 	@echo "Installing cargo-audit..."
-	@$(CARGO) install cargo-audit
+	@$(CARGO) install cargo-audit --version $(CARGO_AUDIT_VERSION) --locked
 	@echo "Installing cargo-nextest..."
-	@$(CARGO) install cargo-nextest
+	@$(CARGO) install cargo-nextest --locked
 	@echo "Installing cargo-llvm-cov..."
-	@$(CARGO) install cargo-llvm-cov
+	@$(CARGO) install cargo-llvm-cov --version $(CARGO_LLVM_COV_VERSION) --locked
 	@echo "Installing cargo-deny..."
-	@$(CARGO) install cargo-deny
+	@$(CARGO) install cargo-deny --version $(CARGO_DENY_VERSION) --locked
 	@echo "Installing cargo-machete..."
-	@$(CARGO) install cargo-machete
+	@$(CARGO) install cargo-machete --version $(CARGO_MACHETE_VERSION) --locked
 	@echo ""
 	@echo "$(YELLOW)To install 'act' for running GitHub Actions locally:$(NC)"
 	@echo "  macOS:    brew install act"
