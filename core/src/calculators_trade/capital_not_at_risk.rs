@@ -34,7 +34,7 @@ fn filled(order: &Order) -> Decimal {
     }
 }
 
-fn protected_capital(trade: &Trade) -> Result<Decimal, Box<dyn std::error::Error>> {
+pub(crate) fn protected_capital(trade: &Trade) -> Result<Decimal, Box<dyn std::error::Error>> {
     let entered = filled(&trade.entry);
     let exited = filled(&trade.target)
         .checked_add(filled(&trade.safety_stop))

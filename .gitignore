@@ -28,6 +28,7 @@ __pycache__/
 
 # Diesel migrations are source files, even on machines with global *.sql ignores.
 !db-sqlite/migrations/**/*.sql
+!service/migrations/**/*.sql
 
 # Ignore all environmental files
 .env

@@ -522,7 +522,7 @@ impl WriteTransactionDB for SqliteDatabase {
         }
         let connection = &mut lock_connection_or_exit(&self.connection);
 
-        connection.transaction::<(Transaction, Transaction), Box<dyn Error>, _>(|conn| {
+        crate::atomic::savepoint(connection, |conn| {
             let withdrawal_tx = WorkerTransaction::create_transaction(
                 conn,
                 from_account.id,
@@ -811,6 +811,18 @@ impl ReadTransactionDB for SqliteDatabase {
             }
         }
         Ok(Some(total))
+    }
+
+    fn account_cash_movements_excluding_taxes(
+        &mut self,
+        account_id: Uuid,
+        currency: &Currency,
+    ) -> Result<Vec<(TransactionCategory, Decimal)>, Box<dyn Error>> {
+        WorkerTransaction::read_cash_movements(
+            &mut lock_connection_or_exit(&self.connection),
+            account_id,
+            currency,
+        )
     }
 
     fn all_account_transactions_excluding_taxes(

@@ -121,7 +121,7 @@ jobs:
       run: cargo machete --with-metadata --skip-target-dir
 
     - name: Verify reliability inventory and evidence parser
-      run: python3 -m unittest discover -s scripts -p test_reliability.py
+      run: python3 -m unittest discover -s scripts -p 'test_*.py'
 
   # Combined build and test job for efficiency
   build-and-test:

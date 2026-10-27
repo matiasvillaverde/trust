@@ -30,6 +30,10 @@ pub struct Config {
     pub reconcile_interval_seconds: u64,
     #[serde(default = "queue_capacity")]
     pub queue_capacity: usize,
+    #[serde(default = "request_timeout")]
+    pub request_timeout_ms: u64,
+    #[serde(default = "queue_timeout")]
+    pub queue_timeout_ms: u64,
     #[serde(default)]
     pub distribution_password_file: Option<PathBuf>,
     #[serde(default)]
@@ -44,6 +48,12 @@ fn reconcile_interval() -> u64 {
 }
 fn queue_capacity() -> usize {
     64
+}
+fn request_timeout() -> u64 {
+    45000
+}
+fn queue_timeout() -> u64 {
+    40000
 }
 
 impl Config {
@@ -109,6 +119,15 @@ impl Config {
         {
             return Err(ServiceError::invalid(
                 "Configure at least one explicit subject grant.",
+            ));
+        }
+        if self.request_timeout_ms == 0
+            || self.request_timeout_ms > 45000
+            || self.queue_timeout_ms == 0
+            || self.queue_timeout_ms > self.request_timeout_ms
+        {
+            return Err(ServiceError::invalid(
+                "Use request_timeout_ms 1..45000 and queue_timeout_ms 1..request_timeout_ms.",
             ));
         }
         for grant in self.grants.values() {

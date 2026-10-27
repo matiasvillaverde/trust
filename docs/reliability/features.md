@@ -82,9 +82,9 @@ This inventory describes the implementation under test, including limits that af
 | `trade_modify_target` | `trust:trade` | yes | required | Modify a target while preserving durable intent and broker reconciliation. |
 | `trade_prepare` | `trust:trade` | yes | required | Create a draft trade with exact instrument, quantity, entry, stop and target. Does not reserve or submit capital. |
 | `trade_reconcile` | `trust:reconcile` | yes | required | Reconcile one trade with broker orders, executions and fees; may update the ledger. |
-| `trade_record_fill` | `trust:reconcile` | yes | required | Record a manual fill in the ledger. Reconciliation authority required; no broker order is sent. |
-| `trade_record_stop` | `trust:reconcile` | yes | required | Record a manual stop outcome and accounting; reconciliation authority required. |
-| `trade_record_target` | `trust:reconcile` | yes | required | Record a manual target outcome and accounting; reconciliation authority required. |
+| `trade_record_fill` | `trust:manual` | yes | required | Record a manual fill in the ledger. Manual accounting authority required; no broker order is sent. |
+| `trade_record_stop` | `trust:manual` | yes | required | Record a manual stop outcome and accounting; manual accounting authority required. |
+| `trade_record_target` | `trust:manual` | yes | required | Record a manual target outcome and accounting; manual accounting authority required. |
 | `trade_submit` | `trust:trade` | yes | required | Submit a funded trade's exact persisted bracket. On uncertainty inspect operation and reconcile; never resubmit blindly. |
 | `trades_list` | `trust:read` | no | required | List this account's trades with optional lifecycle and symbol filters. |
 | `transactions_list` | `trust:read` | no | required | Read the account's ledger transactions. |
@@ -103,7 +103,7 @@ An operation-specific account requirement does not mean unrestricted access. Cre
 | Process controls | Grades, grading history, level progress and thresholds, automatic close evaluation, profit allocation, minimum thresholds and insurance reserve. Advisory history is process-local; ledger and financial history persist. |
 | Research and journaling | Concentration checks, correlation, regime analysis, optional catalyst providers, event records, mistakes, biases, session plans and reviews. Advisory output does not replace enforced funding rules. |
 | Broker integration | IBKR Client Portal account/environment verification, contract lookup, bracket/exit/modify/cancel, what-if preview, history and finite market events; Alpaca account-bound credentials, supported assets, order/execution/fee mapping. Unsupported/missing data must remain explicit. |
-| Service reliability | One financial worker, bounded request queue, per-subject idempotency, durable intent/result journal, unknown-outcome recovery, all-account reauthorization for replay, file exclusivity, readiness, shutdown, reconciliation pages and periodic reconciliation. |
+| Service reliability | One financial worker, bounded request queue, per-subject idempotency, durable intent/result journal, unknown-outcome recovery, all-account reauthorization for replay, file exclusivity, deadline cancellation before dispatch, readiness/metrics outside the queue, graceful shutdown, reconciliation pages and periodic reconciliation. |
 | Security and transport | OIDC RS256 bearer verification, issuer/audience/lifetime/grants, scopes, account allowlists, separate live gates, revocation, pinned JWKS, Host/Origin checks, size/rate/concurrency limits, redacted structured logs, stateless Streamable HTTP MCP and HTTP tool API. |
 | Agent UX | Tool discovery with schemas and scopes; exact decimal strings; error codes and next actions; operation inspection; pagination; three workflow skills as resources/prompts/tools; thin CLI using the same service. |
 | Persistence and recovery | SQLite financial records, migrations and FK checks, savepoints and rollback, separate operation journal, hash-chain verification, strict backup validation, server-owned backup IDs, empty-target restore. Both databases require coordinated offline backup. |
@@ -113,3 +113,5 @@ An operation-specific account requirement does not mean unrestricted access. Cre
 ## Verification index
 
 See [edge cases](edge-cases.md) for the boundary matrix and [verification](verification.md) for commands, results, known limits, and regression evidence. Tests use isolated SQLite and mock broker responses. No ignored live-broker test is part of the automated gate.
+
+Operational HTTP routes include unauthenticated `/healthz` and `/readyz`, plus `/metrics` restricted to an all-accounts administrator. Audit v2 records affected accounts, transport/source, timing, failures, replays and crash recovery while retaining existing hash verification. See [the operator guide](../service.md#audit-logging-and-operations).

@@ -99,3 +99,29 @@ When `TRUST_IBKR_LIVE_E2E=1` is set, missing required environment variables are 
 A passing run proves the live gateway can resolve representative stock, ETF, and bond contracts, that Trust maps them to the expected IBKR security types, and that IBKR accepts Trust's stock/ETF/bond bracket order payloads through non-mutating what-if previews. The mocked IBKR integration tests still cover actual submission handling, broker request shape, and risk rejection without live broker I/O.
 
 The paper mutation target additionally proves one real gateway submit/cancel path and local audit-chain verification. Paper execution behavior remains simulated by IBKR and is not evidence of production fill quality, stop behavior, latency, or market-data fidelity.
+
+## Staged setup for the service
+
+Use the Client Portal Gateway for this adapter, not the TWS/IB Gateway socket endpoint. Start the gateway on the operator's machine, log in with the paper username in its browser, and keep the gateway private. The service container must reach that same authenticated session using valid TLS trust. Trust checks the broker's `isPaper` response as well as account accessibility; a `DU` prefix alone does not establish paper mode. IBKR documents daily browser reauthentication and limits on automated authentication: [Gateway FAQ](https://www.interactivebrokers.com/docs/web-api/authentication/cpgw/client-portal-gateway-faq).
+
+1. Run `make assurance-unit`, then `make assurance-protocol`. Review `make assurance-status`. These commands never contact IBKR, even if live-test opt-in variables were inherited.
+2. Configure the gateway address, paper account and instrument/price variables above using current operator-selected values. The illustrative prices above are not current market quotes. Keep certificate verification enabled; configure a trusted gateway certificate instead of copying the earlier insecure-local-TLS example into a deployment.
+3. Run `make ibkr-paper-preflight`. This requires current levels 1 and 2 and explicitly contacts only the non-submitting authentication, contract-resolution and what-if tests. Missing configuration or missing test evidence fails the gate.
+4. Configure the deployed service with `allow_live: false`, bind the exact paper account, import the intended stock/ETF contract, reconcile its actual capital and set explicit per-trade/monthly policies. Use the owner's mandate to prepare a new long, one-unit bracket. Neither the harness nor the tests should invent a deposit to make the trade affordable. Choose an entry unlikely to execute immediately; unexpected fills make this cancel-only smoke inconclusive and require operator reconciliation.
+5. Store a short-lived scoped OAuth bearer token in a private file outside source control. It needs account-scoped read, preview and trade permissions. Run the supervised MCP smoke, replacing every placeholder with the reviewed values:
+
+```bash
+python3 scripts/ibkr_paper_acceptance.py \
+  --service-url https://trust.example.com \
+  --token-file /private/trust-paper-token \
+  --account-id TRUST_ACCOUNT_UUID \
+  --broker-account-id DU_PAPER_ACCOUNT \
+  --trade-id PREPARED_TRADE_UUID \
+  --run-id UNIQUE_RUN_UUID \
+  --max-notional REVIEWED_AMOUNT_IN_TRADE_CURRENCY \
+  --acknowledge-paper-orders I_UNDERSTAND_PAPER_ORDERS_ARE_REAL_SIMULATIONS
+```
+
+The harness uses authenticated MCP, validates the exact paper binding, fresh trade, direction, asset class, one-unit legs and notional ceiling, previews, funds, submits, cancels and inspects the final state/audit. It writes a private, fsynced receipt before each mutation, uses stable keys, refuses duplicate run IDs, disallows redirects and never retries an uncertain mutation. Tokens and raw broker responses are not written to its receipt. The receipt contains operation IDs for inspection. If it stops after funding or submission, inspect the original operations, trade and broker account; do not run a new intent to bypass uncertainty. There is no account-wide cancellation or automatic liquidation cleanup.
+
+A smoke pass explicitly leaves level 4 incomplete. Independently verify protective child activation, stop/target execution and sibling cancellation, partial fills, commissions, positions and account cash; exercise session/restart recovery and remaining operational acceptance before considering a live canary. Record an unobserved scenario as inconclusive. IBKR's [paper simulator limitations](https://www.ibkrguides.com/clientportal/aboutpapertradingaccounts.htm) prevent paper results from establishing live liquidity, fill prices or a guaranteed stop loss.

@@ -11,6 +11,30 @@ type FundingValidationResult = Result<(), Box<FundValidationError>>;
 
 // Validate if trade can be funded by checking account balance, available capital and rules
 pub fn can_fund(trade: &Trade, database: &mut dyn DatabaseFactory) -> FundingValidationResult {
+    validate_geometry(trade)?;
+
+    // Read the cached account projection for the trade currency. Every financial
+    // write updates it atomically with the ledger.
+    match database
+        .account_balance_read()
+        .for_currency(trade.account_id, &trade.currency)
+    {
+        Ok(balance) => {
+            validate_enough_capital(trade, &balance)?;
+            validate_rules(trade, &balance, database)?;
+            validate_level_adjusted_quantity(trade, database)
+        }
+        Err(error) => Err(Box::new(FundValidationError {
+            code: FundValidationErrorCode::NotEnoughFunds,
+            message: format!(
+                "Not enough funds in account {} for currency {}. Error: {error}",
+                trade.account_id, trade.currency
+            ),
+        })),
+    }
+}
+
+fn validate_geometry(trade: &Trade) -> FundingValidationResult {
     if trade.entry.unit_price <= Decimal::ZERO
         || trade.safety_stop.unit_price <= Decimal::ZERO
         || trade.target.unit_price <= Decimal::ZERO
@@ -27,31 +51,98 @@ pub fn can_fund(trade: &Trade, database: &mut dyn DatabaseFactory) -> FundingVal
         }));
     }
 
-    // 1. Read the cached account projection for the trade currency.
-    // Projection updates are applied incrementally on every write path.
-    match database
+    Ok(())
+}
+
+fn submission_error(error: impl std::fmt::Display) -> Box<FundValidationError> {
+    Box::new(FundValidationError {
+        code: FundValidationErrorCode::NotEnoughFunds,
+        message: format!("Cannot verify current capital and risk: {error}"),
+    })
+}
+
+/// Re-authorize a persisted funded trade immediately before committing submission
+/// intent. Restore only its own reservation in the calculation; never write a
+/// synthetic refund, double-count risk, or reuse the original funding decision.
+pub fn can_submit_funded(
+    trade: &Trade,
+    database: &mut dyn DatabaseFactory,
+) -> FundingValidationResult {
+    validate_geometry(trade)?;
+    let required = TradeCapitalRequired::calculate(trade).map_err(submission_error)?;
+    if trade.status != model::Status::Funded
+        || trade.balance.funding != required
+        || trade.balance.capital_out_market != required
+        || !trade.balance.capital_in_market.is_zero()
+        || [&trade.entry, &trade.safety_stop, &trade.target]
+            .iter()
+            .any(|order| !order.filled_quantity.is_zero() || order.filled_at.is_some())
+    {
+        return Err(submission_error(
+            "Funded reservation is inconsistent; reconcile before submission",
+        ));
+    }
+    let ledger_funding = crate::calculators_trade::TradeCapitalFunded::calculate(
+        trade.id,
+        database.transaction_read().as_mut(),
+    )
+    .map_err(submission_error)?;
+    if ledger_funding != required {
+        return Err(submission_error(
+            "Funded reservation does not match the ledger",
+        ));
+    }
+    let available = crate::calculators_account::AccountCapitalAvailable::calculate(
+        trade.account_id,
+        &trade.currency,
+        database.transaction_read().as_mut(),
+    )
+    .map_err(submission_error)?;
+    let mut balance = database
         .account_balance_read()
         .for_currency(trade.account_id, &trade.currency)
-    {
-        Ok(balance) => {
-            // 2. Validate that there is enough capital available to fund the trade
-            validate_enough_capital(trade, &balance)?;
-            // 3. Validate the trade against all the applicable rules
-            validate_rules(trade, &balance, database)?;
-            // 4. Validate level-adjusted position sizing caps.
-            validate_level_adjusted_quantity(trade, database)
-        }
-        Err(e) => {
-            // If there is not enough funds in the account for the given currency, return an error
-            Err(Box::new(FundValidationError {
-                code: FundValidationErrorCode::NotEnoughFunds,
-                message: format!(
-                    "Not enough funds in account {} for currency {}. Error: {}",
-                    trade.account_id, trade.currency, e
-                ),
-            }))
-        }
+        .map_err(submission_error)?;
+    if balance.total_available != available {
+        return Err(submission_error(
+            "Account cash projection does not match the ledger",
+        ));
     }
+    balance.total_available = available
+        .checked_add(required)
+        .ok_or_else(|| submission_error("Reserved capital overflow"))?;
+    validate_enough_capital(trade, &balance)?;
+    let rules = sorted_rules(trade.account_id, database)?;
+    let (per_trade, per_month) = RiskCalculator::effective_rules_for_reservation(
+        trade.account_id,
+        &trade.currency,
+        &rules,
+        database,
+        Some(trade),
+    )
+    .map_err(submission_error)?;
+    let risk = per_trade.unwrap_or(per_month);
+    validate_risk_per_trade(trade, &balance, risk, per_month)?;
+    let base = QuantityCalculator::quantity_for_risk(
+        balance.total_available,
+        trade.entry.unit_price.max(trade.safety_stop.unit_price),
+        trade.entry.unit_price.min(trade.safety_stop.unit_price),
+        risk,
+    );
+    let level = database
+        .level_read()
+        .level_for_account(trade.account_id)
+        .map_err(submission_error)?;
+    let allowed =
+        QuantityCalculator::apply_multiplier_to_quantity(base, level.risk_multiplier).min(base);
+    if trade.entry.quantity > allowed {
+        return Err(Box::new(FundValidationError {
+            code: FundValidationErrorCode::LevelAdjustedQuantityExceeded,
+            message: format!(
+                "Current policy permits quantity {allowed}; cancel and prepare a smaller trade"
+            ),
+        }));
+    }
+    Ok(())
 }
 
 fn validate_enough_capital(trade: &Trade, balance: &AccountBalance) -> FundingValidationResult {
@@ -304,6 +395,8 @@ impl Error for FundValidationError {
 #[derive(Debug, PartialEq)]
 /// Funding risk and capital constraints.
 pub enum FundValidationErrorCode {
+    /// Service trading requires explicit per-trade and monthly policies.
+    RiskPolicyMissing,
     /// The proposed risk exceeds the per-trade limit.
     RiskPerTradeExceeded,
     /// Monthly losses leave insufficient risk budget.

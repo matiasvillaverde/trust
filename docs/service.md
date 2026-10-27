@@ -27,7 +27,8 @@ Use a distinct provider service-account subject for each agent. The server inter
 | `trust:read` | Account reads, reporting, market data, own permitted operation/audit results, skills |
 | `trust:preview` | Risk, trade, grading, broker, and advisory previews |
 | `trust:trade` | Prepare, fund, submit, cancel, close, modify brackets |
-| `trust:reconcile` | Broker reconciliation and privileged manual fill accounting |
+| `trust:reconcile` | Broker-driven reconciliation |
+| `trust:manual` | Privileged manual fill, stop and target accounting |
 | `trust:journal` | Session plans, grades, events, catalysts, mistake reviews |
 | `trust:policy` | Ledger capital, rules, levels, advisory policy, profit allocations |
 | `trust:admin` | Account/instrument administration, audit verification, backup artifacts |
@@ -96,9 +97,9 @@ Start with `service_status`, `policy_get`, and `accounts_list`. Tools use exact 
 
 Preparing does not reserve capital. Funding does not submit an order. Submission is not a fill. `trade_close` requests an exit; reconciliation confirms the resulting state. A broker preview never overrides Trust's sizing and funding checks.
 
-`risk_preview` accounts for short stop collateral and never advertises a level-adjusted size above the enforced base capital/risk ceiling. A monthly rule is enforced even without a per-trade rule. Zero percent deliberately blocks new risk. With no configured rules, only capital, bracket geometry and level constraints apply. Monthly accounting uses UTC boundaries and the ledger's original entry basis for carried positions; it does not measure broker mark-to-market drawdown. Planned stops cannot guarantee realized losses during gaps or slippage.
+`risk_preview` accounts for short stop collateral and never advertises a level-adjusted size above the enforced base capital/risk ceiling. A monthly rule is enforced even without a per-trade rule. Zero percent deliberately blocks new risk. Service funding and submission require both per-trade and monthly rules. The legacy local accounting API can still represent accounts without them. Submission revalidates current caps, level and ledger capital, crediting only the trade's own verified reservation in the calculation; a prior funding decision cannot override a changed policy. Monthly accounting uses UTC boundaries and the ledger's original entry basis for carried positions; it does not measure broker mark-to-market drawdown. Planned stops cannot guarantee realized losses during gaps or slippage.
 
-Manual execution tools (`trade_record_fill`, `trade_record_stop`, `trade_record_target`) require the actual execution `price` and `fee` as exact decimal strings. The price must come from execution evidence. Recording a manual execution persists the filled quantity and actual price for subsequent accounting and reconciliation.
+Manual execution tools (`trade_record_fill`, `trade_record_stop`, `trade_record_target`) require the separate `trust:manual` scope in both token and grant, plus the actual execution `price` and `fee` as exact decimal strings. The price must come from execution evidence. Recording a manual execution persists the filled quantity and actual price for subsequent accounting and reconciliation.
 
 Tools cover the existing workflow families:
 
@@ -152,11 +153,27 @@ The historical CLI is retained solely as `trust-legacy` behind `--features legac
 
 ## Audit, logging, and operations
 
-Structured JSON logs go to stdout with request ID, tool, status, and latency. They omit Authorization, raw paths/queries, arguments, and broker response bodies. Production logging enables service events only. Container log rotation is configured; ship retained logs to your existing collector if needed.
+Structured JSON logs go to stdout. HTTP and MCP calls share a generated `request_id` with their response and durable audit records. Operation logs include the tool, source (`http`, `mcp`, `internal`, or `background`), operation ID when available, queue wait, execution duration, replay flag, and safe error code. Core execution/fee reconciliation failures use sanitized operational events. Authorization headers, raw paths/queries, arguments, credentials, and broker response bodies are excluded. Container rotation bounds local logs; send them to your existing collector for retention.
 
-The control database stores subject/client attribution, request/operation IDs, tool, account, outcome, and content hashes in an append-only hash chain. Mutation responses contain financial data and must be protected like the ledger. Audit write failure stops the worker. Startup verifies the chain. Chain verification detects ordinary changes; an attacker with storage control can rewrite/truncate the whole chain, so retain external head hashes or trusted backups for stronger evidence.
+Audit version 2 adds source, affected account IDs, timing, and error code to the append-only hash chain. It records invalid authenticated tool arguments, authorization denials, key conflicts, replays, and interrupted-operation recovery as well as intent/results. Recovery changes state and appends evidence in one control-database transaction. `audit_list` returns `previous_hash` and `event_hash`, and requires access to every affected account even for the original actor. Version 1 hashes remain verifiable; old events retain their original account attribution. Mutation responses contain financial data and require the same protection as the ledger.
 
-Request bodies are limited to 128 KiB, results to 1 MiB, concurrent HTTP requests to 32, the worker queue to 64 by default, total requests to 600/minute and each subject to 120/minute. Broker/network delays can cause `outcome_unknown` responses while the worker completes its durable operation. SIGTERM stops accepting HTTP requests and lets work finish; forcibly terminating it leaves recoverable unknown intents.
+Audit write failure or a detected integrity failure stops the financial worker. Startup verifies the chain. Storage control could permit rewriting or truncating the entire chain, so retain external head hashes or trusted backups. Rejected authentication/HTTP requests and work canceled before dispatch appear in structured logs and metrics, not the financial operation journal; no durable financial intent has started. A client that disconnects after dispatch must inspect the original key.
+
+`GET /metrics` exports Prometheus text, requiring a valid bearer token with `trust:admin` and an all-accounts grant. It reads process-local counters without entering the financial queue, including when that worker has stopped. Scrape through the same authenticated TLS ingress as MCP. Labels never contain account IDs, subjects, tools supplied by callers, or keys. Counters reset on process restart; durable outcomes remain in the journal. Each histogram scrape takes a consistent snapshot of its cumulative buckets, count and sum, including during concurrent requests.
+
+| Signal | Use |
+| --- | --- |
+| `trust_worker_ready`, `trust_worker_active` | Alert on an unavailable worker or prolonged execution. |
+| `trust_queue_depth`, `trust_queue_capacity`, `trust_queue_rejections_total` | Detect queue saturation; canceled entries count until drained. |
+| `trust_queue_wait_milliseconds`, `trust_execution_milliseconds`, `trust_http_duration_milliseconds` | Histograms with bounded cumulative buckets, count and millisecond sum. Separate queueing from execution latency. |
+| `trust_operations_total`, `trust_operation_errors_total`, `trust_replays_total` | Completed dispatch attempts, errors and idempotency replays. |
+| `trust_queued_cancellations_total`, `trust_unknown_responses_total` | Distinguish skipped queued work from callers losing confirmation of active work. |
+| `trust_audit_failures_total` | Stop financial traffic and investigate storage or integrity immediately. |
+| `trust_http_requests_total`, `trust_http_rejections_total` | HTTP totals and non-success transport responses; tool errors are counted separately. |
+
+Request bodies are limited to 128 KiB, results to 1 MiB, ordinary concurrent HTTP requests to 32, the worker queue to 64 by default, ordinary total requests to 600/minute and each subject to 120/minute. Health/readiness probes bypass ordinary rate and concurrency limits. Authenticated metrics bypass the concurrency limit but remain rate limited.
+
+`request_timeout_ms` defaults to 45000 (valid range 1–45000). `queue_timeout_ms` defaults to 40000 and must be between 1 and the request timeout. An expired queued request returns `request_expired` and cannot later execute. Retry its original key after pressure subsides. Once dispatch starts, a lost completion response is `outcome_unknown`: inspect `operation_get` with that key and reconcile before any new intent. SIGTERM immediately stops admission, finishes the active operation, rejects queued work, then joins the worker; forced termination preserves durable intent for recovery.
 
 Background reconciliation runs independently of MCP connections, when configured, rotating through one active trade per interval. `account_reconcile` processes a bounded page (default 1, maximum 5); follow `next_after_trade_id` with a new key for the next page. Failures are recorded per trade and a batch's `complete` flag must be checked. The current synchronous adapters serialize broker I/O; a large account can delay other operations. Use an operator monitor for readiness, unresolved operations, and reconciliation failures. The service is not a substitute for broker-native protective orders.
 
@@ -173,6 +190,7 @@ Rusqlite is on 0.40.2 because Diesel 2.3.14 requires `libsqlite3-sys <0.39`, whi
 ```sh
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
+make e2e  # child service, real sockets, local IBKR simulator; no live credentials
 cargo test --locked -p trust-service -- --test-threads=1
 cargo test --locked --workspace --all-features -- --test-threads=1
 cargo test --locked -p trust-cli --features legacy-cli --test integration_test_report_json_snapshots -- --test-threads=1
@@ -186,3 +204,12 @@ trivy image --scanners vuln --severity HIGH,CRITICAL --exit-code 1 trust-service
 ```
 
 Tests use generated signing keys and fake brokers; they never connect to live brokerage accounts. Live IBKR/paper end-to-end tests remain explicit ignored tests under the repository's existing operator workflow.
+
+
+## Assurance levels
+
+Use `make assurance-status` to inspect evidence for the current source. These levels are separate from account sizing/leveling. `make assurance-unit` runs deterministic financial and permission checks; `make assurance-protocol` runs adapter and real-process tests against the local IBKR simulator. The second level requires current first-level evidence. Both are offline and forcibly disable live test opt-ins.
+
+`make ibkr-paper-preflight` explicitly contacts an authenticated paper gateway after the offline levels pass. It never selects a submitting test. A supervised MCP paper submit/cancel harness is available in `scripts/ibkr_paper_acceptance.py`; it requires an operator-prepared one-unit trade, a notional bound, a token file and an explicit acknowledgment. Neither that smoke nor what-if success completes paper lifecycle acceptance. See [the six levels and acceptance criteria](reliability/verification.md#staged-ibkr-assurance).
+
+The runner records source fingerprints, exact commands, named assertions, exit codes and log hashes. Modified source, incomplete logs, missing/ignored required tests, altered logs and expired evidence prevent promotion. Reports are operator-controlled local evidence, not cryptographic certification, deployment authorization or guarantees about actual market losses. Levels 4–6 stay unverified until the external observations and remaining whole-account safeguards are complete. Existing `allow_live` flags are authorization controls; they are not evidence of readiness.

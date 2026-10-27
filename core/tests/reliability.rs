@@ -11,7 +11,7 @@ use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use std::error::Error;
 
-struct BrokerStub;
+struct BrokerStub(std::sync::Arc<std::sync::atomic::AtomicUsize>);
 impl Broker for BrokerStub {
     fn kind(&self) -> BrokerKind {
         BrokerKind::Alpaca
@@ -21,6 +21,7 @@ impl Broker for BrokerStub {
         _: &Trade,
         _: &Account,
     ) -> Result<(BrokerLog, OrderIds), Box<dyn Error>> {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         Ok((
             BrokerLog::default(),
             OrderIds {
@@ -56,13 +57,18 @@ struct Fixture {
     connection: diesel::SqliteConnection,
     directory: tempfile::TempDir,
     account: Account,
+    broker_calls: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 }
 impl Fixture {
     fn new() -> Self {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("financial.db");
         let url = path.to_str().unwrap();
-        let mut facade = TrustFacade::new(Box::new(SqliteDatabase::new(url)), Box::new(BrokerStub));
+        let broker_calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let mut facade = TrustFacade::new(
+            Box::new(SqliteDatabase::new(url)),
+            Box::new(BrokerStub(broker_calls.clone())),
+        );
         let account = facade
             .create_account(
                 "reliability",
@@ -88,6 +94,7 @@ impl Fixture {
             connection,
             directory,
             account,
+            broker_calls,
         }
     }
     fn rule(&mut self, rule: RuleName) {
@@ -717,5 +724,91 @@ fn monthly_budget_does_not_reset_after_current_month_deposit_or_carried_reservat
                 assert_eq!(preview,Decimal::ZERO,"realized loss consumed monthly risk: old deposit {old_deposit}, old reservation {old_reservation}, {side}");
             }
         }
+    }
+}
+
+#[test]
+fn submission_revalidates_changed_trade_and_monthly_caps_without_broker_effects() {
+    for side in [TradeCategory::Long, TradeCategory::Short] {
+        for replacement in [
+            RuleName::RiskPerTrade(0.0),
+            RuleName::RiskPerTrade(0.5),
+            RuleName::RiskPerMonth(0.0),
+            RuleName::RiskPerMonth(0.5),
+        ] {
+            let mut f = Fixture::new();
+            f.rule(RuleName::RiskPerTrade(2.0));
+            f.rule(RuleName::RiskPerMonth(5.0));
+            let trade = f.trade(side, dec!(10));
+            let funded = f.facade.fund_trade(&trade).unwrap().0;
+            let old = f
+                .facade
+                .search_rules(f.account.id)
+                .unwrap()
+                .into_iter()
+                .find(|rule| {
+                    std::mem::discriminant(&rule.name) == std::mem::discriminant(&replacement)
+                })
+                .unwrap();
+            f.facade.deactivate_rule(&old).unwrap();
+            f.rule(replacement);
+            let before = f.tables();
+            let error = f.facade.submit_trade(&funded).unwrap_err();
+            assert!(
+                error
+                    .downcast_ref::<core::validation_errors::FundValidationError>()
+                    .is_some(),
+                "{error}"
+            );
+            assert_eq!(f.broker_calls.load(std::sync::atomic::Ordering::SeqCst), 0);
+            assert_eq!(f.tables(), before);
+            assert_eq!(
+                f.facade.read_trade(funded.id).unwrap().status,
+                Status::Funded
+            );
+        }
+    }
+}
+
+#[test]
+fn submission_reuses_only_its_own_reservation_and_preserves_monthly_boundary() {
+    for side in [TradeCategory::Long, TradeCategory::Short] {
+        for quantity in [dec!(1), dec!(10), dec!(50)] {
+            let mut f = Fixture::new();
+            f.rule(RuleName::RiskPerTrade(5.0));
+            f.rule(RuleName::RiskPerMonth(5.0));
+            let trade = f.trade(side, quantity);
+            let funded = f.facade.fund_trade(&trade).unwrap().0;
+            let before = f.facade.get_all_transactions().unwrap().len();
+            assert_eq!(
+                f.facade.submit_trade(&funded).unwrap().0.status,
+                Status::Submitted
+            );
+            assert_eq!(f.facade.get_all_transactions().unwrap().len(), before);
+            assert_eq!(f.broker_calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        }
+    }
+    let mut f = Fixture::new();
+    f.rule(RuleName::RiskPerTrade(100.0));
+    f.rule(RuleName::RiskPerMonth(100.0));
+    let trade = f.trade(TradeCategory::Long, dec!(100));
+    let funded = f.facade.fund_trade(&trade).unwrap().0;
+    f.facade.submit_trade(&funded).unwrap();
+    assert_eq!(f.broker_calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+}
+
+#[test]
+fn submission_fails_closed_when_reservation_or_rule_reads_are_corrupt() {
+    for sql in [
+        "UPDATE trades_balances SET capital_out_market='0'",
+        "DROP TABLE rules",
+    ] {
+        let mut f = Fixture::new();
+        f.rule(RuleName::RiskPerTrade(2.0));
+        let trade = f.trade(TradeCategory::Long, dec!(10));
+        let funded = f.facade.fund_trade(&trade).unwrap().0;
+        diesel::sql_query(sql).execute(&mut f.connection).unwrap();
+        assert!(f.facade.submit_trade(&funded).is_err());
+        assert_eq!(f.broker_calls.load(std::sync::atomic::Ordering::SeqCst), 0);
     }
 }

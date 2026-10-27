@@ -432,11 +432,12 @@ fn generated_funding_gate_matches_risk_formula() {
                 case.entry,
                 case.stop,
             );
-            if let Err(error) = ok_trust.fund_trade(&ok_trade) {
-                return Err(TestCaseError::fail(format!(
-                    "risk boundary quantity must fund for {case:?}, got {error}"
-                )));
-            }
+            let funded = ok_trust.fund_trade(&ok_trade).map_err(|error| TestCaseError::fail(
+                format!("risk boundary quantity must fund for {case:?}, got {error}")
+            ))?.0;
+            ok_trust.submit_trade(&funded).map_err(|error| TestCaseError::fail(
+                format!("unchanged policy must authorize the reserved boundary for {case:?}: {error}")
+            ))?;
 
             let mut reject_trust = trust();
             let account = account_with_rules(&mut reject_trust, case.capital, case.risk);

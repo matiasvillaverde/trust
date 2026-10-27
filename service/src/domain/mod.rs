@@ -293,6 +293,7 @@ fn domain_error(error: Box<dyn std::error::Error>) -> ServiceError {
     };
     if let Some(error) = error.downcast_ref::<FundValidationError>() {
         let code = match error.code {
+            FundValidationErrorCode::RiskPolicyMissing => "risk_policy_missing",
             FundValidationErrorCode::RiskPerTradeExceeded => "risk_per_trade_exceeded",
             FundValidationErrorCode::RiskPerMonthExceeded => "risk_per_month_exceeded",
             FundValidationErrorCode::LevelAdjustedQuantityExceeded => "level_quantity_exceeded",

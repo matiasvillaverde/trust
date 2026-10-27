@@ -12,6 +12,7 @@ pub const SCOPES: &[&str] = &[
     "trust:preview",
     "trust:trade",
     "trust:reconcile",
+    "trust:manual",
     "trust:journal",
     "trust:policy",
     "trust:admin",

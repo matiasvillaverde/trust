@@ -366,10 +366,10 @@ fn mock_no_live_orders(server: &TestServer) {
         MockExpectation::json(
             "GET",
             "/v1/api/iserver/account/orders",
-            json!({ "orders": [] }),
+            json!({ "snapshot": true, "orders": [] }),
         )
         .query("accountId", "U1234567")
-        .query("force", "true"),
+        .query("force", "false"),
     );
 }
 
@@ -629,7 +629,7 @@ fn unrecognized_status_should_error() {
             "GET",
             "/v1/api/iserver/account/orders",
             json!({
-                "orders": [
+                "snapshot": true, "orders": [
                     { "orderId": "9100", "order_ref": t.entry.id.to_string(), "status": "SomeNewIBKRStatus" },
                     { "orderId": "9101", "order_ref": t.target.id.to_string(), "status": "WarnState" },
                     { "orderId": "9102", "order_ref": t.safety_stop.id.to_string(), "status": "SuspendedOrder" }
@@ -637,7 +637,7 @@ fn unrecognized_status_should_error() {
             }),
         )
         .query("accountId", "U1234567")
-        .query("force", "true"),
+        .query("force", "false"),
     );
 
     with_mock_gateway(&server, || {

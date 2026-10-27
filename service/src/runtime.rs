@@ -5,13 +5,14 @@ use crate::{
     config::Config,
     domain::{self, Domain},
     error::{Result, ServiceError},
-    journal::{Claim, Journal, Reply},
+    journal::{AuditContext, Claim, Journal, Reply},
+    metrics::{self, Metrics},
 };
 use serde_json::{json, Value};
 use std::{
     fs::{File, OpenOptions},
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU8, Ordering},
         mpsc, Arc,
     },
     time::{Duration, Instant},
@@ -19,16 +20,43 @@ use std::{
 use tokio::sync::oneshot;
 use uuid::Uuid;
 
+#[derive(Clone, Copy)]
+pub enum Source {
+    Internal,
+    Http,
+    Mcp,
+    Background,
+}
+impl Source {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Internal => "internal",
+            Self::Http => "http",
+            Self::Mcp => "mcp",
+            Self::Background => "background",
+        }
+    }
+}
+const QUEUED: u8 = 0;
+const STARTED: u8 = 1;
+const CANCELLED: u8 = 2;
+
 struct Request {
     identity: Identity,
     tool: String,
     arguments: Value,
     request_id: Uuid,
     reply: oneshot::Sender<Reply>,
+    enqueued: Instant,
+    state: Arc<AtomicU8>,
+    source: Source,
 }
 #[derive(Clone)]
 pub struct Service {
     sender: mpsc::SyncSender<Request>,
+    pub metrics: Arc<Metrics>,
+    queue_capacity: usize,
+    request_timeout: Duration,
     ready: Arc<AtomicBool>,
     stopping: Arc<AtomicBool>,
 }
@@ -51,6 +79,10 @@ impl Service {
         F: FnOnce() -> Result<trust_core::TrustFacade> + Send + 'static,
     {
         config.validate()?;
+        let metrics = Arc::new(Metrics::default());
+        let worker_metrics = metrics.clone();
+        let queue_capacity = config.queue_capacity;
+        let request_timeout = Duration::from_millis(config.request_timeout_ms);
         let (sender, receiver) = mpsc::sync_channel::<Request>(config.queue_capacity);
         let (startup_tx, startup_rx) = mpsc::sync_channel(1);
         let ready = Arc::new(AtomicBool::new(false));
@@ -88,9 +120,19 @@ impl Service {
                 while !worker_stopping.load(Ordering::Acquire) {
                     match receiver.recv_timeout(Duration::from_millis(250)) {
                         Ok(request) => {
-                            if request.reply.is_closed() {
+                            metrics::decrement(&worker_metrics.queued);
+                            let wait = request.enqueued.elapsed();
+                            worker_metrics.queue_wait.observe(wait);
+                            if request.reply.is_closed()
+                                || wait >= Duration::from_millis(config.queue_timeout_ms)
+                                || request.state.compare_exchange(QUEUED, STARTED, Ordering::AcqRel, Ordering::Acquire).is_err() {
+                                request.state.store(CANCELLED, Ordering::Release);
+                                metrics::increment(&worker_metrics.expired, 1);
+                                tracing::info!(event="queued_request_cancelled", request_id=%request.request_id, queue_wait_ms=metrics::milliseconds(wait), "Queued request was not dispatched");
+                                let _ = request.reply.send(Reply::from_result(request.request_id, None, Err(expired())));
                                 continue;
                             }
+                            metrics::increment(&worker_metrics.active, 1);
                             let result = execute(
                                 &mut domain,
                                 &mut journal,
@@ -98,14 +140,17 @@ impl Service {
                                 &request.tool,
                                 &request.arguments,
                                 request.request_id,
+                                Observation { source: request.source, wait, metrics: &worker_metrics },
                             );
+                            metrics::decrement(&worker_metrics.active);
                             let fatal = result
                                 .as_ref()
                                 .err()
-                                .is_some_and(|e| e.code == "audit_unavailable");
+                                .is_some_and(|e| matches!(e.code.as_str(), "audit_unavailable" | "audit_integrity_failed"));
                             let reply = result.unwrap_or_else(|e| {
                                 Reply::from_result(request.request_id, None, Err(e))
                             });
+                            if fatal { worker_ready.store(false, Ordering::Release); }
                             let _ = request.reply.send(reply);
                             if fatal {
                                 break;
@@ -118,13 +163,19 @@ impl Service {
                         && next_reconcile.elapsed()
                             >= Duration::from_secs(config.reconcile_interval_seconds)
                     {
-                        if reconcile(&mut domain, &mut journal, &mut reconcile_cursor).is_err() {
+                        if reconcile(&mut domain, &mut journal, &mut reconcile_cursor, &worker_metrics).is_err() {
                             break;
                         }
                         next_reconcile = Instant::now();
                     }
                 }
                 worker_ready.store(false, Ordering::Release);
+                for request in receiver.try_iter() {
+                    metrics::decrement(&worker_metrics.queued);
+                    request.state.store(CANCELLED, Ordering::Release);
+                    let _ = request.reply.send(Reply::from_result(request.request_id, None, Err(unavailable())));
+                }
+                tracing::info!(event="worker_stopped", "Financial worker stopped");
                 drop(locks);
             })
             .map_err(|_| ServiceError::internal())?;
@@ -132,6 +183,9 @@ impl Service {
         Ok((
             Self {
                 sender,
+                metrics,
+                queue_capacity,
+                request_timeout,
                 ready: ready.clone(),
                 stopping: stopping.clone(),
             },
@@ -145,6 +199,17 @@ impl Service {
     pub fn ready(&self) -> bool {
         self.ready.load(Ordering::Acquire) && !self.stopping.load(Ordering::Acquire)
     }
+    pub fn begin_shutdown(&self) {
+        self.stopping.store(true, Ordering::Release);
+        self.ready.store(false, Ordering::Release);
+        tracing::info!(
+            event = "shutdown_started",
+            "Stopping admission; finishing the active operation"
+        );
+    }
+    pub fn prometheus(&self) -> String {
+        self.metrics.render(self.ready(), self.queue_capacity)
+    }
     pub async fn call(
         &self,
         identity: Identity,
@@ -152,11 +217,24 @@ impl Service {
         arguments: Value,
         request_id: Uuid,
     ) -> Reply {
+        self.call_from(identity, tool, arguments, request_id, Source::Internal)
+            .await
+    }
+    pub async fn call_from(
+        &self,
+        identity: Identity,
+        tool: String,
+        arguments: Value,
+        request_id: Uuid,
+        source: Source,
+    ) -> Reply {
         let error = |e| Reply::from_result(request_id, None, Err(e));
         if !self.ready() {
             return error(unavailable());
         }
         let (tx, rx) = oneshot::channel();
+        let state = Arc::new(AtomicU8::new(QUEUED));
+        metrics::increment(&self.metrics.queued, 1);
         if self
             .sender
             .try_send(Request {
@@ -165,22 +243,35 @@ impl Service {
                 arguments,
                 request_id,
                 reply: tx,
+                enqueued: Instant::now(),
+                state: state.clone(),
+                source,
             })
             .is_err()
         {
+            metrics::decrement(&self.metrics.queued);
+            metrics::increment(&self.metrics.busy, 1);
+            tracing::warn!(event="queue_rejected", request_id=%request_id, "Financial worker queue is full or unavailable");
             return error(ServiceError::new(
                 "busy",
                 "The service queue is full or unavailable.",
                 "Retry with the same idempotency key after a short delay.",
             ));
         }
-        match tokio::time::timeout(Duration::from_secs(45), rx).await {
+        match tokio::time::timeout(self.request_timeout, rx).await {
             Ok(Ok(reply)) => reply,
-            _ => error(ServiceError::new(
-                "outcome_unknown",
-                "No completion response was received; the worker may still be executing.",
-                "Use operation_get with the original key. Never repeat this intent with a new key.",
-            )),
+            _ if state
+                .compare_exchange(QUEUED, CANCELLED, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok() =>
+            {
+                error(expired())
+            }
+            _ if state.load(Ordering::Acquire) == CANCELLED => error(unavailable()),
+            _ => {
+                metrics::increment(&self.metrics.unknown, 1);
+                tracing::warn!(event="completion_unknown", request_id=%request_id, "Caller stopped waiting for an active operation");
+                error(ServiceError::new("outcome_unknown", "No completion response was received; the worker may still be executing.", "Use operation_get with the original key. Never repeat this intent with a new key."))
+            }
         }
     }
 }
@@ -196,6 +287,13 @@ impl Worker {
             .map_err(|_| ServiceError::internal())?
             .map_err(|_| ServiceError::internal())
     }
+}
+fn expired() -> ServiceError {
+    ServiceError::new(
+        "request_expired",
+        "The request expired before dispatch; no operation was started.",
+        "Retry with the same idempotency key after the queue clears.",
+    )
 }
 fn unavailable() -> ServiceError {
     ServiceError::new(
@@ -245,6 +343,11 @@ fn lock_storage(config: &Config) -> Result<Vec<File>> {
     Ok(locks)
 }
 
+struct Observation<'a> {
+    source: Source,
+    wait: Duration,
+    metrics: &'a Metrics,
+}
 fn execute(
     domain: &mut Domain,
     journal: &mut Journal,
@@ -252,9 +355,70 @@ fn execute(
     name: &str,
     args: &Value,
     request_id: Uuid,
+    observation: Observation<'_>,
 ) -> Result<Reply> {
-    let spec = catalog::find(name)?;
-    catalog::validate(&spec, args)?;
+    let start = Instant::now();
+    journal.context = AuditContext {
+        source: observation.source.name(),
+        queue_wait_ms: metrics::milliseconds(observation.wait),
+        ..AuditContext::default()
+    };
+    let spec = catalog::find(name);
+    let safe_name = spec.as_ref().map_or("unknown", |spec| spec.name);
+    let span = tracing::info_span!("operation", request_id=%request_id, tool=safe_name);
+    let _entered = span.enter();
+    let result = execute_inner(domain, journal, identity, name, args, request_id, start);
+    let error = match &result {
+        Ok(reply) => reply.error.as_ref(),
+        Err(error) => Some(error),
+    };
+    metrics::increment(&observation.metrics.completed, 1);
+    if error.is_some() {
+        metrics::increment(&observation.metrics.failed, 1);
+    }
+    if error.is_some_and(|e| {
+        matches!(
+            e.code.as_str(),
+            "audit_unavailable" | "audit_integrity_failed"
+        )
+    }) {
+        metrics::increment(&observation.metrics.audit_failures, 1);
+        tracing::error!(event="audit_failed", code=error.map_or("", |e| e.code.as_str()), request_id=%request_id, "Durable audit failed; financial worker will stop");
+    }
+    if journal.context.replayed {
+        metrics::increment(&observation.metrics.replayed, 1);
+    }
+    observation.metrics.execution.observe(start.elapsed());
+    tracing::info!(event="operation", request_id=%request_id, operation_id=?result.as_ref().ok().and_then(|reply| reply.operation_id), tool=safe_name, source=observation.source.name(), queue_wait_ms=metrics::milliseconds(observation.wait), duration_ms=metrics::milliseconds(start.elapsed()), replayed=journal.context.replayed, error_code=error.map_or("", |e|e.code.as_str()), outcome=if error.is_some(){"error"}else{"ok"}, "Trust operation finished");
+    result
+}
+
+fn execute_inner(
+    domain: &mut Domain,
+    journal: &mut Journal,
+    identity: &Identity,
+    name: &str,
+    args: &Value,
+    request_id: Uuid,
+    start: Instant,
+) -> Result<Reply> {
+    let spec = match catalog::find(name) {
+        Ok(spec) => spec,
+        Err(error) => {
+            journal.context.error_code = Some(error.code.clone());
+            journal
+                .record(identity, request_id, "unknown", None, "invalid")
+                .map_err(|_| audit_unavailable())?;
+            return Err(error);
+        }
+    };
+    if let Err(error) = catalog::validate(&spec, args) {
+        journal.context.error_code = Some(error.code.clone());
+        journal
+            .record(identity, request_id, name, None, "invalid")
+            .map_err(|_| audit_unavailable())?;
+        return Err(error);
+    }
     let account = args
         .get("account_id")
         .and_then(Value::as_str)
@@ -262,25 +426,27 @@ fn execute(
     let accounts = match domain.authorize(identity, &spec, args) {
         Ok(ids) => ids,
         Err(error) => {
+            journal.context.error_code = Some(error.code.clone());
             journal
                 .record(identity, request_id, name, account, "denied")
                 .map_err(|_| audit_unavailable())?;
             return Err(error);
         }
     };
+    journal.context.account_ids = accounts.clone();
     let operation_id = if spec.mutation {
         let key = domain::string(args, "idempotency_key")?;
-        match journal
-            .claim(identity, key, name, account, args, request_id, &accounts)
-            .map_err(|error| {
-                if error.code == "service_unavailable" {
-                    audit_unavailable()
-                } else {
-                    error
-                }
-            })? {
-            Claim::New(id) => Some(id),
-            Claim::Existing(reply) => return Ok(reply),
+        match journal.claim(identity, key, name, account, args, request_id, &accounts) {
+            Ok(Claim::New(id)) => Some(id),
+            Ok(Claim::Existing(reply)) => return Ok(reply),
+            Err(error) if error.code == "service_unavailable" => return Err(audit_unavailable()),
+            Err(error) => {
+                journal.context.error_code = Some(error.code.clone());
+                journal
+                    .record(identity, request_id, name, account, "denied")
+                    .map_err(|_| audit_unavailable())?;
+                return Err(error);
+            }
         }
     } else {
         None
@@ -294,6 +460,10 @@ fn execute(
         ),
         Operation::AuditVerify => journal.verify(),
         _ => domain.dispatch(identity, spec.operation, args),
+    };
+    let result = match result {
+        Err(error) if error.code == "audit_integrity_failed" => return Err(error),
+        other => other,
     };
     // A domain error can follow an external side effect. Do not claim rollback.
     let result = result.map_err(|error| {
@@ -331,6 +501,8 @@ fn execute(
         reply.data = None;
         reply.error=Some(ServiceError::new("result_too_large","The result exceeded the response limit.","Use a narrower query or pagination. A mutation may have completed; inspect its resulting records."));
     }
+    journal.context.duration_ms = metrics::milliseconds(start.elapsed());
+    journal.context.error_code = reply.error.as_ref().map(|error| error.code.clone());
     if spec.mutation {
         journal
             .finish(identity, name, account, &reply)
@@ -350,7 +522,6 @@ fn execute(
             )
             .map_err(|_| audit_unavailable())?;
     }
-    tracing::info!(event="operation",request_id=%request_id,operation_id=?operation_id,tool=spec.name,outcome=if reply.error.is_some(){"error"}else{"ok"},"Trust operation finished");
     Ok(reply)
 }
 
@@ -358,6 +529,7 @@ fn reconcile(
     domain: &mut Domain,
     journal: &mut Journal,
     cursor: &mut Option<(Uuid, Uuid)>,
+    metrics: &Metrics,
 ) -> Result<()> {
     let accounts = match domain.facade.search_all_accounts() {
         Ok(accounts) => accounts,
@@ -409,14 +581,22 @@ fn reconcile(
     if let Some((account, trade)) = next {
         *cursor = Some((account, trade));
         let args = json!({"account_id":account,"trade_id":trade,"idempotency_key":Uuid::new_v4().to_string()});
-        match execute(
+        metrics::increment(&metrics.active, 1);
+        let result = execute(
             domain,
             journal,
             &identity,
             "trade_reconcile",
             &args,
             Uuid::new_v4(),
-        ) {
+            Observation {
+                source: Source::Background,
+                wait: Duration::ZERO,
+                metrics,
+            },
+        );
+        metrics::decrement(&metrics.active);
+        match result {
             Err(error) if error.code == "audit_unavailable" => return Err(error),
             Err(_) => {
                 tracing::warn!(event="reconciliation_failed",account_id=%account,trade_id=%trade,"Background reconciliation failed")

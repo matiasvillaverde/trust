@@ -110,6 +110,9 @@ impl Domain {
                 match op {
                     TradeGet => value(trade),
                     TradeFund => {
+                        self.facade
+                            .require_trading_policy(account.id)
+                            .map_err(domain_error)?;
                         let (updated, transaction, balance, trade_balance) =
                             self.facade.fund_trade(&trade).map_err(domain_error)?;
                         Ok(
@@ -117,6 +120,9 @@ impl Domain {
                         )
                     }
                     TradeSubmit => {
+                        self.facade
+                            .require_trading_policy(account.id)
+                            .map_err(domain_error)?;
                         let (updated, _) =
                             self.facade.submit_trade(&trade).map_err(domain_error)?;
                         Ok(json!({"trade":updated,"next_action":"trade_reconcile"}))

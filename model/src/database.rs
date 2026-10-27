@@ -281,6 +281,20 @@ pub trait ReadTransactionDB {
     }
 
     /// Retrieves all account transactions excluding tax transactions
+    /// in the same order, without report-only transaction metadata.
+    fn account_cash_movements_excluding_taxes(
+        &mut self,
+        account_id: Uuid,
+        currency: &Currency,
+    ) -> Result<Vec<(TransactionCategory, Decimal)>, Box<dyn Error>> {
+        Ok(self
+            .all_account_transactions_excluding_taxes(account_id, currency)?
+            .into_iter()
+            .map(|tx| (tx.category, tx.amount))
+            .collect())
+    }
+
+    /// Retrieves all account transactions excluding tax transactions
     fn all_account_transactions_excluding_taxes(
         &mut self,
         account_id: Uuid,

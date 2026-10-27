@@ -4,14 +4,36 @@ import argparse
 import datetime
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
 import sys
+import assurance
 
 ROOT = Path(__file__).resolve().parents[1]
 COMMAND = ["cargo", "test", "--locked", "--workspace", "--all-features", "--no-fail-fast", "--", "--test-threads=1"]
 REQUIRED = {
+    "submission_revalidates_changed_trade_and_monthly_caps_without_broker_effects",
+    "submission_reuses_only_its_own_reservation_and_preserves_monthly_boundary",
+    "submission_fails_closed_when_reservation_or_rule_reads_are_corrupt",
+    "order_cache_refresh_never_authorizes_duplicate_submission",
+    "incomplete_or_truncated_order_snapshots_never_submit",
+    "broker_reconciliation_authority_cannot_record_manual_executions",
+    "service_requires_explicit_trade_and_monthly_policy",
+    "mcp_submission_observes_policy_changes_after_funding",
+    "metrics::tests::concurrent_scrapes_have_consistent_histogram_buckets_count_and_sum",
+    "atomic::tests::worker_savepoints_preserve_outer_atomicity_without_a_diesel_test_transaction",
+    "detected_runtime_audit_corruption_stops_financial_admission",
+    "incremental_broker_projections_match_full_ledger_for_partial_cancel_exit_fees_and_replay",
+    "workers::worker_transaction::tests::cash_movement_projection_matches_ledger_and_rejects_corrupt_amounts",
+    "real_process_mcp_ibkr_lifecycles_replay_audit_metrics_and_redaction",
+    "risk_rejection_is_definitive_and_leaves_cash_and_broker_untouched",
+    "crash_after_broker_acceptance_recovers_unknown_without_resubmission_and_detects_tamper",
+    "queue_timeout_never_dispatches_expired_intent_and_audit_failure_stops_worker",
+    "graceful_shutdown_finishes_active_operation_before_process_exit",
+    "failed_recovery_audit_rolls_back_state_and_recovery_is_recorded_once",
+    "queue_and_request_deadlines_have_validated_bounds",
     "fractional_risk_rules_round_trip_and_preview_is_fundable",
     "monthly_rule_alone_limits_risk_and_short_collateral_preview",
     "monthly_risk_counts_long_and_short_through_active_states",
@@ -78,7 +100,9 @@ def main():
     args = parser.parse_args()
     if args.summarize and args.exit_code is None:
         parser.error("--summarize requires the actual --exit-code; a partial log is not success")
+    os.environ.setdefault("PROPTEST_RNG_SEED", "20261027")
     coverage = inventory()
+    source_fingerprint = assurance.fingerprint()
     args.output.parent.mkdir(parents=True, exist_ok=True)
     command = COMMAND
     if args.coverage:
@@ -101,6 +125,10 @@ def main():
     report["command"] = command
     report["log"] = str(log_path.resolve())
     report["cargo_lock_sha256"] = hashlib.sha256((ROOT / "Cargo.lock").read_bytes()).hexdigest()
+    report["source_fingerprint"] = source_fingerprint
+    report["proptest_rng_seed"] = os.environ["PROPTEST_RNG_SEED"]
+    if not args.summarize and report["success"]:
+        assurance.record_workspace_run(log_path, exit_code, source_fingerprint, command)
     report["limits"] = ["Test names and assertions are evidence, not proof of exhaustive state-space coverage.",
                         "Ignored broker tests were not run. No live orders are part of this gate.",
                         "The edge-case register includes external acceptance work; its item count is not a passed-case count."]

@@ -10,7 +10,7 @@ async fn main() -> std::process::ExitCode {
     // events are enabled in production; request bodies, tokens, and URLs are never logged.
     tracing_subscriber::fmt()
         .json()
-        .with_env_filter("off,trust_service=info")
+        .with_env_filter("off,trust_service=info,trust::operational=info")
         .with_current_span(false)
         .init();
     match run().await {
@@ -38,13 +38,19 @@ async fn run() -> Result<()> {
             ],
         ))
     })?;
-    let app = trust_service::http::router(config.clone(), service)?;
+    let app = trust_service::http::router(config.clone(), service.clone())?;
     let listener = tokio::net::TcpListener::bind(config.listen)
         .await
         .map_err(|_| ServiceError::invalid("Cannot bind the configured service listener."))?;
-    tracing::info!(event = "service_ready", "Trust service is ready");
+    let address = listener
+        .local_addr()
+        .map_err(|_| ServiceError::internal())?;
+    tracing::info!(event = "service_ready", listen=%address, "Trust service is ready");
     let server = axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
+        .with_graceful_shutdown(async move {
+            shutdown_signal().await;
+            service.begin_shutdown();
+        })
         .await;
     worker.shutdown().await?;
     server.map_err(|_| ServiceError::internal())

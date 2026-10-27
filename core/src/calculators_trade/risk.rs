@@ -1,4 +1,4 @@
-use model::{Currency, DatabaseFactory, Rule, RuleName};
+use model::{Currency, DatabaseFactory, Rule, RuleName, Trade};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use uuid::Uuid;
@@ -17,6 +17,16 @@ impl RiskCalculator {
         rules: &[Rule],
         database: &mut dyn DatabaseFactory,
     ) -> Result<(Option<Decimal>, Decimal), Box<dyn std::error::Error>> {
+        Self::effective_rules_for_reservation(account_id, currency, rules, database, None)
+    }
+
+    pub(crate) fn effective_rules_for_reservation(
+        account_id: Uuid,
+        currency: &Currency,
+        rules: &[Rule],
+        database: &mut dyn DatabaseFactory,
+        reservation: Option<&Trade>,
+    ) -> Result<(Option<Decimal>, Decimal), Box<dyn std::error::Error>> {
         let mut per_trade: Option<Decimal> = None;
         let mut per_month = dec!(100);
         for rule in rules {
@@ -26,9 +36,20 @@ impl RiskCalculator {
                     per_trade = Some(per_trade.map_or(risk, |previous| previous.min(risk)))
                 }
                 RuleName::RiskPerMonth(value) => {
-                    per_month = per_month.min(Self::calculate_max_percentage_to_risk_current_month(
-                        value, account_id, currency, database,
-                    )?)
+                    let monthly = if reservation.is_some() {
+                        Self::monthly_percentage(
+                            value,
+                            account_id,
+                            currency,
+                            database,
+                            reservation,
+                        )?
+                    } else {
+                        Self::calculate_max_percentage_to_risk_current_month(
+                            value, account_id, currency, database,
+                        )?
+                    };
+                    per_month = per_month.min(monthly);
                 }
             }
         }
@@ -41,20 +62,40 @@ impl RiskCalculator {
         currency: &Currency,
         database: &mut dyn DatabaseFactory,
     ) -> Result<Decimal, Box<dyn std::error::Error>> {
+        Self::monthly_percentage(risk, account_id, currency, database, None)
+    }
+
+    fn monthly_percentage(
+        risk: f32,
+        account_id: Uuid,
+        currency: &Currency,
+        database: &mut dyn DatabaseFactory,
+        reservation: Option<&Trade>,
+    ) -> Result<Decimal, Box<dyn std::error::Error>> {
         // Calculate the total available this month.
-        let total_available = AccountCapitalAvailable::calculate(
+        let mut total_available = AccountCapitalAvailable::calculate(
             account_id,
             currency,
             database.transaction_read().as_mut(),
         )?;
 
+        // Calculate the capital of the open trades that is not at risk.
+        let mut total_capital_not_at_risk =
+            TradeCapitalNotAtRisk::calculate(account_id, currency, database.trade_read().as_mut())?;
+
+        // Evaluate an already funded trade as a fresh reservation without writing a
+        // refund or changing the monthly opening basis. All other reservations remain.
+        if let Some(trade) = reservation {
+            total_available = total_available
+                .checked_add(trade.balance.capital_out_market)
+                .ok_or("Submission capital overflow")?;
+            total_capital_not_at_risk = total_capital_not_at_risk
+                .checked_sub(super::capital_not_at_risk::protected_capital(trade)?)
+                .ok_or("Submission protected capital overflow")?;
+        }
         if total_available <= Decimal::ZERO {
             return Ok(Decimal::ZERO);
         }
-
-        // Calculate the capital of the open trades that is not at risk.
-        let total_capital_not_at_risk =
-            TradeCapitalNotAtRisk::calculate(account_id, currency, database.trade_read().as_mut())?;
 
         // Calculate the total capital at the beginning of the month.
         let total_beginning_of_month =

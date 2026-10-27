@@ -253,3 +253,29 @@ Evidence: calculator/advisor suites; report/metrics/grade/session integration te
 18. OAuth provider key rotation/revocation propagation and network TLS/proxy configuration: verify in the actual deployment; local JWT tests are only component evidence.
 
 Evidence: adapter suites, SQLite backup/migration/worker tests, workflow checks and hardened-container smoke. Items 16–18 are explicit external acceptance gates; no live-money orders are authorized by this test task.
+
+
+## Service operation evidence and failure recovery
+
+1. An authenticated HTTP mutation and its concurrent MCP duplicate share one operation ID and cause one broker submission; both request IDs remain traceable.
+2. Restart after a successful mutation returns the stored outcome without repeating broker I/O.
+3. Kill the process after simulated broker acceptance but before acknowledgement: startup atomically records `recovered_unknown`, never resubmits, and preserves the original key.
+4. A recovery audit write fails: roll back the state change; a later successful startup records recovery exactly once.
+5. Expire a queued mutation while another operation is blocked: return `request_expired`, create no durable intent, and never execute the expired request after the worker resumes.
+6. Time out an already dispatched mutation: return `outcome_unknown`; eventual completion remains inspectable using the original key.
+7. Fill the bounded queue: reject excess work promptly, retaining functional health, readiness and authenticated metrics.
+8. SIGTERM during broker I/O: stop admission and wait for the active operation's durable completion before exiting.
+9. Audit intent write fails: no financial mutation occurs; readiness becomes unavailable while authenticated metrics expose the failure.
+10. Detect audit corruption at runtime or startup: refuse further financial admission; do not append to a known-invalid chain.
+11. Revoke access to one participant in a transfer: hide its audit events and stored outcome even from the original subject.
+12. Invalid arguments, conflicts and replays: record safe codes and correlation identifiers without input bodies or secrets.
+13. Provider errors containing secret-like text: emit only sanitized operational warnings, correlated to the request.
+14. Metrics without authentication, without admin scope, or with restricted account grants: deny access; exported metrics contain no account/subject/key labels, and concurrent histogram scrapes preserve consistent buckets/count/sum.
+15. Hundreds of health probes: do not exhaust ordinary API request limits or consume financial queue capacity.
+16. Zero/excessive request deadlines or a queue deadline exceeding the request deadline: reject configuration before serving.
+17. Partial entry, cancellation with remaining inventory, final exit, late fees and duplicate snapshots across long/short positions: incremental projections equal an independent full ledger replay after every committed operation.
+18. Compact cash reads preserve ordering, currencies, account isolation and soft deletion, and reject unrepresentable amounts and malformed trade identities.
+19. A typed funding rejection survives the service boundary as a definite failure, with unchanged cash and no broker request.
+20. Fee, distribution and transfer workers nested inside a facade savepoint: preserve outer atomicity on file-backed SQLite, including failures after earlier ledger/projection writes.
+
+Evidence: `service/tests/e2e.rs`, `service/tests/service_contract.rs`, the core projection differential test, and the SQLite cash-movement regression. The gateway is a local simulator; these cases do not establish real IBKR session or exchange behavior.

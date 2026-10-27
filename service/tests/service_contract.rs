@@ -477,6 +477,17 @@ fn crash_recovery_never_replays_intent_and_rechecks_all_original_accounts() {
     restricted.grant.all_accounts = false;
     restricted.grant.accounts = [a].into_iter().collect();
     assert!(journal.operation(&restricted, "crash-test").is_err());
+    // Both participants must remain authorized even for the original actor's audit.
+    assert!(journal.list(&restricted, 0, 100).unwrap()["events"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+    let events = journal.list(&fixture.identity(), 0, 100).unwrap();
+    assert!(events["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|event| event["event"]["outcome"] == "recovered_unknown"));
     assert!(journal
         .claim(
             &restricted,
@@ -875,6 +886,10 @@ async fn manual_tools_record_actual_prices_and_conserve_long_short_cash() {
                 "risk_rule_create",
                 json!({"account_id":account,"kind":"per_trade","percentage":"0.1","priority":"error","description":"precise cap","idempotency_key":"setup-policy"}),
             ),
+            (
+                "risk_rule_create",
+                json!({"account_id":account,"kind":"per_month","percentage":"5","priority":"error","description":"monthly cap","idempotency_key":"monthly-policy"}),
+            ),
         ];
         for (tool, args) in setup {
             let reply = fixture.call(&service, tool, args).await;
@@ -969,4 +984,154 @@ async fn manual_tools_record_actual_prices_and_conserve_long_short_cash() {
         }
         worker.shutdown().await.unwrap();
     }
+}
+
+#[test]
+fn failed_recovery_audit_rolls_back_state_and_recovery_is_recorded_once() {
+    let fixture = Fixture::new();
+    let identity = fixture.identity();
+    let account = Uuid::new_v4();
+    let args = json!({"account_id":account,"amount":"1","idempotency_key":"recovery-test"});
+    let mut journal = Journal::open(&fixture.config.journal).unwrap();
+    journal
+        .claim(
+            &identity,
+            "recovery-test",
+            "capital_deposit",
+            Some(account),
+            &args,
+            Uuid::new_v4(),
+            &[account].into_iter().collect(),
+        )
+        .unwrap();
+    drop(journal);
+    let db = rusqlite::Connection::open(&fixture.config.journal).unwrap();
+    db.execute_batch("CREATE TRIGGER recovery_fault BEFORE INSERT ON audit BEGIN SELECT RAISE(ABORT,'test disk failure'); END").unwrap();
+    assert!(Journal::open(&fixture.config.journal).is_err());
+    assert_eq!(
+        db.query_row("SELECT state FROM operations", [], |r| r
+            .get::<_, String>(0))
+            .unwrap(),
+        "running"
+    );
+    assert_eq!(
+        db.query_row("SELECT count(*) FROM audit", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        1
+    );
+    db.execute_batch("DROP TRIGGER recovery_fault").unwrap();
+    let journal = Journal::open(&fixture.config.journal).unwrap();
+    assert_eq!(
+        journal.operation(&identity, "recovery-test").unwrap()["state"],
+        "outcome_unknown"
+    );
+    assert_eq!(journal.verify().unwrap()["events"], 2);
+    drop(journal);
+    let journal = Journal::open(&fixture.config.journal).unwrap();
+    assert_eq!(journal.verify().unwrap()["events"], 2);
+}
+
+#[test]
+fn queue_and_request_deadlines_have_validated_bounds() {
+    let fixture = Fixture::new();
+    for (request, queue) in [(0, 1), (45001, 1), (100, 0), (100, 101)] {
+        let mut config = (*fixture.config).clone();
+        config.request_timeout_ms = request;
+        config.queue_timeout_ms = queue;
+        assert!(config.validate().is_err());
+    }
+    let mut config = (*fixture.config).clone();
+    config.request_timeout_ms = 1;
+    config.queue_timeout_ms = 1;
+    assert!(config.validate().is_ok());
+}
+
+#[tokio::test]
+async fn detected_runtime_audit_corruption_stops_financial_admission() {
+    let fixture = Fixture::new();
+    let (service, worker) = fixture.start();
+    let account = fixture.account(&service, "integrity").await;
+    let db = rusqlite::Connection::open(&fixture.config.journal).unwrap();
+    db.execute_batch("DROP TRIGGER audit_no_update; UPDATE audit SET event='{}' WHERE sequence=1")
+        .unwrap();
+    let reply = fixture.call(&service, "audit_verify", json!({})).await;
+    assert_eq!(reply.error.unwrap().code, "audit_integrity_failed");
+    assert!(!service.ready());
+    let denied = fixture
+        .call(
+            &service,
+            "capital_deposit",
+            json!({"account_id":account,"amount":"1","idempotency_key":"after-corruption"}),
+        )
+        .await;
+    assert_eq!(denied.error.unwrap().code, "unavailable");
+    assert!(service
+        .prometheus()
+        .contains("trust_audit_failures_total 1\n"));
+    worker.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn broker_reconciliation_authority_cannot_record_manual_executions() {
+    let f = Fixture::new();
+    let (service, worker) = f.start();
+    let account = f.account(&service, "scope-split").await;
+    let mut actor = f.identity();
+    actor.scopes = ["trust:read".to_owned(), "trust:reconcile".to_owned()]
+        .into_iter()
+        .collect();
+    actor.grant.scopes = actor.scopes.clone();
+    let reconciled = service
+        .call(
+            actor.clone(),
+            "account_reconcile".into(),
+            json!({"account_id":account,"idempotency_key":"real-reconcile-key"}),
+            Uuid::new_v4(),
+        )
+        .await;
+    assert!(reconciled.error.is_none(), "{reconciled:?}");
+    for tool in [
+        "trade_record_fill",
+        "trade_record_stop",
+        "trade_record_target",
+    ] {
+        let reply = service.call(actor.clone(), tool.into(), json!({"account_id":account,"trade_id":Uuid::new_v4(),"price":"1","fee":"0","idempotency_key":format!("forbidden-{tool}")}), Uuid::new_v4()).await;
+        assert_eq!(reply.error.unwrap().code, "forbidden");
+        assert!(reply.operation_id.is_none());
+    }
+    assert_eq!(f.calls.load(Ordering::SeqCst), 0);
+    worker.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn service_requires_explicit_trade_and_monthly_policy() {
+    let f = Fixture::new();
+    let (service, worker) = f.start();
+    let account = f.account(&service, "required-policy").await;
+    let deposit = f
+        .call(
+            &service,
+            "capital_deposit",
+            json!({"account_id":account,"amount":"10000","idempotency_key":"policy-deposit"}),
+        )
+        .await;
+    assert!(deposit.error.is_none());
+    let instrument = f.call(&service, "instrument_create", json!({"symbol":"POLICY","category":"stock","broker":"ibkr","idempotency_key":"policy-instrument"})).await.data.unwrap()["id"].clone();
+    let trade = f.call(&service, "trade_prepare", json!({"account_id":account,"instrument_id":instrument,"side":"long","quantity":"1","entry":"100","stop":"95","target":"110","idempotency_key":"policy-prepare"})).await.data.unwrap()["id"].clone();
+    for (index, kind) in ["per_trade", "per_month"].into_iter().enumerate() {
+        let denied = f.call(&service, "trade_fund", json!({"account_id":account,"trade_id":trade,"idempotency_key":format!("missing-policy-{index}")})).await;
+        assert_eq!(denied.error.unwrap().code, "risk_policy_missing");
+        let rule = f.call(&service, "risk_rule_create", json!({"account_id":account,"kind":kind,"percentage":"2","priority":"error","description":"explicit cap","idempotency_key":format!("policy-{kind}")})).await;
+        assert!(rule.error.is_none());
+    }
+    let funded = f
+        .call(
+            &service,
+            "trade_fund",
+            json!({"account_id":account,"trade_id":trade,"idempotency_key":"policy-fund-allowed"}),
+        )
+        .await;
+    assert!(funded.error.is_none(), "{funded:?}");
+    assert_eq!(f.calls.load(Ordering::SeqCst), 0);
+    worker.shutdown().await.unwrap();
 }

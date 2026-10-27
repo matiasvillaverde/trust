@@ -46,10 +46,7 @@ async fn submit(client: &Client, order_id: Uuid, price: Decimal) -> Result<Order
     let result = client.issue::<Change>(&(Id(order_id), request)).await;
     match result {
         Ok(log) => Ok(log),
-        Err(e) => {
-            eprintln!("Error modify stop: {e:?}");
-            Err(Box::new(e))
-        }
+        Err(e) => Err(Box::new(e)),
     }
 }
 

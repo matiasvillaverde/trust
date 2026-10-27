@@ -313,7 +313,7 @@ impl Broker for ReplayBroker {
         let mut target = trade.target.clone();
         target.unit_price = scenario.target_price.unwrap_or(target.unit_price);
         target.filled_quantity = scenario.exit_qty;
-        target.average_filled_price = Some(dec!(120));
+        target.average_filled_price = Some(trade.target.unit_price);
         let status = if scenario.exit_qty > Decimal::ZERO {
             target.quantity = scenario.exit_qty;
             target.status = model::OrderStatus::Filled;
@@ -870,4 +870,138 @@ fn competing_connections_modify_target_only_once() {
     assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
     drop(second);
     std::fs::remove_file(path).unwrap();
+}
+
+fn assert_projection_matches_ledger(db: &SqliteDatabase, account: &Account) {
+    let balance = db
+        .account_balance_read()
+        .for_currency(account.id, &Currency::USD)
+        .unwrap();
+    let txs = db
+        .transaction_read()
+        .all_transactions(account.id, &Currency::USD)
+        .unwrap();
+    let cash = txs.iter().fold(Decimal::ZERO, |sum, tx| match tx.category {
+        TransactionCategory::Deposit
+        | TransactionCategory::PaymentFromTrade(_)
+        | TransactionCategory::PaymentEarnings(_) => sum + tx.amount,
+        TransactionCategory::Withdrawal
+        | TransactionCategory::WithdrawalEarnings
+        | TransactionCategory::FundTrade(_)
+        | TransactionCategory::FeeOpen(_)
+        | TransactionCategory::FeeClose(_) => sum - tx.amount,
+        _ => sum,
+    });
+    let total = txs.iter().fold(Decimal::ZERO, |sum, tx| match tx.category {
+        TransactionCategory::Deposit
+        | TransactionCategory::CloseTarget(_)
+        | TransactionCategory::CloseSafetyStop(_)
+        | TransactionCategory::CloseSafetyStopSlippage(_) => sum + tx.amount,
+        TransactionCategory::Withdrawal
+        | TransactionCategory::WithdrawalTax
+        | TransactionCategory::WithdrawalEarnings
+        | TransactionCategory::OpenTrade(_)
+        | TransactionCategory::FeeOpen(_)
+        | TransactionCategory::FeeClose(_) => sum - tx.amount,
+        _ => sum,
+    });
+    assert_eq!(balance.total_available, cash);
+    assert_eq!(balance.total_balance, total);
+    assert_eq!(
+        balance.total_in_trade,
+        db.transaction_read()
+            .account_market_exposure(account.id, &Currency::USD)
+            .unwrap()
+            .unwrap()
+    );
+}
+
+#[test]
+fn incremental_broker_projections_match_full_ledger_for_partial_cancel_exit_fees_and_replay() {
+    for side in [TradeCategory::Long, TradeCategory::Short] {
+        for quantity in 1..=10 {
+            let directory = tempfile::tempdir().unwrap();
+            let path = directory.path().join("projection.db");
+            let path = path.to_str().unwrap();
+            let scenario = std::sync::Arc::new(std::sync::Mutex::new(FillScenario {
+                entry_qty: Decimal::from(quantity),
+                exit_qty: Decimal::ZERO,
+                canceled: false,
+                fees: vec![("opening".into(), dec!(1.25))],
+                stop_price: None,
+                target_price: None,
+            }));
+            let mut facade = TrustFacade::new(
+                Box::new(SqliteDatabase::new(path)),
+                Box::new(ReplayBroker(scenario.clone())),
+            );
+            let db = SqliteDatabase::new(path);
+            let (account, trade) = seed(&mut facade, side);
+            let funded = facade.fund_trade(&trade).unwrap().0;
+            assert_projection_matches_ledger(&db, &account);
+            let submitted = facade.submit_trade(&funded).unwrap().0;
+            assert_projection_matches_ledger(&db, &account);
+            if quantity == 1 {
+                use diesel::{Connection, RunQueryDsl};
+                let mut faults = diesel::SqliteConnection::establish(path).unwrap();
+                for (event, table) in [
+                    ("UPDATE", "accounts_balances"),
+                    ("INSERT", "fee_activities"),
+                ] {
+                    let before = serde_json::to_value((
+                        facade.read_trade(trade.id).unwrap(),
+                        facade.search_balance(account.id, &Currency::USD).unwrap(),
+                        db.transaction_read()
+                            .all_transactions(account.id, &Currency::USD)
+                            .unwrap(),
+                    ))
+                    .unwrap();
+                    diesel::sql_query(format!("CREATE TRIGGER projection_failure BEFORE {event} ON {table} BEGIN SELECT RAISE(ABORT,'projection fault'); END")).execute(&mut faults).unwrap();
+                    assert!(facade.sync_trade(&submitted, &account).is_err());
+                    let after = serde_json::to_value((
+                        facade.read_trade(trade.id).unwrap(),
+                        facade.search_balance(account.id, &Currency::USD).unwrap(),
+                        db.transaction_read()
+                            .all_transactions(account.id, &Currency::USD)
+                            .unwrap(),
+                    ))
+                    .unwrap();
+                    assert_eq!(before, after, "partial projection or fee write at {table}");
+                    diesel::sql_query("DROP TRIGGER projection_failure")
+                        .execute(&mut faults)
+                        .unwrap();
+                }
+            }
+            facade.sync_trade(&submitted, &account).unwrap();
+            assert_projection_matches_ledger(&db, &account);
+            scenario.lock().unwrap().canceled = true;
+            facade.sync_trade(&submitted, &account).unwrap();
+            assert_projection_matches_ledger(&db, &account);
+            {
+                let mut state = scenario.lock().unwrap();
+                state.exit_qty = Decimal::from(quantity);
+                state.fees.push(("closing".into(), dec!(2.50)));
+            }
+            facade.sync_trade(&submitted, &account).unwrap();
+            assert_projection_matches_ledger(&db, &account);
+            let before = db
+                .transaction_read()
+                .all_transactions(account.id, &Currency::USD)
+                .unwrap();
+            facade.sync_trade(&submitted, &account).unwrap();
+            assert_projection_matches_ledger(&db, &account);
+            let after = db
+                .transaction_read()
+                .all_transactions(account.id, &Currency::USD)
+                .unwrap();
+            assert_eq!(before.len(), after.len());
+            assert_eq!(
+                facade
+                    .search_balance(account.id, &Currency::USD)
+                    .unwrap()
+                    .total_available,
+                dec!(10000) + Decimal::from(quantity) * dec!(20) - dec!(3.75)
+            );
+        }
+    }
 }

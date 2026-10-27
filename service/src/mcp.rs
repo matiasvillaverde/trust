@@ -75,11 +75,12 @@ impl ServerHandler for Mcp {
             .unwrap_or_else(Uuid::new_v4);
         let reply = self
             .service
-            .call(
+            .call_from(
                 identity,
                 request.name.into_owned(),
                 Value::Object(request.arguments.unwrap_or_default()),
                 request_id,
+                crate::runtime::Source::Mcp,
             )
             .await;
         let failed = reply.error.is_some();

@@ -162,6 +162,20 @@ reliability:
 	@python3 -m unittest discover -s scripts -p test_reliability.py
 	@python3 scripts/reliability.py
 
+.PHONY: assurance-status assurance-unit assurance-protocol ibkr-paper-preflight
+assurance-status:
+	@python3 scripts/assurance.py status
+
+assurance-unit:
+	@CARGO=$(CARGO) python3 scripts/assurance.py run --level 1
+
+assurance-protocol:
+	@CARGO=$(CARGO) python3 scripts/assurance.py run --level 2
+
+# Explicit real-gateway access; no order submission is selected by this target.
+ibkr-paper-preflight:
+	@CARGO=$(CARGO) python3 scripts/assurance.py run --level 3 --connect-paper
+
 .PHONY: trust-proof
 trust-proof:
 	@echo "$(BLUE)Running focused Trust multi-asset proof suite...$(NC)"
@@ -317,12 +331,12 @@ snapshots-update:
 
 .PHONY: ci-perf
 ci-perf:
-	@echo "$(BLUE)Running CI performance gate...$(NC)"
+	@echo "$(BLUE)Running CI performance gate (production release profile)...$(NC)"
 	@TRUST_PERF_GATE_ITERATIONS=$${TRUST_PERF_GATE_ITERATIONS:-3} \
 	TRUST_PERF_GATE_WARMUP_ITERATIONS=$${TRUST_PERF_GATE_WARMUP_ITERATIONS:-1} \
 	TRUST_PERF_GATE_MAX_CASE_200_MS=$${TRUST_PERF_GATE_MAX_CASE_200_MS:-26000} \
 	TRUST_PERF_GATE_MAX_CASE_211_MS=$${TRUST_PERF_GATE_MAX_CASE_211_MS:-6000} \
-	$(CARGO) test -p trust-cli --test integration_test_use_cases $(CARGO_FLAGS) -- test_case_212_perf_gate_sync_lifecycle_regression_guard --ignored --nocapture
+	$(CARGO) test --release -p trust-cli --test integration_test_use_cases $(CARGO_FLAGS) -- test_case_212_perf_gate_sync_lifecycle_regression_guard --ignored --nocapture
 
 .PHONY: ci-build
 ci-build: setup
@@ -351,12 +365,12 @@ clean:
 
 .PHONY: perf-gate
 perf-gate:
-	@echo "$(BLUE)Running performance regression gate...$(NC)"
+	@echo "$(BLUE)Running performance regression gate (production release profile)...$(NC)"
 	@TRUST_PERF_GATE_ITERATIONS=$${TRUST_PERF_GATE_ITERATIONS:-3} \
 	TRUST_PERF_GATE_WARMUP_ITERATIONS=$${TRUST_PERF_GATE_WARMUP_ITERATIONS:-1} \
 	TRUST_PERF_GATE_MAX_CASE_200_MS=$${TRUST_PERF_GATE_MAX_CASE_200_MS:-26000} \
 	TRUST_PERF_GATE_MAX_CASE_211_MS=$${TRUST_PERF_GATE_MAX_CASE_211_MS:-6000} \
-	$(CARGO) test -p trust-cli --test integration_test_use_cases $(CARGO_FLAGS) -- test_case_212_perf_gate_sync_lifecycle_regression_guard --ignored --nocapture
+	$(CARGO) test --release -p trust-cli --test integration_test_use_cases $(CARGO_FLAGS) -- test_case_212_perf_gate_sync_lifecycle_regression_guard --ignored --nocapture
 
 .PHONY: install-tools
 install-tools:
@@ -439,3 +453,12 @@ act-job:
 		echo "Run 'make install-tools' for installation instructions."; \
 		exit 1; \
 	fi
+
+# Real HTTP/MCP connections to a child service and a loopback IBKR simulator.
+.PHONY: e2e
+e2e:
+	@$(CARGO) test $(CARGO_FLAGS) -p trust-service --test e2e -- --test-threads=1
+
+.PHONY: assurance-mutations
+assurance-mutations:
+	@CARGO=$(CARGO) python3 scripts/mutation_gate.py

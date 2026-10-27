@@ -717,8 +717,10 @@ pub fn fund(
         let current_trade = latest_trade_snapshot(trade, database)?;
 
         // 2. Validate status and funding constraints against the persisted trade.
-        crate::validators::trade::can_fund(&current_trade)?;
-        crate::validators::funding::can_fund(&current_trade, database)?;
+        crate::validators::trade::can_fund(&current_trade)
+            .map_err(|error| error as Box<dyn Error>)?;
+        crate::validators::funding::can_fund(&current_trade, database)
+            .map_err(|error| error as Box<dyn Error>)?;
 
         // 3. Update trade status to funded
         let mut funded_trade =
@@ -749,6 +751,8 @@ pub fn submit(
 
             // 2. Validate that Trade can be submitted
             crate::validators::trade::can_submit(&current_trade)?;
+            crate::validators::funding::can_submit_funded(&current_trade, database)
+                .map_err(|error| error as Box<dyn Error>)?;
             let operation_id = Uuid::new_v4();
             let broker_name = database
                 .account_read()
@@ -878,6 +882,10 @@ pub fn submit(
     Ok((persisted, log))
 }
 
+fn log_reconciliation_failure(event: &'static str, trade_id: Uuid) {
+    tracing::warn!(target: "trust::operational", event, trade_id=%trade_id, "Broker activity reconciliation failed; retry reconciliation");
+}
+
 // Reconciliation is deliberately linear so audit and savepoint ordering remain reviewable.
 #[allow(clippy::too_many_lines)]
 pub fn sync_with_broker(
@@ -912,20 +920,17 @@ pub fn sync_with_broker(
 
     let reconciled_executions = match broker.fetch_executions(trade, account, after) {
         Ok(executions) => executions,
-        Err(e) => {
+        Err(_) => {
             // Execution ingestion must never block core sync reliability.
             // We still persist the normal trade/order snapshot. The reconciliation can be retried.
-            eprintln!(
-                "Execution reconciliation failed for trade {}: {e}",
-                trade.id
-            );
+            log_reconciliation_failure("execution_reconciliation_failed", trade.id);
             vec![]
         }
     };
     let fees = match broker.fetch_fee_activities(trade, account, None) {
         Ok(fees) => fees,
-        Err(e) => {
-            eprintln!("Fee reconciliation failed for trade {}: {e}", trade.id);
+        Err(_) => {
+            log_reconciliation_failure("fee_reconciliation_failed", trade.id);
             vec![]
         }
     };

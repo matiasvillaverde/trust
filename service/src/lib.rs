@@ -8,6 +8,7 @@ pub mod error;
 pub mod http;
 pub mod journal;
 pub mod mcp;
+pub mod metrics;
 pub mod runtime;
 
 pub mod skills;

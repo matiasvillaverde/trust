@@ -78,6 +78,14 @@ pub(crate) fn reconcile(
     let transactions = database
         .transaction_read()
         .all_trade_transactions(trade.id)?;
+    // The enclosing sync savepoint reloads the trade and serializes all ledger/projection
+    // writes. Apply only the new cash legs, just like deposit/fund/manual execution.
+    let previous_exposure = if snapshot.status == Status::Funded {
+        snapshot.balance.funding
+    } else {
+        snapshot.balance.capital_in_market
+    };
+    let mut updates = Vec::new();
     let adverse_stop =
         trade
             .safety_stop
@@ -131,6 +139,7 @@ pub(crate) fn reconcile(
                     &trade.currency,
                     category,
                 )?;
+            updates.push((category, delta));
         }
         database.order_write().update(order)?;
     }
@@ -142,6 +151,7 @@ pub(crate) fn reconcile(
         || (trade.category == TradeCategory::Long
             && (trade.entry.status == OrderStatus::Filled || terminal_entry));
     if release_cash && !trade.balance.capital_out_market.is_zero() {
+        let payment = trade.balance.capital_out_market;
         database
             .transaction_write()
             .create_transaction_by_account_id(
@@ -150,9 +160,23 @@ pub(crate) fn reconcile(
                 &trade.currency,
                 TransactionCategory::PaymentFromTrade(trade.id),
             )?;
+        updates.push((TransactionCategory::PaymentFromTrade(trade.id), payment));
         trade.balance = super::balance::calculate_trade(database, &trade)?;
     }
-    let account = database.account_read().id(trade.account_id)?;
-    super::balance::calculate_account(database, &account, &trade.currency)?;
+    let next_exposure = if trade.status == Status::Funded {
+        trade.balance.funding
+    } else {
+        trade.balance.capital_in_market
+    };
+    let exposure_delta = next_exposure
+        .checked_sub(previous_exposure)
+        .ok_or("Account exposure delta overflow")?;
+    super::balance::apply_account_projection_batch_by_id(
+        database,
+        trade.account_id,
+        &trade.currency,
+        &updates,
+        exposure_delta,
+    )?;
     Ok(trade)
 }

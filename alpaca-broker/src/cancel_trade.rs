@@ -21,11 +21,6 @@ pub fn cancel(trade: &Trade, account: &Account) -> Result<(), Box<dyn Error>> {
     let api_info = keys::read_api_key(&account.environment, account)?;
     let client = Client::new(api_info);
 
-    println!(
-        "Canceling trade entry order: {:?}",
-        trade.entry.broker_order_id
-    );
-
     Runtime::new()
         .map_err(|e| Box::new(e) as Box<dyn Error>)?
         .block_on(cancel_entry(&client, broker_order_id))?;
@@ -37,10 +32,7 @@ async fn cancel_entry(client: &Client, order_id: Uuid) -> Result<(), Box<dyn Err
     let result = client.issue::<Delete>(&Id(order_id)).await;
     match result {
         Ok(_) => Ok(()),
-        Err(e) => {
-            eprintln!("Error cancel entry: {e:?}");
-            Err(Box::new(e))
-        }
+        Err(e) => Err(Box::new(e)),
     }
 }
 

@@ -5,7 +5,8 @@ use crate::{
     error::ServiceError,
     journal::Reply,
     mcp::Mcp,
-    runtime::Service,
+    metrics,
+    runtime::{Service, Source},
 };
 use axum::{
     extract::{Path, Request, State},
@@ -91,6 +92,7 @@ pub fn router(config: Arc<Config>, service: Service) -> crate::error::Result<Rou
             get(|| async { Json(json!({"status":"alive"})) }),
         )
         .route("/readyz", get(ready))
+        .route("/metrics", get(prometheus))
         .route("/.well-known/oauth-protected-resource/mcp", get(metadata))
         .route("/.well-known/oauth-protected-resource", get(metadata))
         .route("/v1/tools", get(list_tools))
@@ -99,6 +101,19 @@ pub fn router(config: Arc<Config>, service: Service) -> crate::error::Result<Rou
         .layer(tower_http::limit::RequestBodyLimitLayer::new(131072))
         .layer(middleware::from_fn_with_state(app.clone(), guard))
         .with_state(app))
+}
+async fn prometheus(State(app): State<App>, Extension(identity): Extension<Identity>) -> Response {
+    if identity.check("trust:admin", None).is_err() || !identity.grant.all_accounts {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    (
+        [(
+            header::CONTENT_TYPE,
+            "text/plain; version=0.0.4; charset=utf-8",
+        )],
+        app.service.prometheus(),
+    )
+        .into_response()
 }
 async fn ready(State(app): State<App>) -> Response {
     if app.service.ready() {
@@ -130,7 +145,7 @@ async fn call(
 ) -> Json<Reply> {
     Json(
         app.service
-            .call(identity, tool, arguments, request_id)
+            .call_from(identity, tool, arguments, request_id, Source::Http)
             .await,
     )
 }
@@ -142,8 +157,9 @@ async fn guard(State(app): State<App>, mut request: Request, next: Next) -> Resp
     let id = Uuid::new_v4();
     let start = Instant::now();
     let origin = request.headers().get(header::ORIGIN).cloned();
+    let control = matches!(request.uri().path(), "/healthz" | "/readyz" | "/metrics");
     let mut response = check_request(&app, &mut request, id).await;
-    let _permit = if response.is_none() {
+    let _permit = if response.is_none() && !control {
         match app.inflight.clone().try_acquire_owned() {
             Ok(permit) => Some(permit),
             Err(_) => {
@@ -204,12 +220,18 @@ async fn guard(State(app): State<App>, mut request: Request, next: Next) -> Resp
             HeaderValue::from_static("WWW-Authenticate, X-Request-Id, MCP-Protocol-Version"),
         );
     }
+    metrics::increment(&app.service.metrics.http_requests, 1);
+    if response.status().is_client_error() || response.status().is_server_error() {
+        metrics::increment(&app.service.metrics.http_rejected, 1);
+    }
+    app.service.metrics.http_duration.observe(start.elapsed());
     tracing::info!(event="http_request",request_id=%id,status=response.status().as_u16(),elapsed_ms=start.elapsed().as_millis(),"Trust HTTP request completed");
     response
 }
 async fn check_request(app: &App, request: &mut Request, id: Uuid) -> Option<Response> {
     let deny = |status, error| Some(failure(status, error, id));
-    if !app.limits.lock().is_ok_and(|mut limits| limits.allow(None)) {
+    let health = matches!(request.uri().path(), "/healthz" | "/readyz");
+    if !health && !app.limits.lock().is_ok_and(|mut limits| limits.allow(None)) {
         return deny(
             StatusCode::TOO_MANY_REQUESTS,
             ServiceError::new(
@@ -234,7 +256,6 @@ async fn check_request(app: &App, request: &mut Request, id: Uuid) -> Option<Res
     {
         return deny(StatusCode::FORBIDDEN, ServiceError::forbidden());
     }
-    let health = matches!(path, "/healthz" | "/readyz");
     let host = request
         .headers()
         .get(header::HOST)

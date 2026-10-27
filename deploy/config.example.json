@@ -9,12 +9,14 @@
   "reconcile_interval_seconds": 30,
   "max_token_lifetime_seconds": 3600,
   "queue_capacity": 64,
+  "request_timeout_ms": 45000,
+  "queue_timeout_ms": 40000,
   "allowed_origins": [],
   "revoked_token_ids": [],
   "grants": {
     "REPLACE_WITH_OWNER_SUBJECT": {
       "all_accounts": true,
-      "scopes": ["trust:read", "trust:preview", "trust:trade", "trust:reconcile", "trust:journal", "trust:policy", "trust:admin"],
+      "scopes": ["trust:read", "trust:preview", "trust:trade", "trust:reconcile", "trust:manual", "trust:journal", "trust:policy", "trust:admin"],
       "allow_live": false
     },
     "REPLACE_WITH_AGENT_SUBJECT": {

@@ -241,7 +241,7 @@ impl DistributionWrite for DistributionDB {
         let mut guard = self.connection_guard()?;
         let connection: &mut SqliteConnection = &mut guard;
 
-        connection.transaction::<Vec<Uuid>, Box<dyn Error>, _>(|conn| {
+        crate::atomic::savepoint(connection, |conn| {
             let mut deposit_ids: Vec<Uuid> = Vec::new();
 
             for leg in &plan.legs {

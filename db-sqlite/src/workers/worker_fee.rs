@@ -28,7 +28,7 @@ impl WorkerFee {
         if fee.broker_activity_id.is_empty() || fee.amount <= rust_decimal::Decimal::ZERO {
             return Err("Fee identity and positive amount are required".into());
         }
-        conn.transaction(|conn| {
+        crate::atomic::savepoint(conn, |conn| {
             let row = FeeRow {
                 id: Uuid::new_v4().to_string(),
                 broker: fee.broker.clone(),

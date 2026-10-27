@@ -25,7 +25,7 @@ with tempfile.TemporaryDirectory(prefix='trust-container-smoke-') as folder:
     run('openssl','genpkey','-algorithm','RSA','-pkeyopt','rsa_keygen_bits:2048','-out',str(private))
     modulus=run('openssl','rsa','-in',str(private),'-noout','-modulus').decode().strip().split('=',1)[1]
     (root/'jwks.json').write_text(json.dumps({'keys':[{'kty':'RSA','use':'sig','alg':'RS256','kid':'smoke','n':b64(bytes.fromhex(modulus)),'e':'AQAB'}]}))
-    scopes=['trust:read','trust:preview','trust:trade','trust:reconcile','trust:journal','trust:policy','trust:admin']
+    scopes=['trust:read','trust:preview','trust:trade','trust:reconcile','trust:manual','trust:journal','trust:policy','trust:admin']
     config={'listen':'0.0.0.0:8000','public_url':'https://trust.test','issuer':'https://issuer.test','jwks_file':'/etc/trust/jwks.json','database':'/data/financial.db','journal':'/data/control.db','reconcile_interval_seconds':0,'grants':{'smoke-owner':{'all_accounts':True,'scopes':scopes}}}
     (root/'config.json').write_text(json.dumps(config))
     for file in [root/'config.json',root/'jwks.json']: file.chmod(0o444)
@@ -41,7 +41,9 @@ with tempfile.TemporaryDirectory(prefix='trust-container-smoke-') as folder:
             if mcp: headers.update({'Accept':'application/json, text/event-stream','MCP-Protocol-Version':'2025-11-25'})
             req=urllib.request.Request('http://'+address+path,headers=headers,data=None if payload is None else json.dumps(payload).encode())
             try:
-                with urllib.request.urlopen(req,timeout=10) as response: return response.status,json.loads(response.read())
+                with urllib.request.urlopen(req,timeout=10) as response:
+                    data=response.read()
+                    return response.status,json.loads(data) if 'application/json' in response.headers.get('Content-Type','') else data.decode()
             except urllib.error.HTTPError as e: return e.code,json.loads(e.read())
         for _ in range(60):
             try:
@@ -64,6 +66,10 @@ with tempfile.TemporaryDirectory(prefix='trust-container-smoke-') as folder:
         assert call('capital_deposit',deposit)['operation_id']==first['operation_id']
         status,result=request('/mcp',{'jsonrpc':'2.0','id':1,'method':'tools/call','params':{'name':'service_status','arguments':{}}},mcp=True)
         assert status==200 and result['result']['structuredContent']['data']['service']=='trust'
+        assert request('/metrics',authorized=False)[0]==401
+        status,metrics=request('/metrics');assert status==200 and 'trust_worker_ready 1\n' in metrics and 'trust_execution_milliseconds_bucket' in metrics
+        events=call('audit_list',{})['data']['events']
+        assert any(event['event']['version']==2 and event['event']['outcome']=='replayed' and len(event['event_hash'])==64 for event in events)
         run('docker','restart','--time','10',name)
         address=run('docker','port',name,'8000/tcp').decode().strip()
         for _ in range(60):
@@ -77,7 +83,7 @@ with tempfile.TemporaryDirectory(prefix='trust-container-smoke-') as folder:
         assert len(policies)==1 and str(policies[0]['name']['RiskPerTrade'])=='0.3'
         assert request('/v1/tools/audit_verify',{})[1]['error'] is None
         assert token.encode() not in container_logs()
-        print('PASS: nonroot/read-only container, JWT auth denial, full catalog, fractional risk policy, MCP call, durable replay across restart, audit verification, token-free logs')
+        print('PASS: nonroot/read-only container, JWT auth denial, full catalog, fractional risk policy, MCP call, durable replay across restart, audit v2 verification, authenticated metrics, token-free logs')
     except Exception:
         logs=container_logs().decode().replace(token,'[REDACTED]')
         pathlib.Path('/tmp/trust-smoke-service.log').write_text(logs)

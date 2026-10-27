@@ -1,0 +1,426 @@
+{
+  "schema_version": 1,
+  "levels": [
+    {
+      "level": 1,
+      "name": "deterministic",
+      "scope": "Risk arithmetic, current-policy admission, ledger atomicity and agent permissions. No broker connection."
+    },
+    {
+      "level": 2,
+      "name": "protocol",
+      "scope": "Real service process and IBKR HTTP adapter against a documented local simulator. No real broker connection."
+    },
+    {
+      "level": 3,
+      "name": "paper_preflight",
+      "scope": "Authenticated IBKR paper identity, contract lookup and non-submitting what-if requests."
+    },
+    {
+      "level": 4,
+      "name": "paper_lifecycle",
+      "scope": "Supervised MCP paper lifecycle with independent order, execution, fee, position and cash reconciliation. A submit/cancel smoke alone is incomplete."
+    },
+    {
+      "level": 5,
+      "name": "operational",
+      "scope": "Multi-session recovery, stale/external broker state, whole-account limits, alerting, halt and restore acceptance."
+    },
+    {
+      "level": 6,
+      "name": "live_canary",
+      "scope": "Separate owner-authorized bounded real-money canary after all prior gates; never automatically run by CI."
+    }
+  ],
+  "cases": [
+    {
+      "id": "IBKR-001",
+      "stage": "deterministic_risk",
+      "scenario": "Risk cap tightened after funding",
+      "acceptance": "Submission revalidates current policy; zero risk blocks the mock broker call, accounting for the trade's own reservation exactly once.",
+      "status": "proposed_acceptance_case_not_run_as_part_of_this_assessment"
+    },
+    {
+      "id": "IBKR-002",
+      "stage": "deterministic_risk",
+      "scenario": "Missing mandatory policy",
+      "acceptance": "Production trading configuration refuses new exposure when required caps are absent or unreadable.",
+      "status": "proposed_acceptance_case_not_run_as_part_of_this_assessment"
+    },
+    {
+      "id": "IBKR-003",
+      "stage": "deterministic_risk",
+      "scenario": "Per-order boundary and smallest supported increment above it",
+      "acceptance": "At-cap request is admitted only when all other constraints pass; over-cap request leaves ledger unchanged and makes zero broker calls.",
+      "status": "proposed_acceptance_case_not_run_as_part_of_this_assessment"
+    },
+    {
+      "id": "IBKR-004",
+      "stage": "deterministic_risk",
+      "scenario": "Many individually permissible orders exceed aggregate risk",
+      "acceptance": "Reservations, pending orders and positions are aggregated per broker account across all agents and Trust accounts.",
+      "status": "proposed_acceptance_case_not_run_as_part_of_this_assessment"
+    },
+    {
+      "id": "IBKR-005",
+      "stage": "deterministic_risk",
+      "scenario": "Policy changed while request waits in queue",
+      "acceptance": "Worker checks current policy at dispatch; an earlier preview is never sufficient authorization.",
+      "status": "proposed_acceptance_case_not_run_as_part_of_this_assessment"
+    },
+    {
+      "id": "IBKR-006",
+      "stage": "deterministic_risk",
+      "scenario": "Reservation or risk approval expires",
+      "acceptance": "New submission requires a fresh bounded authorization and cannot reuse an expired approval.",
+      "status": "proposed_acceptance_case_not_run_as_part_of_this_assessment"
+    },
+    {
+      "id": "IBKR-007",
+      "stage": "deterministic_risk",
+      "scenario": "No fresh broker account or market snapshot",
+      "acceptance": "New exposure is blocked; verified permitted cancellation and risk-reducing actions remain available.",
+      "status": "proposed_acceptance_case_not_run_as_part_of_this_assessment"
+    },
+    {
+      "id": "IBKR-008",
+      "stage": "deterministic_risk",
+      "scenario": "Manual or external broker position appears",
+      "acceptance": "Unknown position is visible in whole-account exposure; new risk stays blocked until reconciled.",
+      "status": "proposed_acceptance_case_not_run_as_part_of_this_assessment"
+    },
+    {
+      "id": "IBKR-009",
+      "stage": "deterministic_risk",
+      "scenario": "Mixed currency or unknown FX/multiplier",
+      "acceptance": "No implicit aggregation or assumed multiplier; unsupported conversion is rejected.",
+      "status": "proposed_acceptance_case_not_run_as_part_of_this_assessment"
+    },
+    {
+      "id": "IBKR-010",
+      "stage": "deterministic_risk",
+      "scenario": "Gap through stop or slippage beyond plan",
+      "acceptance": "Actual execution loss is booked; risk budget is reduced, with no claim that the stop caps realized loss.",
+      "status": "proposed_acceptance_case_not_run_as_part_of_this_assessment"
+    },
+    {
+      "id": "IBKR-011",
+      "stage": "deterministic_risk",
+      "scenario": "Risk-increasing amendment or wrong order type",
+      "acceptance": "Stop widening, increased effective exposure, and unsupported stop/stop-limit semantics are rejected before broker mutation.",
+      "status": "proposed_acceptance_case_not_run_as_part_of_this_assessment"
+    },
+    {
+      "id": "IBKR-012",
+      "stage": "deterministic_risk",
+      "scenario": "Restart while an operation is unresolved",
+      "acceptance": "Original identity and uncertainty survive restart; additional exposure for the affected account stays blocked until authoritative resolution.",
+      "status": "proposed_acceptance_case_not_run_as_part_of_this_assessment"
+    },
+    {
+      "id": "IBKR-013",
+      "stage": "agent_boundary",
+      "scenario": "Trading agent attempts policy/admin actions",
+      "acceptance": "OAuth grant and scope checks deny rule changes, ledger deposits, restores and administrator operations.",
+      "status": "proposed_acceptance_case_not_run_as_part_of_this_assessment"
+    },
+    {
+      "id": "IBKR-014",
+      "stage": "agent_boundary",
+      "scenario": "Trading agent fabricates a manual fill",
+      "acceptance": "Manual accounting authority is unavailable to the trading agent; broker reconciliation authority cannot imply arbitrary manual-fill permission.",
+      "status": "proposed_acceptance_case_not_run_as_part_of_this_assessment"
+    },
+    {
+      "id": "IBKR-015",
+      "stage": "agent_boundary",
+      "scenario": "Agent attempts direct broker access",
+      "acceptance": "Network and secret isolation prevent bypassing Trust to reach authenticated broker mutation endpoints.",
+      "status": "proposed_acceptance_case_not_run_as_part_of_this_assessment"
+    },
+    {
+      "id": "IBKR-016",
+      "stage": "agent_boundary",
+      "scenario": "Same request repeated concurrently",
+      "acceptance": "One durable operation and one authorized external attempt; callers observe the original outcome.",
+      "status": "proposed_acceptance_case_not_run_as_part_of_this_assessment"
+    },
+    {
+      "id": "IBKR-017",
+      "stage": "agent_boundary",
+      "scenario": "Equivalent requests with different keys or different agents",
+      "acceptance": "Independent risk reservations still enforce the aggregate cap; the idempotency key is not the risk boundary.",
+      "status": "proposed_acceptance_case_not_run_as_part_of_this_assessment"
+    },
+    {
+      "id": "IBKR-018",
+      "stage": "agent_boundary",
+      "scenario": "Prompt injection or explicit ignore-limits instructions",
+      "acceptance": "Only typed requests reach deterministic validation; text cannot override policy or grant authority.",
+      "status": "proposed_acceptance_case_not_run_as_part_of_this_assessment"
+    },
+    {
+      "id": "IBKR-019",
+      "stage": "agent_boundary",
+      "scenario": "Token revoked, expired, wrong audience/account or scope",
+      "acceptance": "Rejected before financial or broker effects, including expired queued requests.",
+      "status": "proposed_acceptance_case_not_run_as_part_of_this_assessment"
+    },
+    {
+      "id": "IBKR-020",
+      "stage": "agent_boundary",
+      "scenario": "False success or timeout supplied by agent",
+      "acceptance": "State transitions derive from broker evidence and persisted state, never the agent's interpretation.",
+      "status": "proposed_acceptance_case_not_run_as_part_of_this_assessment"
+    },
+    {
+      "id": "IBKR-021",
+      "stage": "fault_and_protocol",
+      "scenario": "Force-refresh returns an empty array",
+      "acceptance": "Refresh acknowledgment is not treated as a complete empty order snapshot; obtain authoritative evidence or fail closed.",
+      "status": "proposed_acceptance_case_not_run_as_part_of_this_assessment"
+    },
+    {
+      "id": "IBKR-022",
+      "stage": "fault_and_protocol",
+      "scenario": "Complete or partial existing bracket",
+      "acceptance": "Recover matching complete bracket; partial/ambiguous bracket blocks another submission and triggers reconciliation.",
+      "status": "proposed_acceptance_case_not_run_as_part_of_this_assessment"
+    },
+    {
+      "id": "IBKR-023",
+      "stage": "fault_and_protocol",
+      "scenario": "Duplicate, delayed and reordered fills",
+      "acceptance": "Execution identity deduplicates bookings; cumulative quantities never regress or overfill silently.",
+      "status": "proposed_acceptance_case_not_run_as_part_of_this_assessment"
+    },
+    {
+      "id": "IBKR-024",
+      "stage": "fault_and_protocol",
+      "scenario": "Fill arrives during position snapshot",
+      "acceptance": "Stale snapshot cannot erase the new execution, position or owner.",
+      "status": "proposed_acceptance_case_not_run_as_part_of_this_assessment"
+    },
+    {
+      "id": "IBKR-025",
+      "stage": "fault_and_protocol",
+      "scenario": "Partial entry then cancel/fill race",
+      "acceptance": "Actual terminal quantity and remaining protection reconcile; cancel acknowledgment alone does not release capital.",
+      "status": "proposed_acceptance_case_not_run_as_part_of_this_assessment"
+    },
+    {
+      "id": "IBKR-026",
+      "stage": "fault_and_protocol",
+      "scenario": "Partial exit with sibling stop/target remaining",
+      "acceptance": "Remaining exposure is represented and protected; no oversized sibling can silently reverse the position.",
+      "status": "proposed_acceptance_case_not_run_as_part_of_this_assessment"
+    },
+    {
+      "id": "IBKR-027",
+      "stage": "fault_and_protocol",
+      "scenario": "Late fees, correction or unsupported activity",
+      "acceptance": "Documented corrections are idempotent; ambiguous activity blocks unverified accounting assumptions.",
+      "status": "proposed_acceptance_case_not_run_as_part_of_this_assessment"
+    },
+    {
+      "id": "IBKR-028",
+      "stage": "fault_and_protocol",
+      "scenario": "HTTP warning reply instead of order acknowledgment",
+      "acceptance": "Unapproved warnings are never blindly confirmed; ambiguous submission stays unresolved without a second POST.",
+      "status": "proposed_acceptance_case_not_run_as_part_of_this_assessment"
+    },
+    {
+      "id": "IBKR-029",
+      "stage": "fault_and_protocol",
+      "scenario": "Timeout before dispatch versus after broker acceptance",
+      "acceptance": "Before dispatch proves no external mutation; after dispatch preserves unknown outcome and original identity.",
+      "status": "proposed_acceptance_case_not_run_as_part_of_this_assessment"
+    },
+    {
+      "id": "IBKR-030",
+      "stage": "fault_and_protocol",
+      "scenario": "Crash before intent, after intent, after broker acceptance, after ledger commit",
+      "acceptance": "Each cut point preserves durable evidence and avoids silent duplicate execution or duplicate cash booking.",
+      "status": "proposed_acceptance_case_not_run_as_part_of_this_assessment"
+    },
+    {
+      "id": "IBKR-031",
+      "stage": "fault_and_protocol",
+      "scenario": "Audit/disk failure or corrupt persisted record",
+      "acceptance": "New financial mutation fails closed; restore path preserves evidence and cannot falsely claim a confirmed outcome.",
+      "status": "proposed_acceptance_case_not_run_as_part_of_this_assessment"
+    },
+    {
+      "id": "IBKR-032",
+      "stage": "fault_and_protocol",
+      "scenario": "429, session expiry, competing login or gateway restart",
+      "acceptance": "Shared broker pacing and authentication recovery do not retry mutations blindly; new exposure resumes only after identity and state checks.",
+      "status": "proposed_acceptance_case_not_run_as_part_of_this_assessment"
+    },
+    {
+      "id": "IBKR-033",
+      "stage": "fault_and_protocol",
+      "scenario": "Cancellation while entry fills",
+      "acceptance": "Confirmed executions remain authoritative, and protective orders are retained or reconciled.",
+      "status": "proposed_acceptance_case_not_run_as_part_of_this_assessment"
+    },
+    {
+      "id": "IBKR-034",
+      "stage": "fault_and_protocol",
+      "scenario": "Order/history retention or pagination boundary",
+      "acceptance": "Incomplete history and partial page reads do not masquerade as a flat account.",
+      "status": "proposed_acceptance_case_not_run_as_part_of_this_assessment"
+    },
+    {
+      "id": "IBKR-035",
+      "stage": "supervised_real_paper",
+      "scenario": "Authenticated paper identity and allowed account",
+      "acceptance": "Broker-reported isPaper plus exact account allowlist and selected account all agree before any order.",
+      "status": "proposed_acceptance_case_not_run_as_part_of_this_assessment"
+    },
+    {
+      "id": "IBKR-036",
+      "stage": "supervised_real_paper",
+      "scenario": "Contract identity and permissions",
+      "acceptance": "Confirm conid, currency, multiplier, tick/lot rules, trading permissions and allowed instrument class from broker evidence.",
+      "status": "proposed_acceptance_case_not_run_as_part_of_this_assessment"
+    },
+    {
+      "id": "IBKR-037",
+      "stage": "supervised_real_paper",
+      "scenario": "What-if bracket preview",
+      "acceptance": "Preview commissions, margin and warnings for exact intended payload; record that preview does not establish order acceptance.",
+      "status": "proposed_acceptance_case_not_run_as_part_of_this_assessment"
+    },
+    {
+      "id": "IBKR-038",
+      "stage": "supervised_real_paper",
+      "scenario": "Authenticated MCP end-to-end submit and cancel",
+      "acceptance": "Real deployed service, policy, durable journal, IBKR adapter, acknowledgment and terminal cancellation are correlated by operation/order IDs.",
+      "status": "proposed_acceptance_case_not_run_as_part_of_this_assessment"
+    },
+    {
+      "id": "IBKR-039",
+      "stage": "supervised_real_paper",
+      "scenario": "Entry fill and child activation",
+      "acceptance": "Broker evidence confirms child links, actual filled quantity and protective stop/target activation; paper order acknowledgment alone does not pass.",
+      "status": "proposed_acceptance_case_not_run_as_part_of_this_assessment"
+    },
+    {
+      "id": "IBKR-040",
+      "stage": "supervised_real_paper",
+      "scenario": "Target fill and sibling cancellation",
+      "acceptance": "Position closes as expected, sibling is confirmed terminal, and executions/fees/ledger reconcile.",
+      "status": "proposed_acceptance_case_not_run_as_part_of_this_assessment"
+    },
+    {
+      "id": "IBKR-041",
+      "stage": "supervised_real_paper",
+      "scenario": "Stop fill and sibling cancellation",
+      "acceptance": "Record actual execution price and fees, confirm no residual unintended exposure, and update risk budgets.",
+      "status": "proposed_acceptance_case_not_run_as_part_of_this_assessment"
+    },
+    {
+      "id": "IBKR-042",
+      "stage": "supervised_real_paper",
+      "scenario": "Order update and partial-fill scenarios",
+      "acceptance": "Record the observed broker transitions; a run without the intended partial fill is inconclusive, never marked passed.",
+      "status": "proposed_acceptance_case_not_run_as_part_of_this_assessment"
+    },
+    {
+      "id": "IBKR-043",
+      "stage": "supervised_real_paper",
+      "scenario": "Service and gateway restart with working orders",
+      "acceptance": "Recover original IDs, maintain existing protection and reconcile before admitting new risk.",
+      "status": "proposed_acceptance_case_not_run_as_part_of_this_assessment"
+    },
+    {
+      "id": "IBKR-044",
+      "stage": "supervised_real_paper",
+      "scenario": "End-of-run independent reconciliation",
+      "acceptance": "Compare Trust orders, executions, fees, positions and cash against broker account reports with documented precision/timing allowances; unexplained differences fail.",
+      "status": "proposed_acceptance_case_not_run_as_part_of_this_assessment"
+    },
+    {
+      "id": "IBKR-045",
+      "stage": "supervised_real_paper",
+      "scenario": "Owned-order cleanup",
+      "acceptance": "Cleanup touches only allowlisted test-owned orders; unresolved orders/positions are reported rather than blindly liquidating the account.",
+      "status": "proposed_acceptance_case_not_run_as_part_of_this_assessment"
+    },
+    {
+      "id": "IBKR-046",
+      "stage": "operational_acceptance",
+      "scenario": "Repeated daily session rollover and authentication expiry",
+      "acceptance": "Complete operational recovery and reconciliation without unexplained exposure, duplicated execution or silent alert failure.",
+      "status": "proposed_acceptance_case_not_run_as_part_of_this_assessment"
+    },
+    {
+      "id": "IBKR-047",
+      "stage": "operational_acceptance",
+      "scenario": "Monitor freshness, unresolved outcomes and missing protection",
+      "acceptance": "Alerts are independently observable and inhibit new exposure within a declared operational budget.",
+      "status": "proposed_acceptance_case_not_run_as_part_of_this_assessment"
+    },
+    {
+      "id": "IBKR-048",
+      "stage": "operational_acceptance",
+      "scenario": "Emergency halt and permitted risk reduction",
+      "acceptance": "Halt persists across restart; it stops new entries without automatically canceling protective stops; exits have separate verified authorization.",
+      "status": "proposed_acceptance_case_not_run_as_part_of_this_assessment"
+    },
+    {
+      "id": "IBKR-049",
+      "stage": "operational_acceptance",
+      "scenario": "Backup restoration into an isolated service",
+      "acceptance": "Audit continuity and broker identity reconcile before enabling mutations; stale backup does not recreate orders.",
+      "status": "proposed_acceptance_case_not_run_as_part_of_this_assessment"
+    },
+    {
+      "id": "IBKR-050",
+      "stage": "operational_acceptance",
+      "scenario": "Reference-model and mutation-testing gate",
+      "acceptance": "Generated event sequences preserve cash/position invariants; removing risk checks or changing comparisons/signs/side mappings is caught by tests.",
+      "status": "proposed_acceptance_case_not_run_as_part_of_this_assessment"
+    },
+    {
+      "id": "IBKR-051",
+      "stage": "operational_acceptance",
+      "scenario": "Reproducible release evidence",
+      "acceptance": "Pin source revision plus dirty diff, lockfile hash, policy version, test seed, service version and supported broker scenarios; retain sanitized artifacts.",
+      "status": "proposed_acceptance_case_not_run_as_part_of_this_assessment"
+    },
+    {
+      "id": "IBKR-052",
+      "stage": "operational_acceptance",
+      "scenario": "Separately authorized live canary",
+      "acceptance": "Only after preceding gates pass, explicit owner approval defines absolute notional, instrument and time limits with independent monitoring; paper evidence alone is insufficient.",
+      "status": "proposed_acceptance_case_not_run_as_part_of_this_assessment"
+    }
+  ],
+  "live_blockers": [
+    "Current balances are local ledger projections; the Broker trait has no complete broker-account cash/positions snapshot contract.",
+    "Monthly risk uses UTC ledger entry basis, not broker mark-to-market account drawdown; service admission requires explicit policies, but this is not a broker-equity loss limit.",
+    "Background reconciliation iterates known active trades; errors can be logged without a portfolio-wide new-risk halt."
+  ],
+  "sources": [
+    "https://www.interactivebrokers.com/docs/web-api/api-reference/trading/trading-orders/get-open-orders",
+    "https://www.ibkrguides.com/clientportal/aboutpapertradingaccounts.htm",
+    "https://www.interactivebrokers.com/docs/web-api/authentication/cpgw/client-portal-gateway-faq",
+    "https://www.interactivebrokers.com/docs/web-api/trading/orders/submitting-bracket-orders",
+    "https://www.interactivebrokers.com/docs/web-api/trading/orders/order-reply-messages",
+    "https://github.com/Lumiwealth/lumibot/blob/dev/tests/test_interactive_brokers_rest_gateway_lifecycle.py",
+    "https://github.com/Lumiwealth/lumibot/blob/dev/tests/test_order_decision_journal.py",
+    "https://github.com/Lumiwealth/lumibot/blob/dev/tests/test_broker_sync_positions.py",
+    "https://github.com/Lumiwealth/lumibot/blob/dev/.github/workflows/cicd.yaml",
+    "https://github.com/QuantConnect/Lean/blob/master/Tests/Brokerages/BrokerageTests.cs",
+    "https://github.com/QuantConnect/Lean.Brokerages.InteractiveBrokers/blob/master/QuantConnect.InteractiveBrokersBrokerage.Tests/InteractiveBrokersBrokerageTests.cs",
+    "https://github.com/QuantConnect/Lean.Brokerages.InteractiveBrokers/blob/master/.github/workflows/gh-actions.yml",
+    "https://nautilustrader.io/docs/latest/concepts/execution/",
+    "https://nautilustrader.io/docs/latest/concepts/execution/reconciliation/",
+    "https://github.com/nautechsystems/nautilus_trader/blob/13a379ef/tests/unit_tests/risk/test_engine.py",
+    "https://github.com/nautechsystems/nautilus_trader/blob/13a379ef/crates/execution/src/reconciliation/proptests.rs",
+    "https://github.com/nautechsystems/nautilus_trader/blob/develop/.github/workflows/nightly-tests.yml"
+  ],
+  "semantics": "A passed level establishes only its stated scope. No level guarantees profit, fills or a maximum realized loss. Source changes invalidate prior evidence. Levels 4-6 remain incomplete until all required broker/operational observations are available."
+}

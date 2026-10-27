@@ -71,17 +71,29 @@ impl IbkrClient {
             "/iserver/account/orders",
             &[
                 ("accountId", account_id.to_string()),
-                ("force", "true".to_string()),
+                // force=true clears the cache and returns an empty array; it is
+                // not evidence that no order exists. Read a completed snapshot.
+                ("force", "false".to_string()),
             ],
         )?;
-        if let Some(array) = response.as_array() {
-            return Ok(array.clone());
+        if response.get("snapshot").and_then(Value::as_bool) != Some(true) {
+            return Err(
+                "IBKR order snapshot is incomplete; reconcile before any new submission".into(),
+            );
         }
-        response
+        let orders = response
             .get("orders")
             .and_then(Value::as_array)
             .cloned()
-            .ok_or_else(|| "IBKR live orders response did not include orders".into())
+            .ok_or("IBKR live orders response did not include orders")?;
+        // IBKR documents a 1,000-order maximum. At the limit we cannot establish
+        // completeness and must not infer that an absent reference is unsubmitted.
+        if orders.len() >= 1000 {
+            return Err(
+                "IBKR order snapshot reached its completeness limit; reconcile manually".into(),
+            );
+        }
+        Ok(orders)
     }
 
     pub(crate) fn resolve_live_order_id(
@@ -616,7 +628,7 @@ mod tests {
                 (
                     "GET /iserver/account/orders",
                     200,
-                    r#"[{"order_ref":"entry-ref","orderId":"9001"}]"#,
+                    r#"{"snapshot":true,"orders":[{"order_ref":"entry-ref","orderId":"9001"}]}"#,
                 ),
                 ("GET /iserver/account/trades", 200, r#"[]"#),
                 (
@@ -872,7 +884,11 @@ mod tests {
     fn live_order_and_account_trade_helpers_reject_malformed_gateway_shapes() {
         with_test_server(
             vec![
-                ("GET /iserver/account/orders", 200, r#"{"unexpected":[]}"#),
+                (
+                    "GET /iserver/account/orders",
+                    200,
+                    r#"{"snapshot":true,"unexpected":[]}"#,
+                ),
                 ("GET /iserver/account/trades", 200, r#"{"trades":[]}"#),
             ],
             |base_url| {
@@ -901,7 +917,7 @@ mod tests {
             vec![(
                 "GET /iserver/account/orders",
                 200,
-                r#"[{"order_ref":"entry-ref","order_id":"fallback-9001"}]"#,
+                r#"{"snapshot":true,"orders":[{"order_ref":"entry-ref","order_id":"fallback-9001"}]}"#,
             )],
             |base_url| {
                 let client = test_client(&base_url);

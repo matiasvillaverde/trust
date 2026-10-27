@@ -15,7 +15,48 @@ use super::WorkerTrade;
 #[derive(Debug)]
 pub struct WorkerTransaction;
 
+const CASH_FLOW_CATEGORIES: [&str; 8] = [
+    "deposit",
+    "withdrawal",
+    "withdrawal_earnings",
+    "fee_open",
+    "fee_close",
+    "fund_trade",
+    "payment_from_trade",
+    "payment_earnings",
+];
+
 impl WorkerTransaction {
+    /// Preserve the ordered ledger calculation without decoding report metadata on
+    /// every sizing request. No SQL floating-point sum or cached balance is used.
+    pub fn read_cash_movements(
+        connection: &mut SqliteConnection,
+        account_id: Uuid,
+        currency: &Currency,
+    ) -> Result<Vec<(TransactionCategory, Decimal)>, Box<dyn Error>> {
+        let rows = transactions::table
+            .filter(transactions::deleted_at.is_null())
+            .filter(transactions::account_id.eq(account_id.to_string()))
+            .filter(transactions::currency.eq(currency.to_string()))
+            .filter(transactions::category.eq_any(CASH_FLOW_CATEGORIES))
+            .order((transactions::created_at.asc(), transactions::id.asc()))
+            .select((
+                transactions::category,
+                transactions::amount,
+                transactions::trade_id,
+            ))
+            .load::<(String, String, Option<String>)>(connection)?;
+        rows.into_iter()
+            .map(|(category, amount, trade_id)| {
+                let trade_id = trade_id.as_deref().map(Uuid::parse_str).transpose()?;
+                let category = TransactionCategory::parse(&category, trade_id)
+                    .map_err(|_| "Invalid cash movement category or trade identity")?;
+                let amount = Decimal::from_str_exact(&amount)?;
+                Ok((category, amount))
+            })
+            .collect()
+    }
+
     pub fn create_transaction(
         connection: &mut SqliteConnection,
         account_id: Uuid,
@@ -102,22 +143,12 @@ impl WorkerTransaction {
         // This intentionally excludes tax reserve flows; use `read_all_account_transactions_taxes`
         // for tax-specific reporting.
         // Use string literals to avoid borrowing from temporary enum values.
-        let included_categories: [&str; 8] = [
-            "deposit",
-            "withdrawal",
-            "withdrawal_earnings",
-            "fee_open",
-            "fee_close",
-            "fund_trade",
-            "payment_from_trade",
-            "payment_earnings",
-        ];
 
         let transactions = transactions::table
             .filter(transactions::deleted_at.is_null())
             .filter(transactions::account_id.eq(account_id.to_string()))
             .filter(transactions::currency.eq(currency.to_string()))
-            .filter(transactions::category.eq_any(included_categories))
+            .filter(transactions::category.eq_any(CASH_FLOW_CATEGORIES))
             .order((transactions::created_at.asc(), transactions::id.asc()))
             .load::<TransactionSQLite>(connection)
             .map_err(|error| {
@@ -401,6 +432,104 @@ mod tests {
         TradeCategory, TradingVehicleCategory,
     };
     use std::sync::{Arc, Mutex};
+
+    #[test]
+    #[allow(clippy::too_many_lines)] // Keep the ordered ledger/corruption fixture together.
+    fn cash_movement_projection_matches_ledger_and_rejects_corrupt_amounts() {
+        let (db, connection) = create_database_with_connection();
+        let account = create_account(&db, "cash-projection");
+        let other = create_account(&db, "other-cash-projection");
+        let trade = create_persisted_trade(&db, &account, "CASH");
+        for (i, category) in [
+            TransactionCategory::Deposit,
+            TransactionCategory::Withdrawal,
+            TransactionCategory::WithdrawalEarnings,
+            TransactionCategory::FeeOpen(trade.id),
+            TransactionCategory::FeeClose(trade.id),
+            TransactionCategory::FundTrade(trade.id),
+            TransactionCategory::PaymentFromTrade(trade.id),
+            TransactionCategory::PaymentEarnings(trade.id),
+            TransactionCategory::OpenTrade(trade.id),
+            TransactionCategory::CloseTarget(trade.id),
+            TransactionCategory::PaymentTax(trade.id),
+            TransactionCategory::WithdrawalTax,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            db.transaction_write()
+                .create_transaction_by_account_id(
+                    account.id,
+                    Decimal::new(i64::try_from(i).unwrap() + 1, 6),
+                    &Currency::USD,
+                    category,
+                )
+                .unwrap();
+        }
+        for (id, currency) in [(other.id, Currency::USD), (account.id, Currency::EUR)] {
+            db.transaction_write()
+                .create_transaction_by_account_id(
+                    id,
+                    dec!(999),
+                    &currency,
+                    TransactionCategory::Deposit,
+                )
+                .unwrap();
+        }
+        let deleted = db
+            .transaction_write()
+            .create_transaction_by_account_id(
+                account.id,
+                dec!(999),
+                &Currency::USD,
+                TransactionCategory::Deposit,
+            )
+            .unwrap();
+        diesel::update(transactions::table.filter(transactions::id.eq(deleted.id.to_string())))
+            .set(transactions::deleted_at.eq(Some(Utc::now().naive_utc())))
+            .execute(&mut *connection.lock().unwrap())
+            .unwrap();
+        let expected: Vec<_> = db
+            .transaction_read()
+            .all_account_transactions_excluding_taxes(account.id, &Currency::USD)
+            .unwrap()
+            .into_iter()
+            .map(|tx| (tx.category, tx.amount))
+            .collect();
+        let actual = db
+            .transaction_read()
+            .account_cash_movements_excluding_taxes(account.id, &Currency::USD)
+            .unwrap();
+        assert_eq!(actual, expected);
+        assert_eq!(actual.len(), 8);
+        diesel::update(
+            transactions::table
+                .filter(transactions::account_id.eq(account.id.to_string()))
+                .filter(transactions::category.eq("fund_trade")),
+        )
+        .set(transactions::amount.eq("0.123456789012345678901234567891"))
+        .execute(&mut *connection.lock().unwrap())
+        .unwrap();
+        assert!(db
+            .transaction_read()
+            .account_cash_movements_excluding_taxes(account.id, &Currency::USD)
+            .is_err());
+        diesel::update(
+            transactions::table
+                .filter(transactions::account_id.eq(account.id.to_string()))
+                .filter(transactions::category.eq("fund_trade")),
+        )
+        .set((
+            transactions::amount.eq("1"),
+            transactions::trade_id.eq(Some("invalid-uuid")),
+        ))
+        .execute(&mut *connection.lock().unwrap())
+        .unwrap();
+        assert!(db
+            .transaction_read()
+            .account_cash_movements_excluding_taxes(account.id, &Currency::USD)
+            .is_err());
+    }
 
     pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
 

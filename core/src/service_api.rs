@@ -12,6 +12,24 @@ use std::{collections::BTreeMap, error::Error};
 use uuid::Uuid;
 
 impl TrustFacade {
+    /// Require an explicit policy before service-driven capital commitment. The
+    /// legacy local accounting API can still represent accounts without policies.
+    pub fn require_trading_policy(&mut self, account: Uuid) -> Result<(), Box<dyn Error>> {
+        let rules = self.search_rules(account)?;
+        let per_trade = rules
+            .iter()
+            .any(|rule| matches!(rule.name, model::RuleName::RiskPerTrade(_)));
+        let per_month = rules
+            .iter()
+            .any(|rule| matches!(rule.name, model::RuleName::RiskPerMonth(_)));
+        if !(per_trade && per_month) {
+            return Err(Box::new(crate::validation_errors::FundValidationError {
+                code: crate::validation_errors::FundValidationErrorCode::RiskPolicyMissing,
+                message: "Configure both per-trade and monthly risk caps before funding or submitting through the service".into(),
+            }));
+        }
+        Ok(())
+    }
     /// Resolve broker-native identity and persist normalized instrument metadata.
     pub fn resolve_instrument(
         &mut self,

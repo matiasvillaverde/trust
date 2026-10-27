@@ -11,27 +11,26 @@ impl AccountCapitalAvailable {
         database: &mut dyn ReadTransactionDB,
     ) -> Result<Decimal, Box<dyn std::error::Error>> {
         // Get all transactions for the account and currency
-        let transactions =
-            database.all_account_transactions_excluding_taxes(account_id, currency)?;
+        let transactions = database.account_cash_movements_excluding_taxes(account_id, currency)?;
 
         // Sum all transactions based on their category
         let total: Result<Decimal, Box<dyn std::error::Error>> = transactions.iter().try_fold(
             Decimal::ZERO,
-            |acc, transaction| {
-                match transaction.category {
+            |acc, (category, amount)| {
+                match category {
                     TransactionCategory::FundTrade(_) |
                     TransactionCategory::Withdrawal |
                     TransactionCategory::WithdrawalEarnings |
                     TransactionCategory::FeeOpen(_) |
-                    TransactionCategory::FeeClose(_) => acc.checked_sub(transaction.amount)
-                        .ok_or_else(|| format!("Arithmetic overflow in subtraction: {} - {}", acc, transaction.amount).into()),
+                    TransactionCategory::FeeClose(_) => acc.checked_sub(*amount)
+                        .ok_or_else(|| format!("Arithmetic overflow in subtraction: {} - {}", acc, amount).into()),
                     TransactionCategory::PaymentFromTrade(_) |
                     TransactionCategory::PaymentEarnings(_) |
-                    TransactionCategory::Deposit => acc.checked_add(transaction.amount)
-                        .ok_or_else(|| format!("Arithmetic overflow in addition: {} + {}", acc, transaction.amount).into()),
+                    TransactionCategory::Deposit => acc.checked_add(*amount)
+                        .ok_or_else(|| format!("Arithmetic overflow in addition: {} + {}", acc, amount).into()),
                     _ => Err(format!(
                         "capital_available: does not know how to calculate transaction with category: {}",
-                        transaction.category
+                        category
                     ).into()),
                 }
             }

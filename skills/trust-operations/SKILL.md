@@ -14,7 +14,9 @@ For an uncertain mutation:
 
 `trade_modify_stop` enforces Trust's no-widening rule. `trade_modify_target` changes a persisted bracket. `trade_cancel` and `trade_close` request an action; reconcile to confirm the outcome before assuming funds were released. Never automatically retry an external order with a new key after a timeout.
 
-`trade_record_fill`, `trade_record_stop`, and `trade_record_target` are privileged ledger operations. Supply the evidenced actual execution `price` and `fee` as decimal strings; never substitute the planned order price. Use only for explicitly authorized manual accounting with reliable external evidence. They do not send an order and are not a shortcut for broker errors.
+`trade_record_fill`, `trade_record_stop`, and `trade_record_target` require separate `trust:manual` authority. `trust:reconcile` permits broker reconciliation and cannot fabricate fills. Supply the evidenced actual execution `price` and `fee` as decimal strings; never substitute the planned order price. Use only for explicitly authorized manual accounting with reliable external evidence. They do not send an order and are not a shortcut for broker errors.
+
+An incomplete IBKR order snapshot, including an empty cache-refresh acknowledgment, is unavailable evidence. Never interpret it as an empty portfolio or permission to submit again. Preserve protective orders when stopping new trading; cancellation of all orders can remove protection from existing positions.
 
 Use `session_open` before taking risk and `session_close` to record adherence. After a confirmed close, use `grade_preview`, `grade_record`, and `trade_mistake_record`. Distinguish process quality from P&L. Use `report_get` for accounting and risk reports; tax and wash-sale reports cover the full available ledger and are estimates, not filing instructions.
 

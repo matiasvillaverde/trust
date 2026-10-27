@@ -1,6 +1,6 @@
 # Reliability verification
 
-This work inventories **82 service tools (35 mutations)** and **192 edge-case register items**. Those inventory counts are not passed-test counts. Some register items describe multiple boundaries; a few require a broker paper environment or a real deployment. No finite test suite proves that risk management is infallible or that a stop guarantees a maximum loss.
+This work inventories **82 service tools (35 mutations)** and **212 edge-case register items**. Those inventory counts are not passed-test counts. Some register items describe multiple boundaries; a few require a broker paper environment or a real deployment. No finite test suite proves that risk management is infallible or that a stop guarantees a maximum loss.
 
 ## Repeatable offline gate
 
@@ -10,7 +10,8 @@ cargo test --locked --no-default-features --workspace -- --test-threads=1
 cargo clippy --locked --workspace --all-features --all-targets -- -D warnings
 cargo fmt --all --check
 python scripts/reliability.py --coverage
-make ci-perf
+make ci-perf  # release profile, unchanged 26-second / 6-second budgets
+make e2e      # real child process + HTTP/MCP + loopback IBKR simulator
 docker build -t trust-service:local .
 python scripts/container_smoke.py
 ```
@@ -76,7 +77,7 @@ The initial targeted run failed five assertions and passed the rollback tests; s
 - The legacy bug-hunt suite still includes exploratory tests outside the strengthened risk cases. A printed diagnostic is not counted as proof that the reported behavior is correct. No source file is counted merely because it contains an undeclared test module.
 - The runtime journal and financial ledger are separate databases; external broker acceptance is a third commit boundary. Unknown outcome is intentionally preserved across those boundaries. The service does not claim distributed exactly-once execution.
 
-## Recorded run
+## Previous baseline before observability and performance changes
 
 Recorded on **2026-10-26**, with Rust **1.99.1**. The functional/coverage gate passed; **the performance gate did not**. This is not a fully green `make ci` result.
 
@@ -106,15 +107,71 @@ cargo test --locked --release -p trust-cli --test integration_test_use_cases \
   -- test_case_212_perf_gate_sync_lifecycle_regression_guard --ignored --nocapture
 ```
 
-Local evidence lives in `.local/reliability/`: `results.json` and `results.log` retain every named test, `coverage.json` contains the coverage report, `no-default.json` records the alternate configuration, and `verification-status.json` explicitly records that **not all checks passed**. The performance, security, container and schema logs are retained alongside them. These generated files are intentionally ignored by Git and can be regenerated; the feature/edge-case register and regression tests are repository files.
+The table above preserves the previous baseline. Current evidence and results are recorded below; baseline timing failures are not the result of the current release gate. Generated reports are ignored by Git and can be regenerated; the feature register, edge-case register and tests are repository files.
 
 The closeout source review uses the `autoreview` skill's default blocking-issue filter:
 
 ```bash
 /home/mati/.agents/skills/autoreview/scripts/autoreview --mode local \
-  --prompt-file .local/trust-reliability-review-scope.txt \
-  --output /tmp/trust-reliability-review.md \
-  --json-output /tmp/trust-reliability-review.json
+  --prompt-file .local/reliability/observability-scope.md \
+  --output /tmp/trust-observe-review.txt \
+  --json-output /tmp/trust-observe-review.json
 ```
 
-Its completed output is retained as `.local/reliability/review.md` and `review.json`. Source review is additional evidence; it does not override the failed timing gate or the external acceptance limits above.
+Source review is additional evidence; it does not replace execution tests or the external acceptance limits above.
+
+
+## Current service hardening run
+
+Recorded on **2026-10-26** with Rust **1.99.1**. All checks listed below passed.
+
+The service now records request/operation correlation, source, affected accounts, timing and safe error codes in audit v2, including replays and crash recovery. Audit reads enforce every affected account grant. Authenticated `/metrics` remains available outside the financial queue, and health probes do not consume ordinary request limits. Queued work that expires cannot later execute; active work retains conservative unknown-outcome handling. SIGTERM stops admission and finishes the active operation.
+
+Reconciliation applies exact account projection deltas inside the existing savepoint instead of replaying the entire account ledger after each snapshot. Funding still calculates available capital from ordered ledger movements, using a smaller SQLite projection. File-backed differential tests compare long/short partial fills, cancellations, exits, late fees and replays against a full ledger calculation, including injected rollback failures. These tests also exposed and fixed nested transaction failures in fee, distribution and transfer workers. Typed funding errors now cross the facade boundary without being wrapped into an uncertain result.
+
+| Check | Current result |
+| --- | --- |
+| All-feature workspace with coverage | **2,489 passed, 0 failed, 6 ignored**; all **33** required regressions present |
+| Coverage | **95.42% lines, 90.51% functions, 94.22% regions**; existing thresholds passed |
+| Real process E2E | **5 passed**: actual HTTP/MCP, generated JWTs, real IBKR adapter with a loopback gateway simulator, partial/final fills, concurrent replay, risk rejection, process kill/restart, SIGTERM, bounded queue, journal faults, telemetry and secret redaction |
+| Minimal-feature workspace | **1,809 passed, 0 failed, 5 ignored**; all **33** required regressions present |
+| Release performance gate | **Passed** with 3 measured iterations and 1 warmup: annual workload median **5,245 ms** (limit **26,000 ms**); 1,200 lifecycles median **3,971 ms** (limit **6,000 ms**) |
+| Debug diagnostic | 1,200 lifecycles **13,270 ms**; the production performance gate now explicitly uses `--release`, retaining the existing budgets |
+| Formatting / Clippy / evidence parser | Passed; workspace Clippy covers all features and targets |
+| Dependency security | Cargo audit and Cargo deny passed |
+| Rebuilt hardened container | Smoke passed: non-root/read-only operation, JWT enforcement, MCP, exact catalogue, fractional risk persistence, restart/replay, audit v2 and authenticated metrics |
+| Container vulnerability scan | **0 high/critical findings**; Rust dependencies are checked separately by Cargo audit |
+| Source review | Default blocking review (`autoreview --mode local`) passed with no accepted/actionable findings |
+
+The 1,200-lifecycle release median fell from **10,874 ms to 3,971 ms** (about **63% less elapsed time**). These are measured workload results, not throughput guarantees for a real broker or a different host. Broker network latency remains serialized by the financial worker.
+
+Current generated evidence uses the `observability-` prefix under `.local/reliability/`: `observability-results.json/log`, `observability-no-default.json/log`, `observability-perf-gate.log`, container/security logs and `observability-review.txt/json`. The coverage report is `coverage.json`; `observability-status.json` records the combined outcome. The standard `results`, `no-default`, and `verification-status` files also point to this completed run. The standalone E2E suite is `make e2e`; `make reliability` requires its named regressions. Live gateway/exchange behavior, host power loss, real storage exhaustion and deployment identity-provider rotation remain external acceptance work. No real broker orders were placed.
+
+## Staged IBKR assurance
+
+The assurance workflow adopts three practices from inspected upstream projects: [Lumibot's durable intent and unknown-acknowledgment tests](https://github.com/Lumiwealth/lumibot/blob/dev/tests/test_order_decision_journal.py), [LEAN's separate credentialed brokerage harness](https://github.com/QuantConnect/Lean/blob/master/Tests/Brokerages/BrokerageTests.cs), and [NautilusTrader's checks that denied orders never reach execution](https://github.com/nautechsystems/nautilus_trader/blob/13a379ef/tests/unit_tests/risk/test_engine.py). Trust implements these patterns within its own Rust domain and Client Portal adapter. LEAN/Nautilus TWS payloads are not Client Portal contracts. No upstream tests certify Trust.
+
+| Level | Evidence | Entry point | Limit |
+| --- | --- | --- | --- |
+| 1 — Deterministic | Current-policy admission, reservation boundaries, generated accounting/risk properties, persistence and permissions | `make assurance-unit` | Local ledger and controlled broker doubles |
+| 2 — Protocol/process | Documented HTTP response shapes, snapshot completeness, real process HTTP/MCP, crash/restart and concurrent requests | `make assurance-protocol` | Loopback IBKR simulator |
+| 3 — Paper preflight | Broker-confirmed paper identity, contract resolution and what-if | `make ibkr-paper-preflight` | Real gateway; no submitted orders |
+| 4 — Paper lifecycle | Supervised MCP orders, fills, protection, cancellation and independent account reconciliation | `scripts/ibkr_paper_acceptance.py` supplies one submit/cancel smoke | Smoke success is insufficient to pass this level |
+| 5 — Operational | Multi-session recovery, external positions, snapshot freshness, account-wide limits, alerting, halt and restore | Acceptance matrix and operator evidence | Remains unverified; additional whole-account controls are required |
+| 6 — Live canary | Separately authorized, bounded real-money validation after all earlier gates | Operator-supervised acceptance only | Never automatically enabled or executed by CI |
+
+`make assurance-status` reports evidence against a fingerprint of the current tracked and untracked source, including the dirty worktree. Each automated level saves exact commands, process exit codes, named test results, a log hash, timestamp and source fingerprint in `.local/assurance/level-N.json`. Required tests that are missing, ignored, failed, or truncated cannot pass. Changes to source, altered logs, future timestamps and evidence older than seven days require a new run. Seven days is an operational freshness rule, not a statistical confidence claim. These files are local operator evidence, not signed attestations or runtime authorization. The runner never executes levels 4–6 or marks them passed from a smoke result.
+
+The [52-case acceptance matrix](assurance.json) retains the broader scenarios from the investigation. Its proposed cases are requirements, not a count of completed tests. Offline levels cover their explicitly stated scopes; they do not imply complete whole-account broker reconciliation. Current service balances are local projections, monthly risk is planned ledger-basis loss rather than mark-to-market drawdown, and reconciliation failures do not yet impose a durable account-wide halt. These remain blockers for autonomous live readiness. Risk-reducing operations and protective stops require deliberate treatment during an emergency halt.
+
+Two investigation failures are now permanent regressions:
+
+- A funded trade must revalidate current caps, level and ledger capital before submission intent. Its own reservation is credited once for calculation, while other reservations remain. Tests tighten trade/monthly caps for longs and shorts, check unchanged/full-reservation boundaries, compare all financial tables after denial, corrupt reservation/rule reads, and assert zero broker calls. The generated risk-boundary test now proceeds through submission.
+- `force=true` on IBKR's order endpoint clears cached information and returns an empty array; it is not an empty account snapshot. The adapter reads with `force=false` and requires `snapshot=true`, an orders array, and fewer than the documented 1,000-order maximum. Missing/incomplete/truncated evidence prevents a new POST. Both HTTP fixtures and process simulator distinguish cache refresh from snapshot reads. See [IBKR's contract](https://www.interactivebrokers.com/docs/web-api/api-reference/trading/trading-orders/get-open-orders).
+
+Service funding/submission now requires both per-trade and monthly rules. The independent `trust:manual` scope protects manual execution records; `trust:reconcile` retains broker-driven reconciliation. Existing owner tokens and grants need explicit `trust:manual` when manual accounting is intended. Trading agents should not receive policy, manual-accounting or administration authority.
+
+
+`make reliability` also records levels 1 and 2 from the same complete workspace run, avoiding repeated test execution. `--summarize` does not promote historical logs. Property tests record `PROPTEST_RNG_SEED` (default `20261027`); set another seed for additional exploration. `make assurance-mutations` copies source into an isolated temporary workspace and removes three selected guards: submission policy revalidation, correct IBKR snapshot lookup, and manual-accounting scope separation. Each experiment first verifies its baseline test, then requires an executed failing assertion in the mutant. Compiler failures do not count as success. This is a focused sensitivity check, not an exhaustive mutation score.
+
+The isolated mutation workspace also checks source completeness. It exposed a service control-database migration hidden by a machine-wide `*.sql` ignore rule. The repository now explicitly includes `service/migrations/**/*.sql`, alongside the existing Diesel exception, so a clean source checkout can compile and initialize the durable operation journal. Compile failures remain invalid mutation experiments and must be repaired before claiming a killed guard.

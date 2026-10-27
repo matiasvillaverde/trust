@@ -5,6 +5,10 @@ description: Administer the single-owner Trust service using explicit policy and
 
 Use `service_status`, `policy_get`, and `connections_status` first. Access comes from an existing OAuth/OIDC provider plus operator-configured subject, scope, account, and live permissions. MCP tools cannot grant themselves additional authority.
 
+Keep `trust:manual`, `trust:policy`, and `trust:admin` away from trading agents. Existing owners who record manual executions need the new `trust:manual` scope in both their operator grant and OAuth token. Broker reconcilers retain `trust:reconcile` without manual accounting power. Both per-trade and monthly risk policies are required for service funding/submission.
+
+Assurance evidence is maintained through the repository's staged test commands, separate from account sizing levels. A paper submit/cancel smoke is only one observation; it cannot certify complete paper or operational acceptance. Never infer live readiness from a passing offline suite or enable live trading merely to advance an assurance level.
+
 - `account_create` creates a local Trust profile, not a brokerage account. Explicitly bind IBKR's broker account ID and choose paper/live. Child accounts must match the hierarchy's broker/environment.
 - `capital_deposit` and `capital_withdraw` record ledger capital; they do not move cash at a brokerage. Transfers and automatic distributions require access to all affected accounts.
 - `risk_rule_create`, `level_policy_set`, `level_evaluate`, `advisor_configure`, and `distribution_policy_set` change policy. Only do so within the owner's explicit mandate. Distribution fractions sum to exactly `1`; risk percentages use percentage points. Read back the resulting policy.

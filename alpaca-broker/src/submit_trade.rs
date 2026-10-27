@@ -44,10 +44,7 @@ async fn submit(
 
     match result {
         Ok(order) => Ok(order),
-        Err(e) => {
-            eprintln!("Error submitting trade: {e:?}. Are the US market open?");
-            Err(Box::new(e))
-        }
+        Err(e) => Err(Box::new(e)),
     }
 }
 

@@ -30,6 +30,7 @@
 // Standard Rust lints for code quality
 #![warn(missing_docs, rust_2018_idioms, missing_debug_implementations)]
 
+mod atomic;
 mod backup;
 mod database;
 mod error;

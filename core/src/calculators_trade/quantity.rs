@@ -82,7 +82,7 @@ impl QuantityCalculator {
         })
     }
 
-    fn apply_multiplier_to_quantity(quantity: Decimal, multiplier: Decimal) -> Decimal {
+    pub(crate) fn apply_multiplier_to_quantity(quantity: Decimal, multiplier: Decimal) -> Decimal {
         let adjusted = match quantity.checked_mul(multiplier) {
             Some(value) => value,
             None => return Decimal::ZERO,
@@ -109,7 +109,7 @@ impl QuantityCalculator {
         Self::quantity_for_risk(available, entry_price, stop_price, risk)
     }
 
-    fn quantity_for_risk(
+    pub(crate) fn quantity_for_risk(
         available: Decimal,
         entry_price: Decimal,
         stop_price: Decimal,

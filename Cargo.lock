@@ -3148,6 +3148,7 @@ dependencies = [
  "ibkr-broker",
  "jsonwebtoken",
  "openssl",
+ "reqwest",
  "rmcp",
  "rusqlite",
  "rust_decimal",

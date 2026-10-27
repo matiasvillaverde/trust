@@ -1,0 +1,4 @@
+DROP TRIGGER IF EXISTS audit_no_delete;
+DROP TRIGGER IF EXISTS audit_no_update;
+DROP TABLE IF EXISTS audit;
+DROP TABLE IF EXISTS operations;

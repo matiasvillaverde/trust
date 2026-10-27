@@ -51,8 +51,32 @@ pub enum Claim {
     Existing(Reply),
 }
 
+#[derive(Clone, Debug)]
+pub struct AuditContext {
+    pub replayed: bool,
+    pub source: &'static str,
+    pub queue_wait_ms: u64,
+    pub duration_ms: u64,
+    pub error_code: Option<String>,
+    pub account_ids: BTreeSet<Uuid>,
+}
+
+impl Default for AuditContext {
+    fn default() -> Self {
+        Self {
+            replayed: false,
+            source: "internal",
+            queue_wait_ms: 0,
+            duration_ms: 0,
+            error_code: None,
+            account_ids: BTreeSet::new(),
+        }
+    }
+}
+
 pub struct Journal {
     connection: Connection,
+    pub context: AuditContext,
 }
 
 pub fn digest(value: &Value) -> Result<String> {
@@ -81,17 +105,79 @@ impl Journal {
         connection
             .execute_batch(include_str!("../migrations/0001_control/up.sql"))
             .map_err(|_| ServiceError::internal())?;
-        let journal = Self { connection };
+        let mut journal = Self {
+            connection,
+            context: AuditContext::default(),
+        };
         journal.verify()?;
-        // A crash can occur after a broker accepted an order or a local write committed.
-        // Persisted intent is never automatically re-executed.
-        journal
-            .connection
-            .execute(
-                "UPDATE operations SET state = 'outcome_unknown' WHERE state = 'running'",
-                [],
-            )
-            .map_err(|_| ServiceError::internal())?;
+        // Recovery and its evidence commit together. Never re-execute durable intent.
+        let pending = {
+            let mut stmt = journal.connection.prepare("SELECT id,subject,tool,account_id,account_ids FROM operations WHERE state='running'").map_err(|_| ServiceError::internal())?;
+            let rows = stmt
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, Option<String>>(3)?,
+                        row.get::<_, String>(4)?,
+                    ))
+                })
+                .map_err(|_| ServiceError::internal())?;
+            rows.collect::<std::result::Result<Vec<_>, _>>()
+                .map_err(|_| ServiceError::internal())?
+        };
+        if !pending.is_empty() {
+            let tx = journal
+                .connection
+                .transaction()
+                .map_err(|_| ServiceError::internal())?;
+            for (id, subject, tool, account, accounts) in pending {
+                let operation = Uuid::parse_str(&id).map_err(|_| ServiceError::internal())?;
+                let account = account
+                    .as_deref()
+                    .map(Uuid::parse_str)
+                    .transpose()
+                    .map_err(|_| ServiceError::internal())?;
+                let context = AuditContext {
+                    source: "recovery",
+                    error_code: Some("outcome_unknown".into()),
+                    account_ids: serde_json::from_str(&accounts)
+                        .map_err(|_| ServiceError::internal())?,
+                    ..AuditContext::default()
+                };
+                let identity = Identity {
+                    subject,
+                    client_id: None,
+                    expires_at: 0,
+                    scopes: BTreeSet::new(),
+                    grant: crate::auth::Grant {
+                        accounts: BTreeSet::new(),
+                        all_accounts: false,
+                        scopes: BTreeSet::new(),
+                        allow_live: false,
+                    },
+                };
+                tx.execute(
+                    "UPDATE operations SET state='outcome_unknown' WHERE id=?1 AND state='running'",
+                    [&id],
+                )
+                .map_err(|_| ServiceError::internal())?;
+                append(
+                    &tx,
+                    &identity,
+                    Uuid::new_v4(),
+                    Some(operation),
+                    &tool,
+                    account,
+                    "recovered_unknown",
+                    None,
+                    &context,
+                )?;
+                tracing::warn!(event="operation_recovered", operation_id=%operation, tool, "Unfinished operation requires reconciliation");
+            }
+            tx.commit().map_err(|_| ServiceError::internal())?;
+        }
         Ok(journal)
     }
 
@@ -106,6 +192,7 @@ impl Journal {
         request: Uuid,
         accounts: &BTreeSet<Uuid>,
     ) -> Result<Claim> {
+        self.context.account_ids.extend(accounts.iter().copied());
         let request_hash = digest(&json!({"tool":tool,"arguments":arguments}))?;
         if let Some((operation_id, hash, state, response, stored_accounts)) = self.connection.query_row(
             "SELECT id, request_hash, state, response, account_ids FROM operations WHERE subject=?1 AND request_key=?2",
@@ -114,8 +201,13 @@ impl Journal {
         ).optional().map_err(|_| ServiceError::internal())? {
             if hash != request_hash { return Err(ServiceError::new("idempotency_conflict","This key was already used for a different request.","Use the original request to inspect its outcome; use a new key only for a distinct intent.")); }
             let original_accounts:BTreeSet<Uuid>=serde_json::from_str(&stored_accounts).map_err(|_|ServiceError::internal())?;
-            for account in original_accounts { identity.check(crate::catalog::find(tool)?.scope,Some(account))?; }
+            for account in &original_accounts { identity.check(crate::catalog::find(tool)?.scope,Some(*account))?; }
+            self.context.account_ids.extend(original_accounts);
             let id = Uuid::parse_str(&operation_id).map_err(|_| ServiceError::internal())?;
+            self.context.replayed = true;
+            let tx = self.connection.transaction().map_err(|_| ServiceError::internal())?;
+            append(&tx, identity, request, Some(id), tool, account, "replayed", None, &self.context)?;
+            tx.commit().map_err(|_| ServiceError::internal())?;
             if let Some(response) = response {
                 let mut reply: Reply = serde_json::from_str(&response).map_err(|_| ServiceError::internal())?;
                 reply.request_id = request;
@@ -138,6 +230,7 @@ impl Journal {
             account,
             "attempted",
             Some(&request_hash),
+            &self.context,
         )?;
         transaction.commit().map_err(|_| ServiceError::internal())?;
         Ok(Claim::New(id))
@@ -182,6 +275,7 @@ impl Journal {
             account,
             state,
             Some(&response_hash),
+            &self.context,
         )?;
         transaction.commit().map_err(|_| ServiceError::internal())?;
         Ok(())
@@ -199,7 +293,17 @@ impl Journal {
             .connection
             .transaction()
             .map_err(|_| ServiceError::internal())?;
-        append(&tx, identity, request, None, tool, account, outcome, None)?;
+        append(
+            &tx,
+            identity,
+            request,
+            None,
+            tool,
+            account,
+            outcome,
+            None,
+            &self.context,
+        )?;
         tx.commit().map_err(|_| ServiceError::internal())
     }
 
@@ -236,18 +340,24 @@ impl Journal {
         let mut stmt = self
             .connection
             .prepare(
-                "SELECT sequence,event FROM audit WHERE sequence>?1 ORDER BY sequence LIMIT 2000",
+                "SELECT sequence,event,previous_hash,event_hash FROM audit WHERE sequence>?1 ORDER BY sequence LIMIT 2000",
             )
             .map_err(|_| ServiceError::internal())?;
         let rows = stmt
             .query_map([after], |row| {
-                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                ))
             })
             .map_err(|_| ServiceError::internal())?;
         let mut events = Vec::new();
         let mut cursor = u64::try_from(after).map_err(|_| ServiceError::internal())?;
         for row in rows {
-            let (sequence, text) = row.map_err(|_| ServiceError::internal())?;
+            let (sequence, text, previous_hash, event_hash) =
+                row.map_err(|_| ServiceError::internal())?;
             let sequence = u64::try_from(sequence).map_err(|_| ServiceError::internal())?;
             cursor = sequence;
             let event: Value = serde_json::from_str(&text).map_err(|_| ServiceError::internal())?;
@@ -259,10 +369,19 @@ impl Journal {
                 .map_err(|_| ServiceError::internal())?;
             let own =
                 event.get("subject").and_then(Value::as_str) == Some(identity.subject.as_str());
-            if own && account.is_none_or(|id| identity.permits_account(id))
+            let accounts: BTreeSet<Uuid> = event
+                .get("account_ids")
+                .cloned()
+                .map(serde_json::from_value)
+                .transpose()
+                .map_err(|_| ServiceError::internal())?
+                .unwrap_or_default();
+            if own
+                && account.is_none_or(|id| identity.permits_account(id))
+                && accounts.iter().all(|id| identity.permits_account(*id))
                 || identity.permits("trust:admin") && identity.grant.all_accounts
             {
-                events.push(json!({"sequence":sequence,"event":event}));
+                events.push(json!({"sequence":sequence,"event":event,"previous_hash":previous_hash,"event_hash":event_hash}));
             }
             if u64::try_from(events.len()).map_err(|_| ServiceError::internal())? >= limit {
                 break;
@@ -324,6 +443,7 @@ fn append(
     account: Option<Uuid>,
     outcome: &str,
     content_hash: Option<&str>,
+    context: &AuditContext,
 ) -> Result<()> {
     let previous = connection
         .query_row(
@@ -334,7 +454,7 @@ fn append(
         .optional()
         .map_err(|_| ServiceError::internal())?
         .unwrap_or_else(|| "GENESIS".into());
-    let event=serde_json::to_string(&json!({"version":1,"at":chrono::Utc::now().to_rfc3339(),"subject":identity.subject,"client_id":identity.client_id,"request_id":request,"operation_id":operation,"tool":tool,"account_id":account,"outcome":outcome,"content_hash":content_hash})).map_err(|_|ServiceError::internal())?;
+    let event=serde_json::to_string(&json!({"version":2,"source":context.source,"queue_wait_ms":context.queue_wait_ms,"duration_ms":context.duration_ms,"error_code":context.error_code,"account_ids":context.account_ids,"at":chrono::Utc::now().to_rfc3339(),"subject":identity.subject,"client_id":identity.client_id,"request_id":request,"operation_id":operation,"tool":tool,"account_id":account,"outcome":outcome,"content_hash":content_hash})).map_err(|_|ServiceError::internal())?;
     let hash = chain_hash(&previous, &event);
     connection
         .execute(

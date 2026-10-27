@@ -414,10 +414,10 @@ fn mock_no_live_orders(server: &TestServer) {
         MockExpectation::json(
             "GET",
             "/v1/api/iserver/account/orders",
-            json!({ "orders": [] }),
+            json!({ "snapshot": true, "orders": [] }),
         )
         .query("accountId", "U1234567")
-        .query("force", "true"),
+        .query("force", "false"),
     );
 }
 
@@ -815,7 +815,7 @@ fn submit_trade_recovers_complete_existing_bracket_without_duplicate_post() {
             "GET",
             "/v1/api/iserver/account/orders",
             json!({
-                "orders": [
+                "snapshot": true, "orders": [
                     { "order_ref": trade.entry.id.to_string(), "orderId": "7001" },
                     { "order_ref": trade.target.id.to_string(), "orderId": "7002" },
                     { "order_ref": trade.safety_stop.id.to_string(), "orderId": "7003" }
@@ -823,7 +823,7 @@ fn submit_trade_recovers_complete_existing_bracket_without_duplicate_post() {
             }),
         )
         .query("accountId", "U1234567")
-        .query("force", "true"),
+        .query("force", "false"),
     );
 
     with_mock_gateway(&server, || {
@@ -851,13 +851,13 @@ fn submit_trade_rejects_partial_existing_bracket_without_duplicate_post() {
             "GET",
             "/v1/api/iserver/account/orders",
             json!({
-                "orders": [
+                "snapshot": true, "orders": [
                     { "order_ref": trade.entry.id.to_string(), "orderId": "7001" }
                 ]
             }),
         )
         .query("accountId", "U1234567")
-        .query("force", "true"),
+        .query("force", "false"),
     );
 
     with_mock_gateway(&server, || {
@@ -887,13 +887,13 @@ fn manual_close_modifies_target_child_to_market_without_cancel_request() {
             "GET",
             "/v1/api/iserver/account/orders",
             json!({
-                "orders": [
+                "snapshot": true, "orders": [
                     { "order_ref": target_ref, "orderId": "8002", "status": "Submitted" }
                 ]
             }),
         )
         .query("accountId", "U1234567")
-        .query("force", "true"),
+        .query("force", "false"),
     );
     let modify = server.expect(
         MockExpectation::json(
@@ -998,7 +998,7 @@ fn cancel_trade_resolves_order_id_from_order_ref_before_delete() {
             "GET",
             "/v1/api/iserver/account/orders",
             json!({
-                "orders": [
+                "snapshot": true, "orders": [
                     {
                         "orderId": "7001",
                         "order_ref": trade.entry.id.to_string(),
@@ -1008,7 +1008,7 @@ fn cancel_trade_resolves_order_id_from_order_ref_before_delete() {
             }),
         )
         .query("accountId", "U1234567")
-        .query("force", "true"),
+        .query("force", "false"),
     );
     let delete = server.expect(MockExpectation::json(
         "DELETE",
@@ -1047,7 +1047,7 @@ fn modify_stop_uses_order_ref_for_lookup_and_returns_same_ref() {
             "GET",
             "/v1/api/iserver/account/orders",
             json!({
-                "orders": [
+                "snapshot": true, "orders": [
                     {
                         "orderId": "8001",
                         "order_ref": trade.safety_stop.id.to_string(),
@@ -1057,7 +1057,7 @@ fn modify_stop_uses_order_ref_for_lookup_and_returns_same_ref() {
             }),
         )
         .query("accountId", "U1234567")
-        .query("force", "true"),
+        .query("force", "false"),
     );
     let modify = server.expect(
         MockExpectation::json(
@@ -1101,7 +1101,7 @@ fn sync_trade_maps_live_orders_into_trade_status_and_order_updates() {
             "GET",
             "/v1/api/iserver/account/orders",
             json!({
-                "orders": [
+                "snapshot": true, "orders": [
                     {
                         "orderId": "9100",
                         "order_ref": trade.entry.id.to_string(),
@@ -1124,7 +1124,7 @@ fn sync_trade_maps_live_orders_into_trade_status_and_order_updates() {
             }),
         )
         .query("accountId", "U1234567")
-        .query("force", "true"),
+        .query("force", "false"),
     );
 
     with_mock_gateway(&server, || {
@@ -1240,4 +1240,87 @@ fn market_data_and_execution_endpoints_are_normalized() {
     history.assert();
     assert_eq!(snapshot.hits(), 2);
     assert_eq!(account_trades.hits(), 2);
+}
+
+#[test]
+fn order_cache_refresh_never_authorizes_duplicate_submission() {
+    let server = TestServer::start();
+    mock_session(&server);
+    mock_contract_search(&server);
+    let account = account();
+    let mut trade = trade();
+    trade.account_id = account.id;
+    let refresh = server.expect(
+        MockExpectation::json("GET", "/v1/api/iserver/account/orders", json!([]))
+            .query("force", "true"),
+    );
+    let snapshot = server.expect(MockExpectation::json(
+        "GET",
+        "/v1/api/iserver/account/orders",
+        json!({
+            "snapshot": true,
+            "orders": [
+                { "order_ref": trade.entry.id.to_string(), "orderId": "7001" },
+                { "order_ref": trade.target.id.to_string(), "orderId": "7002" },
+                { "order_ref": trade.safety_stop.id.to_string(), "orderId": "7003" }
+            ]
+        }),
+    ));
+    let submit = server.expect(MockExpectation::json(
+        "POST",
+        "/v1/api/iserver/account/U1234567/orders",
+        json!([
+            { "order_id": "9001", "order_status": "Submitted" }
+        ]),
+    ));
+    with_mock_gateway(&server, || {
+        let _ = IbkrBroker.submit_trade(&trade, &account);
+    });
+    println!(
+        "Cache refresh requests: {}; completed snapshot reads: {}; new order POSTs: {}",
+        refresh.hits(),
+        snapshot.hits(),
+        submit.hits()
+    );
+    assert_eq!(
+        submit.hits(),
+        0,
+        "an empty cache-refresh response must not authorize a duplicate order POST"
+    );
+}
+
+#[test]
+fn incomplete_or_truncated_order_snapshots_never_submit() {
+    for response in [
+        json!([]),
+        json!({"orders":[]}),
+        json!({"snapshot":false,"orders":[]}),
+        json!({"snapshot":true}),
+        json!({"snapshot":true,"orders":vec![json!({"orderId":"1"});1000]}),
+    ] {
+        let server = TestServer::start();
+        mock_session(&server);
+        let a = account();
+        let mut t = trade();
+        t.account_id = a.id;
+        server.expect(MockExpectation::json(
+            "GET",
+            "/v1/api/iserver/account/orders",
+            response,
+        ));
+        let submit = server.expect(MockExpectation::json(
+            "POST",
+            "/v1/api/iserver/account/U1234567/orders",
+            json!([]),
+        ));
+        with_mock_gateway(&server, || {
+            assert!(IbkrBroker.submit_trade(&t, &a).is_err());
+        });
+        assert_eq!(submit.hits(), 0);
+        assert_eq!(
+            server.request_count(),
+            4,
+            "rejection must precede contract lookup and mutation"
+        );
+    }
 }
