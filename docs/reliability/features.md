@@ -2,6 +2,8 @@
 
 This inventory describes the implementation under test, including limits that affect what an agent may assume. The canonical service catalogue is `service/src/catalog.rs`; the financial contract is `core::TrustFacade`.
 
+The service assigns exactly one human owner and any number of agents. Policy, administration and manual-accounting scopes are owner-only and require recent issuer-verified MFA. Other actions remain limited by scope, account, lifecycle and risk policy. HTTP catalogue entries expose `owner_only`; agents cannot discover or call owner tools.
+
 ## Service tools (82)
 
 | Tool | Scope | Writes state | Account argument | Behavior |
@@ -114,4 +116,4 @@ An operation-specific account requirement does not mean unrestricted access. Cre
 
 See [edge cases](edge-cases.md) for the boundary matrix and [verification](verification.md) for commands, results, known limits, and regression evidence. Tests use isolated SQLite and mock broker responses. No ignored live-broker test is part of the automated gate.
 
-Operational HTTP routes include unauthenticated `/healthz` and `/readyz`, plus `/metrics` restricted to an all-accounts administrator. Audit v2 records affected accounts, transport/source, timing, failures, replays and crash recovery while retaining existing hash verification. See [the operator guide](../service.md#audit-logging-and-operations).
+Operational HTTP routes include unauthenticated `/healthz` and `/readyz`, plus `/metrics` restricted to an all-accounts `trust:observe` collector or elevated administrator. Telemetry separates tools, execution stages, transport routes and JWT verification, with bounded labels and microsecond resolution. Operational logging uses a bounded nonblocking queue with dropped-line telemetry; durable financial audit remains synchronous. Audit v2 records affected accounts, transport/source, timing, failures, replays and crash recovery while retaining existing hash verification. See [the operator guide](../service.md#audit-logging-and-operations).

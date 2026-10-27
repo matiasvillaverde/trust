@@ -1,6 +1,7 @@
 use crate::error::{Result, ServiceError};
 use serde::Serialize;
 use serde_json::{json, Map, Value};
+use std::sync::LazyLock;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[allow(clippy::enum_variant_names)]
@@ -96,6 +97,7 @@ pub struct ToolSpec {
     pub name: &'static str,
     pub description: &'static str,
     pub scope: &'static str,
+    pub owner_only: bool,
     pub mutation: bool,
     pub account_required: bool,
     pub input_schema: Value,
@@ -182,6 +184,7 @@ fn spec(
         name,
         description,
         scope,
+        owner_only: crate::auth::owner_scope(scope),
         mutation,
         account_required: account,
         input_schema: json!({"type":"object","properties":properties,"required":required,"additionalProperties":false}),
@@ -189,7 +192,13 @@ fn spec(
 }
 
 /// One authoritative catalogue for MCP, HTTP, CLI discovery, and scope enforcement.
-pub fn tools() -> Vec<ToolSpec> {
+/// Immutable schemas are built once. Identity filtering still runs on every request.
+pub fn tools() -> &'static [ToolSpec] {
+    static TOOLS: LazyLock<Vec<ToolSpec>> = LazyLock::new(build_tools);
+    &TOOLS
+}
+
+fn build_tools() -> Vec<ToolSpec> {
     use Operation::*;
     let mut result = vec![
         spec(Status,"service_status","Start here: service mode, capabilities, account access, and suggested workflow.","trust:read",false,false,vec![]),
@@ -295,10 +304,11 @@ pub fn tools() -> Vec<ToolSpec> {
     result
 }
 
-pub fn find(name: &str) -> Result<ToolSpec> {
+pub fn find(name: &str) -> Result<&'static ToolSpec> {
     tools()
-        .into_iter()
-        .find(|tool| tool.name == name)
+        .binary_search_by_key(&name, |tool| tool.name)
+        .ok()
+        .and_then(|index| tools().get(index))
         .ok_or_else(|| {
             ServiceError::new(
                 "unknown_tool",

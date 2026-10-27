@@ -4,14 +4,53 @@ use crate::parsing::{decimal_field_optional_any, string_field_optional};
 use crate::support::broker_account_id;
 use crate::{LIVE_ORDER_LOOKUP_DELAY_MS, LIVE_ORDER_LOOKUP_RETRIES};
 use model::{Account, BrokerError};
-use reqwest::blocking::{Client, Response};
+use reqwest::blocking::{Client, RequestBuilder, Response};
 use rust_decimal::Decimal;
 use serde_json::{json, Value};
 use std::error::Error;
 use std::thread::sleep;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const MAX_PERSISTED_RESPONSE_BYTES: usize = 16 * 1024;
+
+fn endpoint(path: &str) -> &'static str {
+    match path {
+        "/iserver/auth/status" => "authentication",
+        "/iserver/accounts" => "accounts",
+        "/iserver/account" => "account_selection",
+        "/iserver/account/orders" => "order_snapshot",
+        "/iserver/account/trades" => "executions",
+        "/iserver/secdef/search" => "contract_search",
+        _ if path.starts_with("/iserver/marketdata/") => "market_data",
+        _ if path.starts_with("/iserver/account/") && path.ends_with("/orders/whatif") => "preview",
+        _ if path.starts_with("/iserver/account/") && path.ends_with("/orders") => "orders",
+        _ if path.starts_with("/iserver/account/") && path.contains("/order/") => "order",
+        _ => "other",
+    }
+}
+
+fn observe_request<T>(
+    method: &'static str,
+    path: &str,
+    request: RequestBuilder,
+    decode: impl FnOnce(Response) -> Result<T, Box<dyn Error>>,
+) -> Result<T, Box<dyn Error>> {
+    let start = Instant::now();
+    // Observe the existing single attempt; instrumentation must never introduce retries.
+    let response = request.send();
+    let status = response
+        .as_ref()
+        .map_or(0, |response| response.status().as_u16());
+    let result = response
+        .map_err(|error| -> Box<dyn Error> {
+            format!("IBKR {method} {path} failed: {error}").into()
+        })
+        .and_then(decode);
+    // Static endpoint classes only. In a service operation, the enclosing span
+    // supplies request_id/tool; never emit URLs, account/order IDs, bodies or errors.
+    tracing::info!(target: "trust::operational", event="broker_request", broker="ibkr", method, endpoint=endpoint(path), status, duration_us=u64::try_from(start.elapsed().as_micros()).unwrap_or(u64::MAX), outcome=if result.is_ok(){"ok"}else{"error"}, "Broker HTTP attempt finished");
+    result
+}
 
 #[derive(Debug)]
 pub(crate) struct IbkrClient {
@@ -200,13 +239,10 @@ impl IbkrClient {
         path: &str,
         query: &[(&str, String)],
     ) -> Result<Value, Box<dyn Error>> {
-        let response = self
-            .http
-            .get(self.url(path))
-            .query(query)
-            .send()
-            .map_err(|error| format!("IBKR GET {path} failed: {error}"))?;
-        parse_json_response("GET", path, response)
+        let request = self.http.get(self.url(path)).query(query);
+        observe_request("GET", path, request, |response| {
+            parse_json_response("GET", path, response)
+        })
     }
 
     pub(crate) fn post_json_value(
@@ -214,13 +250,10 @@ impl IbkrClient {
         path: &str,
         body: &Value,
     ) -> Result<Value, Box<dyn Error>> {
-        let response = self
-            .http
-            .post(self.url(path))
-            .json(body)
-            .send()
-            .map_err(|error| format!("IBKR POST {path} failed: {error}"))?;
-        parse_json_response("POST", path, response)
+        let request = self.http.post(self.url(path)).json(body);
+        observe_request("POST", path, request, |response| {
+            parse_json_response("POST", path, response)
+        })
     }
 
     pub(crate) fn post_json_with_replies(
@@ -235,22 +268,22 @@ impl IbkrClient {
     }
 
     pub(crate) fn delete_no_content(&self, path: &str) -> Result<(), Box<dyn Error>> {
-        let response = self
-            .http
-            .delete(self.url(path))
-            .send()
-            .map_err(|error| format!("IBKR DELETE {path} failed: {error}"))?;
-
-        if response.status().is_success() {
-            return Ok(());
-        }
-
-        let status = response.status();
-        let body_len = response.text().map(|body| body.len()).unwrap_or_default();
-        Err(format!(
-            "IBKR DELETE {path} returned {status} (response body omitted; {body_len} bytes)"
+        observe_request(
+            "DELETE",
+            path,
+            self.http.delete(self.url(path)),
+            |response| {
+                if response.status().is_success() {
+                    return Ok(());
+                }
+                let status = response.status();
+                let body_len = response.text().map(|body| body.len()).unwrap_or_default();
+                Err(format!(
+                "IBKR DELETE {path} returned {status} (response body omitted; {body_len} bytes)"
+            )
+                .into())
+            },
         )
-        .into())
     }
 
     fn ensure_authenticated(&self) -> Result<(), Box<dyn Error>> {

@@ -8,6 +8,7 @@ use std::{collections::BTreeSet, sync::Arc};
 use uuid::Uuid;
 
 pub const SCOPES: &[&str] = &[
+    "trust:observe",
     "trust:read",
     "trust:preview",
     "trust:trade",
@@ -18,9 +19,24 @@ pub const SCOPES: &[&str] = &[
     "trust:admin",
 ];
 
+pub fn owner_scope(scope: &str) -> bool {
+    matches!(scope, "trust:policy" | "trust:admin" | "trust:manual")
+}
+
+/// Operator-assigned identity class, never inferred from token scopes or claims.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Role {
+    Owner,
+    #[default]
+    Agent,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Grant {
+    #[serde(default)]
+    pub role: Role,
     #[serde(default)]
     pub accounts: BTreeSet<Uuid>,
     #[serde(default)]
@@ -32,6 +48,11 @@ pub struct Grant {
 
 impl Grant {
     pub fn validate(&self) -> Result<()> {
+        if self.role == Role::Agent && self.scopes.iter().any(|scope| owner_scope(scope)) {
+            return Err(ServiceError::invalid(
+                "Agent grants cannot include policy, administration or manual-accounting scopes.",
+            ));
+        }
         if self
             .scopes
             .iter()
@@ -54,11 +75,16 @@ pub struct Identity {
     pub expires_at: u64,
     pub scopes: BTreeSet<String>,
     pub grant: Grant,
+    /// Derived only from verified issuer authentication evidence. Refreshing a
+    /// token does not extend the human's original authentication time.
+    pub owner_authenticated_until: Option<u64>,
 }
 
 impl Identity {
     pub fn permits(&self, scope: &str) -> bool {
-        self.scopes.contains(scope) && self.grant.scopes.contains(scope)
+        self.scopes.contains(scope)
+            && self.grant.scopes.contains(scope)
+            && (!owner_scope(scope) || self.grant.role == Role::Owner)
     }
     pub fn permits_account(&self, account: Uuid) -> bool {
         self.grant.all_accounts || self.grant.accounts.contains(&account)
@@ -71,6 +97,23 @@ impl Identity {
             || account.is_some_and(|id| !self.permits_account(id))
         {
             return Err(ServiceError::forbidden());
+        }
+        if owner_scope(scope) {
+            self.check_owner_authentication(now)?;
+        }
+        Ok(())
+    }
+
+    fn check_owner_authentication(&self, now: u64) -> Result<()> {
+        if self
+            .owner_authenticated_until
+            .is_none_or(|until| until <= now)
+        {
+            return Err(ServiceError::new(
+                "insufficient_user_authentication",
+                "This owner action requires recent human authentication with MFA.",
+                "Sign in again at the configured OAuth provider using the owner's MFA policy. Keep owner credentials out of agent sessions; retry the original intent with the same idempotency key.",
+            ));
         }
         Ok(())
     }
@@ -95,6 +138,10 @@ struct Claims {
     azp: Option<String>,
     #[serde(default)]
     jti: Option<String>,
+    #[serde(default)]
+    auth_time: Option<u64>,
+    #[serde(default)]
+    acr: Option<String>,
 }
 
 impl Authenticator {
@@ -151,13 +198,37 @@ impl Authenticator {
             .get(&claims.sub)
             .cloned()
             .ok_or_else(unauthorized)?;
-        Ok(Identity {
+        let owner_authenticated_until = claims
+            .auth_time
+            .filter(|_| grant.role == Role::Owner)
+            .filter(|time| *time <= claims.iat && *time <= now)
+            .filter(|_| {
+                claims
+                    .acr
+                    .as_ref()
+                    .is_some_and(|acr| self.config.owner_authentication.acr_values.contains(acr))
+            })
+            .and_then(|time| time.checked_add(self.config.owner_authentication.max_age_seconds))
+            .map(|until| until.min(claims.exp));
+        let identity = Identity {
             subject: claims.sub,
             client_id: claims.client_id.or(claims.azp),
             expires_at: claims.exp,
             scopes: claims.scope.split_whitespace().map(str::to_owned).collect(),
             grant,
-        })
+            owner_authenticated_until,
+        };
+        // A broad owner token is an elevated session. Challenge at the HTTP
+        // boundary as well as before dispatch, including requests queued earlier.
+        if identity.grant.role == Role::Owner
+            && identity
+                .scopes
+                .iter()
+                .any(|scope| owner_scope(scope) && identity.permits(scope))
+        {
+            identity.check_owner_authentication(now)?;
+        }
+        Ok(identity)
     }
 }
 

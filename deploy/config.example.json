@@ -8,6 +8,10 @@
   "allow_live": false,
   "reconcile_interval_seconds": 30,
   "max_token_lifetime_seconds": 3600,
+  "owner_authentication": {
+    "acr_values": ["urn:trust:owner:mfa"],
+    "max_age_seconds": 300
+  },
   "queue_capacity": 64,
   "request_timeout_ms": 45000,
   "queue_timeout_ms": 40000,
@@ -15,13 +19,21 @@
   "revoked_token_ids": [],
   "grants": {
     "REPLACE_WITH_OWNER_SUBJECT": {
+      "role": "owner",
       "all_accounts": true,
       "scopes": ["trust:read", "trust:preview", "trust:trade", "trust:reconcile", "trust:manual", "trust:journal", "trust:policy", "trust:admin"],
       "allow_live": false
     },
+    "REPLACE_WITH_MONITORING_SUBJECT": {
+      "role": "agent",
+      "all_accounts": true,
+      "scopes": ["trust:observe"],
+      "allow_live": false
+    },
     "REPLACE_WITH_AGENT_SUBJECT": {
+      "role": "agent",
       "accounts": ["00000000-0000-0000-0000-000000000001"],
-      "scopes": ["trust:read", "trust:preview"],
+      "scopes": ["trust:read", "trust:preview", "trust:trade", "trust:reconcile", "trust:journal"],
       "allow_live": false
     }
   }

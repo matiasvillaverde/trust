@@ -5,7 +5,7 @@ description: Size and prepare risk-managed trades with the Trust service, especi
 
 Use the authenticated Trust MCP service. Start with `service_status`, `policy_get`, and `accounts_list`. Use exact account and instrument IDs from tools; never infer a brokerage account from a ticker or account name.
 
-1. Read `account_get`, `risk_rules_list`, `level_get`, and `instruments_list`. Check broker, environment, currency, instrument category, and metadata. Service funding and submission require both per-trade and monthly rules. A zero-percent rule blocks new risk, including submission of previously funded trades. Obtain the owner's policy before adding or weakening rules.
+1. Read `account_get`, `risk_rules_list`, `level_get`, and `instruments_list`. Check broker, environment, currency, instrument category, and metadata. Service funding and submission require both per-trade and monthly rules. A zero-percent rule blocks new risk, including submission of previously funded trades. Risk rules and ledger deposits/withdrawals are owner-only actions requiring human MFA. If the configured policy does not permit a trade, reduce its size or report the constraint; never seek an owner token or change policy as the trading agent.
 2. Get market context when needed. Preserve observation timestamps and source. Missing data is unavailable, not zero. Broker snapshot fallback prices can be stale.
 3. Call `risk_preview` with entry and stop, then `trade_hypothesis` with the proposed quantity and target. Use decimal strings. Respect the returned quantity limit; do not change rules to make a proposal pass.
 4. Use `advisor_check`, `advisor_correlation`, and `advisor_regime` as supporting analysis. Advisory output is not funding authorization.

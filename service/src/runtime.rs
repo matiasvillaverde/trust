@@ -6,7 +6,7 @@ use crate::{
     domain::{self, Domain},
     error::{Result, ServiceError},
     journal::{AuditContext, Claim, Journal, Reply},
-    metrics::{self, Metrics},
+    metrics::{self, Metrics, Stage},
 };
 use serde_json::{json, Value};
 use std::{
@@ -367,7 +367,16 @@ fn execute(
     let safe_name = spec.as_ref().map_or("unknown", |spec| spec.name);
     let span = tracing::info_span!("operation", request_id=%request_id, tool=safe_name);
     let _entered = span.enter();
-    let result = execute_inner(domain, journal, identity, name, args, request_id, start);
+    let result = execute_inner(
+        domain,
+        journal,
+        identity,
+        name,
+        args,
+        request_id,
+        start,
+        observation.metrics,
+    );
     let error = match &result {
         Ok(reply) => reply.error.as_ref(),
         Err(error) => Some(error),
@@ -388,11 +397,16 @@ fn execute(
     if journal.context.replayed {
         metrics::increment(&observation.metrics.replayed, 1);
     }
-    observation.metrics.execution.observe(start.elapsed());
-    tracing::info!(event="operation", request_id=%request_id, operation_id=?result.as_ref().ok().and_then(|reply| reply.operation_id), tool=safe_name, source=observation.source.name(), queue_wait_ms=metrics::milliseconds(observation.wait), duration_ms=metrics::milliseconds(start.elapsed()), replayed=journal.context.replayed, error_code=error.map_or("", |e|e.code.as_str()), outcome=if error.is_some(){"error"}else{"ok"}, "Trust operation finished");
+    let duration = start.elapsed();
+    observation.metrics.execution.observe(duration);
+    observation
+        .metrics
+        .operation(safe_name, duration, error.is_some());
+    tracing::info!(event="operation", request_id=%request_id, operation_id=?result.as_ref().ok().and_then(|reply| reply.operation_id), tool=safe_name, source=observation.source.name(), queue_wait_ms=metrics::milliseconds(observation.wait), queue_wait_us=metrics::microseconds(observation.wait), duration_ms=metrics::milliseconds(duration), duration_us=metrics::microseconds(duration), replayed=journal.context.replayed, error_code=error.map_or("", |e|e.code.as_str()), outcome=if error.is_some(){"error"}else{"ok"}, "Trust operation finished");
     result
 }
 
+#[allow(clippy::too_many_arguments)]
 fn execute_inner(
     domain: &mut Domain,
     journal: &mut Journal,
@@ -401,21 +415,26 @@ fn execute_inner(
     args: &Value,
     request_id: Uuid,
     start: Instant,
+    metrics: &Metrics,
 ) -> Result<Reply> {
     let spec = match catalog::find(name) {
         Ok(spec) => spec,
         Err(error) => {
             journal.context.error_code = Some(error.code.clone());
-            journal
-                .record(identity, request_id, "unknown", None, "invalid")
+            metrics
+                .measure(Stage::JournalFinish, || {
+                    journal.record(identity, request_id, "unknown", None, "invalid")
+                })
                 .map_err(|_| audit_unavailable())?;
             return Err(error);
         }
     };
-    if let Err(error) = catalog::validate(&spec, args) {
+    if let Err(error) = metrics.measure(Stage::Validation, || catalog::validate(spec, args)) {
         journal.context.error_code = Some(error.code.clone());
-        journal
-            .record(identity, request_id, name, None, "invalid")
+        metrics
+            .measure(Stage::JournalFinish, || {
+                journal.record(identity, request_id, name, None, "invalid")
+            })
             .map_err(|_| audit_unavailable())?;
         return Err(error);
     }
@@ -423,12 +442,16 @@ fn execute_inner(
         .get("account_id")
         .and_then(Value::as_str)
         .and_then(|v| v.parse().ok());
-    let accounts = match domain.authorize(identity, &spec, args) {
+    let accounts = match metrics.measure(Stage::Authorization, || {
+        domain.authorize(identity, spec, args)
+    }) {
         Ok(ids) => ids,
         Err(error) => {
             journal.context.error_code = Some(error.code.clone());
-            journal
-                .record(identity, request_id, name, account, "denied")
+            metrics
+                .measure(Stage::JournalFinish, || {
+                    journal.record(identity, request_id, name, account, "denied")
+                })
                 .map_err(|_| audit_unavailable())?;
             return Err(error);
         }
@@ -436,14 +459,18 @@ fn execute_inner(
     journal.context.account_ids = accounts.clone();
     let operation_id = if spec.mutation {
         let key = domain::string(args, "idempotency_key")?;
-        match journal.claim(identity, key, name, account, args, request_id, &accounts) {
+        match metrics.measure(Stage::JournalClaim, || {
+            journal.claim(identity, key, name, account, args, request_id, &accounts)
+        }) {
             Ok(Claim::New(id)) => Some(id),
             Ok(Claim::Existing(reply)) => return Ok(reply),
             Err(error) if error.code == "service_unavailable" => return Err(audit_unavailable()),
             Err(error) => {
                 journal.context.error_code = Some(error.code.clone());
-                journal
-                    .record(identity, request_id, name, account, "denied")
+                metrics
+                    .measure(Stage::JournalFinish, || {
+                        journal.record(identity, request_id, name, account, "denied")
+                    })
                     .map_err(|_| audit_unavailable())?;
                 return Err(error);
             }
@@ -451,7 +478,7 @@ fn execute_inner(
     } else {
         None
     };
-    let result = match spec.operation {
+    let result = metrics.measure(Stage::Domain, || match spec.operation {
         Operation::OperationGet => journal.operation(identity, domain::string(args, "key")?),
         Operation::AuditList => journal.list(
             identity,
@@ -460,7 +487,7 @@ fn execute_inner(
         ),
         Operation::AuditVerify => journal.verify(),
         _ => domain.dispatch(identity, spec.operation, args),
-    };
+    });
     let result = match result {
         Err(error) if error.code == "audit_integrity_failed" => return Err(error),
         other => other,
@@ -504,22 +531,26 @@ fn execute_inner(
     journal.context.duration_ms = metrics::milliseconds(start.elapsed());
     journal.context.error_code = reply.error.as_ref().map(|error| error.code.clone());
     if spec.mutation {
-        journal
-            .finish(identity, name, account, &reply)
+        metrics
+            .measure(Stage::JournalFinish, || {
+                journal.finish(identity, name, account, &reply)
+            })
             .map_err(|_| audit_unavailable())?;
     } else {
-        journal
-            .record(
-                identity,
-                request_id,
-                name,
-                account,
-                if reply.error.is_none() {
-                    "read"
-                } else {
-                    "read_failed"
-                },
-            )
+        metrics
+            .measure(Stage::JournalFinish, || {
+                journal.record(
+                    identity,
+                    request_id,
+                    name,
+                    account,
+                    if reply.error.is_none() {
+                        "read"
+                    } else {
+                        "read_failed"
+                    },
+                )
+            })
             .map_err(|_| audit_unavailable())?;
     }
     Ok(reply)
@@ -547,8 +578,10 @@ fn reconcile(
         subject: "system:reconciler".into(),
         client_id: None,
         expires_at: u64::MAX,
+        owner_authenticated_until: None,
         scopes: scopes.clone(),
         grant: Grant {
+            role: crate::auth::Role::Agent,
             accounts: Default::default(),
             all_accounts: true,
             scopes,

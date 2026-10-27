@@ -103,7 +103,10 @@ pub fn router(config: Arc<Config>, service: Service) -> crate::error::Result<Rou
         .with_state(app))
 }
 async fn prometheus(State(app): State<App>, Extension(identity): Extension<Identity>) -> Response {
-    if identity.check("trust:admin", None).is_err() || !identity.grant.all_accounts {
+    if !identity.grant.all_accounts
+        || (identity.check("trust:observe", None).is_err()
+            && identity.check("trust:admin", None).is_err())
+    {
         return StatusCode::FORBIDDEN.into_response();
     }
     (
@@ -133,7 +136,7 @@ async fn metadata(State(app): State<App>) -> Json<Value> {
 }
 async fn list_tools(Extension(identity): Extension<Identity>) -> Json<Value> {
     Json(
-        json!({"schema_version":1,"tools":catalog::tools().into_iter().filter(|tool|crate::mcp::visible(&identity,tool)).collect::<Vec<_>>()}),
+        json!({"schema_version":1,"tools":catalog::tools().iter().filter(|tool|crate::mcp::visible(&identity,tool)).collect::<Vec<_>>()}),
     )
 }
 async fn call(
@@ -156,6 +159,7 @@ fn failure(status: StatusCode, error: ServiceError, request: Uuid) -> Response {
 async fn guard(State(app): State<App>, mut request: Request, next: Next) -> Response {
     let id = Uuid::new_v4();
     let start = Instant::now();
+    let route = metrics::Route::classify(request.uri().path());
     let origin = request.headers().get(header::ORIGIN).cloned();
     let control = matches!(request.uri().path(), "/healthz" | "/readyz" | "/metrics");
     let mut response = check_request(&app, &mut request, id).await;
@@ -224,8 +228,12 @@ async fn guard(State(app): State<App>, mut request: Request, next: Next) -> Resp
     if response.status().is_client_error() || response.status().is_server_error() {
         metrics::increment(&app.service.metrics.http_rejected, 1);
     }
-    app.service.metrics.http_duration.observe(start.elapsed());
-    tracing::info!(event="http_request",request_id=%id,status=response.status().as_u16(),elapsed_ms=start.elapsed().as_millis(),"Trust HTTP request completed");
+    let duration = start.elapsed();
+    app.service.metrics.http_duration.observe(duration);
+    app.service
+        .metrics
+        .http(route, response.status().as_u16(), duration);
+    tracing::info!(event="http_request",request_id=%id,route=route.name(),status=response.status().as_u16(),elapsed_ms=metrics::milliseconds(duration),elapsed_us=metrics::microseconds(duration),"Trust HTTP request completed");
     response
 }
 async fn check_request(app: &App, request: &mut Request, id: Uuid) -> Option<Response> {
@@ -301,9 +309,14 @@ async fn check_request(app: &App, request: &mut Request, id: Uuid) -> Option<Res
     } else {
         None
     };
+    let auth_start = Instant::now();
     let identity = token
         .ok_or_else(crate::auth::unauthorized)
         .and_then(|t| app.auth.authenticate(t));
+    app.service
+        .metrics
+        .authentication
+        .observe(auth_start.elapsed());
     match identity {
         Ok(identity) => {
             if !app
@@ -324,8 +337,18 @@ async fn check_request(app: &App, request: &mut Request, id: Uuid) -> Option<Res
             None
         }
         Err(error) => {
+            let step_up = error.code == "insufficient_user_authentication";
             let mut response = failure(StatusCode::UNAUTHORIZED, error, id);
-            if let Ok(header)=HeaderValue::from_str(&format!("Bearer resource_metadata=\"{}/.well-known/oauth-protected-resource/mcp\", error=\"invalid_token\"",app.config.public_url)){response.headers_mut().insert(header::WWW_AUTHENTICATE,header);}
+            let challenge = if step_up {
+                format!("Bearer resource_metadata=\"{}/.well-known/oauth-protected-resource/mcp\", error=\"insufficient_user_authentication\", acr_values=\"{}\", max_age=\"{}\"", app.config.public_url, app.config.owner_authentication.acr_values.iter().cloned().collect::<Vec<_>>().join(" "), app.config.owner_authentication.max_age_seconds)
+            } else {
+                format!("Bearer resource_metadata=\"{}/.well-known/oauth-protected-resource/mcp\", error=\"invalid_token\"", app.config.public_url)
+            };
+            if let Ok(header) = HeaderValue::from_str(&challenge) {
+                response
+                    .headers_mut()
+                    .insert(header::WWW_AUTHENTICATE, header);
+            }
             Some(response)
         }
     }

@@ -23,6 +23,7 @@ use trust_service::auth::SCOPES;
 pub const SENTINEL: &str = "provider-private-token-MUST-NOT-APPEAR";
 pub struct BrokerState {
     pub submissions: AtomicUsize,
+    pub modifications: AtomicUsize,
     pub hold: AtomicBool,
     pub release: Semaphore,
     pub orders: Mutex<Vec<Value>>,
@@ -32,6 +33,7 @@ impl Default for BrokerState {
     fn default() -> Self {
         Self {
             submissions: AtomicUsize::new(0),
+            modifications: AtomicUsize::new(0),
             hold: AtomicBool::new(false),
             release: Semaphore::new(0),
             orders: Mutex::new(Vec::new()),
@@ -128,6 +130,26 @@ async fn gateway(
             }
             json!([{"order_id":"1","order_status":"Submitted"}])
         }
+        ("POST", path) if path.starts_with("/iserver/account/DU_TEST/order/") => {
+            let id = path.rsplit('/').next().unwrap().parse::<u64>().unwrap();
+            let mut orders = state.orders.lock().unwrap();
+            let order = orders
+                .iter_mut()
+                .find(|order| order["orderId"] == id)
+                .unwrap();
+            assert_eq!(data["acctId"], "DU_TEST");
+            assert_eq!(data["quantity"], 10);
+            if data["orderType"] == "STP" {
+                assert_eq!(order["leg"], "trust-stop");
+                order["price"] = data["price"].clone();
+            } else {
+                assert_eq!(data["orderType"], "MKT");
+                assert_eq!(order["leg"], "trust-target");
+            }
+            order["orderType"] = data["orderType"].clone();
+            state.modifications.fetch_add(1, Ordering::SeqCst);
+            json!([{"order_id":id.to_string(),"order_status":"Submitted"}])
+        }
         ("GET", "/iserver/account/trades") => {
             if state.fail_activities.load(Ordering::SeqCst) {
                 return (StatusCode::BAD_GATEWAY, SENTINEL).into_response();
@@ -158,7 +180,7 @@ impl Fixture {
         let key = EncodingKey::from_rsa_pem(&rsa.private_key_to_pem().unwrap()).unwrap();
         let jwks = dir.path().join("jwks.json");
         std::fs::write(&jwks, json!({"keys":[{"kty":"RSA","alg":"RS256","use":"sig","kid":"e2e","n":URL_SAFE_NO_PAD.encode(rsa.n().to_vec()),"e":URL_SAFE_NO_PAD.encode(rsa.e().to_vec())}]}).to_string()).unwrap();
-        let config = json!({"listen":"127.0.0.1:0","public_url":"http://localhost:8000","issuer":"http://localhost:9999/issuer","jwks_file":jwks,"database":dir.path().join("financial.db"),"journal":dir.path().join("control.db"),"reconcile_interval_seconds":0,"request_timeout_ms":timeout_ms,"queue_timeout_ms":timeout_ms,"queue_capacity":queue,"grants":{"owner":{"all_accounts":true,"scopes":SCOPES},"reader":{"all_accounts":true,"scopes":["trust:read"]}}});
+        let config = json!({"listen":"127.0.0.1:0","public_url":"http://localhost:8000","issuer":"http://localhost:9999/issuer","jwks_file":jwks,"database":dir.path().join("financial.db"),"journal":dir.path().join("control.db"),"reconcile_interval_seconds":0,"request_timeout_ms":timeout_ms,"queue_timeout_ms":timeout_ms,"queue_capacity":queue,"grants":{"owner":{"role":"owner","all_accounts":true,"scopes":SCOPES},"agent":{"role":"agent","all_accounts":true,"scopes":["trust:read","trust:preview","trust:trade","trust:reconcile","trust:journal"]},"reader":{"all_accounts":true,"scopes":["trust:read"]}}});
         std::fs::write(dir.path().join("config.json"), config.to_string()).unwrap();
         let client = reqwest::Client::builder()
             .no_proxy()
@@ -174,7 +196,7 @@ impl Fixture {
     }
     pub fn token(&self, subject: &str) -> String {
         let now = chrono::Utc::now().timestamp();
-        let claims = json!({"iss":self.config["issuer"],"aud":"http://localhost:8000/mcp","sub":subject,"iat":now,"exp":now+900,"scope":if subject=="owner"{SCOPES.join(" ")}else{"trust:read".into()},"client_id":"e2e-agent"});
+        let claims = json!({"iss":self.config["issuer"],"aud":"http://localhost:8000/mcp","sub":subject,"iat":now,"exp":now+900,"auth_time":now,"acr":"urn:trust:owner:mfa","scope":if subject=="owner" || subject=="agent"{SCOPES.join(" ")}else{"trust:read".into()},"client_id":"e2e-agent"});
         let mut header = Header::new(Algorithm::RS256);
         header.kid = Some("e2e".into());
         encode(&header, &claims, &self.key).unwrap()
@@ -268,6 +290,16 @@ impl Fixture {
         args: Value,
         mcp: bool,
     ) -> Result<Value, reqwest::Error> {
+        self.call_as(process, "owner", name, args, mcp).await
+    }
+    pub async fn call_as(
+        &self,
+        process: &Process,
+        subject: &str,
+        name: &str,
+        args: Value,
+        mcp: bool,
+    ) -> Result<Value, reqwest::Error> {
         let (path, body) = if mcp {
             (
                 "/mcp".to_owned(),
@@ -282,7 +314,7 @@ impl Fixture {
             .header("host", "localhost:8000")
             .header("accept", "application/json, text/event-stream")
             .header("mcp-protocol-version", "2025-11-25")
-            .bearer_auth(self.token("owner"))
+            .bearer_auth(self.token(subject))
             .json(&body)
             .send()
             .await?;

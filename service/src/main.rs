@@ -6,14 +6,17 @@ use trust_service::{
 };
 #[tokio::main]
 async fn main() -> std::process::ExitCode {
+    let (writer, _log_guard) = trust_service::logging::buffered(std::io::stdout());
+    let dropped = writer.error_counter();
     // Provider/core messages may contain third-party response text. Only structured service
     // events are enabled in production; request bodies, tokens, and URLs are never logged.
     tracing_subscriber::fmt()
         .json()
         .with_env_filter("off,trust_service=info,trust::operational=info")
         .with_current_span(false)
+        .with_writer(writer)
         .init();
-    match run().await {
+    match run(dropped).await {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(error) => {
             tracing::error!(code=%error.code,message=%error.message,"Trust service stopped");
@@ -21,7 +24,7 @@ async fn main() -> std::process::ExitCode {
         }
     }
 }
-async fn run() -> Result<()> {
+async fn run(dropped: tracing_appender::non_blocking::ErrorCounter) -> Result<()> {
     let path = std::env::args_os()
         .nth(1)
         .map(PathBuf::from)
@@ -38,6 +41,7 @@ async fn run() -> Result<()> {
             ],
         ))
     })?;
+    let _ = service.metrics.log_drops.set(dropped);
     let app = trust_service::http::router(config.clone(), service.clone())?;
     let listener = tokio::net::TcpListener::bind(config.listen)
         .await

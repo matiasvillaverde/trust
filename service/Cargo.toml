@@ -27,6 +27,7 @@ rmcp = { version = "3.7.0", default-features = false, features = ["server", "tra
 tower = { version = "0.5.3", features = ["util", "limit"] }
 tower-http = { version = "0.7.1", features = ["limit", "set-header"] }
 tracing-subscriber = { version = "0.3.23", features = ["json", "env-filter"] }
+tracing-appender = "0.2.5"
 jsonwebtoken = { version = "11.1.0", default-features = false, features = ["aws_lc_rs"] }
 # Diesel 2.3 requires libsqlite3-sys <0.39; rusqlite 0.41 requires 0.39.
 rusqlite = { version = "0.40.2", default-features = false, features = ["backup"] }

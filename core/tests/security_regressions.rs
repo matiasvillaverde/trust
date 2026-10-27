@@ -497,6 +497,94 @@ struct TargetGate {
     release: std::sync::mpsc::Receiver<()>,
 }
 
+#[test]
+fn reconciliation_keeps_stop_and_target_intents_independent() {
+    for observe_together in [false, true] {
+        let scenario = std::sync::Arc::new(std::sync::Mutex::new(FillScenario {
+            entry_qty: dec!(10),
+            exit_qty: dec!(0),
+            canceled: false,
+            fees: Vec::new(),
+            stop_price: None,
+            target_price: None,
+        }));
+        let mut facade = TrustFacade::new(
+            Box::new(SqliteDatabase::new_in_memory()),
+            Box::new(ReplayBroker(scenario.clone())),
+        );
+        let (account, trade) = seed(&mut facade, TradeCategory::Long);
+        let (funded, _, _, _) = facade.fund_trade(&trade).unwrap();
+        let (submitted, _) = facade.submit_trade(&funded).unwrap();
+        facade.sync_trade(&submitted, &account).unwrap();
+        let filled = facade.read_trade(trade.id).unwrap();
+        assert!(facade
+            .modify_stop(&filled, &account, dec!(95))
+            .unwrap_err()
+            .to_string()
+            .contains("lost acknowledgement"));
+        assert!(facade
+            .modify_target(&filled, &account, dec!(125))
+            .unwrap_err()
+            .to_string()
+            .contains("lost target acknowledgement"));
+        {
+            let mut snapshot = scenario.lock().unwrap();
+            snapshot.stop_price = Some(dec!(95));
+            if observe_together {
+                snapshot.target_price = Some(dec!(125));
+            }
+        }
+        facade.sync_trade(&filled, &account).unwrap();
+        if !observe_together {
+            let events = facade.trade_audit_events(trade.id).unwrap();
+            assert_eq!(
+                events
+                    .iter()
+                    .filter(
+                        |event| event.event_type == "order.modify" && event.outcome == "reconciled"
+                    )
+                    .count(),
+                1
+            );
+            assert!(facade
+                .modify_target(&filled, &account, dec!(126))
+                .unwrap_err()
+                .to_string()
+                .contains("unresolved"));
+            scenario.lock().unwrap().target_price = Some(dec!(125));
+            let current = facade.read_trade(trade.id).unwrap();
+            facade.sync_trade(&current, &account).unwrap();
+        }
+        let current = facade.read_trade(trade.id).unwrap();
+        facade.sync_trade(&current, &account).unwrap();
+        let events = facade.trade_audit_events(trade.id).unwrap();
+        for role in ["safety_stop", "target"] {
+            let reconciled: Vec<_> = events
+                .iter()
+                .filter(|event| {
+                    event.event_type == "order.modify"
+                        && event.outcome == "reconciled"
+                        && event.details["order_role"] == role
+                })
+                .collect();
+            assert_eq!(reconciled.len(), 1, "{role} must reconcile exactly once");
+            assert!(events.iter().any(|event| event.outcome == "attempted"
+                && event.operation_id == reconciled[0].operation_id
+                && event.details["order_role"] == role));
+        }
+        assert_eq!(current.safety_stop.unit_price, dec!(95));
+        assert_eq!(current.target.unit_price, dec!(125));
+        assert_eq!(
+            facade
+                .search_balance(account.id, &Currency::USD)
+                .unwrap()
+                .total_available,
+            dec!(9000)
+        );
+        facade.verify_trade_audit_chain(trade.id).unwrap();
+    }
+}
+
 struct CountingBroker(
     std::sync::Arc<std::sync::atomic::AtomicUsize>,
     Option<String>,
@@ -573,6 +661,7 @@ impl Broker for CountingBroker {
         assert_eq!(account.broker_kind, BrokerKind::Alpaca);
         assert_eq!(account.environment, Environment::Paper);
         assert_eq!(account.broker_account_id, None);
+        self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         self.persist_newer_fill(trade, "stop");
         NoopBroker.modify_stop(trade, account, price)
     }
@@ -706,6 +795,44 @@ fn order_modifications_use_persisted_account_metadata() {
         .modify_target(&modified, &supplied, dec!(125))
         .unwrap();
     assert_eq!(modified.target.unit_price, dec!(125));
+}
+
+#[test]
+fn stops_preserve_locked_profit_even_with_stale_client_snapshots() {
+    for side in [TradeCategory::Long, TradeCategory::Short] {
+        let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let mut facade = TrustFacade::new(
+            Box::new(SqliteDatabase::new_in_memory()),
+            Box::new(CountingBroker(calls.clone(), None, None)),
+        );
+        let (account, trade) = seed(&mut facade, side);
+        let (mut funded, _, _, _) = facade.fund_trade(&trade).unwrap();
+        funded.entry.average_filled_price = Some(dec!(100));
+        let (original, _) = facade.fill_trade(&funded, Decimal::ZERO).unwrap();
+        let (locked, looser, tighter) = if side == TradeCategory::Long {
+            (dec!(105), dec!(102), dec!(108))
+        } else {
+            (dec!(95), dec!(98), dec!(92))
+        };
+        facade.modify_stop(&original, &account, locked).unwrap();
+        let before = serde_json::to_value(facade.read_trade(trade.id).unwrap()).unwrap();
+        let transactions = serde_json::to_value(facade.get_all_transactions().unwrap()).unwrap();
+        for invalid in [looser, Decimal::ZERO, dec!(-1)] {
+            assert!(facade.modify_stop(&original, &account, invalid).is_err());
+            assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+            assert_eq!(
+                serde_json::to_value(facade.read_trade(trade.id).unwrap()).unwrap(),
+                before
+            );
+            assert_eq!(
+                serde_json::to_value(facade.get_all_transactions().unwrap()).unwrap(),
+                transactions
+            );
+        }
+        let tightened = facade.modify_stop(&original, &account, tighter).unwrap();
+        assert_eq!(tightened.safety_stop.unit_price, tighter);
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 2);
+    }
 }
 
 #[test]
@@ -1003,5 +1130,55 @@ fn incremental_broker_projections_match_full_ledger_for_partial_cancel_exit_fees
                 dec!(10000) + Decimal::from(quantity) * dec!(20) - dec!(3.75)
             );
         }
+    }
+}
+
+#[test]
+fn broker_snapshot_cannot_erase_previous_stop_protection() {
+    for side in [TradeCategory::Long, TradeCategory::Short] {
+        let scenario = std::sync::Arc::new(std::sync::Mutex::new(FillScenario {
+            entry_qty: dec!(10),
+            exit_qty: Decimal::ZERO,
+            canceled: false,
+            fees: Vec::new(),
+            stop_price: None,
+            target_price: None,
+        }));
+        let mut facade = TrustFacade::new(
+            Box::new(SqliteDatabase::new_in_memory()),
+            Box::new(ReplayBroker(scenario.clone())),
+        );
+        let (account, trade) = seed(&mut facade, side);
+        let funded = facade.fund_trade(&trade).unwrap().0;
+        let submitted = facade.submit_trade(&funded).unwrap().0;
+        facade.sync_trade(&submitted, &account).unwrap();
+        let filled = facade.read_trade(trade.id).unwrap();
+        let (confirmed, external_tighter, old, forbidden) = if side == TradeCategory::Long {
+            (dec!(105), dec!(107), dec!(90), dec!(106))
+        } else {
+            (dec!(95), dec!(93), dec!(110), dec!(94))
+        };
+        assert!(facade
+            .modify_stop(&filled, &account, confirmed)
+            .unwrap_err()
+            .to_string()
+            .contains("lost acknowledgement"));
+        for observed in [confirmed, external_tighter, old] {
+            scenario.lock().unwrap().stop_price = Some(observed);
+            let current = facade.read_trade(trade.id).unwrap();
+            facade.sync_trade(&current, &account).unwrap();
+        }
+        // Accounting retains the latest observed broker state; the amendment
+        // bound must independently remember stronger confirmed protection.
+        let weaker = facade.read_trade(trade.id).unwrap();
+        assert_eq!(weaker.safety_stop.unit_price, old);
+        let error = facade
+            .modify_stop(&weaker, &account, forbidden)
+            .unwrap_err();
+        assert!(error.to_string().contains("risking more"), "{error}");
+        assert_eq!(
+            facade.read_trade(trade.id).unwrap().safety_stop.unit_price,
+            old
+        );
     }
 }

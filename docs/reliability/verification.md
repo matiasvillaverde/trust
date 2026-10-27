@@ -1,6 +1,6 @@
 # Reliability verification
 
-This work inventories **82 service tools (35 mutations)** and **212 edge-case register items**. Those inventory counts are not passed-test counts. Some register items describe multiple boundaries; a few require a broker paper environment or a real deployment. No finite test suite proves that risk management is infallible or that a stop guarantees a maximum loss.
+This work inventories **82 service tools (35 mutations)** and **234 edge-case register items**. Those inventory counts are not passed-test counts. Some register items describe multiple boundaries; a few require a broker paper environment or a real deployment. No finite test suite proves that risk management is infallible or that a stop guarantees a maximum loss.
 
 ## Repeatable offline gate
 
@@ -11,6 +11,7 @@ cargo clippy --locked --workspace --all-features --all-targets -- -D warnings
 cargo fmt --all --check
 python scripts/reliability.py --coverage
 make ci-perf  # release profile, unchanged 26-second / 6-second budgets
+make service-perf  # HTTP/MCP release latency gate alone; offline processes, durable auditing
 make e2e      # real child process + HTTP/MCP + loopback IBKR simulator
 docker build -t trust-service:local .
 python scripts/container_smoke.py
@@ -172,6 +173,37 @@ Two investigation failures are now permanent regressions:
 Service funding/submission now requires both per-trade and monthly rules. The independent `trust:manual` scope protects manual execution records; `trust:reconcile` retains broker-driven reconciliation. Existing owner tokens and grants need explicit `trust:manual` when manual accounting is intended. Trading agents should not receive policy, manual-accounting or administration authority.
 
 
-`make reliability` also records levels 1 and 2 from the same complete workspace run, avoiding repeated test execution. `--summarize` does not promote historical logs. Property tests record `PROPTEST_RNG_SEED` (default `20261027`); set another seed for additional exploration. `make assurance-mutations` copies source into an isolated temporary workspace and removes three selected guards: submission policy revalidation, correct IBKR snapshot lookup, and manual-accounting scope separation. Each experiment first verifies its baseline test, then requires an executed failing assertion in the mutant. Compiler failures do not count as success. This is a focused sensitivity check, not an exhaustive mutation score.
+`make reliability` also records levels 1 and 2 from the same complete workspace run, avoiding repeated test execution. `--summarize` does not promote historical logs. Property tests record `PROPTEST_RNG_SEED` (default `20261027`); set another seed for additional exploration. `make assurance-mutations` copies source into an isolated temporary workspace, uses a separate `target/assurance-mutations` build cache, and removes seven selected guards: submission policy revalidation, correct IBKR snapshot lookup, manual-accounting scope separation, owner-role enforcement, owner-authentication freshness, stop direction, and recorded stop protection. Each experiment first verifies its baseline test, then requires an executed failing assertion in the mutant. Compiler failures do not count as success. This is a focused sensitivity check, not an exhaustive mutation score.
 
 The isolated mutation workspace also checks source completeness. It exposed a service control-database migration hidden by a machine-wide `*.sql` ignore rule. The repository now explicitly includes `service/migrations/**/*.sql`, alongside the existing Diesel exception, so a clean source checkout can compile and initialize the durable operation journal. Compile failures remain invalid mutation experiments and must be repaired before claiming a killed guard.
+
+
+## Owner and agent authority
+
+Service grants explicitly distinguish one owner from agents. Regression tests deny every owner tool to an agent even with forged owner claims, overbroad token scopes and a malformed internal grant. Configuration rejects privileged agent scopes and zero/multiple owner identities. Signed access tokens need an exact operator-approved MFA ACR and recent original `auth_time`; missing/wrong/future/stale claims and refreshed tokens with old login evidence fail. HTTP and MCP return a step-up challenge before mutation. Dispatch and idempotent replay recheck the owner authentication deadline.
+
+The process E2E uses an authenticated agent to fund, submit, reconcile, tighten profitable long/short stops, replay an amendment and request a close against the loopback IBKR simulator. Attempts to change capital or policy are denied. Both owner and agent stop-widening requests leave broker modification counts unchanged. Core tests additionally use stale client snapshots, invalid prices, generated long/short boundaries and financial-state comparisons. A narrower stop is permitted even before breakeven; the invariant is never to weaken existing protection.
+
+These tests use locally signed test identities. Acceptance of the deployed OAuth provider's human MFA policy and prevention of owner client-credentials tokens still require a deployment test. Configure the provider as described in [service authentication](../service.md#authentication-and-permissions); test tokens do not establish production identity assurance.
+
+A reproduced reconciliation regression confirmed that a weaker broker snapshot could erase an earlier tightened stop and permit a risk-increasing amendment. The core now derives the amendment bound from the verified audit chain, including confirmed amendments and both prior/reported prices on new sync events. Accounting retains the reported broker state. Long and short tests cover confirmed changes, stronger external observations, later weaker snapshots, and denial before broker I/O; MCP E2E covers the same reset attempt for both roles.
+
+
+## Observability and latency acceptance (2026-10-27)
+
+The required offline regressions now include a blocked log sink, bounded metric labels and submillisecond timing, replay/denial/domain-stage attribution, monitoring-only authorization, and independent reconciliation of lost stop/target acknowledgements. Real process E2E checks redacted IBKR attempt timing and request correlation alongside the existing crash, audit, deadline and financial-lifecycle cases. Full-workspace evidence is written to `.local/reliability/observability-results.json` and its matching log; performance runs are separate from the ignored-by-default functional suite.
+
+The release latency gate exercises JWT verification, transport, worker queue, risk calculation and synchronous durable read auditing. It checks every measured/warmup request has an audit event, verifies the resulting chain, and confirms zero order submissions. Six warmups precede 32 sequential samples and 64 samples in four-request batches per transport. Both the local `ci-perf` target and the release-build CI job run this gate. Portable p95 budgets are 50 ms sequentially and 200 ms with four concurrent requests.
+
+| Local risk-preview measurement (`/tmp` on tmpfs) | Before p95 | After p95 |
+| --- | ---: | ---: |
+| HTTP, sequential | 2.847 ms | 1.225 ms |
+| MCP, sequential | 2.922 ms | 1.428 ms |
+| HTTP, four concurrent | 4.998 ms | 2.825 ms |
+| MCP, four concurrent | 5.732 ms | 4.929 ms |
+
+Immutable catalogue reuse removes repeated schema construction; financial state, permissions, JWTs and risk rules remain checked per request. Core reconciliation shares verified audit history only inside its current atomic writer savepoint. The annual lifecycle median measured 5.413 s against a 26 s budget; the 1,200-lifecycle median measured 4.947 s against the unchanged 6 s budget (before: 6.271 s, a failed baseline). Each lifecycle median uses three samples after one warmup.
+
+These are one before/after comparison on a shared host with variable load, not stable production percentiles or a guarantee of broker latency. This host's default temporary directory is memory-backed: SQLite FULL synchronization remains enabled, but these numbers exclude physical-disk flush cost. To measure the deployment storage path, set `TMPDIR` to a private scratch directory on that filesystem when running `make service-perf`; the fixtures clean up their databases automatically. The HTTP/MCP benchmark finishes reading the response body; the server HTTP histogram measures through response-header creation. No real IBKR gateway or exchange was contacted. Baseline/final logs are `.local/reliability/observability-service-before.log`, `observability-perf-before.log`, and `observability-perf-after.log`; a compact comparison with log hashes is in `observability-performance.json`.
+
+A separate release run placed both SQLite files on `/home` (Btrfs) using a private `TMPDIR`. Its sequential p95 was 4.208 ms HTTP and 3.793 ms MCP; four-request batches measured 9.802 ms HTTP and 8.806 ms MCP. Both latency budgets passed. One sequential HTTP sample took 109.231 ms (the maximum); this is evidence of tail variation, not a hard real-time guarantee. No before-change disk baseline was collected, so these disk numbers are not a disk speedup comparison. The complete output is `.local/reliability/observability-perf-disk.log`.

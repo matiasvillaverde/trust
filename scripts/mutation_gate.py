@@ -23,6 +23,16 @@ MUTATIONS = [
      "ibkr-broker", "http_integration", "submit_trade_recovers_complete_existing_bracket_without_duplicate_post"),
     ("manual_authority", "service/src/catalog.rs", '"trust:manual"', '"trust:reconcile"',
      "trust-service", "service_contract", "broker_reconciliation_authority_cannot_record_manual_executions"),
+    ("owner_role", "service/src/auth.rs", '&& (!owner_scope(scope) || self.grant.role == Role::Owner)', '',
+     "trust-service", "service_contract", "agents_cannot_gain_owner_authority_from_claims_scopes_or_tool_arguments"),
+    ("owner_freshness", "service/src/auth.rs", '        if owner_scope(scope) {\n            self.check_owner_authentication(now)?;\n        }', '',
+     "trust-service", "service_contract", "owner_authentication_is_rechecked_before_dispatch_and_idempotent_replay"),
+    ("protective_stop", "core/src/validators/trade.rs",
+     'if trade.category == TradeCategory::Long && trade.safety_stop.unit_price > new_price_stop\n        || trade.category == TradeCategory::Short && trade.safety_stop.unit_price < new_price_stop', 'if false',
+     "core", "security_regressions", "stops_preserve_locked_profit_even_with_stale_client_snapshots"),
+    ("recorded_stop", "core/src/commands/trade.rs", 'protection.safety_stop.unit_price = recorded_stop_bound(&current_trade, database)?;',
+     'protection.safety_stop.unit_price = current_trade.safety_stop.unit_price;',
+     "core", "security_regressions", "broker_snapshot_cannot_erase_previous_stop_protection"),
 ]
 
 
@@ -31,7 +41,9 @@ def main():
     output = ROOT / ".local/assurance/mutations"
     output.mkdir(parents=True, exist_ok=True)
     env = os.environ.copy()
-    env.update(CARGO_TARGET_DIR=str(ROOT / "target"), CARGO_INCREMENTAL="0", TRUST_IBKR_LIVE_E2E="0")
+    # Cargo releases its build lock before tests/rustdoc finish. Sharing the main
+    # target could replace dependency artifacts underneath a concurrent test run.
+    env.update(CARGO_TARGET_DIR=str(ROOT / "target/assurance-mutations"), CARGO_INCREMENTAL="0", TRUST_IBKR_LIVE_E2E="0")
     env.pop("TRUST_IBKR_ALLOW_PAPER_MUTATIONS", None)
     results = []
     with tempfile.TemporaryDirectory(prefix="trust-mutations-") as directory:
@@ -74,7 +86,7 @@ def main():
             finally:
                 path.write_text(original)
     report = {"source_fingerprint": digest, "source_unchanged": fingerprint() == digest,
-              "experiments": results, "scope": "three curated safety guards; not an exhaustive mutation score"}
+              "experiments": results, "scope": f"{len(MUTATIONS)} curated safety guards; not an exhaustive mutation score"}
     (output / "results.json").write_text(json.dumps(report, indent=2) + "\n")
     print(json.dumps(report))
     return 0 if report["source_unchanged"] and all(result["status"] == "killed" for result in results) else 1

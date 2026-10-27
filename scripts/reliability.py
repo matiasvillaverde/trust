@@ -14,6 +14,16 @@ import assurance
 ROOT = Path(__file__).resolve().parents[1]
 COMMAND = ["cargo", "test", "--locked", "--workspace", "--all-features", "--no-fail-fast", "--", "--test-threads=1"]
 REQUIRED = {
+    "validators::trade::tests::stop_changes_never_widen_long_or_short_risk",
+    "validators::trade::tests::nonpositive_current_stop_requires_reconciliation",
+    "stops_preserve_locked_profit_even_with_stale_client_snapshots",
+    "broker_snapshot_cannot_erase_previous_stop_protection",
+    "owner_configuration_requires_one_human_and_rejects_privileged_agent_grants",
+    "owner_tokens_require_original_recent_authentication_and_exact_mfa_context",
+    "agents_cannot_gain_owner_authority_from_claims_scopes_or_tool_arguments",
+    "http_and_mcp_challenge_owner_mfa_before_accepting_mutations",
+    "owner_authentication_is_rechecked_before_dispatch_and_idempotent_replay",
+    "agent_trades_within_owner_policy_and_can_only_tighten_stops",
     "submission_revalidates_changed_trade_and_monthly_caps_without_broker_effects",
     "submission_reuses_only_its_own_reservation_and_preserves_monthly_boundary",
     "submission_fails_closed_when_reservation_or_rule_reads_are_corrupt",
@@ -23,6 +33,11 @@ REQUIRED = {
     "service_requires_explicit_trade_and_monthly_policy",
     "mcp_submission_observes_policy_changes_after_funding",
     "metrics::tests::concurrent_scrapes_have_consistent_histogram_buckets_count_and_sum",
+    "metrics::tests::submillisecond_latencies_are_preserved_and_labels_stay_bounded",
+    "logging::tests::blocked_log_sink_is_bounded_and_does_not_block_producers",
+    "metrics_distinguish_replay_denial_and_domain_execution",
+    "monitoring_scope_cannot_read_finances_or_mutate_and_requires_global_grant",
+    "reconciliation_keeps_stop_and_target_intents_independent",
     "atomic::tests::worker_savepoints_preserve_outer_atomicity_without_a_diesel_test_transaction",
     "detected_runtime_audit_corruption_stops_financial_admission",
     "incremental_broker_projections_match_full_ledger_for_partial_cancel_exit_fees_and_replay",

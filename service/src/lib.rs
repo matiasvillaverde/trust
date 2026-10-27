@@ -7,6 +7,7 @@ pub mod domain;
 pub mod error;
 pub mod http;
 pub mod journal;
+pub mod logging;
 pub mod mcp;
 pub mod metrics;
 pub mod runtime;

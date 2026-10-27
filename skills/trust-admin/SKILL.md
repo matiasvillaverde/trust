@@ -5,7 +5,7 @@ description: Administer the single-owner Trust service using explicit policy and
 
 Use `service_status`, `policy_get`, and `connections_status` first. Access comes from an existing OAuth/OIDC provider plus operator-configured subject, scope, account, and live permissions. MCP tools cannot grant themselves additional authority.
 
-Keep `trust:manual`, `trust:policy`, and `trust:admin` away from trading agents. Existing owners who record manual executions need the new `trust:manual` scope in both their operator grant and OAuth token. Broker reconcilers retain `trust:reconcile` without manual accounting power. Both per-trade and monthly risk policies are required for service funding/submission.
+These tools require the configured `owner` role, their scope, and recent human MFA at the existing OAuth provider. Agent grants cannot hold `trust:manual`, `trust:policy` or `trust:admin`; requesting extra scopes cannot elevate an agent. On `insufficient_user_authentication`, the human must reauthenticate with the configured MFA context. Never ask the user to paste an elevated token, password or key into an agent session. Retry the original intent with its original key after authentication. Both per-trade and monthly risk policies are required for service funding/submission.
 
 Assurance evidence is maintained through the repository's staged test commands, separate from account sizing levels. A paper submit/cancel smoke is only one observation; it cannot certify complete paper or operational acceptance. Never infer live readiness from a passing offline suite or enable live trading merely to advance an assurance level.
 

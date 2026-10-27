@@ -5,6 +5,7 @@ edition = "2021"
 license = "GPL-3.0-only"
 
 [dependencies]
+tracing.workspace = true
 model = { package = "trust-model", path = "../model", version = "0.3.2" }
 chrono = { workspace = true }
 rust_decimal = { workspace = true }

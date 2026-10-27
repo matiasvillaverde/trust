@@ -279,3 +279,32 @@ Evidence: adapter suites, SQLite backup/migration/worker tests, workflow checks 
 20. Fee, distribution and transfer workers nested inside a facade savepoint: preserve outer atomicity on file-backed SQLite, including failures after earlier ledger/projection writes.
 
 Evidence: `service/tests/e2e.rs`, `service/tests/service_contract.rs`, the core projection differential test, and the SQLite cash-movement regression. The gateway is a local simulator; these cases do not establish real IBKR session or exchange behavior.
+
+
+## Owner authority and stop protection
+
+1. Missing role defaults to agent; zero or multiple owner grants fail startup.
+2. Agent grant contains policy, administration or manual-accounting scopes: fail startup.
+3. Agent token claims owner status, extra privileged scopes or an authentication deadline: role remains the configured agent and all owner actions are denied before operation claim.
+4. Owner login evidence is missing, wrong-context, future-dated or stale: HTTP/MCP challenge for human MFA; no financial mutation.
+5. Access-token refresh updates issuance/expiry but preserves old login time: owner elevation stays expired.
+6. Owner authentication expires before dispatch or replay: deny without claiming/replaying a financial operation; fresh authentication may reuse the original key.
+7. Owner client requests only read/trading scopes: ordinary scoped workflow remains available without elevation.
+8. Long stop moves down, short stop moves up, or either gives back locked profit: deny for both roles before broker I/O.
+9. Current or proposed stop is nonpositive: deny; invalid existing protection requires reconciliation.
+10. Caller uses a stale trade snapshot after an earlier tightening: validate against the latest persisted stop.
+11. Valid stop amendment is replayed with its original key: return the stored result without another broker mutation.
+12. Agent funds a prepared trade: reserve existing capital under owner limits; never credit new ledger cash.
+13. A weaker broker snapshot follows confirmed or externally observed tighter protection: retain observed state for accounting but never lower the amendment bound from verified history.
+
+## Observability and performance
+
+1. A blocked stdout collector fills the bounded log queue: producers still finish; dropped-line telemetry increases. Financial journaling does not use this queue.
+2. Submillisecond work: duration sums preserve microseconds and histogram bucket boundaries remain consistent during concurrent scrapes.
+3. Arbitrary caller tool names and paths: use fixed `unknown` classes, never add labels or expose input values in metrics.
+4. Replay, authorization denial and normal execution: count each attempt, but only actual domain work enters the domain-stage histogram; replay never repeats a deposit.
+5. Monitoring credentials lack MFA and carry extra issuer scopes: only the configured `trust:observe` grant applies; no financial tool or account data is accessible.
+6. Monitoring scope missing from the access token, or an account-restricted monitoring grant: deny global metrics.
+7. IBKR success and error attempts: emit correlated endpoint-class timings without broker identifiers, URLs or sensitive response text; preserve the single-attempt mutation behavior.
+8. Concurrent HTTP/MCP previews: keep risk validation, audit every read, verify the resulting chain and submit no broker orders; measure response-body completion and enforce the release latency gate.
+9. Stop and target acknowledgements are both lost: reconcile their intents independently, whether observed together or separately; repeated snapshots do not duplicate confirmation evidence.

@@ -26,9 +26,17 @@ pub fn visible(identity: &Identity, tool: &ToolSpec) -> bool {
     identity.permits(tool.scope)
         && !(tool.scope == "trust:admin" && !tool.account_required && !identity.grant.all_accounts)
 }
-fn tool(spec: ToolSpec) -> Tool {
+fn tool(spec: &ToolSpec) -> Tool {
     let schema = spec.input_schema.as_object().cloned().unwrap_or_default();
-    Tool::new(spec.name,spec.description,schema)
+    let description = if spec.owner_only {
+        format!(
+            "Owner only; recent human MFA required. {}",
+            spec.description
+        )
+    } else {
+        spec.description.to_owned()
+    };
+    Tool::new(spec.name,description,schema)
         .with_annotations(ToolAnnotations::new().read_only(!spec.mutation).destructive(spec.mutation).idempotent(true).open_world(true))
         .with_raw_output_schema(std::sync::Arc::new(json!({"type":"object","required":["schema_version","request_id","data","error","next_actions"],"properties":{"schema_version":{"type":"integer"},"request_id":{"type":"string"},"operation_id":{"type":["string","null"]},"data":{},"error":{"type":["object","null"]},"next_actions":{"type":"array","items":{"type":"string"}}}}).as_object().cloned().unwrap_or_default()))
 }
@@ -52,7 +60,7 @@ impl ServerHandler for Mcp {
         }
         Ok(ListToolsResult::with_all_items(
             catalog::tools()
-                .into_iter()
+                .iter()
                 .filter(|t| visible(&identity, t))
                 .map(tool)
                 .collect(),

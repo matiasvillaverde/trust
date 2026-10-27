@@ -26,11 +26,11 @@ with tempfile.TemporaryDirectory(prefix='trust-container-smoke-') as folder:
     modulus=run('openssl','rsa','-in',str(private),'-noout','-modulus').decode().strip().split('=',1)[1]
     (root/'jwks.json').write_text(json.dumps({'keys':[{'kty':'RSA','use':'sig','alg':'RS256','kid':'smoke','n':b64(bytes.fromhex(modulus)),'e':'AQAB'}]}))
     scopes=['trust:read','trust:preview','trust:trade','trust:reconcile','trust:manual','trust:journal','trust:policy','trust:admin']
-    config={'listen':'0.0.0.0:8000','public_url':'https://trust.test','issuer':'https://issuer.test','jwks_file':'/etc/trust/jwks.json','database':'/data/financial.db','journal':'/data/control.db','reconcile_interval_seconds':0,'grants':{'smoke-owner':{'all_accounts':True,'scopes':scopes}}}
+    config={'listen':'0.0.0.0:8000','public_url':'https://trust.test','issuer':'https://issuer.test','jwks_file':'/etc/trust/jwks.json','database':'/data/financial.db','journal':'/data/control.db','reconcile_interval_seconds':0,'grants':{'smoke-owner':{'role':'owner','all_accounts':True,'scopes':scopes}}}
     (root/'config.json').write_text(json.dumps(config))
     for file in [root/'config.json',root/'jwks.json']: file.chmod(0o444)
     now=int(time.time())
-    unsigned=b64(json.dumps({'alg':'RS256','kid':'smoke','typ':'at+jwt'}).encode())+'.'+b64(json.dumps({'iss':config['issuer'],'aud':config['public_url']+'/mcp','sub':'smoke-owner','iat':now,'exp':now+900,'scope':' '.join(scopes)}).encode())
+    unsigned=b64(json.dumps({'alg':'RS256','kid':'smoke','typ':'at+jwt'}).encode())+'.'+b64(json.dumps({'iss':config['issuer'],'aud':config['public_url']+'/mcp','sub':'smoke-owner','iat':now,'exp':now+900,'auth_time':now,'acr':'urn:trust:owner:mfa','scope':' '.join(scopes)}).encode())
     token=unsigned+'.'+b64(run('openssl','dgst','-sha256','-sign',str(private),input=unsigned.encode()))
     try:
         run('docker','run','-d','--name',name,'--read-only','--cap-drop','ALL','--security-opt','no-new-privileges:true','--user','10001:10001','--pids-limit','128','--memory','512m','--tmpfs','/tmp:rw,noexec,nosuid,size=16m','-p','127.0.0.1::8000','-v',volume+':/data','-v',str(root/'config.json')+':/etc/trust/config.json:ro','-v',str(root/'jwks.json')+':/etc/trust/jwks.json:ro','trust-service:local')

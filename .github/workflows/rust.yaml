@@ -339,6 +339,9 @@ jobs:
         # Build all at once for better parallelism
         cargo build --locked --release --workspace
 
+    - name: Check HTTP and MCP latency with durable auditing
+      run: make service-perf CARGO_FLAGS=--locked
+
   audit:
     name: Security Audit
     runs-on: ubuntu-latest

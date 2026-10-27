@@ -93,10 +93,10 @@ impl Domain {
         use Operation::*;
         match op {
             Status => Ok(
-                json!({"service":"trust","version":env!("CARGO_PKG_VERSION"),"owner_model":"single_owner","subject":identity.subject,"live_enabled":self.config.allow_live&&identity.grant.allow_live,"workflow":["accounts_list","risk_preview","trade_hypothesis","trade_prepare","broker_preview","trade_fund","trade_submit","trade_reconcile"],"background_reconcile_seconds":self.config.reconcile_interval_seconds}),
+                json!({"service":"trust","version":env!("CARGO_PKG_VERSION"),"owner_model":"single_owner","subject":identity.subject,"role":identity.grant.role,"live_enabled":self.config.allow_live&&identity.grant.allow_live,"workflow":["accounts_list","risk_preview","trade_hypothesis","trade_prepare","broker_preview","trade_fund","trade_submit","trade_reconcile"],"background_reconcile_seconds":self.config.reconcile_interval_seconds}),
             ),
             Policy => Ok(
-                json!({"money":"Exact decimal strings; percentages use percentage points except distribution fractions, which sum to 1.","authority":"Trust validates sizing and risk. Broker previews do not override Trust policy.","execution":"A submitted or accepted order is not a confirmed fill.","retries":"Reuse the same idempotency key after timeout. Inspect operation_get; reconcile unknown outcomes before another intent.","scopes":identity.scopes.intersection(&identity.grant.scopes).collect::<Vec<_>>(),"all_accounts":identity.grant.all_accounts,"accounts":identity.grant.accounts,"secrets":"Operator mounted files only; never tool arguments.","currency":"Cross-currency aggregates are rejected; no implicit FX conversion."}),
+                json!({"money":"Exact decimal strings; percentages use percentage points except distribution fractions, which sum to 1.","authority":"Trust validates sizing and risk. Broker previews do not override Trust policy.","execution":"A submitted or accepted order is not a confirmed fill.","retries":"Reuse the same idempotency key after timeout. Inspect operation_get; reconcile unknown outcomes before another intent.","role":identity.grant.role,"owner_actions":"Policy, capital, administration and manual accounting require the owner and recent human MFA. Agent scopes cannot grant owner authority.","owner_authentication":{"acr_values":self.config.owner_authentication.acr_values,"max_age_seconds":self.config.owner_authentication.max_age_seconds,"authenticated_until":identity.owner_authenticated_until},"stop_changes":"Long stops can only increase; short stops can only decrease. Positive prices are required. There is no owner override to widen an existing stop.","scopes":identity.scopes.iter().filter(|scope|identity.permits(scope)).collect::<Vec<_>>(),"all_accounts":identity.grant.all_accounts,"accounts":identity.grant.accounts,"secrets":"Operator mounted files only; never tool arguments.","currency":"Cross-currency aggregates are rejected; no implicit FX conversion."}),
             ),
             AccountsList | AccountGet | AccountCreate | AccountDelete | Balances | Transfer
             | Transactions | Deposit | Withdraw | Rules | RuleCreate | RuleRemove | Instruments
@@ -289,7 +289,7 @@ pub fn paginate(value: Value, args: &Value) -> Value {
 fn domain_error(error: Box<dyn std::error::Error>) -> ServiceError {
     use trust_core::validation_errors::{
         FundValidationError, FundValidationErrorCode, RuleValidationError, TradeValidationError,
-        TransactionValidationError,
+        TradeValidationErrorCode, TransactionValidationError,
     };
     if let Some(error) = error.downcast_ref::<FundValidationError>() {
         let code = match error.code {
@@ -304,8 +304,16 @@ fn domain_error(error: Box<dyn std::error::Error>) -> ServiceError {
         return ServiceError::new(code,&error.message,"Read risk_preview, balances_get, and risk_rules_list; prepare an intent within the permitted limits.");
     }
     if let Some(error) = error.downcast_ref::<TradeValidationError>() {
+        if error.code == TradeValidationErrorCode::StopPriceNotValid {
+            return ServiceError::new("stop_would_increase_risk", &error.message,
+                "Read trade_get and trade_audit. Preserve the strongest recorded stop protection; a weaker broker observation or owner authority cannot reset it.");
+        }
+        let code = match error.code {
+            TradeValidationErrorCode::InvalidStopPrice => "invalid_stop_price",
+            _ => "invalid_trade_state",
+        };
         return ServiceError::new(
-            "invalid_trade_state",
+            code,
             &error.message,
             "Read trade_get and follow the allowed lifecycle; reconcile unresolved broker actions.",
         );

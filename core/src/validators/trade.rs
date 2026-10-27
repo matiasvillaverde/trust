@@ -83,13 +83,20 @@ pub fn can_modify_stop(trade: &Trade, new_price_stop: Decimal) -> TradeValidatio
         }));
     }
 
+    if trade.safety_stop.unit_price <= Decimal::ZERO || new_price_stop <= Decimal::ZERO {
+        return Err(Box::new(TradeValidationError {
+            code: TradeValidationErrorCode::InvalidStopPrice,
+            message: "Current and proposed stop prices must be positive; reconcile invalid protection before modifying it".into(),
+        }));
+    }
+
     if trade.category == TradeCategory::Long && trade.safety_stop.unit_price > new_price_stop
         || trade.category == TradeCategory::Short && trade.safety_stop.unit_price < new_price_stop
     {
         return Err(Box::new(TradeValidationError {
             code: TradeValidationErrorCode::StopPriceNotValid,
             message: format!(
-                "Stops can not be modified because you are risking more money. Do not give more room to stops loss. Current stop: {}, new stop: {}",
+                "Stops can not be modified because you are risking more money. Do not give more room to stops loss. Required protection bound: {}, new stop: {}",
                 trade.safety_stop.unit_price, new_price_stop
             ),
         }));
@@ -112,13 +119,22 @@ pub fn can_modify_target(trade: &Trade) -> TradeValidationResult {
 }
 
 #[derive(Debug, PartialEq)]
+/// Stable reasons why a lifecycle or protective-order change is rejected.
 pub enum TradeValidationErrorCode {
+    /// Funding requires a new trade.
     TradeNotNew,
+    /// Submission or local cancellation requires a funded trade.
     TradeNotFunded,
+    /// Broker cancellation requires a submitted trade.
     TradeNotSubmitted,
+    /// Closing or amending protection requires a filled trade.
     TradeNotFilled,
+    /// A market exit is already pending.
     TradeExitAlreadyRequested,
+    /// The proposed stop would weaken the latest persisted protection.
     StopPriceNotValid,
+    /// Current or proposed protection has a nonpositive price.
+    InvalidStopPrice,
 }
 
 #[derive(Debug)]
@@ -150,6 +166,41 @@ impl Error for TradeValidationError {
 mod tests {
     use super::*;
     use rust_decimal_macros::dec;
+
+    proptest::proptest! {
+        #[test]
+        fn stop_changes_never_widen_long_or_short_risk(current in 1_i64..1_000_000, proposed in -100_i64..1_000_000, short in proptest::bool::ANY) {
+            let trade = Trade {
+                status: Status::Filled,
+                category: if short {TradeCategory::Short} else {TradeCategory::Long},
+                safety_stop: model::Order {unit_price: Decimal::new(current, 4), ..Default::default()},
+                ..Default::default()
+            };
+            let allowed = proposed > 0 && if short {proposed <= current} else {proposed >= current};
+            proptest::prop_assert_eq!(can_modify_stop(&trade, Decimal::new(proposed, 4)).is_ok(), allowed);
+        }
+    }
+
+    #[test]
+    fn nonpositive_current_stop_requires_reconciliation() {
+        for category in [TradeCategory::Long, TradeCategory::Short] {
+            for current in [Decimal::ZERO, dec!(-1)] {
+                let trade = Trade {
+                    status: Status::Filled,
+                    category,
+                    safety_stop: model::Order {
+                        unit_price: current,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                };
+                assert_eq!(
+                    can_modify_stop(&trade, dec!(1)).unwrap_err().code,
+                    TradeValidationErrorCode::InvalidStopPrice
+                );
+            }
+        }
+    }
 
     #[test]
     fn test_validate_submit_funded() {
@@ -267,6 +318,10 @@ mod tests {
     fn test_validate_modify_stop() {
         let trade = Trade {
             status: Status::Filled,
+            safety_stop: model::Order {
+                unit_price: dec!(9),
+                ..Default::default()
+            },
             ..Default::default()
         };
         let result = can_modify_stop(&trade, dec!(10));

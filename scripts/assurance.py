@@ -17,6 +17,11 @@ CARGO = os.environ.get("CARGO", "cargo")
 TAIL = ["--", "--test-threads=1"]
 REQUIRED = {
     1: {"submission_revalidates_changed_trade_and_monthly_caps_without_broker_effects",
+        "stops_preserve_locked_profit_even_with_stale_client_snapshots",
+        "broker_snapshot_cannot_erase_previous_stop_protection",
+        "owner_tokens_require_original_recent_authentication_and_exact_mfa_context",
+        "agents_cannot_gain_owner_authority_from_claims_scopes_or_tool_arguments",
+        "owner_authentication_is_rechecked_before_dispatch_and_idempotent_replay",
         "submission_reuses_only_its_own_reservation_and_preserves_monthly_boundary",
         "submission_fails_closed_when_reservation_or_rule_reads_are_corrupt",
         "generated_funding_gate_matches_risk_formula",
@@ -24,6 +29,7 @@ REQUIRED = {
         "broker_reconciliation_authority_cannot_record_manual_executions",
         "service_requires_explicit_trade_and_monthly_policy"},
     2: {"order_cache_refresh_never_authorizes_duplicate_submission",
+        "agent_trades_within_owner_policy_and_can_only_tighten_stops",
         "incomplete_or_truncated_order_snapshots_never_submit",
         "real_process_mcp_ibkr_lifecycles_replay_audit_metrics_and_redaction",
         "mcp_submission_observes_policy_changes_after_funding",

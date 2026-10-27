@@ -150,8 +150,10 @@ impl Journal {
                     subject,
                     client_id: None,
                     expires_at: 0,
+                    owner_authenticated_until: None,
                     scopes: BTreeSet::new(),
                     grant: crate::auth::Grant {
+                        role: crate::auth::Role::Agent,
                         accounts: BTreeSet::new(),
                         all_accounts: false,
                         scopes: BTreeSet::new(),
@@ -454,7 +456,7 @@ fn append(
         .optional()
         .map_err(|_| ServiceError::internal())?
         .unwrap_or_else(|| "GENESIS".into());
-    let event=serde_json::to_string(&json!({"version":2,"source":context.source,"queue_wait_ms":context.queue_wait_ms,"duration_ms":context.duration_ms,"error_code":context.error_code,"account_ids":context.account_ids,"at":chrono::Utc::now().to_rfc3339(),"subject":identity.subject,"client_id":identity.client_id,"request_id":request,"operation_id":operation,"tool":tool,"account_id":account,"outcome":outcome,"content_hash":content_hash})).map_err(|_|ServiceError::internal())?;
+    let event=serde_json::to_string(&json!({"version":2,"source":context.source,"queue_wait_ms":context.queue_wait_ms,"duration_ms":context.duration_ms,"error_code":context.error_code,"account_ids":context.account_ids,"at":chrono::Utc::now().to_rfc3339(),"subject":identity.subject,"actor_role":if context.source == "recovery" {None} else {Some(identity.grant.role)},"owner_authenticated_until":identity.owner_authenticated_until,"client_id":identity.client_id,"request_id":request,"operation_id":operation,"tool":tool,"account_id":account,"outcome":outcome,"content_hash":content_hash})).map_err(|_|ServiceError::internal())?;
     let hash = chain_hash(&previous, &event);
     connection
         .execute(

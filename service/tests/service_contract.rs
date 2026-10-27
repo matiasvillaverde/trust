@@ -23,7 +23,7 @@ use std::{
 };
 use tower::ServiceExt;
 use trust_service::{
-    auth::{Authenticator, Identity, SCOPES},
+    auth::{Authenticator, Grant, Identity, Role, SCOPES},
     config::Config,
     journal::{Claim, Journal, Reply},
     runtime::{Service, Worker},
@@ -44,7 +44,7 @@ impl Fixture {
         let directory = tempfile::tempdir().unwrap();
         let jwks = directory.path().join("jwks.json");
         std::fs::write(&jwks, key().1.to_string()).unwrap();
-        let config:Config=serde_json::from_value(json!({"listen":"127.0.0.1:0","public_url":"http://localhost:8000","issuer":"http://localhost:9999/issuer","jwks_file":jwks,"database":directory.path().join("financial.db"),"journal":directory.path().join("control.db"),"reconcile_interval_seconds":0,"grants":{"owner":{"all_accounts":true,"scopes":SCOPES}}})).unwrap();
+        let config:Config=serde_json::from_value(json!({"listen":"127.0.0.1:0","public_url":"http://localhost:8000","issuer":"http://localhost:9999/issuer","jwks_file":jwks,"database":directory.path().join("financial.db"),"journal":directory.path().join("control.db"),"reconcile_interval_seconds":0,"grants":{"owner":{"role":"owner","all_accounts":true,"scopes":SCOPES}}})).unwrap();
         config.validate().unwrap();
         Self {
             _directory: directory,
@@ -54,7 +54,7 @@ impl Fixture {
     }
     fn claims(&self) -> Value {
         let now = chrono::Utc::now().timestamp();
-        json!({"iss":self.config.issuer,"aud":self.config.resource(),"sub":"owner","iat":now,"exp":now+900,"scope":SCOPES.join(" "),"client_id":"test-agent"})
+        json!({"iss":self.config.issuer,"aud":self.config.resource(),"sub":"owner","iat":now,"exp":now+900,"auth_time":now,"acr":"urn:trust:owner:mfa","scope":SCOPES.join(" "),"client_id":"test-agent"})
     }
     fn sign(&self, claims: Value) -> String {
         let mut header = Header::new(Algorithm::RS256);
@@ -98,6 +98,143 @@ impl Fixture {
     }
 }
 struct UncertainBroker(Arc<AtomicUsize>);
+
+#[tokio::test]
+async fn metrics_distinguish_replay_denial_and_domain_execution() {
+    let f = Fixture::new();
+    let (service, worker) = f.start();
+    let account = f.account(&service, "metrics").await;
+    let args = json!({"account_id":account,"amount":"100","idempotency_key":"metrics-deposit"});
+    let original = f.call(&service, "capital_deposit", args.clone()).await;
+    assert!(original.error.is_none());
+    let replay = f.call(&service, "capital_deposit", args.clone()).await;
+    assert_eq!(original.operation_id, replay.operation_id);
+    let mut denied = f.identity();
+    denied.scopes.clear();
+    let denied = service
+        .call(denied, "capital_deposit".into(), args, Uuid::new_v4())
+        .await;
+    assert_eq!(denied.error.unwrap().code, "forbidden");
+    assert_eq!(
+        f.call(&service, "caller-secret-tool", json!({}))
+            .await
+            .error
+            .unwrap()
+            .code,
+        "unknown_tool"
+    );
+    assert!(f
+        .call(&service, "service_status", json!({}))
+        .await
+        .error
+        .is_none());
+    let metrics = service.prometheus();
+    for expected in [
+        "trust_operations_total 6\n",
+        "trust_replays_total 1\n",
+        "trust_stage_duration_seconds_count{stage=\"domain\"} 3\n",
+        "trust_stage_duration_seconds_count{stage=\"journal_claim\"} 3\n",
+        "trust_stage_duration_seconds_count{stage=\"journal_finish\"} 5\n",
+        "trust_tool_duration_seconds_count{tool=\"capital_deposit\"} 3\n",
+        "trust_tool_errors_total{tool=\"capital_deposit\"} 1\n",
+    ] {
+        assert!(metrics.contains(expected), "missing {expected}");
+    }
+    assert!(!metrics.contains("caller-secret"));
+    assert!(!metrics.contains("metrics-deposit"));
+    let journal = rusqlite::Connection::open(&f.config.journal).unwrap();
+    let deposits: i64 = journal
+        .query_row(
+            "SELECT COUNT(*) FROM operations WHERE tool='capital_deposit'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(deposits, 1);
+    assert!(f
+        .call(&service, "audit_verify", json!({}))
+        .await
+        .error
+        .is_none());
+    worker.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn monitoring_scope_cannot_read_finances_or_mutate_and_requires_global_grant() {
+    for global in [false, true] {
+        let mut f = Fixture::new();
+        let mut config = (*f.config).clone();
+        config.grants.insert(
+            "monitor".into(),
+            Grant {
+                role: Role::Agent,
+                all_accounts: global,
+                accounts: [Uuid::new_v4()].into_iter().collect(),
+                scopes: ["trust:observe".into()].into_iter().collect(),
+                allow_live: false,
+            },
+        );
+        f.config = Arc::new(config);
+        let (service, worker) = f.start();
+        let app = trust_service::http::router(f.config.clone(), service.clone()).unwrap();
+        let mut claims = f.claims();
+        claims["sub"] = json!("monitor");
+        claims.as_object_mut().unwrap().remove("auth_time");
+        claims.as_object_mut().unwrap().remove("acr");
+        // Extra issuer scopes cannot exceed the configured monitoring-only grant.
+        let token = f.sign(claims.clone());
+        let (status, _, _) = http(app.clone(), Some(&token), "/metrics", None).await;
+        assert_eq!(
+            status,
+            if global {
+                StatusCode::OK
+            } else {
+                StatusCode::FORBIDDEN
+            }
+        );
+        claims["scope"] = json!("trust:read");
+        let missing_scope = f.sign(claims);
+        assert_eq!(
+            http(app.clone(), Some(&missing_scope), "/metrics", None)
+                .await
+                .0,
+            StatusCode::FORBIDDEN
+        );
+        let (_, _, tools) = http(app.clone(), Some(&token), "/v1/tools", None).await;
+        assert!(tools["tools"].as_array().unwrap().is_empty());
+        for tool in trust_service::catalog::tools() {
+            let identity = Authenticator::new(f.config.clone())
+                .unwrap()
+                .authenticate(&token)
+                .unwrap();
+            assert!(
+                !identity.permits(tool.scope),
+                "monitor permitted {}",
+                tool.name
+            );
+        }
+        for (tool, args) in [
+            ("accounts_list", json!({})),
+            (
+                "account_create",
+                json!({"name":"denied", "description":"denied", "environment":"paper", "broker":"ibkr", "idempotency_key":"monitor-denied-intent"}),
+            ),
+        ] {
+            let (_, _, reply) = http(app.clone(), Some(&token), "/mcp", Some(json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":tool,"arguments":args}}))).await;
+            assert_eq!(
+                reply["result"]["structuredContent"]["error"]["code"],
+                "forbidden"
+            );
+        }
+        let journal = rusqlite::Connection::open(&f.config.journal).unwrap();
+        let operations: i64 = journal
+            .query_row("SELECT COUNT(*) FROM operations", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(operations, 0);
+        worker.shutdown().await.unwrap();
+    }
+}
+
 impl Broker for UncertainBroker {
     fn kind(&self) -> BrokerKind {
         BrokerKind::Ibkr
@@ -625,15 +762,15 @@ fn every_tool_rejects_missing_unknown_wrong_type_and_boundary_arguments() {
     use trust_service::catalog::{tools, validate};
     let mut checks = 0_u32;
     for tool in tools() {
-        let base = tool_arguments(&tool);
-        validate(&tool, &base).unwrap_or_else(|e| panic!("{}: {e:?}", tool.name));
+        let base = tool_arguments(tool);
+        validate(tool, &base).unwrap_or_else(|e| panic!("{}: {e:?}", tool.name));
         for required in tool.input_schema["required"].as_array().unwrap() {
             let mut args = base.clone();
             args.as_object_mut()
                 .unwrap()
                 .remove(required.as_str().unwrap());
             assert!(
-                validate(&tool, &args).is_err(),
+                validate(tool, &args).is_err(),
                 "{} missing {required}",
                 tool.name
             );
@@ -642,7 +779,7 @@ fn every_tool_rejects_missing_unknown_wrong_type_and_boundary_arguments() {
         for (name, schema) in tool.input_schema["properties"].as_object().unwrap() {
             let mut args = base.clone();
             args[name] = schema_sample(schema);
-            assert!(validate(&tool, &args).is_ok(), "{} valid {name}", tool.name);
+            assert!(validate(tool, &args).is_ok(), "{} valid {name}", tool.name);
             let mut invalid = vec![Value::Null, json!({})];
             match schema["type"].as_str().unwrap() {
                 "string" => {
@@ -692,7 +829,7 @@ fn every_tool_rejects_missing_unknown_wrong_type_and_boundary_arguments() {
             for value in invalid {
                 args[name] = value;
                 assert!(
-                    validate(&tool, &args).is_err(),
+                    validate(tool, &args).is_err(),
                     "{} accepted invalid {name}: {}",
                     tool.name,
                     args[name]
@@ -702,9 +839,9 @@ fn every_tool_rejects_missing_unknown_wrong_type_and_boundary_arguments() {
         }
         let mut unknown = base;
         unknown["unexpected_argument"] = json!(true);
-        assert!(validate(&tool, &unknown).is_err());
+        assert!(validate(tool, &unknown).is_err());
         for value in [json!(null), json!([]), json!(1), json!("arguments")] {
-            assert!(validate(&tool, &value).is_err());
+            assert!(validate(tool, &value).is_err());
         }
     }
     assert!(
@@ -730,7 +867,7 @@ async fn every_tool_enforces_scope_before_domain_or_broker_access() {
                 .call(
                     identity,
                     tool.name.into(),
-                    tool_arguments(&tool),
+                    tool_arguments(tool),
                     Uuid::new_v4(),
                 )
                 .await;
@@ -1133,5 +1270,214 @@ async fn service_requires_explicit_trade_and_monthly_policy() {
         .await;
     assert!(funded.error.is_none(), "{funded:?}");
     assert_eq!(f.calls.load(Ordering::SeqCst), 0);
+    worker.shutdown().await.unwrap();
+}
+
+#[test]
+fn owner_configuration_requires_one_human_and_rejects_privileged_agent_grants() {
+    let f = Fixture::new();
+    let mut config = (*f.config).clone();
+    config.grants.get_mut("owner").unwrap().role = Role::Agent;
+    assert!(config.validate().is_err());
+    for scope in ["trust:policy", "trust:admin", "trust:manual"] {
+        let grant: Grant =
+            serde_json::from_value(json!({"all_accounts":true,"scopes":[scope]})).unwrap();
+        assert_eq!(grant.role, Role::Agent);
+        assert!(grant.validate().is_err());
+    }
+    config = (*f.config).clone();
+    config
+        .grants
+        .insert("second-owner".into(), config.grants["owner"].clone());
+    assert!(config.validate().is_err());
+    config = (*f.config).clone();
+    for age in [0, 901, u64::MAX] {
+        config.owner_authentication.max_age_seconds = age;
+        assert!(config.validate().is_err());
+    }
+    config.owner_authentication.max_age_seconds = 300;
+    for acr in [
+        "",
+        "two values",
+        "quoted\"value",
+        "line\nbreak",
+        "escape\\value",
+    ] {
+        config.owner_authentication.acr_values = [acr.into()].into_iter().collect();
+        assert!(config.validate().is_err());
+    }
+    config.owner_authentication.acr_values.clear();
+    assert!(config.validate().is_err());
+}
+
+#[test]
+fn owner_tokens_require_original_recent_authentication_and_exact_mfa_context() {
+    let f = Fixture::new();
+    let auth = Authenticator::new(f.config.clone()).unwrap();
+    let original = f.claims();
+    let now = original["iat"].as_u64().unwrap();
+    for (field, value) in [
+        ("auth_time", Value::Null),
+        ("auth_time", json!(now - 300)),
+        ("auth_time", json!(now + 1)),
+        ("auth_time", json!(u64::MAX)),
+        ("acr", Value::Null),
+        ("acr", json!("urn:trust:owner:password-only")),
+    ] {
+        let mut claims = original.clone();
+        claims[field] = value;
+        let error = auth.authenticate(&f.sign(claims)).unwrap_err();
+        assert_eq!(error.code, "insufficient_user_authentication", "{field}");
+    }
+    // Newly issued access/refresh tokens do not turn an old login into fresh MFA.
+    let mut refreshed = original.clone();
+    refreshed["auth_time"] = json!(now - 600);
+    assert!(auth.authenticate(&f.sign(refreshed)).is_err());
+    let mut read_only = original.clone();
+    read_only["auth_time"] = Value::Null;
+    read_only["acr"] = Value::Null;
+    read_only["scope"] = json!("trust:read trust:trade");
+    let identity = auth.authenticate(&f.sign(read_only)).unwrap();
+    assert!(identity.check("trust:trade", None).is_ok());
+    assert!(identity.check("trust:policy", None).is_err());
+    assert!(auth
+        .authenticate(&f.token())
+        .unwrap()
+        .check("trust:policy", None)
+        .is_ok());
+}
+
+#[tokio::test]
+async fn agents_cannot_gain_owner_authority_from_claims_scopes_or_tool_arguments() {
+    let f = Fixture::new();
+    let mut config = (*f.config).clone();
+    let agent: Grant = serde_json::from_value(json!({"role":"agent","all_accounts":true,"scopes":["trust:read","trust:preview","trust:trade","trust:reconcile","trust:journal"]})).unwrap();
+    config.grants.insert("agent".into(), agent);
+    config.validate().unwrap();
+    let mut claims = f.claims();
+    claims["sub"] = json!("agent");
+    claims["role"] = json!("owner");
+    claims["owner_authenticated_until"] = json!(u64::MAX);
+    let mut identity = Authenticator::new(Arc::new(config))
+        .unwrap()
+        .authenticate(&f.sign(claims))
+        .unwrap();
+    assert_eq!(identity.grant.role, Role::Agent);
+    assert_eq!(identity.owner_authenticated_until, None);
+    // Defense in depth: even an incorrectly constructed broad internal grant
+    // cannot turn an agent role into an owner.
+    identity.grant.scopes = SCOPES.iter().map(|s| (*s).to_owned()).collect();
+    identity.owner_authenticated_until = Some(u64::MAX);
+    let (service, worker) = f.start();
+    let mut denied = 0;
+    for tool in trust_service::catalog::tools()
+        .iter()
+        .filter(|tool| tool.owner_only)
+    {
+        assert!(!trust_service::mcp::visible(&identity, tool));
+        let reply = service
+            .call(
+                identity.clone(),
+                tool.name.into(),
+                tool_arguments(tool),
+                Uuid::new_v4(),
+            )
+            .await;
+        assert_eq!(reply.error.unwrap().code, "forbidden", "{}", tool.name);
+        assert!(reply.operation_id.is_none());
+        denied += 1;
+    }
+    assert!(denied >= 15);
+    assert_eq!(f.calls.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        f.call(&service, "accounts_list", json!({}))
+            .await
+            .data
+            .unwrap()["total"],
+        0
+    );
+    worker.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn http_and_mcp_challenge_owner_mfa_before_accepting_mutations() {
+    let f = Fixture::new();
+    let (service, worker) = f.start();
+    let app = trust_service::http::router(f.config.clone(), service.clone()).unwrap();
+    let mut claims = f.claims();
+    claims["auth_time"] = Value::Null;
+    let token = f.sign(claims);
+    for (path, body) in [
+        (
+            "/v1/tools/account_create",
+            json!({"name":"denied","description":"denied","environment":"paper","broker":"ibkr","idempotency_key":"needs-owner-mfa"}),
+        ),
+        (
+            "/mcp",
+            json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"capital_deposit","arguments":{"account_id":Uuid::new_v4(),"amount":"100","idempotency_key":"needs-owner-mfa"}}}),
+        ),
+    ] {
+        let (status, headers, reply) = http(app.clone(), Some(&token), path, Some(body)).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        let challenge = headers["www-authenticate"].to_str().unwrap();
+        assert!(challenge.contains("insufficient_user_authentication"));
+        assert!(challenge.contains("acr_values=\"urn:trust:owner:mfa\""));
+        assert!(challenge.contains("max_age=\"300\""));
+        assert_eq!(reply["error"]["code"], "insufficient_user_authentication");
+        assert!(reply["operation_id"].is_null());
+    }
+    assert_eq!(
+        f.call(&service, "accounts_list", json!({}))
+            .await
+            .data
+            .unwrap()["total"],
+        0
+    );
+    worker.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn owner_authentication_is_rechecked_before_dispatch_and_idempotent_replay() {
+    let f = Fixture::new();
+    let (service, worker) = f.start();
+    let account = f.account(&service, "owner-replay").await;
+    let args =
+        json!({"account_id":account,"amount":"10","idempotency_key":"owner-original-deposit"});
+    let first = f.call(&service, "capital_deposit", args.clone()).await;
+    assert!(first.error.is_none());
+    let mut expired = f.identity();
+    expired.owner_authenticated_until = Some(0);
+    for key in ["owner-original-deposit", "owner-new-deposit"] {
+        let mut request = args.clone();
+        request["idempotency_key"] = json!(key);
+        let denied = service
+            .call(
+                expired.clone(),
+                "capital_deposit".into(),
+                request,
+                Uuid::new_v4(),
+            )
+            .await;
+        assert_eq!(
+            denied.error.unwrap().code,
+            "insufficient_user_authentication"
+        );
+        assert!(denied.operation_id.is_none());
+    }
+    let replay = f.call(&service, "capital_deposit", args).await;
+    assert_eq!(first.operation_id, replay.operation_id);
+    let db = rusqlite::Connection::open(&f.config.journal).unwrap();
+    let deposits: i64 = db
+        .query_row(
+            "SELECT COUNT(*) FROM operations WHERE tool='capital_deposit'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(deposits, 1);
+    let event: String = db.query_row("SELECT event FROM audit WHERE json_extract(event, '$.tool')='capital_deposit' AND json_extract(event, '$.outcome')='attempted' LIMIT 1", [], |row| row.get(0)).unwrap();
+    let event: Value = serde_json::from_str(&event).unwrap();
+    assert_eq!(event["actor_role"], "owner");
+    assert!(event["owner_authenticated_until"].as_u64().is_some());
     worker.shutdown().await.unwrap();
 }

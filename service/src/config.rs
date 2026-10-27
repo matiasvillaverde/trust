@@ -1,4 +1,4 @@
-use crate::auth::Grant;
+use crate::auth::{Grant, Role};
 use crate::error::{Result, ServiceError};
 use serde::Deserialize;
 use std::{
@@ -19,6 +19,8 @@ pub struct Config {
     pub journal: PathBuf,
     pub grants: BTreeMap<String, Grant>,
     #[serde(default)]
+    pub owner_authentication: OwnerAuthentication,
+    #[serde(default)]
     pub allowed_origins: BTreeSet<String>,
     #[serde(default)]
     pub revoked_token_ids: BTreeSet<String>,
@@ -38,6 +40,23 @@ pub struct Config {
     pub distribution_password_file: Option<PathBuf>,
     #[serde(default)]
     pub calendar_credentials_file: Option<PathBuf>,
+}
+
+/// The operator must map these ACR values to enforced human MFA at the issuer.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OwnerAuthentication {
+    pub acr_values: BTreeSet<String>,
+    pub max_age_seconds: u64,
+}
+
+impl Default for OwnerAuthentication {
+    fn default() -> Self {
+        Self {
+            acr_values: ["urn:trust:owner:mfa".to_owned()].into_iter().collect(),
+            max_age_seconds: 300,
+        }
+    }
 }
 
 fn token_lifetime() -> u64 {
@@ -132,6 +151,32 @@ impl Config {
         }
         for grant in self.grants.values() {
             grant.validate()?;
+        }
+        if self
+            .grants
+            .values()
+            .filter(|grant| grant.role == Role::Owner)
+            .count()
+            != 1
+        {
+            return Err(ServiceError::invalid(
+                "Configure exactly one explicit owner subject; all other identities are agents.",
+            ));
+        }
+        let owner = &self.owner_authentication;
+        if owner.max_age_seconds == 0
+            || owner.max_age_seconds > 900
+            || owner.acr_values.is_empty()
+            || owner.acr_values.len() > 8
+            || owner.acr_values.iter().any(|acr| {
+                acr.is_empty()
+                    || acr.len() > 256
+                    || !acr
+                        .bytes()
+                        .all(|byte| byte.is_ascii_graphic() && !matches!(byte, b'"' | b'\\'))
+            })
+        {
+            return Err(ServiceError::invalid("Owner authentication requires 1..8 exact MFA ACR values without spaces, quotes or backslashes, and max_age_seconds 1..900."));
         }
         Ok(())
     }

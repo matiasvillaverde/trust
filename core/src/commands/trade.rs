@@ -466,8 +466,15 @@ fn pending_order_change(
 ) -> Result<Option<audit::AuditEvent>, Box<dyn Error>> {
     let logs = database.log_read().read_all_logs_for_trade(trade.id)?;
     let events = audit::ordered_events(&logs)?;
-    Ok(events
-        .into_iter()
+    Ok(pending_change_in(&events, role).cloned())
+}
+
+fn pending_change_in<'a>(
+    events: &'a [audit::AuditEvent],
+    role: &str,
+) -> Option<&'a audit::AuditEvent> {
+    events
+        .iter()
         .rev()
         .find(|event| {
             event.event_type == "order.modify"
@@ -477,7 +484,54 @@ fn pending_order_change(
                     .and_then(serde_json::Value::as_str)
                     == Some(role)
         })
-        .filter(|event| matches!(event.outcome.as_str(), "attempted" | "outcome_unknown")))
+        .filter(|event| matches!(event.outcome.as_str(), "attempted" | "outcome_unknown"))
+}
+
+/// Reconciliation must retain observed broker state for accounting, but an older
+/// or externally weakened observation must not erase stronger known protection.
+fn recorded_stop_bound(
+    trade: &Trade,
+    database: &mut dyn DatabaseFactory,
+) -> Result<Decimal, Box<dyn Error>> {
+    let logs = database.log_read().read_all_logs_for_trade(trade.id)?;
+    let mut bound = trade.safety_stop.unit_price;
+    for event in audit::ordered_events(&logs)? {
+        let fields: &[&str] = if event.event_type == "order.modify"
+            && matches!(event.outcome.as_str(), "acknowledged" | "reconciled")
+            && event
+                .details
+                .get("order_role")
+                .and_then(serde_json::Value::as_str)
+                == Some("safety_stop")
+        {
+            if event.details.get("new_price").is_none() {
+                return Err("Cannot verify recorded stop protection".into());
+            }
+            &["new_price"]
+        } else if event.event_type == "trade.sync" && event.outcome == "reconciled" {
+            // Older sync events lack prices; confirmed order amendments remain
+            // usable, and every new sync records both sides of the observation.
+            &["previous_stop_price", "stop_price"]
+        } else {
+            &[]
+        };
+        for field in fields {
+            if let Some(value) = event.details.get(*field) {
+                let price = value
+                    .as_str()
+                    .ok_or("Invalid recorded stop protection")?
+                    .parse::<Decimal>()?;
+                if price <= Decimal::ZERO {
+                    return Err("Invalid recorded stop protection".into());
+                }
+                bound = match trade.category {
+                    TradeCategory::Long => bound.max(price),
+                    TradeCategory::Short => bound.min(price),
+                };
+            }
+        }
+    }
+    Ok(bound)
 }
 
 // Keep the financial operation and its validation in one reviewable sequence.
@@ -501,7 +555,12 @@ pub fn modify_stop(
             if account.id != current_trade.account_id {
                 return Err("Stop modification account mismatch".into());
             }
-            crate::validators::trade::can_modify_stop(&current_trade, new_stop_price)?;
+            crate::validators::trade::can_modify_stop(&current_trade, new_stop_price)
+                .map_err(|error| error as Box<dyn std::error::Error>)?;
+            let mut protection = current_trade.clone();
+            protection.safety_stop.unit_price = recorded_stop_bound(&current_trade, database)?;
+            crate::validators::trade::can_modify_stop(&protection, new_stop_price)
+                .map_err(|error| error as Box<dyn std::error::Error>)?;
             let operation_id = Uuid::new_v4();
             let account = database.account_read().id(current_trade.account_id)?;
             let broker_name = account.broker_kind.as_str().to_string();
@@ -956,6 +1015,7 @@ pub fn sync_with_broker(
                 );
             }
             let persisted_status = current_trade.status;
+            let previous_stop_price = current_trade.safety_stop.unit_price;
             let was_closed = persisted_status == Status::ClosedTarget
                 || persisted_status == Status::ClosedStopLoss;
             let resolved = resolve_orders_for_sync(&current_trade, &orders)?;
@@ -963,32 +1023,46 @@ pub fn sync_with_broker(
             // 2.3 Validate payload before mutating DB state.
             validate_sync_payload(&current_trade, account, status, &resolved)?;
 
-            for (role, resolved_order) in [
-                ("safety_stop", &resolved.stop),
-                ("target", &resolved.target),
-            ] {
-                if orders.iter().any(|order| order.id == resolved_order.id) {
-                    if let Some(pending) = pending_order_change(database, &current_trade, role)? {
-                        if pending
-                            .details
-                            .get("new_price")
-                            .and_then(serde_json::Value::as_str)
-                            .and_then(|price| price.parse::<Decimal>().ok())
-                            == Some(resolved_order.unit_price)
-                        {
-                            audit::record(
-                                database,
-                                &current_trade,
-                                &broker_name,
-                                AuditRecord {
-                                    operation_id: Uuid::parse_str(&pending.operation_id)?,
-                                    event_type: "order.modify",
-                                    outcome: "reconciled",
-                                    prior_status: current_trade.status,
-                                    resulting_status: status,
-                                    details: &serde_json::json!({"order_role":role,"new_price":resolved_order.unit_price.to_string()}),
-                                },
-                            )?;
+            {
+                let mut updated_orders = [
+                    ("safety_stop", &resolved.stop),
+                    ("target", &resolved.target),
+                ]
+                .into_iter()
+                .filter(|(_, resolved_order)| {
+                    orders.iter().any(|order| order.id == resolved_order.id)
+                })
+                .peekable();
+                if updated_orders.peek().is_some() {
+                    // Both roles share this verified snapshot under the same writer
+                    // savepoint. Recording a stop outcome cannot change target intent.
+                    let logs = database
+                        .log_read()
+                        .read_all_logs_for_trade(current_trade.id)?;
+                    let events = audit::ordered_events(&logs)?;
+                    for (role, resolved_order) in updated_orders {
+                        if let Some(pending) = pending_change_in(&events, role) {
+                            if pending
+                                .details
+                                .get("new_price")
+                                .and_then(serde_json::Value::as_str)
+                                .and_then(|price| price.parse::<Decimal>().ok())
+                                == Some(resolved_order.unit_price)
+                            {
+                                audit::record(
+                                    database,
+                                    &current_trade,
+                                    &broker_name,
+                                    AuditRecord {
+                                        operation_id: Uuid::parse_str(&pending.operation_id)?,
+                                        event_type: "order.modify",
+                                        outcome: "reconciled",
+                                        prior_status: current_trade.status,
+                                        resulting_status: status,
+                                        details: &serde_json::json!({"order_role":role,"new_price":resolved_order.unit_price.to_string()}),
+                                    },
+                                )?;
+                            }
                         }
                     }
                 }
@@ -1038,6 +1112,8 @@ pub fn sync_with_broker(
                 "orders_received": orders.len(),
                 "executions_reconciled": reconciled_executions.len(),
                 "fees_reconciled": fees.len(),
+                "previous_stop_price": previous_stop_price.to_string(),
+                "stop_price": trade.safety_stop.unit_price.to_string(),
                 "broker_response_sha256": sha2::Sha256::digest(log.log.as_bytes()).iter().map(|byte| format!("{byte:02x}")).collect::<String>()
             });
             audit::record(

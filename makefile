@@ -337,6 +337,12 @@ ci-perf:
 	TRUST_PERF_GATE_MAX_CASE_200_MS=$${TRUST_PERF_GATE_MAX_CASE_200_MS:-26000} \
 	TRUST_PERF_GATE_MAX_CASE_211_MS=$${TRUST_PERF_GATE_MAX_CASE_211_MS:-6000} \
 	$(CARGO) test --release -p trust-cli --test integration_test_use_cases $(CARGO_FLAGS) -- test_case_212_perf_gate_sync_lifecycle_regression_guard --ignored --nocapture
+	@$(MAKE) service-perf
+
+.PHONY: service-perf
+service-perf:
+	@echo "$(BLUE)Running real-process HTTP/MCP latency gate (offline, release profile)...$(NC)"
+	$(CARGO) test --release -p trust-service --test e2e $(CARGO_FLAGS) -- real_process_risk_preview_latency_budget --ignored --exact --nocapture
 
 .PHONY: ci-build
 ci-build: setup
