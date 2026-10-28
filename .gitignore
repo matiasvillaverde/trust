@@ -48,3 +48,5 @@ trust-wt-db-backup/
 /deploy/jwks.json
 /deploy/secrets/
 /.local/
+/output/playwright/
+*-key.hex

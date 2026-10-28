@@ -16,7 +16,25 @@ EVIDENCE = ROOT / ".local/assurance"
 CARGO = os.environ.get("CARGO", "cargo")
 TAIL = ["--", "--test-threads=1"]
 REQUIRED = {
-    1: {"submission_revalidates_changed_trade_and_monthly_caps_without_broker_effects",
+    1: {"historical_gains_do_not_grant_an_agent_extra_daily_loss_capacity",
+        "shared_heat_reserves_across_profiles_and_rejects_one_decimal_over_boundary",
+        "funding_and_submission_do_not_double_charge_or_release_previous_reservation",
+        "margin_buffer_reserves_cash_and_stresses_maintenance",
+        "concentration_groups_aggregate_without_offset_credit",
+        "gap_stress_and_fees_can_bind_with_safe_planned_stop",
+        "tight_stops_cannot_evade_atr_floor_and_submission_preserves_floor",
+        "throttle_drops_immediately_and_recovers_only_one_timed_step",
+        "agent_loss_entry_turnover_and_cooldown_survive_policy_replacement",
+        "a_protective_order_cannot_be_credited_to_two_trades_or_legs",
+        "nonzero_risk_that_underflows_decimal_precision_cannot_authorize_an_entry",
+        "nested_risk_policy_rejects_lossy_money_and_untyped_fields_before_dispatch",
+        "services::leveling::tests::losing_window_never_upgrades_even_with_many_winners",
+        "submission_revalidates_changed_trade_and_monthly_caps_without_broker_effects",
+        "every_external_position_order_and_shared_account_reservation_consumes_capacity",
+        "unrealized_daily_loss_latches_and_later_profit_does_not_resume",
+        "owner_pnl_counter_reconciliation_preserves_losses_and_cannot_reset_high_water",
+        "mandate_capacity_marks_existing_exposure_and_respects_remaining_slots",
+        "safety_state_history_is_atomic_private_and_rejects_deletion_or_rollback",
         "stops_preserve_locked_profit_even_with_stale_client_snapshots",
         "broker_snapshot_cannot_erase_previous_stop_protection",
         "owner_tokens_require_original_recent_authentication_and_exact_mfa_context",
@@ -28,7 +46,14 @@ REQUIRED = {
         "generated_lifecycles_conserve_cash_with_fees_and_adverse_exits",
         "broker_reconciliation_authority_cannot_record_manual_executions",
         "service_requires_explicit_trade_and_monthly_policy"},
-    2: {"order_cache_refresh_never_authorizes_duplicate_submission",
+    2: {"portfolio_heat_is_atomic_across_agents_and_profiles_and_preview_never_reserves",
+        "admission_rechecks_quotes_margin_and_calendar_before_broker_submission",
+        "observed_agent_losses_and_fees_block_reentry_after_restart_without_policy_reset",
+        "risk_market_data_uses_exact_contract_and_requires_timestamped_realtime_evidence",
+        "order_cache_refresh_never_authorizes_duplicate_submission",
+        "whole_account_reservations_and_halt_survive_restart_and_preserve_cancellation",
+        "external_positions_unrealized_losses_and_snapshot_failures_block_new_exposure",
+        "failed_advisory_and_market_reads_do_not_create_unknown_trading_outcomes",
         "agent_trades_within_owner_policy_and_can_only_tighten_stops",
         "incomplete_or_truncated_order_snapshots_never_submit",
         "real_process_mcp_ibkr_lifecycles_replay_audit_metrics_and_redaction",
@@ -45,9 +70,9 @@ def fingerprint(root=ROOT):
     names = subprocess.check_output(
         ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"], cwd=root
     ).decode().split("\0")
-    crates = {"model", "core", "db-sqlite", "service", "cli", "advisor", "credentials",
+    crates = {"model", "core", "db-sqlite", "service", "cli", "advisor", "credentials", "security",
               "ibkr-broker", "alpaca-broker", "broker-sync"}
-    exact = {"Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "makefile", "Dockerfile", ".gitignore", "deploy/config.example.json"}
+    exact = {"Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "makefile", "Dockerfile", ".dockerignore", ".cargo/config.toml", ".gitignore", "deploy/config.example.json", "deploy/compose.yaml", "docs/security.md"}
     digest = hashlib.sha256()
     for name in sorted(set(names)):
         parts = Path(name).parts
@@ -55,7 +80,7 @@ def fingerprint(root=ROOT):
             continue
         source = parts[0] in crates and (name.endswith("/Cargo.toml") or
             (len(parts) > 1 and parts[1] in {"src", "tests", "migrations"}))
-        support = name.startswith(("scripts/", "skills/", "docs/reliability/", ".github/workflows/"))
+        support = name.startswith(("scripts/", "skills/", "docs/reliability/", ".github/workflows/", "deploy/keycloak/", "deploy/postgres/"))
         if not (name in exact or source or support):
             continue
         path = root / name

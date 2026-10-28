@@ -4,7 +4,7 @@ use rust_decimal::Decimal;
 use uuid::Uuid;
 
 /// Distribution rules for profit allocation
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, schemars::JsonSchema)]
 pub struct DistributionRules {
     /// Unique identifier for the rules
     pub id: Uuid,
@@ -30,7 +30,7 @@ pub struct DistributionRules {
 }
 
 /// Result of executing profit distribution
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, schemars::JsonSchema)]
 pub struct DistributionResult {
     /// Source account ID from which distribution originates
     pub source_account_id: Uuid,
@@ -51,7 +51,7 @@ pub struct DistributionResult {
 }
 
 /// Persisted history record for a distribution execution
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, schemars::JsonSchema)]
 pub struct DistributionHistory {
     /// Unique identifier for the history row
     pub id: Uuid,
@@ -78,7 +78,7 @@ pub struct DistributionHistory {
 }
 
 /// One leg of a distribution execution (source -> destination).
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, schemars::JsonSchema)]
 pub struct DistributionExecutionLeg {
     /// Destination account receiving funds.
     pub to_account_id: Uuid,
@@ -95,7 +95,7 @@ pub struct DistributionExecutionLeg {
 }
 
 /// A full distribution execution request to be written atomically.
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, schemars::JsonSchema)]
 pub struct DistributionExecutionPlan {
     /// Source account from which profit is being distributed.
     pub source_account_id: Uuid,
@@ -120,7 +120,7 @@ pub struct DistributionExecutionPlan {
 }
 
 /// Error types for distribution operations
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, schemars::JsonSchema)]
 pub enum DistributionError {
     /// Percentages don't sum to 100% (1.0)
     InvalidPercentageSum,
@@ -133,7 +133,7 @@ pub enum DistributionError {
 }
 
 /// Error raised when no distribution rules exist for an account.
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, serde::Serialize, schemars::JsonSchema)]
 pub struct DistributionRulesNotFound {
     /// Account missing distribution rules.
     pub account_id: Uuid,

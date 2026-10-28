@@ -489,7 +489,7 @@ fn pending_change_in<'a>(
 
 /// Reconciliation must retain observed broker state for accounting, but an older
 /// or externally weakened observation must not erase stronger known protection.
-fn recorded_stop_bound(
+pub(crate) fn recorded_stop_bound(
     trade: &Trade,
     database: &mut dyn DatabaseFactory,
 ) -> Result<Decimal, Box<dyn Error>> {

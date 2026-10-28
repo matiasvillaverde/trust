@@ -10,7 +10,7 @@ use rust_decimal_macros::dec;
 use std::error::Error;
 
 /// A point in time representing the account's equity
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, schemars::JsonSchema)]
 pub struct EquityPoint {
     /// Timestamp of the equity calculation
     pub timestamp: NaiveDateTime,
@@ -19,14 +19,14 @@ pub struct EquityPoint {
 }
 
 /// Represents the equity curve over time
-#[derive(Debug, PartialEq, serde::Serialize)]
+#[derive(Debug, PartialEq, serde::Serialize, schemars::JsonSchema)]
 pub struct RealizedEquityCurve {
     /// Chronologically ordered equity points
     pub points: Vec<EquityPoint>,
 }
 
 /// Comprehensive drawdown metrics
-#[derive(Debug, PartialEq, serde::Serialize)]
+#[derive(Debug, PartialEq, serde::Serialize, schemars::JsonSchema)]
 pub struct DrawdownMetrics {
     /// Current account equity
     pub current_equity: Decimal,
@@ -63,7 +63,7 @@ struct PeakDrawdownData {
 }
 
 /// Calculator for realized drawdown metrics
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, serde::Serialize, schemars::JsonSchema)]
 pub struct RealizedDrawdownCalculator;
 
 impl RealizedDrawdownCalculator {

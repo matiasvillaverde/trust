@@ -5,6 +5,8 @@ use axum::{
     response::{IntoResponse, Response},
     Json, Router,
 };
+pub mod risk;
+mod schema;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 use serde_json::{json, Value};
@@ -28,6 +30,12 @@ pub struct BrokerState {
     pub release: Semaphore,
     pub orders: Mutex<Vec<Value>>,
     pub fail_activities: AtomicBool,
+    pub fail_snapshot: AtomicBool,
+    pub ledger: Mutex<Option<Value>>,
+    pub positions: Mutex<Option<Value>>,
+    pub summary: Mutex<Option<Value>>,
+    pub quote: Mutex<Option<Value>>,
+    pub history: Mutex<Option<Value>>,
 }
 impl Default for BrokerState {
     fn default() -> Self {
@@ -38,6 +46,12 @@ impl Default for BrokerState {
             release: Semaphore::new(0),
             orders: Mutex::new(Vec::new()),
             fail_activities: AtomicBool::new(false),
+            fail_snapshot: AtomicBool::new(false),
+            ledger: Mutex::new(None),
+            positions: Mutex::new(None),
+            summary: Mutex::new(None),
+            quote: Mutex::new(None),
+            history: Mutex::new(None),
         }
     }
 }
@@ -54,7 +68,9 @@ impl BrokerState {
             };
             order["filledQuantity"] = json!(filled);
             order["avgPrice"] = order["price"].clone();
-            order["status"] = json!(if filled == "0" {
+            order["status"] = json!(if filled == "0" && exit == "10" {
+                "Cancelled"
+            } else if filled == "0" {
                 "Submitted"
             } else if filled == "10" {
                 "Filled"
@@ -96,6 +112,13 @@ async fn gateway(
     body: Bytes,
 ) -> Response {
     let data: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
+    if uri.path().starts_with("/portfolio/") && state.fail_snapshot.load(Ordering::SeqCst) {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error":"unavailable"})),
+        )
+            .into_response();
+    }
     let value = match (method.as_str(), uri.path()) {
         ("GET", "/iserver/auth/status") => {
             json!({"authenticated":true,"connected":true,"established":true})
@@ -104,8 +127,29 @@ async fn gateway(
             json!({"isPaper":true,"accounts":["DU_TEST"],"selectedAccount":"DU_TEST"})
         }
         ("POST", "/iserver/account") => json!({"acctId":"DU_TEST"}),
+        ("GET", "/portfolio/accounts") => json!([{"id":"DU_TEST","accountId":"DU_TEST"}]),
+        ("GET", "/portfolio/DU_TEST/summary") => state.summary.lock().unwrap().clone().unwrap_or_else(risk::summary),
+        ("GET", "/portfolio/DU_TEST/ledger") => state.ledger.lock().unwrap().clone().unwrap_or_else(||json!({"BASE":{"acctcode":"DU_TEST","netliquidationvalue":"10000","cashbalance":"10000","realizedpnl":"0","unrealizedpnl":"0","timestamp":chrono::Utc::now().timestamp()}})),
+        ("GET", "/portfolio/DU_TEST/positions/0") => {
+            if let Some(positions)=state.positions.lock().unwrap().clone() {return Json(positions).into_response();}
+            use rust_decimal::Decimal;
+            let orders=state.orders.lock().unwrap();
+            let mut quantity=Decimal::ZERO;
+            for order in orders.iter() {
+                let filled=Decimal::from_str_exact(order["filledQuantity"].as_str().unwrap()).unwrap();
+                quantity+=if order["side"]=="BUY" {filled} else {-filled};
+            }
+            if quantity.is_zero() {json!([])} else {json!([{"acctId":"DU_TEST","conid":"1234","contractDesc":"TEST","currency":"USD","assetClass":"STK","position":quantity.to_string(),"mktValue":(quantity*Decimal::new(100,0)).to_string()}])}
+        }
         ("GET", "/iserver/secdef/search") => {
             json!([{"symbol":"TEST","conid":"1234","secType":"STK","currency":"USD","exchange":"SMART"}])
+        }
+        // Deterministic, timestamped admission evidence from the simulated gateway.
+        ("GET", "/iserver/marketdata/snapshot") => state.quote.lock().unwrap().clone().unwrap_or_else(risk::quote),
+        ("GET", "/iserver/marketdata/history") => state.history.lock().unwrap().clone().unwrap_or_else(risk::history),
+        ("POST", "/iserver/account/DU_TEST/orders/whatif") => {
+            assert_eq!(data["orders"].as_array().unwrap().len(), 3);
+            json!({"amount":{"amount":"500.00 USD","commission":"1.00 USD","total":"501.00 USD"},"initial":{"change":"500.00 USD"},"maintenance":{"change":"250.00 USD"}})
         }
         ("GET", "/iserver/account/orders") => {
             if uri
@@ -121,7 +165,7 @@ async fn gateway(
             assert_eq!(data["orders"].as_array().unwrap().len(), 3);
             let orders = data["orders"].as_array().unwrap().iter().enumerate().map(|(i, order)| {
                 assert_eq!(order["acctId"], "DU_TEST");
-                json!({"orderId":i+1,"order_ref":order["cOID"],"leg":order["referrer"],"price":order["price"],"filledQuantity":"0","status":"Submitted"})
+                json!({"orderId":i+1,"order_ref":order["cOID"],"leg":order["referrer"],"price":order["price"],"filledQuantity":"0","status":"Submitted","acct":"DU_TEST","conid":"1234","ticker":"TEST","currency":"USD","secType":"STK","side":order["side"],"totalSize":order["quantity"],"orderType":order["orderType"]})
             }).collect();
             *state.orders.lock().unwrap() = orders;
             state.submissions.fetch_add(1, Ordering::SeqCst);
@@ -176,6 +220,11 @@ pub struct Fixture {
 impl Fixture {
     pub fn new(timeout_ms: u64, queue: usize) -> Self {
         let dir = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(
+            dir.path(),
+            std::os::unix::fs::PermissionsExt::from_mode(0o700),
+        )
+        .unwrap();
         let rsa = openssl::rsa::Rsa::generate(2048).unwrap();
         let key = EncodingKey::from_rsa_pem(&rsa.private_key_to_pem().unwrap()).unwrap();
         let jwks = dir.path().join("jwks.json");
@@ -194,12 +243,35 @@ impl Fixture {
             client,
         }
     }
+    pub fn add_agent(&mut self, subject: &str) {
+        self.config["grants"][subject] = self.config["grants"]["agent"].clone();
+        std::fs::write(self.dir.path().join("config.json"), self.config.to_string()).unwrap();
+    }
     pub fn token(&self, subject: &str) -> String {
         let now = chrono::Utc::now().timestamp();
-        let claims = json!({"iss":self.config["issuer"],"aud":"http://localhost:8000/mcp","sub":subject,"iat":now,"exp":now+900,"auth_time":now,"acr":"urn:trust:owner:mfa","scope":if subject=="owner" || subject=="agent"{SCOPES.join(" ")}else{"trust:read".into()},"client_id":"e2e-agent"});
+        let claims = json!({"iss":self.config["issuer"],"aud":"http://localhost:8000/mcp","sub":subject,"iat":now,"exp":now+900,"auth_time":now,"acr":"urn:trust:owner:mfa","scope":if subject=="owner" || subject.starts_with("agent"){SCOPES.join(" ")}else{"trust:read".into()},"client_id":"e2e-agent"});
         let mut header = Header::new(Algorithm::RS256);
         header.kid = Some("e2e".into());
         encode(&header, &claims, &self.key).unwrap()
+    }
+    pub fn enable_encryption(&mut self) {
+        let data = self.dir.path().join("data");
+        let secrets = self.dir.path().join("secrets");
+        trust_security::private_directory(&data).unwrap();
+        trust_security::private_directory(&secrets).unwrap();
+        self.config["database"] = json!(data.join("financial.db"));
+        self.config["journal"] = json!(data.join("control.db"));
+        let mut keys = serde_json::Map::new();
+        for name in ["financial", "journal", "backup"] {
+            let path = secrets.join(format!("{name}-key.hex"));
+            trust_security::DatabaseKey::generate()
+                .unwrap()
+                .write_new(&path)
+                .unwrap();
+            keys.insert(format!("{name}_key_file"), json!(path));
+        }
+        self.config["storage_encryption"] = json!(keys);
+        std::fs::write(self.dir.path().join("config.json"), self.config.to_string()).unwrap();
     }
     pub fn spawn(&self, gateway: &Gateway) -> Process {
         let mut child = Command::new(env!("CARGO_BIN_EXE_trust-service"))
@@ -330,6 +402,7 @@ impl Fixture {
             value
         };
         assert_eq!(reply["request_id"], request_id, "{reply}");
+        schema::validate(name, &reply);
         Ok(reply)
     }
     pub async fn ok(&self, p: &Process, name: &str, args: Value) -> Value {
@@ -343,12 +416,23 @@ impl Fixture {
         for (kind, pct) in [("per_trade", "1"), ("per_month", "5")] {
             self.ok(p,"risk_rule_create",json!({"account_id":account,"kind":kind,"percentage":pct,"priority":"error","description":"E2E risk","idempotency_key":format!("risk-{kind}-{suffix}")})).await;
         }
+        self.ok(p,"account_safety_policy_set",json!({"account_id":account,"currency":"USD","max_gross_notional":"100000","max_order_notional":"10000","max_daily_loss":"500","max_drawdown":"1000","max_snapshot_age_seconds":120,"controls":risk::controls(),"idempotency_key":format!("safety-{suffix}")})).await;
         let instrument=self.ok(p,"instrument_create",json!({"symbol":"TEST","category":"stock","broker":"ibkr","idempotency_key":format!("instrument-{suffix}")})).await["id"].clone();
+        self.ok(p,"instrument_update",json!({"instrument_id":instrument,"broker_asset_id":"1234","idempotency_key":format!("instrument-native-{suffix}")})).await;
+        self.ok(p,"agent_mandate_set",json!({"account_id":account,"subject":"agent","instrument_ids":[instrument],"max_order_notional":"10000","max_total_notional":"100000","max_open_trades":100,"allow_short":true,"risk_budget":risk::budget(),"expires_at":(chrono::Utc::now()+chrono::Duration::hours(1)).to_rfc3339(),"idempotency_key":format!("mandate-{suffix}")})).await;
         let trade=self.ok(p,"trade_prepare",json!({"account_id":account,"instrument_id":instrument,"side":side,"quantity":qty,"entry":"100","stop":if side=="long"{"95"}else{"105"},"target":if side=="long"{"110"}else{"90"},"idempotency_key":format!("trade-{suffix}")})).await["id"].clone();
         (account, trade)
     }
     pub fn journal(&self) -> rusqlite::Connection {
-        rusqlite::Connection::open(self.dir.path().join("control.db")).unwrap()
+        let connection =
+            rusqlite::Connection::open(self.config["journal"].as_str().unwrap()).unwrap();
+        if let Some(path) = self.config["storage_encryption"]["journal_key_file"].as_str() {
+            let key = trust_security::DatabaseKey::load(std::path::Path::new(path)).unwrap();
+            connection
+                .execute_batch(&format!("PRAGMA key = {};", key.sql_literal().as_str()))
+                .unwrap();
+        }
+        connection
     }
     pub async fn accepted(&self, gateway: &Gateway) {
         let start = Instant::now();

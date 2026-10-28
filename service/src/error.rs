@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Stable, sanitized application error. Internal provider errors never cross the boundary.
-#[derive(Clone, Debug, Serialize, Deserialize, thiserror::Error)]
+#[derive(Clone, Debug, Serialize, Deserialize, thiserror::Error, schemars::JsonSchema)]
 #[error("{message}")]
 pub struct ServiceError {
     pub code: String,

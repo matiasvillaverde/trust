@@ -11,7 +11,7 @@ use uuid::Uuid;
 const WASH_SALE_WINDOW_DAYS: u64 = 30;
 
 /// Error returned when wash sale analysis cannot be computed safely.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, schemars::JsonSchema)]
 pub struct WashSaleError {
     context: &'static str,
 }
@@ -31,7 +31,7 @@ impl Display for WashSaleError {
 impl Error for WashSaleError {}
 
 /// A single loss-sale to replacement-purchase wash sale allocation.
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, schemars::JsonSchema)]
 pub struct WashSaleMatch {
     /// Account owning both the loss sale and replacement trade.
     pub account_id: Uuid,
@@ -60,7 +60,7 @@ pub struct WashSaleMatch {
 }
 
 /// Aggregated cost-basis adjustment for one replacement trade.
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, schemars::JsonSchema)]
 pub struct WashSaleReplacementAdjustment {
     /// Replacement trade whose cost basis is adjusted.
     pub replacement_trade_id: Uuid,
@@ -81,7 +81,7 @@ pub struct WashSaleReplacementAdjustment {
 }
 
 /// Wash sale analysis result for a trade set.
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, schemars::JsonSchema)]
 pub struct WashSaleReport {
     /// Number of trades scanned.
     pub scanned_trade_count: usize,
@@ -100,7 +100,7 @@ pub struct WashSaleReport {
 }
 
 /// Stateless wash sale detector.
-#[derive(Debug, Default, serde::Serialize)]
+#[derive(Debug, Default, serde::Serialize, schemars::JsonSchema)]
 pub struct WashSaleService;
 
 impl WashSaleService {
@@ -137,7 +137,7 @@ impl WashSaleService {
     }
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, schemars::JsonSchema)]
 struct LossLot {
     account_id: Uuid,
     trade_id: Uuid,
@@ -148,7 +148,7 @@ struct LossLot {
     realized_loss: Decimal,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, schemars::JsonSchema)]
 struct ReplacementLot {
     account_id: Uuid,
     trade_id: Uuid,

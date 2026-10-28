@@ -1,0 +1,4 @@
+interface:
+  display_name: "Trust: Owner administration"
+  short_description: "Owner policies, agent mandates, audit, and recovery"
+  default_prompt: "Use $trust-admin to explain the owner setup or recovery steps for my account."

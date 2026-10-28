@@ -249,6 +249,93 @@ impl DatabaseFactory for SqliteDatabase {
 }
 
 impl SqliteDatabase {
+    /// Open SQLCipher storage without falling back to plaintext or terminating the process.
+    pub fn open_encrypted(
+        path: &Path,
+        key: &trust_security::DatabaseKey,
+    ) -> Result<Self, crate::StorageError> {
+        use crate::StorageError;
+        use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
+        const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
+        let _file = trust_security::private_file(path, false).map_err(|_| StorageError::Open)?;
+        let path = path.to_str().ok_or(StorageError::Open)?;
+        let mut connection = SqliteConnection::establish(path).map_err(|_| StorageError::Open)?;
+        crate::encryption::unlock(&mut connection, key)?;
+        let exists = diesel::select(diesel::dsl::sql::<diesel::sql_types::Bool>(
+            "EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%')",
+        ))
+        .get_result::<bool>(&mut connection)
+        .map_err(|_| StorageError::Open)?;
+        if exists {
+            upgrade_existing_schema(&mut connection).map_err(|_| StorageError::Database)?;
+        } else {
+            connection
+                .run_pending_migrations(MIGRATIONS)
+                .map_err(|_| StorageError::Database)?;
+        }
+        Self::configure_storage(&mut connection)?;
+        Ok(Self {
+            connection: Arc::new(Mutex::new(connection)),
+        })
+    }
+
+    /// Export the financial backup contract directly into encrypted SQLite, with no
+    /// intermediate plaintext file. The caller retains the key separately.
+    pub fn export_encrypted_to_path(
+        &self,
+        path: &Path,
+        key: &trust_security::DatabaseKey,
+    ) -> Result<(), crate::StorageError> {
+        use crate::StorageError;
+        let snapshot = {
+            let mut connection = self.connection.lock().map_err(|_| StorageError::Database)?;
+            backup::read_backup(&mut connection).map_err(|_| StorageError::Database)?
+        };
+        let file = trust_security::private_file(path, true).map_err(|_| StorageError::Open)?;
+        let result = (|| {
+            let database = Self::open_encrypted(path, key)?;
+            let mut connection = database
+                .connection
+                .lock()
+                .map_err(|_| StorageError::Database)?;
+            backup::import_backup(&mut connection, &snapshot, ImportOptions::default())
+                .map_err(|_| StorageError::Database)?;
+            drop(connection);
+            drop(database);
+            file.sync_all().map_err(|_| StorageError::Database)?;
+            let directory = path.parent().ok_or(StorageError::Open)?;
+            std::fs::File::open(directory)
+                .and_then(|file| file.sync_all())
+                .map_err(|_| StorageError::Database)
+        })();
+        if result.is_err() {
+            let _ = std::fs::remove_file(path);
+        }
+        result
+    }
+
+    /// Import an encrypted financial backup transactionally; opening the source
+    /// never migrates or modifies its schema and never writes plaintext to disk.
+    pub fn import_encrypted_from_path(
+        &mut self,
+        path: &Path,
+        key: &trust_security::DatabaseKey,
+    ) -> Result<backup::ImportReport, crate::StorageError> {
+        use crate::StorageError;
+        use diesel::connection::SimpleConnection;
+        let _file = trust_security::read_private_file(path).map_err(|_| StorageError::Open)?;
+        let mut source = SqliteConnection::establish(path.to_str().ok_or(StorageError::Open)?)
+            .map_err(|_| StorageError::Open)?;
+        crate::encryption::unlock(&mut source, key)?;
+        source
+            .batch_execute("PRAGMA query_only = ON;")
+            .map_err(|_| StorageError::Open)?;
+        let snapshot = backup::read_backup(&mut source).map_err(|_| StorageError::Database)?;
+        let mut destination = self.connection.lock().map_err(|_| StorageError::Database)?;
+        backup::import_backup(&mut destination, &snapshot, ImportOptions::default())
+            .map_err(|_| StorageError::Database)
+    }
+
     fn validate_savepoint_name(name: &str) -> Result<(), Box<dyn Error>> {
         if name.is_empty() {
             return Err("savepoint name cannot be empty".into());
@@ -274,53 +361,36 @@ impl SqliteDatabase {
         Ok(())
     }
 
-    fn configure_connection(connection: &mut SqliteConnection) {
-        // Enforce relational integrity. SQLite does not enable FK constraints by default.
-        execute_sql_or_exit(
-            connection,
+    fn configure_storage(connection: &mut SqliteConnection) -> Result<(), crate::StorageError> {
+        for statement in [
             "PRAGMA foreign_keys = ON;",
-            "Failed to enable foreign_keys pragma",
-        );
-
-        execute_sql_or_exit(
-            connection,
             "CREATE INDEX IF NOT EXISTS idx_transactions_account_currency_category_active \
              ON transactions(account_id, currency, category, created_at) \
              WHERE deleted_at IS NULL",
-            "Failed to create index idx_transactions_account_currency_category_active",
-        );
-
-        execute_sql_or_exit(
-            connection,
             "CREATE INDEX IF NOT EXISTS idx_transactions_trade_category_active \
              ON transactions(trade_id, category, created_at) \
              WHERE deleted_at IS NULL",
-            "Failed to create index idx_transactions_trade_category_active",
-        );
-
-        execute_sql_or_exit(
-            connection,
             "CREATE INDEX IF NOT EXISTS idx_trades_account_status_currency_active \
              ON trades(account_id, status, currency) \
              WHERE deleted_at IS NULL",
-            "Failed to create index idx_trades_account_status_currency_active",
-        );
-
-        execute_sql_or_exit(
-            connection,
             "CREATE INDEX IF NOT EXISTS idx_accounts_balances_account_currency_active \
              ON accounts_balances(account_id, currency) \
              WHERE deleted_at IS NULL",
-            "Failed to create index idx_accounts_balances_account_currency_active",
-        );
-
-        execute_sql_or_exit(
-            connection,
             "CREATE INDEX IF NOT EXISTS idx_logs_trade_active \
              ON logs(trade_id, created_at) \
              WHERE deleted_at IS NULL",
-            "Failed to create index idx_logs_trade_active",
-        );
+        ] {
+            sql_query(statement)
+                .execute(connection)
+                .map_err(|_| crate::StorageError::Database)?;
+        }
+        Ok(())
+    }
+
+    fn configure_connection(connection: &mut SqliteConnection) {
+        if let Err(error) = Self::configure_storage(connection) {
+            fatal_database_error("Failed to configure database", error);
+        }
     }
 
     /// Create a new SQLite database connection from a URL

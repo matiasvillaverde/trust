@@ -4,11 +4,11 @@ use std::str::FromStr;
 use uuid::Uuid;
 
 /// Error returned when parsing an invalid session regime.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, schemars::JsonSchema)]
 pub struct SessionRegimeParseError;
 
 /// Pre-session market risk regime selected by the trader.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, schemars::JsonSchema)]
 pub enum SessionRegime {
     /// Calm market conditions.
     Calm,
@@ -43,7 +43,7 @@ impl FromStr for SessionRegime {
 }
 
 /// Error returned when parsing or formatting an invalid setup list.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, schemars::JsonSchema)]
 pub enum SessionSetupListError {
     /// No setup names were supplied.
     Empty,
@@ -107,7 +107,7 @@ pub fn parse_session_setups(value: &str) -> Result<Vec<String>, SessionSetupList
 }
 
 /// Pre-session plan and post-session review for a single trading session.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, schemars::JsonSchema)]
 pub struct SessionPlan {
     /// Unique session plan identifier.
     pub id: Uuid,
@@ -142,7 +142,7 @@ pub struct SessionPlan {
 }
 
 /// Review data applied when closing an open session plan.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, schemars::JsonSchema)]
 pub struct SessionPlanClose {
     /// Session plan being closed.
     pub session_plan_id: Uuid,

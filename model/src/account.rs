@@ -7,7 +7,7 @@ use std::fmt::{self, Display, Formatter};
 use uuid::Uuid;
 
 /// Account type for specialized account purposes
-#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, schemars::JsonSchema)]
 pub enum AccountType {
     /// Main trading account
     Primary,
@@ -22,7 +22,7 @@ pub enum AccountType {
 }
 
 /// Error type for account hierarchy validation failures
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, schemars::JsonSchema)]
 pub enum AccountHierarchyError {
     /// Self-referencing account
     SelfReference,
@@ -39,7 +39,7 @@ pub enum AccountHierarchyError {
 ///
 /// For example: Binance account, Kraken account, etc.
 /// It doesn't need to be a real account. It can be a paper trading account.
-#[derive(PartialEq, Debug, Clone, serde::Serialize)]
+#[derive(PartialEq, Debug, Clone, serde::Serialize, schemars::JsonSchema)]
 pub struct Account {
     /// Unique identifier for the account
     pub id: Uuid,
@@ -80,7 +80,7 @@ pub struct Account {
 ///
 /// WARNING: This entity can be out of sync with the actual account.
 /// If your feature is important, consider recalculating the account balance.
-#[derive(PartialEq, Debug, Clone, Copy, serde::Serialize)]
+#[derive(PartialEq, Debug, Clone, Copy, serde::Serialize, schemars::JsonSchema)]
 pub struct AccountBalance {
     /// Unique identifier for the account balance
     pub id: Uuid,
@@ -241,7 +241,7 @@ impl Display for AccountType {
 }
 
 /// Trading environment type
-#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, schemars::JsonSchema)]
 pub enum Environment {
     /// Paper trading environment for testing
     Paper,
@@ -266,7 +266,7 @@ impl Display for Environment {
 }
 
 /// Error when parsing environment from string fails
-#[derive(Debug, Clone, Copy, serde::Serialize)]
+#[derive(Debug, Clone, Copy, serde::Serialize, schemars::JsonSchema)]
 pub struct EnvironmentParseError;
 impl std::str::FromStr for Environment {
     type Err = EnvironmentParseError;

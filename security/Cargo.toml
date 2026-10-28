@@ -1,0 +1,24 @@
+[package]
+name = "trust-security"
+version.workspace = true
+edition = "2021"
+license.workspace = true
+rust-version.workspace = true
+description = "Private storage and encryption key handling for Trust"
+
+[dependencies]
+zeroize.workspace = true
+thiserror.workspace = true
+getrandom = "0.4.3"
+
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1.1.5", features = ["fs", "process"] }
+
+[dev-dependencies]
+tempfile = "3.27.0"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+indexing_slicing = "deny"

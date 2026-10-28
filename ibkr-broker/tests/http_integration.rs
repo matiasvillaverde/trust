@@ -1324,3 +1324,62 @@ fn incomplete_or_truncated_order_snapshots_never_submit() {
         );
     }
 }
+
+#[test]
+fn risk_market_data_uses_exact_contract_and_requires_timestamped_realtime_evidence() {
+    for case in [
+        "valid",
+        "delayed",
+        "wrong_contract",
+        "no_time",
+        "future_bar",
+        "wrong_history",
+    ] {
+        let server = TestServer::start();
+        mock_session(&server);
+        let now = chrono::Utc::now();
+        let mut quote = json!([{"conid":"1234","84":"99.99","86":"100.01","88":"1,300","85":"1,200","6509":"RpB","_updated":now.timestamp_millis()}]);
+        match case {
+            "delayed" => quote[0]["6509"] = json!("DpB"),
+            "wrong_contract" => quote[0]["conid"] = json!("9999"),
+            "no_time" => {
+                quote[0].as_object_mut().unwrap().remove("_updated");
+            }
+            _ => {}
+        }
+        let snapshot = server.expect(
+            MockExpectation::json("GET", "/v1/api/iserver/marketdata/snapshot", quote)
+                .query("conids", "1234"),
+        );
+        let mut history = json!({"conid":"1234","volumeFactor":"100","data":(1..=3).rev().map(|d|json!({"t":(now-chrono::Duration::days(d)).timestamp_millis(),"o":"100","h":"101","l":"99","c":"100","v":"12.5"})).collect::<Vec<_>>()});
+        if case == "future_bar" {
+            history["data"][0]["t"] = json!((now + chrono::Duration::days(1)).timestamp_millis());
+        }
+        if case == "wrong_history" {
+            history["conid"] = json!("9999");
+        }
+        let history_mock = server.expect(
+            MockExpectation::json("GET", "/v1/api/iserver/marketdata/history", history)
+                .query("conid", "1234")
+                .query("bar", "1d"),
+        );
+        with_mock_gateway(&server, || {
+            let result = IbkrBroker.risk_market_data(&account(), "1234", 2);
+            if case == "valid" {
+                let data = result.unwrap();
+                assert_eq!(data.instrument_id, "1234");
+                assert_eq!(data.bid_size, dec!(1300));
+                assert_eq!(data.ask_size, dec!(1200));
+                assert_eq!(data.daily_bars.len(), 3);
+                assert_eq!(data.daily_bars[0].volume, 1250);
+                assert_eq!(data.observed_at.timestamp_millis(), now.timestamp_millis());
+            } else {
+                assert!(result.is_err(), "{case}");
+            }
+        });
+        snapshot.assert();
+        if matches!(case, "valid" | "future_bar" | "wrong_history") {
+            history_mock.assert();
+        }
+    }
+}

@@ -67,6 +67,21 @@ impl std::fmt::Debug for BrokerRegistry {
 }
 
 impl Broker for BrokerRegistry {
+    fn risk_market_data(
+        &self,
+        account: &Account,
+        instrument_id: &str,
+        lookback_bars: u32,
+    ) -> Result<model::portfolio_risk::RiskMarketData, Box<dyn Error>> {
+        self.broker_for_account(account)?
+            .risk_market_data(account, instrument_id, lookback_bars)
+    }
+    fn account_snapshot(
+        &self,
+        account: &Account,
+    ) -> Result<model::account_safety::BrokerAccountSnapshot, Box<dyn Error>> {
+        self.broker_for_account(account)?.account_snapshot(account)
+    }
     fn instrument_metadata(
         &self,
         account: &Account,

@@ -10,7 +10,7 @@ use crate::{
 };
 use serde_json::{json, Value};
 use std::{
-    fs::{File, OpenOptions},
+    fs::File,
     sync::{
         atomic::{AtomicBool, AtomicU8, Ordering},
         mpsc, Arc,
@@ -79,6 +79,7 @@ impl Service {
         F: FnOnce() -> Result<trust_core::TrustFacade> + Send + 'static,
     {
         config.validate()?;
+        config.verify_secret_files()?;
         let metrics = Arc::new(Metrics::default());
         let worker_metrics = metrics.clone();
         let queue_capacity = config.queue_capacity;
@@ -95,7 +96,12 @@ impl Service {
                 let _ready_guard = ReadyGuard(worker_ready.clone());
                 let initialized = (|| -> Result<_> {
                     let locks = lock_storage(&config)?;
-                    let journal = Journal::open(&config.journal)?;
+                    let journal = if let Some(encryption) = &config.storage_encryption {
+                        let key = trust_security::DatabaseKey::load(&encryption.journal_key_file).map_err(|_| crate::config::storage_error())?;
+                        Journal::open_encrypted(&config.journal, &key)?
+                    } else {
+                        Journal::open(&config.journal)?
+                    };
                     let facade = factory()?;
                     Ok((
                         locks,
@@ -117,6 +123,7 @@ impl Service {
                 let _ = startup_tx.send(Ok(()));
                 let mut next_reconcile = Instant::now();
                 let mut reconcile_cursor = None;
+                let mut safety_cursor = None;
                 while !worker_stopping.load(Ordering::Acquire) {
                     match receiver.recv_timeout(Duration::from_millis(250)) {
                         Ok(request) => {
@@ -163,7 +170,7 @@ impl Service {
                         && next_reconcile.elapsed()
                             >= Duration::from_secs(config.reconcile_interval_seconds)
                     {
-                        if reconcile(&mut domain, &mut journal, &mut reconcile_cursor, &worker_metrics).is_err() {
+                        if reconcile(&mut domain, &mut journal, &mut reconcile_cursor, &mut safety_cursor, &worker_metrics).is_err() {
                             break;
                         }
                         next_reconcile = Instant::now();
@@ -314,17 +321,8 @@ fn lock_storage(config: &Config) -> Result<Vec<File>> {
     let mut locks = Vec::new();
     let mut canonical = Vec::new();
     for path in [&config.database, &config.journal] {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(|_| ServiceError::internal())?;
-        }
-        let mut options = OpenOptions::new();
-        options.read(true).write(true).create(true).truncate(false);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
-        }
-        let file = options.open(path).map_err(|_| ServiceError::internal())?;
+        let file = trust_security::private_file(path, false)
+            .map_err(|_| crate::config::storage_error())?;
         fs2::FileExt::try_lock_exclusive(&file).map_err(|_| {
             ServiceError::new(
                 "storage_locked",
@@ -478,15 +476,29 @@ fn execute_inner(
     } else {
         None
     };
-    let result = metrics.measure(Stage::Domain, || match spec.operation {
-        Operation::OperationGet => journal.operation(identity, domain::string(args, "key")?),
-        Operation::AuditList => journal.list(
-            identity,
-            args.get("after").and_then(Value::as_u64).unwrap_or(0),
-            args.get("limit").and_then(Value::as_u64).unwrap_or(100),
-        ),
-        Operation::AuditVerify => journal.verify(),
-        _ => domain.dispatch(identity, spec.operation, args),
+    let result = metrics.measure(Stage::Domain, || {
+        crate::safety::before(domain, journal, identity, spec.operation, args, request_id)?;
+        identity.check(spec.scope, account)?;
+        if crate::safety::handles(spec.operation) {
+            return crate::safety::dispatch(
+                domain,
+                journal,
+                identity,
+                spec.operation,
+                args,
+                request_id,
+            );
+        }
+        match spec.operation {
+            Operation::OperationGet => journal.operation(identity, domain::string(args, "key")?),
+            Operation::AuditList => journal.list(
+                identity,
+                args.get("after").and_then(Value::as_u64).unwrap_or(0),
+                args.get("limit").and_then(Value::as_u64).unwrap_or(100),
+            ),
+            Operation::AuditVerify => journal.verify(),
+            _ => domain.dispatch(identity, spec.operation, args),
+        }
     });
     let result = match result {
         Err(error) if error.code == "audit_integrity_failed" => return Err(error),
@@ -500,6 +512,16 @@ fn execute_inner(
             error
         }
     });
+    crate::safety::after(
+        domain,
+        journal,
+        identity,
+        spec,
+        args,
+        request_id,
+        operation_id,
+        &result,
+    )?;
     let result = result.map(|value| {
         if spec.mutation {
             value
@@ -508,17 +530,14 @@ fn execute_inner(
         }
     });
     let mut reply = Reply::from_result(request_id, operation_id, result);
-    if reply.error.is_none() {
-        reply.next_actions = match spec.operation {
-            Operation::TradeCreate => vec!["broker_preview".into(), "trade_fund".into()],
-            Operation::TradeFund => vec!["trade_submit".into()],
-            Operation::TradeSubmit
-            | Operation::TradeClose
-            | Operation::StopModify
-            | Operation::TargetModify => vec!["trade_reconcile".into()],
-            _ => Vec::new(),
-        };
-    }
+    reply.actions =
+        crate::guidance::actions(domain, journal, identity, spec.operation, args, &reply);
+    reply.next_actions = reply
+        .actions
+        .iter()
+        .filter(|action| action.available)
+        .map(|action| action.tool.clone())
+        .collect();
     // Bound persisted and returned bodies. Never turn a successful mutation into a replay.
     if serde_json::to_vec(&reply)
         .map_err(|_| ServiceError::internal())?
@@ -560,8 +579,48 @@ fn reconcile(
     domain: &mut Domain,
     journal: &mut Journal,
     cursor: &mut Option<(Uuid, Uuid)>,
+    safety_cursor: &mut Option<Uuid>,
     metrics: &Metrics,
 ) -> Result<()> {
+    if let Some(account) = crate::safety::background_account(domain, journal, *safety_cursor)? {
+        *safety_cursor = Some(account);
+        let scopes = std::collections::BTreeSet::from(["trust:reconcile".to_owned()]);
+        let identity = Identity {
+            subject: "system:reconciler".into(),
+            client_id: None,
+            expires_at: u64::MAX,
+            owner_authenticated_until: None,
+            scopes: scopes.clone(),
+            grant: Grant {
+                role: crate::auth::Role::Agent,
+                accounts: Default::default(),
+                all_accounts: true,
+                scopes,
+                allow_live: domain.config.allow_live,
+            },
+        };
+        let result = execute(
+            domain,
+            journal,
+            &identity,
+            "account_refresh",
+            &json!({"account_id":account,"idempotency_key":Uuid::new_v4().to_string()}),
+            Uuid::new_v4(),
+            Observation {
+                source: Source::Background,
+                wait: Duration::ZERO,
+                metrics,
+            },
+        );
+        if let Err(error) = result {
+            if matches!(
+                error.code.as_str(),
+                "audit_unavailable" | "audit_integrity_failed"
+            ) {
+                return Err(error);
+            }
+        }
+    }
     let accounts = match domain.facade.search_all_accounts() {
         Ok(accounts) => accounts,
         Err(_) => {

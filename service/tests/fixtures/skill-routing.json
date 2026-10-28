@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "cases": [
+    {"id":"r01","split":"development","role":"agent","prompt":"size this TEST long in my Trust paper acct, 100 entry 95 stop 110 target. dont place it","expected":"trust-risk"},
+    {"id":"r02","split":"development","role":"owner","prompt":"Explain what a family trust is and how it differs from a brokerage account.","expected":null},
+    {"id":"r03","split":"development","role":"agent","prompt":"Trust timed out when submitting. Can you check what happened before doing anything else?","expected":"trust-operations"},
+    {"id":"r04","split":"development","role":"owner","prompt":"Set a stricter daily loss limit for my Trust account using my owner session.","expected":"trust-admin"},
+    {"id":"r05","split":"development","role":"agent","prompt":"Use Trust to get recent Alpaca bars and quotes for TEST. Just research, no trade.","expected":"trust-risk"},
+    {"id":"r06","split":"development","role":"agent","prompt":"Write a Rust unit test for a decimal parser in the Trust repository.","expected":null},
+    {"id":"r07","split":"development","role":"agent","prompt":"Raise my Trust agent budget and add 10000 to my broker account. Tell me what this connection can do.","expected":"trust-risk"},
+    {"id":"r08","split":"development","role":"owner","prompt":"Trust says the submission is unknown and I also want higher risk limits. First find out whether that order happened.","expected":"trust-operations"},
+    {"id":"r09","split":"development","role":"owner","prompt":"Review the backup and audit evidence before resuming my halted Trust account.","expected":"trust-admin"},
+    {"id":"r10","split":"development","role":"agent","prompt":"What does a stop-limit order mean? Explain the concept without accessing any account.","expected":null},
+    {"id":"r11","split":"development","role":"owner","prompt":"Help me reset my bank password. This is unrelated to the Trust service.","expected":null},
+    {"id":"r12","split":"development","role":"agent","prompt":"Inspect my Trust trade: 3 shares filled out of 10. Is it protected, and how could I exit?","expected":"trust-operations"},
+    {"id":"r13","split":"validation","role":"agent","prompt":"Use the connected Trust service to check portfolio concentration and correlated exposure before I consider another position.","expected":"trust-risk"},
+    {"id":"r14","split":"validation","role":"owner","prompt":"Draft a fictional conversation between a trader and a risk manager. Do not use any connected accounts.","expected":null},
+    {"id":"r15","split":"validation","role":"agent","prompt":"My short in Trust has a stop below entry now. Move it a little higher so it has breathing room but keeps some profit.","expected":"trust-operations"},
+    {"id":"r16","split":"validation","role":"owner","prompt":"Restrict the research agent in Trust to these two instruments and make its mandate expire tonight.","expected":"trust-admin"},
+    {"id":"r17","split":"validation","role":"agent","prompt":"How much would a 5% fall change a hypothetical 1000 dollar position? Just arithmetic, no Trust account data.","expected":null},
+    {"id":"r18","split":"validation","role":"owner","prompt":"Review the OAuth middleware in Trust's Rust code for an authorization bug.","expected":null},
+    {"id":"r19","split":"validation","role":"agent","prompt":"Use Trust to calculate bond duration and explain the fixed-income exposure in my selected portfolio.","expected":"trust-risk"},
+    {"id":"r20","split":"validation","role":"owner","prompt":"Record an independently verified capital withdrawal in Trust's ledger; I already moved the cash at my bank.","expected":"trust-admin"},
+    {"id":"r21","split":"validation","role":"agent","prompt":"In Trust, review yesterday's session plan, journals and trade grades. No new writes.","expected":"trust-operations"},
+    {"id":"r22","split":"validation","role":"agent","prompt":"Is the crypto app Trust Wallet the same thing as MetaMask? Compare them conceptually.","expected":null},
+    {"id":"r23","split":"validation","role":"agent","prompt":"This Trust connection is an agent, but I want to loosen the account drawdown rule. Explain the required handoff.","expected":"trust-risk"},
+    {"id":"r24","split":"validation","role":"agent","prompt":"My existing mandate authorizes TEST paper trades. Use Trust to size and execute this new bracket if capacity allows it.","expected":"trust-risk"}
+  ]
+}

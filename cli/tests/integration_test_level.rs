@@ -173,7 +173,7 @@ fn test_policy_evaluation_applies_upgrade_and_downgrade() {
     let upgrade_snapshot = LevelPerformanceSnapshot {
         profitable_trades: 11,
         win_rate_percentage: dec!(72),
-        monthly_loss_percentage: dec!(-1),
+        monthly_loss_percentage: Decimal::ZERO,
         largest_loss_percentage: dec!(-0.8),
         consecutive_wins: 5,
     };
@@ -233,7 +233,7 @@ fn test_policy_cooldown_then_quick_recovery() {
     let exceptional = LevelPerformanceSnapshot {
         profitable_trades: 25,
         win_rate_percentage: dec!(90),
-        monthly_loss_percentage: dec!(-0.5),
+        monthly_loss_percentage: Decimal::ZERO,
         largest_loss_percentage: dec!(-0.3),
         consecutive_wins: 10,
     };
@@ -248,7 +248,7 @@ fn test_policy_cooldown_then_quick_recovery() {
     let recover = LevelPerformanceSnapshot {
         profitable_trades: 6,
         win_rate_percentage: dec!(72),
-        monthly_loss_percentage: dec!(-1.0),
+        monthly_loss_percentage: Decimal::ZERO,
         largest_loss_percentage: dec!(-0.6),
         consecutive_wins: 3,
     };
@@ -450,7 +450,7 @@ fn test_custom_level_rules_change_upgrade_behavior() {
     let borderline_snapshot = LevelPerformanceSnapshot {
         profitable_trades: 12,
         win_rate_percentage: dec!(75),
-        monthly_loss_percentage: dec!(-1),
+        monthly_loss_percentage: Decimal::ZERO,
         largest_loss_percentage: dec!(-0.5),
         consecutive_wins: 4,
     };
@@ -465,7 +465,7 @@ fn test_custom_level_rules_change_upgrade_behavior() {
     let strong_snapshot = LevelPerformanceSnapshot {
         profitable_trades: 23,
         win_rate_percentage: dec!(92),
-        monthly_loss_percentage: dec!(-0.8),
+        monthly_loss_percentage: Decimal::ZERO,
         largest_loss_percentage: dec!(-0.4),
         consecutive_wins: 5,
     };

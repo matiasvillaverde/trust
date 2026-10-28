@@ -42,7 +42,10 @@ jobs:
     - name: Install system dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y libdbus-1-dev pkg-config libssl-dev libsqlite3-dev build-essential
+        sudo apt-get install -y libdbus-1-dev pkg-config libssl-dev libsqlite3-dev build-essential tcl
+
+    - name: Build verified SQLCipher backend
+      run: python3 scripts/build_sqlcipher.py
 
     - name: Install Rust
       uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # pinned toolchain installer
@@ -72,7 +75,10 @@ jobs:
     - name: Install system dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y libdbus-1-dev pkg-config libssl-dev libsqlite3-dev build-essential
+        sudo apt-get install -y libdbus-1-dev pkg-config libssl-dev libsqlite3-dev build-essential tcl
+
+    - name: Build verified SQLCipher backend
+      run: python3 scripts/build_sqlcipher.py
 
     - name: Install Rust
       uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # pinned toolchain installer
@@ -147,7 +153,10 @@ jobs:
     - name: Install system dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y libdbus-1-dev pkg-config libssl-dev libsqlite3-dev build-essential
+        sudo apt-get install -y libdbus-1-dev pkg-config libssl-dev libsqlite3-dev build-essential tcl
+
+    - name: Build verified SQLCipher backend
+      run: python3 scripts/build_sqlcipher.py
 
     - name: Install Rust
       uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # pinned toolchain installer
@@ -185,7 +194,10 @@ jobs:
     - name: Install system dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y libdbus-1-dev pkg-config libssl-dev libsqlite3-dev build-essential
+        sudo apt-get install -y libdbus-1-dev pkg-config libssl-dev libsqlite3-dev build-essential tcl
+
+    - name: Build verified SQLCipher backend
+      run: python3 scripts/build_sqlcipher.py
 
     - name: Install Rust
       uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # pinned toolchain installer
@@ -207,7 +219,10 @@ jobs:
     - name: Install system dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y libdbus-1-dev pkg-config libssl-dev libsqlite3-dev build-essential
+        sudo apt-get install -y libdbus-1-dev pkg-config libssl-dev libsqlite3-dev build-essential tcl
+
+    - name: Build verified SQLCipher backend
+      run: python3 scripts/build_sqlcipher.py
 
     - name: Install Rust
       uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # pinned toolchain installer
@@ -244,7 +259,10 @@ jobs:
     - name: Install system dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y libdbus-1-dev pkg-config libssl-dev libsqlite3-dev build-essential
+        sudo apt-get install -y libdbus-1-dev pkg-config libssl-dev libsqlite3-dev build-essential tcl
+
+    - name: Build verified SQLCipher backend
+      run: python3 scripts/build_sqlcipher.py
 
     - name: Install Rust
       uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # pinned toolchain installer
@@ -279,7 +297,10 @@ jobs:
     - name: Install system dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y libdbus-1-dev pkg-config libssl-dev libsqlite3-dev build-essential
+        sudo apt-get install -y libdbus-1-dev pkg-config libssl-dev libsqlite3-dev build-essential tcl
+
+    - name: Build verified SQLCipher backend
+      run: python3 scripts/build_sqlcipher.py
 
     - name: Install Rust
       uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # pinned toolchain installer
@@ -315,7 +336,10 @@ jobs:
     - name: Install system dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y libdbus-1-dev pkg-config libssl-dev libsqlite3-dev build-essential
+        sudo apt-get install -y libdbus-1-dev pkg-config libssl-dev libsqlite3-dev build-essential tcl
+
+    - name: Build verified SQLCipher backend
+      run: python3 scripts/build_sqlcipher.py
 
     - name: Install Rust
       uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # pinned toolchain installer
@@ -342,6 +366,54 @@ jobs:
     - name: Check HTTP and MCP latency with durable auditing
       run: make service-perf CARGO_FLAGS=--locked
 
+    - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      with:
+        node-version: '24'
+
+    - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      with:
+        version: '0.13.4'
+
+    - name: Build and exercise production identity images with real MCP clients
+      env:
+        TRUST_TEST_BINARY: target/release/trust-service
+      run: |
+        docker build --pull -t trust-keycloak:26.8.1 deploy/keycloak
+        docker build --pull -t trust-postgres:18.6 deploy/postgres
+        npm ci --prefix service/tests/oidc
+        service/tests/oidc/node_modules/.bin/playwright install --with-deps chromium
+        uv sync --locked --project service/tests/oidc
+        python3 service/tests/oidc/run.py
+
+    # Scan the exact images exercised above; the separate security matrix can
+    # resolve different signed-repository package updates during its own build.
+    - name: Scan accepted identity image
+      uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+      with:
+        version: v0.76.1
+        image-ref: trust-keycloak:26.8.1
+        scanners: vuln
+        severity: HIGH,CRITICAL
+        exit-code: '1'
+        ignore-unfixed: false
+
+    - name: Scan accepted identity database image
+      uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+      with:
+        version: v0.76.1
+        image-ref: trust-postgres:18.6
+        scanners: vuln
+        severity: HIGH,CRITICAL
+        exit-code: '1'
+        ignore-unfixed: false
+
+    - name: Retain redacted identity acceptance evidence
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: identity-acceptance
+        path: output/playwright/oidc/evidence.json
+        if-no-files-found: error
+
   audit:
     name: Security Audit
     runs-on: ubuntu-latest
@@ -360,17 +432,31 @@ jobs:
   container-security:
     name: Container Security
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - component: trust
+            context: .
+            image: trust-service:ci
+          - component: identity
+            context: deploy/keycloak
+            image: trust-keycloak:ci
+          - component: identity-database
+            context: deploy/postgres
+            image: trust-postgres:ci
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         persist-credentials: false
     - name: Build production image
-      run: docker build --pull -t trust-service:ci .
+      if: matrix.context != ''
+      run: docker build --pull -t '${{ matrix.image }}' '${{ matrix.context }}'
     - name: Scan production packages
       uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
       with:
         version: v0.76.1
-        image-ref: trust-service:ci
+        image-ref: ${{ matrix.image }}
         scanners: vuln
         severity: HIGH,CRITICAL
         exit-code: '1'

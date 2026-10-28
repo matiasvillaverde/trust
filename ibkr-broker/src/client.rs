@@ -17,6 +17,12 @@ fn endpoint(path: &str) -> &'static str {
     match path {
         "/iserver/auth/status" => "authentication",
         "/iserver/accounts" => "accounts",
+        "/portfolio/accounts" => "portfolio_accounts",
+        _ if path.starts_with("/portfolio/") && path.ends_with("/summary") => "portfolio_summary",
+        _ if path.starts_with("/portfolio/") && path.ends_with("/ledger") => "portfolio_ledger",
+        _ if path.starts_with("/portfolio/") && path.contains("/positions/") => {
+            "portfolio_positions"
+        }
         "/iserver/account" => "account_selection",
         "/iserver/account/orders" => "order_snapshot",
         "/iserver/account/trades" => "executions",

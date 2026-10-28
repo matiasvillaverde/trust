@@ -9,7 +9,7 @@ use uuid::Uuid;
 ///
 /// This will allow you to keep track of the changes.
 /// For example, if you want to update the description of the strategy, create a new strategy with the same name and version + 1.
-#[derive(PartialEq, Debug, serde::Serialize)]
+#[derive(PartialEq, Debug, serde::Serialize, schemars::JsonSchema)]
 pub struct Strategy {
     /// Unique identifier for the strategy
     pub id: Uuid,

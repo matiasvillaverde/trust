@@ -41,7 +41,7 @@ impl CatalystScanRequest {
 }
 
 /// Calendar catalyst scan output.
-#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, schemars::JsonSchema)]
 pub struct CatalystScanResult {
     /// Events returned by the calendar API and persisted to storage.
     pub events: Vec<TradeEvent>,

@@ -5,6 +5,11 @@
   "jwks_file": "/etc/trust/jwks.json",
   "database": "/data/financial.db",
   "journal": "/data/control.db",
+  "storage_encryption": {
+    "financial_key_file": "/run/trust-secrets/financial-key.hex",
+    "journal_key_file": "/run/trust-secrets/journal-key.hex",
+    "backup_key_file": "/run/trust-secrets/backup-key.hex"
+  },
   "allow_live": false,
   "reconcile_interval_seconds": 30,
   "max_token_lifetime_seconds": 3600,

@@ -8,6 +8,81 @@ use model::{BarTimeframe, MarketBar, MarketQuote, MarketTradeTick, TradingVehicl
 use rust_decimal::{prelude::ToPrimitive, Decimal};
 use std::error::Error;
 
+pub(crate) fn risk_market_data(
+    client: &IbkrClient,
+    account: &model::Account,
+    conid: &str,
+    lookback: u32,
+) -> Result<model::portfolio_risk::RiskMarketData, Box<dyn Error>> {
+    if conid.is_empty()
+        || conid.len() > 32
+        || !conid.bytes().all(|c| c.is_ascii_digit())
+        || !(2..=60).contains(&lookback)
+    {
+        return Err("Invalid admission instrument or lookback".into());
+    }
+    let row = client.snapshot(conid, &["84", "88", "86", "85", "6509"])?;
+    let identity =
+        string_field_optional(&row, "conid").ok_or("Quote instrument identity missing")?;
+    if identity != conid {
+        return Err("Quote instrument mismatch".into());
+    }
+    let observed_at = timestamp_field(&row, "_updated").ok_or("Quote timestamp missing")?;
+    let real_time = string_field_optional(&row, "6509").is_some_and(|v| v.starts_with('R'));
+    if !real_time {
+        return Err("Admission requires real-time market data".into());
+    }
+    let now = Utc::now();
+    let days = i64::from(lookback)
+        .checked_mul(3)
+        .and_then(|v| v.checked_add(10))
+        .ok_or("History window overflow")?;
+    let start = now
+        .checked_sub_signed(chrono::Duration::days(days))
+        .ok_or("History window overflow")?;
+    let response = client.get_json_value(
+        "/iserver/marketdata/history",
+        &[
+            ("conid", conid.to_string()),
+            ("bar", "1d".into()),
+            ("period", format!("{days}d")),
+            ("startTime", format_ibkr_datetime(now.naive_utc())),
+            ("outsideRth", "false".into()),
+        ],
+    )?;
+    if response.get("conid").is_some()
+        && string_field_optional(&response, "conid").as_deref() != Some(conid)
+    {
+        return Err("History instrument mismatch".into());
+    }
+    let raw = response
+        .get("data")
+        .and_then(serde_json::Value::as_array)
+        .ok_or("History evidence missing")?;
+    if raw.len() > 512
+        || raw
+            .iter()
+            .any(|bar| parse_epoch_datetime(bar.get("t")).is_none_or(|t| t < start || t > now))
+    {
+        return Err("History evidence invalid or truncated".into());
+    }
+    let mut bars = market_bars_from_history_response(&response, start, now)?;
+    bars.retain(|bar| bar.time.date_naive() < now.date_naive());
+    // Order and duplicate checks remain in core; do not hide malformed source data by sorting.
+    Ok(model::portfolio_risk::RiskMarketData {
+        scope: model::account_safety::BrokerAccountScope::from_account(account)?,
+        instrument_id: conid.into(),
+        observed_at,
+        received_at: Utc::now(),
+        real_time,
+        bid: decimal_field(&row, "84")?,
+        ask: decimal_field(&row, "86")?,
+        bid_size: decimal_field(&row, "88")?,
+        ask_size: decimal_field(&row, "85")?,
+        daily_bars: bars,
+    })
+}
+
 pub(crate) fn get_bars(
     client: &IbkrClient,
     symbol: &str,

@@ -1,0 +1,4 @@
+# This image only runs the pinned Keycloak build; never send local identity secrets.
+**
+!Dockerfile
+!.dockerignore

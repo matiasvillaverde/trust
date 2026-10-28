@@ -25,16 +25,18 @@ async fn main() -> std::process::ExitCode {
     }
 }
 async fn run(dropped: tracing_appender::non_blocking::ErrorCounter) -> Result<()> {
+    trust_security::disable_process_dumps().map_err(|_| {
+        ServiceError::invalid("Cannot disable process dumps; refusing to load trading secrets.")
+    })?;
     let path = std::env::args_os()
         .nth(1)
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("/etc/trust/config.json"));
     let config = Arc::new(Config::load(&path)?);
-    let database = config.database.clone();
+    let database_config = config.clone();
     let (service, worker) = Service::start(config.clone(), move || {
-        let path = database.to_str().ok_or_else(ServiceError::internal)?;
         Ok(trust_core::TrustFacade::new_with_brokers(
-            Box::new(db_sqlite::SqliteDatabase::new(path)),
+            Box::new(database_config.open_financial_database()?),
             vec![
                 Box::new(ibkr_broker::IbkrBroker),
                 Box::new(alpaca_broker::AlpacaBroker),

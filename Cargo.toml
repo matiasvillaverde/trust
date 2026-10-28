@@ -10,6 +10,7 @@ members = [
     "advisor",
     "service",
     "credentials",
+    "security",
 ]
 resolver = "2"
 
@@ -47,7 +48,10 @@ tokio = {version = "1.54.1", default-features = false, features = ["net", "rt-mu
 futures-util = "0.3.34"
 shellexpand = "3.1.2"
 trust-credentials = { path = "credentials", version = "0.3.5" }
-serde_json = "1.0.154"
+trust-security = { path = "security", version = "0.3.5" }
+zeroize = "1.9.1"
+serde_json = { version = "1.0.154", features = ["arbitrary_precision"] }
+schemars = { version = "1.2.3", features = ["chrono04", "uuid1", "rust_decimal1"] }
 thiserror = "2.0.21"
 reqwest = { version = "0.13.5", default-features = false, features = ["blocking", "cookies", "json", "query", "native-tls"] }
 argon2 = "0.6.0"

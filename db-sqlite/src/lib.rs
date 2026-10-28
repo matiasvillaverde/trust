@@ -33,6 +33,7 @@
 mod atomic;
 mod backup;
 mod database;
+mod encryption;
 mod error;
 mod schema;
 mod workers;
@@ -42,3 +43,4 @@ mod migration_fk_safety_tests;
 
 pub use backup::{ImportMode, ImportOptions, ImportReport};
 pub use database::SqliteDatabase;
+pub use encryption::StorageError;

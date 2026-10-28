@@ -1,0 +1,13 @@
+# Copy to local/keycloak.conf, owned by container UID 1000 with mode 0600.
+# The password must match local/database-password. Neither file is committed.
+db=postgres
+db-url-host=postgres
+db-url-database=keycloak
+db-username=keycloak
+db-password=REPLACE_WITH_GENERATED_DATABASE_PASSWORD
+log=console
+log-console-output=json
+http-access-log-enabled=true
+# Deliberately omit query strings (authorization codes) and request headers.
+http-access-log-pattern=%t %m %U %s %D
+cache=local

@@ -122,7 +122,7 @@ pub struct OrderIds {
 }
 
 /// Broker estimates for an exact proposed order; these never authorize risk.
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, schemars::JsonSchema)]
 pub struct BrokerOrderPreview {
     /// Estimated commission, if supplied by the broker.
     pub commission: BrokerEstimate,
@@ -135,7 +135,7 @@ pub struct BrokerOrderPreview {
 }
 
 /// A broker estimate with explicit availability and currency provenance.
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, schemars::JsonSchema)]
 pub struct BrokerEstimate {
     /// Exact amount when the broker supplied a single unambiguous decimal value.
     pub amount: Option<Decimal>,
@@ -145,6 +145,23 @@ pub struct BrokerEstimate {
 
 /// Trait for implementing broker integrations
 pub trait Broker {
+    /// Strict, instrument-bound evidence used for financial admission. No fallback to
+    /// last-close data, guessed timestamps, or agent-provided market estimates.
+    fn risk_market_data(
+        &self,
+        _account: &Account,
+        _instrument_id: &str,
+        _lookback_bars: u32,
+    ) -> Result<crate::portfolio_risk::RiskMarketData, Box<dyn Error>> {
+        Err("Admission market evidence is unavailable for this broker".into())
+    }
+    /// A complete, identity-checked account observation. Unsupported adapters fail closed.
+    fn account_snapshot(
+        &self,
+        _account: &Account,
+    ) -> Result<crate::account_safety::BrokerAccountSnapshot, Box<dyn Error>> {
+        Err("Whole-account snapshots are unavailable for this broker".into())
+    }
     /// Stable broker identity used for runtime dispatch.
     fn kind(&self) -> BrokerKind;
 

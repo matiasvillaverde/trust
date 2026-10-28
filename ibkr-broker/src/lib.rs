@@ -16,6 +16,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 #![warn(missing_docs, rust_2018_idioms, missing_debug_implementations)]
 
+mod account_snapshot;
 mod client;
 mod config;
 mod contracts;
@@ -70,6 +71,25 @@ fn ensure_bar_window(start: DateTime<Utc>, end: DateTime<Utc>) -> Result<(), Box
 pub struct IbkrBroker;
 
 impl Broker for IbkrBroker {
+    fn risk_market_data(
+        &self,
+        account: &Account,
+        instrument_id: &str,
+        lookback_bars: u32,
+    ) -> Result<model::portfolio_risk::RiskMarketData, Box<dyn Error>> {
+        if account.broker_kind != model::BrokerKind::Ibkr {
+            return Err("Broker identity mismatch".into());
+        }
+        let client = IbkrClient::for_account(account)?;
+        client.prepare_trading_session(Some(account))?;
+        market_data::risk_market_data(&client, account, instrument_id, lookback_bars)
+    }
+    fn account_snapshot(
+        &self,
+        account: &Account,
+    ) -> Result<model::account_safety::BrokerAccountSnapshot, Box<dyn Error>> {
+        account_snapshot::snapshot(account)
+    }
     fn instrument_metadata(
         &self,
         account: &Account,

@@ -51,6 +51,10 @@ NC = \033[0m # No Color
 # Default target
 .DEFAULT_GOAL := help
 
+.PHONY: native-sqlcipher
+native-sqlcipher:
+	python3 scripts/build_sqlcipher.py
+
 # Help target
 .PHONY: help
 help:
@@ -465,6 +469,24 @@ act-job:
 e2e:
 	@$(CARGO) test $(CARGO_FLAGS) -p trust-service --test e2e -- --test-threads=1
 
+.PHONY: oidc-acceptance
+oidc-acceptance:
+	@$(CARGO) build --locked -p trust-service
+	@docker build --pull -t trust-keycloak:26.8.1 deploy/keycloak
+	@docker build --pull -t trust-postgres:18.6 deploy/postgres
+	@npm ci --prefix service/tests/oidc
+	@service/tests/oidc/node_modules/.bin/playwright install chromium
+	@uv sync --locked --project service/tests/oidc
+	@python3 service/tests/oidc/run.py
+
 .PHONY: assurance-mutations
 assurance-mutations:
 	@CARGO=$(CARGO) python3 scripts/mutation_gate.py
+
+.PHONY: skills-check
+skills-check: ## Validate skill contracts, MCP delivery and offline packaging
+	@$(CARGO) test --locked -p trust-service --test skills_contract -- --test-threads=1
+	@$(CARGO) test --locked -p trust-service --test service_contract mcp_skill_references_discover_read_and_preserve_owner_visibility -- --exact --test-threads=1
+	@python3 -m unittest discover -s scripts -p test_package_skills.py
+	@python3 -m unittest discover -s scripts -p test_review_agent_eval.py
+	@python3 -m unittest discover -s scripts -p test_evaluate_skill_routing.py

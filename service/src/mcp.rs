@@ -6,7 +6,7 @@ use crate::{
     skills,
 };
 use rmcp::{model::*, service::RequestContext, ErrorData as McpError, RoleServer, ServerHandler};
-use serde_json::{json, Value};
+use serde_json::Value;
 use uuid::Uuid;
 #[derive(Clone)]
 pub struct Mcp {
@@ -36,15 +36,21 @@ fn tool(spec: &ToolSpec) -> Tool {
     } else {
         spec.description.to_owned()
     };
-    Tool::new(spec.name,description,schema)
-        .with_annotations(ToolAnnotations::new().read_only(!spec.mutation).destructive(spec.mutation).idempotent(true).open_world(true))
-        .with_raw_output_schema(std::sync::Arc::new(json!({"type":"object","required":["schema_version","request_id","data","error","next_actions"],"properties":{"schema_version":{"type":"integer"},"request_id":{"type":"string"},"operation_id":{"type":["string","null"]},"data":{},"error":{"type":["object","null"]},"next_actions":{"type":"array","items":{"type":"string"}}}}).as_object().cloned().unwrap_or_default()))
+    Tool::new(spec.name, description, schema)
+        .with_annotations(
+            ToolAnnotations::new()
+                .read_only(!spec.mutation)
+                .destructive(spec.mutation)
+                .idempotent(true)
+                .open_world(true),
+        )
+        .with_raw_output_schema(crate::output_schema::output(spec))
 }
 impl ServerHandler for Mcp {
     fn get_info(&self) -> ServerConfig {
         ServerConfig::new(ServerCapabilities::builder().enable_tools().enable_resources().enable_prompts().build())
             .with_server_info(Implementation::new("trust",env!("CARGO_PKG_VERSION")))
-            .with_instructions("Start with service_status and policy_get. Trust is the risk and ledger authority. Read trust://skills/trust-risk. All mutations require stable idempotency keys. Never infer a fill from a submitted order or retry uncertain execution with a new key.")
+            .with_instructions("Discover skills_list and load the relevant workflow with skill_read or its resource URI: trust-risk for market research, portfolio analysis and sizing/new entries, trust-operations for existing trades and uncertainty, trust-admin for human owner setup/recovery. Agents asked for owner changes use trust-risk's references/owner-handoff.md without elevating credentials. Read supporting files only as needed using skill_read(name,path) or resources/read. Establish context with service_status, policy_get and accounts_list; resolve account ambiguity before any mutation. Use account_readiness for financial decisions. Research stays in its read workflow; analysis or sizing does not authorize draft/fund/submit. Check actions[].available and blockers; required_arguments lists missing inputs. Trust rechecks policy, fresh broker exposure and your mandate at funding and submission. Mutations require stable keys. Never infer a fill from submission or repeat uncertain execution with a new key. Owner credentials belong only in the human's separate session.")
     }
     async fn list_tools(
         &self,
@@ -108,12 +114,18 @@ impl ServerHandler for Mcp {
     ) -> Result<ListResourcesResult, McpError> {
         let identity = identity(&context)?;
         Ok(ListResourcesResult::with_all_items(
-            skills::NAMES
+            skills::catalogue()
                 .iter()
-                .filter(|name| skills::visible(&identity, name))
-                .map(|name| {
-                    Resource::new(format!("trust://skills/{name}"), *name)
-                        .with_mime_type("text/markdown")
+                .filter(|skill| skills::visible(&identity, &skill.name))
+                .flat_map(|skill| {
+                    let alias = Resource::new(skill.uri.clone(), skill.name.clone())
+                        .with_description(skill.description.clone())
+                        .with_mime_type("text/markdown");
+                    std::iter::once(alias).chain(skill.files.iter().map(|file| {
+                        Resource::new(file.uri.clone(), format!("{}/{}", skill.name, file.path))
+                            .with_description(skill.description.clone())
+                            .with_mime_type(file.mime_type.clone())
+                    }))
                 })
                 .collect(),
         ))
@@ -124,18 +136,19 @@ impl ServerHandler for Mcp {
         context: RequestContext<RoleServer>,
     ) -> Result<ReadResourceResponse, McpError> {
         let identity = identity(&context)?;
-        let name = request
-            .uri
-            .strip_prefix("trust://skills/")
-            .ok_or_else(|| McpError::invalid_params("Unknown Trust resource", None))?;
-        let content = skills::read(&identity, name).map_err(|_| {
+        let file = skills::read_uri(&identity, &request.uri).map_err(|_| {
             McpError::invalid_params("Resource unavailable for this identity", None)
         })?;
         Ok(
-            ReadResourceResult::new(vec![ResourceContents::text(content, request.uri)])
-                .with_ttl_ms(0)
-                .with_cache_scope(CacheScope::Private)
-                .into(),
+            ReadResourceResult::new(vec![ResourceContents::text(file.content, request.uri)
+                .with_mime_type(if file.path.ends_with(".md") {
+                    "text/markdown"
+                } else {
+                    "text/yaml"
+                })])
+            .with_ttl_ms(0)
+            .with_cache_scope(CacheScope::Private)
+            .into(),
         )
     }
     async fn list_prompts(
@@ -145,10 +158,25 @@ impl ServerHandler for Mcp {
     ) -> Result<ListPromptsResult, McpError> {
         let identity = identity(&context)?;
         Ok(ListPromptsResult::with_all_items(
-            skills::NAMES
+            skills::catalogue()
                 .iter()
-                .filter(|name| skills::visible(&identity, name))
-                .map(|name| Prompt::new(*name, Some(format!("Follow the {name} workflow")), None))
+                .filter(|skill| skills::visible(&identity, &skill.name))
+                .map(|skill| {
+                    Prompt::new(
+                        skill.name.clone(),
+                        Some(skill.description.clone()),
+                        Some(vec![
+                            PromptArgument::new("account_id")
+                                .with_description(
+                                    "Permitted Trust account UUID; omitted for discovery.",
+                                )
+                                .with_required(false),
+                            PromptArgument::new("trade_id")
+                                .with_description("Trade UUID; requires account_id.")
+                                .with_required(false),
+                        ]),
+                    )
+                })
                 .collect(),
         ))
     }
@@ -158,8 +186,12 @@ impl ServerHandler for Mcp {
         context: RequestContext<RoleServer>,
     ) -> Result<GetPromptResponse, McpError> {
         let identity = identity(&context)?;
-        let content = skills::read(&identity, &request.name)
-            .map_err(|_| McpError::invalid_params("Prompt unavailable for this identity", None))?;
+        let content = skills::prompt(
+            &identity,
+            &request.name,
+            request.arguments.unwrap_or_default(),
+        )
+        .map_err(|_| McpError::invalid_params("Prompt unavailable for this identity", None))?;
         Ok(GetPromptResult::new(vec![PromptMessage::new_text(Role::User, content)]).into())
     }
 }

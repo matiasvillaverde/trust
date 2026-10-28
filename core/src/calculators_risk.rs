@@ -10,7 +10,7 @@ use rust_decimal_macros::dec;
 use uuid::Uuid;
 
 /// Represents an open trading position with its risk exposure
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, schemars::JsonSchema)]
 pub struct OpenPosition {
     /// The unique identifier of the trade
     pub trade_id: Uuid,
@@ -25,7 +25,7 @@ pub struct OpenPosition {
 }
 
 /// Calculator for capital at risk metrics
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, serde::Serialize, schemars::JsonSchema)]
 pub struct CapitalAtRiskCalculator;
 
 impl CapitalAtRiskCalculator {

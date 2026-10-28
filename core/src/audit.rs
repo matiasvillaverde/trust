@@ -11,7 +11,7 @@ use uuid::Uuid;
 const PREFIX: &str = "trust-audit:v1:";
 const GENESIS_HASH: &str = "GENESIS";
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
 /// Versioned, tamper-evident record of one trade-lifecycle action or outcome.
 pub struct AuditEvent {
     /// Audit envelope schema version.
@@ -54,7 +54,7 @@ pub struct AuditEvent {
 }
 
 /// Result of verifying one complete trade audit chain.
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, schemars::JsonSchema)]
 pub struct AuditVerification {
     /// Trade whose chain was verified.
     pub trade_id: String,

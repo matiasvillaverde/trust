@@ -150,10 +150,6 @@ impl Domain {
                     json!({"total":items.len(),"bonds_missing_terms":items.iter().filter(|v|v.category==model::TradingVehicleCategory::Bond&&v.fixed_income.is_none()).count()}),
                 )
             }
-            ConnectionStatus => {
-                let accounts = self.facade.search_all_accounts().map_err(domain_error)?;
-                value(accounts.into_iter().filter(|a|identity.permits_account(a.id)).map(|a|json!({"account_id":a.id,"broker":a.broker_kind,"environment":a.environment,"broker_account_bound":a.broker_account_id.is_some(),"connectivity":"not_probed","next_action":"market_snapshot"})).collect::<Vec<_>>())
-            }
             BackupExport | BackupImport => self.backup(op, args),
             _ => {
                 let account = self.account(args)?;
@@ -248,24 +244,25 @@ impl Domain {
     }
     fn backup(&mut self, op: Operation, args: &Value) -> Result<Value> {
         // Never accept a client path. Backups are operator-readable opaque artifacts.
+        let encryption = self.config.storage_encryption.as_ref().ok_or_else(|| ServiceError::new(
+            "configuration_required", "Service backups require encrypted storage and a separate backup key.", "Configure storage_encryption before exporting or restoring backups. Plaintext JSON is an offline legacy format."))?;
+        let backup_key = trust_security::DatabaseKey::load(&encryption.backup_key_file)
+            .map_err(|_| crate::config::storage_error())?;
         let directory = self
             .config
             .database
             .parent()
             .ok_or_else(ServiceError::internal)?
             .join("backups");
-        std::fs::create_dir_all(&directory).map_err(|_| ServiceError::internal())?;
-        let database_path = self
-            .config
-            .database
-            .to_str()
-            .ok_or_else(ServiceError::internal)?;
+        trust_security::private_directory(&directory)
+            .map_err(|_| crate::config::storage_error())?;
         if op == Operation::BackupExport {
             let backup_id = Uuid::new_v4();
-            let path = directory.join(format!("{backup_id}.json"));
-            db_sqlite::SqliteDatabase::new(database_path)
-                .export_backup_to_path(&path)
-                .map_err(domain_error)?;
+            let path = directory.join(format!("{backup_id}.db"));
+            self.config
+                .open_financial_database()?
+                .export_encrypted_to_path(&path, &backup_key)
+                .map_err(|_| crate::config::storage_error())?;
             Ok(
                 json!({"backup_id":backup_id,"scope":"financial_data","control_journal":"Back up the control journal separately with the service stopped."}),
             )
@@ -280,10 +277,11 @@ impl Domain {
             {
                 return Err(ServiceError::invalid("Online restore requires an empty financial database; replacement is an offline operator workflow."));
             }
-            let path = directory.join(format!("{}.json", id(args, "backup_id")?));
+            let path = directory.join(format!("{}.db", id(args, "backup_id")?));
             output(
-                db_sqlite::SqliteDatabase::new(database_path)
-                    .import_backup_from_path(&path, db_sqlite::ImportOptions::default()),
+                self.config
+                    .open_financial_database()?
+                    .import_encrypted_from_path(&path, &backup_key),
             )
         }
     }

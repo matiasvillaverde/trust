@@ -1,0 +1,5 @@
+# Prepared by `make native-sqlcipher`; unused by the standalone HTTP CLI.
+[env]
+SQLCIPHER_LIB_DIR = { value = ".local/sqlcipher/lib", relative = true }
+SQLCIPHER_INCLUDE_DIR = { value = ".local/sqlcipher/include", relative = true }
+SQLCIPHER_STATIC = "1"

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Trust: Trade operations"
+  short_description: "Reconcile trades, preserve stops, and manage exits"
+  default_prompt: "Use $trust-operations to inspect my trade and identify the next permitted action."

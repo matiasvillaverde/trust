@@ -1,0 +1,76 @@
+services:
+  identity:
+    build: .
+    image: trust-keycloak:26.8.1
+    restart: unless-stopped
+    init: true
+    user: "1000:0"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 256
+    mem_limit: 2g
+    memswap_limit: 2g
+    ulimits:
+      core: {soft: 0, hard: 0}
+    cpus: 2
+    stop_grace_period: 60s
+    ports: ["127.0.0.1:8443:8443"]
+    environment:
+      KC_HOSTNAME: "${TRUST_IDENTITY_URL:?Set exact HTTPS identity URL}"
+      KC_HOSTNAME_ADMIN: "${TRUST_IDENTITY_ADMIN_URL:?Set private HTTPS administration URL}"
+      KC_HTTP_ENABLED: "false"
+      KC_HTTPS_CERTIFICATE_FILE: /run/secrets/tls.crt
+      KC_HTTPS_CERTIFICATE_KEY_FILE: /run/secrets/tls.key
+      KC_HTTP_MANAGEMENT_SCHEME: http
+    volumes:
+      - identity-transactions:/opt/keycloak/data/transaction-logs
+      - ./local/keycloak.conf:/opt/keycloak/conf/keycloak.conf:ro
+      - ./local/trust-realm.json:/opt/keycloak/data/import/trust-realm.json:ro
+      - ./local/tls.crt:/run/secrets/tls.crt:ro
+      - ./local/tls.key:/run/secrets/tls.key:ro
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m,mode=1777
+      - /opt/keycloak/data/tmp:rw,nosuid,size=64m,uid=1000,gid=0
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [identity, database]
+    logging: &logs
+      driver: json-file
+      options: {max-size: "10m", max-file: "5"}
+  postgres:
+    build: ../postgres
+    image: trust-postgres:18.6
+    restart: unless-stopped
+    read_only: true
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 1g
+    memswap_limit: 1g
+    ulimits:
+      core: {soft: 0, hard: 0}
+    cpus: 2
+    environment:
+      POSTGRES_USER: keycloak
+      POSTGRES_DB: keycloak
+      POSTGRES_PASSWORD_FILE: /run/secrets/database-password
+    volumes:
+      - identity-data:/var/lib/postgresql
+      - ./local/database-password:/run/secrets/database-password:ro
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+      - /var/run/postgresql:rw,nosuid,size=16m
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U keycloak -d keycloak"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [database]
+    logging: *logs
+networks:
+  identity: {}
+  database: {internal: true}
+volumes:
+  identity-data: {}
+  identity-transactions: {}

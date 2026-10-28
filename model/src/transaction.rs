@@ -5,7 +5,7 @@ use rust_decimal::Decimal;
 use uuid::Uuid;
 
 /// Transaction entity - represents a single transaction
-#[derive(PartialEq, Debug, Clone, serde::Serialize)]
+#[derive(PartialEq, Debug, Clone, serde::Serialize, schemars::JsonSchema)]
 pub struct Transaction {
     /// The unique identifier for the transaction
     pub id: Uuid,
@@ -33,7 +33,7 @@ pub struct Transaction {
 }
 
 /// TransactionCategory enum - represents the type of the transaction
-#[derive(PartialEq, Debug, Clone, Copy, serde::Serialize)]
+#[derive(PartialEq, Debug, Clone, Copy, serde::Serialize, schemars::JsonSchema)]
 pub enum TransactionCategory {
     /// Deposit - money deposited into the account
     Deposit,
@@ -179,7 +179,7 @@ impl Transaction {
     }
 }
 /// Error type for transaction category parsing failures
-#[derive(PartialEq, Debug, serde::Serialize)]
+#[derive(PartialEq, Debug, serde::Serialize, schemars::JsonSchema)]
 pub struct TransactionCategoryParseError;
 
 impl TransactionCategory {

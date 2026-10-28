@@ -3,11 +3,11 @@ use std::str::FromStr;
 use uuid::Uuid;
 
 /// Error returned when parsing an invalid trade event type string.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, schemars::JsonSchema)]
 pub struct TradeEventTypeParseError;
 
 /// Scheduled or discretionary catalyst associated with a trade.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, schemars::JsonSchema)]
 pub enum TradeEventType {
     /// Company earnings report.
     Earnings,
@@ -58,11 +58,11 @@ impl FromStr for TradeEventType {
 }
 
 /// Error returned when parsing an invalid trade event severity string.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, schemars::JsonSchema)]
 pub struct TradeEventSeverityParseError;
 
 /// Risk impact of a trade event.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, schemars::JsonSchema)]
 pub enum TradeEventSeverity {
     /// Low expected impact.
     Low,
@@ -97,11 +97,11 @@ impl FromStr for TradeEventSeverity {
 }
 
 /// Error returned when parsing an invalid trade event source string.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, schemars::JsonSchema)]
 pub struct TradeEventSourceParseError;
 
 /// Source of a trade event.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, schemars::JsonSchema)]
 pub enum TradeEventSource {
     /// User-entered event.
     Manual,
@@ -132,7 +132,7 @@ impl FromStr for TradeEventSource {
 }
 
 /// Trade event entity stored in DB.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, schemars::JsonSchema)]
 pub struct TradeEvent {
     /// Unique event record identifier.
     pub id: Uuid,

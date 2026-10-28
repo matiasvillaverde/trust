@@ -12,10 +12,14 @@ pub struct QuantityCalculator;
 
 const MAX_QUANTITY_DECIMAL_PLACES: u32 = 8;
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, schemars::JsonSchema)]
+/// Quantity preview before and after applying the account's level multiplier.
 pub struct LevelAdjustedQuantity {
+    /// Maximum instrument units under the configured trade and monthly risk limits.
     pub base_quantity: Decimal,
+    /// Dimensionless risk multiplier for the current account level.
     pub level_multiplier: Decimal,
+    /// Instrument units rounded down to the supported precision.
     pub final_quantity: Decimal,
 }
 

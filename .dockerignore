@@ -17,5 +17,11 @@ target
 **/token*.txt
 secrets
 .local
+output
+**/local
+**/node_modules
+**/.venv
+**/*-key.hex
+**/keycloak.conf
 coverage
 *.profraw

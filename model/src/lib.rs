@@ -32,6 +32,8 @@
 
 /// Account management types and functionality
 pub mod account;
+/// Whole-broker-account risk observations and policy.
+pub mod account_safety;
 /// Broker integration traits and types
 pub mod broker;
 /// Supported broker identities
@@ -54,6 +56,7 @@ pub mod market_data;
 pub mod mistake;
 /// Order types and order management
 pub mod order;
+pub mod portfolio_risk;
 /// Risk management rules and enforcement
 pub mod rule;
 /// Session plan and review types

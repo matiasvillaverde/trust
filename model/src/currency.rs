@@ -1,7 +1,7 @@
 use std::fmt;
 
 /// Currency entity
-#[derive(PartialEq, Debug, Hash, Eq, Clone, Copy, serde::Serialize)]
+#[derive(PartialEq, Debug, Hash, Eq, Clone, Copy, serde::Serialize, schemars::JsonSchema)]
 #[non_exhaustive] // This enum may be extended in the future
 #[derive(Default)]
 #[allow(clippy::upper_case_acronyms)] // Currency codes are standardized as uppercase
@@ -25,7 +25,7 @@ impl Currency {
 // Implementations
 
 /// Error when parsing currency from string fails
-#[derive(PartialEq, Debug, serde::Serialize)]
+#[derive(PartialEq, Debug, serde::Serialize, schemars::JsonSchema)]
 pub struct CurrencyError;
 
 impl std::str::FromStr for Currency {

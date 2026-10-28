@@ -96,7 +96,7 @@ impl Default for RegimeConfig {
 }
 
 /// Volatility regime derived from ATR percentile and optional VIX level.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, schemars::JsonSchema)]
 pub enum VolRegime {
     /// Current volatility is below the 25th ATR percentile.
     Calm,
@@ -107,7 +107,7 @@ pub enum VolRegime {
 }
 
 /// Trend regime derived from ADX.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, schemars::JsonSchema)]
 pub enum TrendRegime {
     /// ADX is below 20.
     Choppy,
@@ -118,7 +118,7 @@ pub enum TrendRegime {
 }
 
 /// Breadth regime from percentage of symbols above their 50-day SMA.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, schemars::JsonSchema)]
 pub enum BreadthRegime {
     /// At least half of the configured universe is above its 50-day SMA.
     Broad,
@@ -127,7 +127,7 @@ pub enum BreadthRegime {
 }
 
 /// Composite permission regime. The most cautious active axis wins.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, schemars::JsonSchema)]
 pub enum CompositeRegime {
     /// Calm volatility with a trending market.
     CalmTrending,
@@ -144,7 +144,7 @@ pub enum CompositeRegime {
 }
 
 /// Market-regime snapshot used as a permission filter.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, schemars::JsonSchema)]
 pub struct RegimeSnapshot {
     /// Volatility axis.
     pub vol_regime: VolRegime,

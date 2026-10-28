@@ -30,6 +30,10 @@
 // Standard Rust lints for code quality
 #![warn(missing_docs, rust_2018_idioms, missing_debug_implementations)]
 
+// rustdoc passes this application crate as `--extern core`, which otherwise
+// shadows the standard-library path used by JsonSchema's generated macros.
+extern crate std as core;
+
 use crate::services::{
     AdvisoryHistoryEntry, AdvisoryResult, AdvisoryThresholds, FundTransferService,
     PortfolioAdvisoryStatus, ProfitDistributionService, TaxRateOverrides, TaxRates, TaxReport,
@@ -45,9 +49,8 @@ pub use audit::{AuditEvent, AuditVerification};
 use broker_registry::BrokerRegistry;
 use calculators_fixed_income::{BondAnalytics, BondAnalyticsInput, FixedIncomeCalculator};
 use calculators_performance::{BiasAggregation, BiasAggregationCalculator};
-use calculators_trade::{
-    LevelAdjustedQuantity, QuantityCalculator, TradeHypothesis, TradeHypothesisCalculator,
-};
+pub use calculators_trade::{LevelAdjustedQuantity, TradeHypothesis};
+use calculators_trade::{QuantityCalculator, TradeHypothesisCalculator};
 use events::trade::{CloseReason, TradeClosed};
 use model::database::TradingVehicleUpsert;
 use model::{
@@ -101,6 +104,10 @@ pub struct TradingSummary {
     pub concentration: Vec<calculators_concentration::ConcentrationGroup>,
 }
 
+/// Deterministic whole-account admission and persistent safety-state transitions.
+pub mod account_safety;
+/// Prospective portfolio budgets, execution constraints and adaptive admission.
+pub mod portfolio_risk;
 mod service_api;
 
 /// Typed validation failures that application clients may present without provider details.

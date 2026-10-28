@@ -463,7 +463,10 @@ fn test_level_progress_json_contract() {
     let upgrade_paths = payload["data"]["progress"]["upgrade_paths"]
         .as_array()
         .expect("upgrade paths");
-    assert!(!upgrade_paths.is_empty(), "expected upgrade path");
+    assert!(
+        upgrade_paths.is_empty(),
+        "a losing window must not advertise an upgrade"
+    );
 }
 
 #[test]

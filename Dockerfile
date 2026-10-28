@@ -1,23 +1,26 @@
 # syntax=docker/dockerfile:1.28.0@sha256:bb22d9815c728170f72750f4e5b0d672e06176142e1d602c7e66c050100b7e5b
 FROM rust:1.99.1-trixie@sha256:931c2c0531a8b143e044f0f3914dfe802f15bb3d1955f0b657e9359327ac2ffc AS build
-RUN apt-get update && apt-get install -y --no-install-recommends libdbus-1-dev libssl-dev libsqlite3-dev pkg-config && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends libdbus-1-dev libssl-dev pkg-config python3 make tcl && rm -rf /var/lib/apt/lists/*
 WORKDIR /build
 COPY . .
+RUN python3 scripts/build_sqlcipher.py
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/build/target \
-    cargo build --locked --release -p trust-service -p trust-cli --bin trust-service --bin trust \
+    cargo build --locked --release -p trust-service -p trust-cli --bin trust-service --bin trust-storage --bin trust \
     && install -Dm755 target/release/trust-service /out/trust-service \
+    && install -Dm755 target/release/trust-storage /out/trust-storage \
     && install -Dm755 target/release/trust /out/trust
 
 FROM cgr.dev/chainguard/wolfi-base:latest@sha256:360896efb0753a5701c48f860e17130c205eae5a264797aa3e7ea126ee2923a7 AS runtime
 RUN apk --no-cache upgrade \
-    && apk add --no-cache ca-certificates-bundle libgcc libssl3 sqlite-libs dbus-libs curl \
+    && apk add --no-cache ca-certificates-bundle libgcc libssl3 dbus-libs curl \
     && addgroup -g 10001 trust \
     && adduser -D -H -u 10001 -G trust -s /sbin/nologin trust \
     && mkdir -p /data /etc/trust \
     && chown 10001:10001 /data /etc/trust \
     && chmod 0700 /data /etc/trust
-COPY --from=build /out/trust-service /out/trust /usr/local/bin/
+COPY --from=build /build/.local/sqlcipher/share/licenses/ /usr/share/licenses/trust/
+COPY --from=build /out/trust-service /out/trust-storage /out/trust /usr/local/bin/
 USER 10001:10001
 WORKDIR /data
 EXPOSE 8000

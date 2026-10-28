@@ -4,14 +4,22 @@ This inventory describes the implementation under test, including limits that af
 
 The service assigns exactly one human owner and any number of agents. Policy, administration and manual-accounting scopes are owner-only and require recent issuer-verified MFA. Other actions remain limited by scope, account, lifecycle and risk policy. HTTP catalogue entries expose `owner_only`; agents cannot discover or call owner tools.
 
-## Service tools (82)
+## Service tools (94)
 
 | Tool | Scope | Writes state | Account argument | Behavior |
 | --- | --- | --- | --- | --- |
+| `account_cashflow_record` | `trust:policy` | yes | required | Record an independently evidenced external broker cash flow to adjust equity baselines without resetting trading performance. Does not transfer cash or clear a halt. |
 | `account_create` | `trust:admin` | yes | operation-specific | Create a local account profile. Does not open a brokerage account; operator grant required. |
 | `account_delete` | `trust:admin` | yes | required | Soft-delete an empty account; active trades and children still block deletion. |
+| `account_equity_reconcile` | `trust:policy` | yes | required | Owner-verifies a broker P&L counter reset against independent statement evidence and the net external cash flow since the last accepted observation. Preserves measured losses and drawdown; never clears a halt. |
 | `account_get` | `trust:read` | no | required | Read one permitted account and its current balances. |
+| `account_halt` | `trust:trade` | yes | required | Persistently stop new exposure for the broker account. Existing protection, exits and reconciliation remain available. |
+| `account_readiness` | `trust:read` | no | required | Start here for an account: current safety blockers, broker observation age, halt, policy and mandate status. This read does not refresh broker evidence. |
 | `account_reconcile` | `trust:reconcile` | yes | required | Reconcile a bounded page of active trades; inspect errors and next_after_trade_id. |
+| `account_refresh` | `trust:reconcile` | yes | required | Fetch and persist a complete broker-account snapshot and equity limits. Failures latch a durable halt; refresh never resumes trading. |
+| `account_resume` | `trust:policy` | yes | required | Resume only after fresh, complete broker evidence, satisfied equity/exposure limits and resolution of every uncertain operation. Owner MFA required. |
+| `account_safety_policy_get` | `trust:read` | no | required | Read owner-configured whole-broker-account limits in its explicit base currency. |
+| `account_safety_policy_set` | `trust:policy` | yes | required | Set whole-broker-account limits. Does not reset equity history or clear a halt. All linked accounts require owner authority. |
 | `accounts_list` | `trust:read` | no | operation-specific | List only accounts this identity may access. |
 | `advisor_check` | `trust:preview` | no | required | Evaluate proposed exposure against configured concentration thresholds. |
 | `advisor_configure` | `trust:policy` | yes | required | Configure concentration advisory thresholds. |
@@ -19,6 +27,8 @@ The service assigns exactly one human owner and any number of agents. Policy, ad
 | `advisor_history` | `trust:read` | no | required | Read advisory observations from this service process; financial audit is durable separately. |
 | `advisor_regime` | `trust:preview` | no | required | Evaluate market regime from broker historical bars. |
 | `advisor_status` | `trust:read` | no | required | Read portfolio concentration status and advisory thresholds. |
+| `agent_mandate_get` | `trust:read` | no | required | Read this agent's limits, or another agent's mandate when called by the owner. |
+| `agent_mandate_set` | `trust:policy` | yes | required | Set an agent's explicit instrument allowlist, per-order and aggregate committed notional, open-trade limit, direction and expiry for this broker account. |
 | `audit_list` | `trust:read` | no | operation-specific | Read service authorization/operation audit entries visible to this identity. |
 | `audit_verify` | `trust:admin` | no | operation-specific | Verify the service audit hash chain; operator access required. |
 | `backup_export` | `trust:admin` | yes | operation-specific | Create a service-owned financial backup artifact. Returns an opaque artifact ID, never a filesystem path. |
@@ -57,15 +67,17 @@ The service assigns exactly one human owner and any number of agents. Policy, ad
 | `market_trade` | `trust:read` | no | required | Read the latest broker trade tick. |
 | `metrics_get` | `trust:read` | no | required | Compute advanced/comparison metrics or fixed-income analytics. |
 | `operation_get` | `trust:read` | no | operation-specific | Inspect a previously requested mutation by idempotency key. Unknown outcomes require reconciliation, not another submission. |
+| `operation_resolve` | `trust:policy` | yes | required | Record owner reconciliation evidence for an uncertain operation after matching persisted trades against a fresh broker snapshot. Never replays the original mutation. |
 | `policy_get` | `trust:read` | no | operation-specific | Explain Trust's risk, permission, money, and execution contracts. |
 | `report_get` | `trust:read` | no | required | Compute account reports using Trust's financial calculators; errors remain explicit. |
+| `risk_check` | `trust:preview` | no | required | Fresh broker-aware, draft-free sizing within a requested ceiling; typed heat, stress, margin, volatility and activity constraints. Does not reserve. |
 | `risk_preview` | `trust:preview` | no | required | Calculate permitted size from local ledger, risk rules and account level. Broker capacity is a separate preview. |
 | `risk_rule_create` | `trust:policy` | yes | required | Configure an enforced per-trade or monthly risk percentage; policy permission required. |
 | `risk_rule_remove` | `trust:policy` | yes | required | Deactivate one of this account's risk rules; policy permission required. |
 | `risk_rules_list` | `trust:read` | no | required | Read enforced risk rules for the account. |
 | `service_status` | `trust:read` | no | operation-specific | Start here: service mode, capabilities, account access, and suggested workflow. |
 | `session_close` | `trust:journal` | yes | required | Close the account's active session with adherence notes and a grade. |
-| `session_open` | `trust:journal` | yes | required | Record the trading session plan before taking new risk. |
+| `session_open` | `trust:journal` | yes | required | Record the trading session plan before taking new risk. Setup names must be nonblank, unique ignoring case and contain no commas; hypothesis is at most 500 characters. |
 | `sessions_list` | `trust:read` | no | required | Read trading plans and reviews within a time window. |
 | `skill_read` | `trust:read` | no | operation-specific | Read a bundled Trust workflow skill. |
 | `skills_list` | `trust:read` | no | operation-specific | Discover Trust workflow skills and their resource URIs. |
@@ -98,6 +110,7 @@ An operation-specific account requirement does not mean unrestricted access. Cre
 | Area | Features and boundaries |
 | --- | --- |
 | Accounts and ledger | Paper/live broker-bound profiles; primary, earnings, tax reserve, reinvestment and insurance children; USD/EUR/BTC ledgers; deposits, withdrawals, hierarchical transfers, projections, soft deletion. These are local records, not broker cash transfers. |
+| Whole-account safety | Broker positions, working orders, available funds and cross-profile reservations; persistent halts; broker-equity daily loss/drawdown; agent instrument, direction, size, count and expiry mandates. IBKR snapshot support only; unsupported assets, currencies and Alpaca snapshots block new exposure. |
 | Sizing and risk | Decimal sizing, conservative quantity rounding, available-capital checks, long/short geometry, per-trade and monthly rules, level multipliers, stop tightening, funding gates. Rule percentages retain a legacy f32 model/API boundary; SQLite preserves its exact decimal rendering. Planned stop loss does not guarantee execution price or maximum realized loss. |
 | Instruments | Stocks, ETFs, bonds, crypto and fiat metadata; broker native identifiers; fractionability; tradability and borrowing flags; bond face value, coupon, maturity and frequency. A category in the model is not a promise that both brokers support it. |
 | Trade lifecycle | Prepare, reserve, submit, fill, partial fill, target/stop exit, cancel, expire, reject; explicit order references; manual reconciliation records; execution and fee identities; broker-operation intents; audit chains; persisted state reloaded before mutation. |
@@ -117,3 +130,8 @@ An operation-specific account requirement does not mean unrestricted access. Cre
 See [edge cases](edge-cases.md) for the boundary matrix and [verification](verification.md) for commands, results, known limits, and regression evidence. Tests use isolated SQLite and mock broker responses. No ignored live-broker test is part of the automated gate.
 
 Operational HTTP routes include unauthenticated `/healthz` and `/readyz`, plus `/metrics` restricted to an all-accounts `trust:observe` collector or elevated administrator. Telemetry separates tools, execution stages, transport routes and JWT verification, with bounded labels and microsecond resolution. Operational logging uses a bounded nonblocking queue with dropped-line telemetry; durable financial audit remains synchronous. Audit v2 records affected accounts, transport/source, timing, failures, replays and crash recovery while retaining existing hash verification. See [the operator guide](../service.md#audit-logging-and-operations).
+
+
+## Server storage protection
+
+Production financial/control storage and MCP financial backups use SQLCipher with independent mounted keys. The offline `trust-storage` operator binary creates keys and verified encrypted copies for migration/rotation; it is deliberately not an MCP tool and does not add agent authority. See [encryption and server security](../security.md) for supported deployment, key custody and recovery boundaries.

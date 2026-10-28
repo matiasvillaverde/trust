@@ -10,7 +10,7 @@ use crate::Currency;
 ///
 /// Orders can be entries to the market or exits from the market.
 /// Orders are part of a trade entries and exits.
-#[derive(PartialEq, Debug, Clone, serde::Serialize)]
+#[derive(PartialEq, Debug, Clone, serde::Serialize, schemars::JsonSchema)]
 pub struct Order {
     /// Unique identifier for the order
     pub id: Uuid,
@@ -83,7 +83,7 @@ pub struct Order {
 }
 
 /// The category of the order - market, limit, stop, etc. It depends on the exchange.
-#[derive(PartialEq, Debug, Clone, Copy, serde::Serialize)]
+#[derive(PartialEq, Debug, Clone, Copy, serde::Serialize, schemars::JsonSchema)]
 pub enum OrderCategory {
     /// Market order - buy or sell at the current market price. The order is executed immediately.
     Market,
@@ -96,7 +96,7 @@ pub enum OrderCategory {
 }
 
 /// The action of the order - buy, sell, short, etc.
-#[derive(PartialEq, Debug, Clone, Copy, serde::Serialize)]
+#[derive(PartialEq, Debug, Clone, Copy, serde::Serialize, schemars::JsonSchema)]
 pub enum OrderAction {
     /// Sell an asset that you own
     Sell,
@@ -107,7 +107,7 @@ pub enum OrderAction {
 }
 
 /// The time in force of the order - determines how long an order remains active
-#[derive(PartialEq, Debug, Clone, Copy, Default, serde::Serialize)]
+#[derive(PartialEq, Debug, Clone, Copy, Default, serde::Serialize, schemars::JsonSchema)]
 pub enum TimeInForce {
     /// The order is good for the day, and it will be canceled
     /// automatically at the end of Regular Trading Hours if unfilled.
@@ -124,7 +124,7 @@ pub enum TimeInForce {
 }
 
 /// The status an order can have.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, schemars::JsonSchema)]
 pub enum OrderStatus {
     /// The order has been received by Broker, and routed to exchanges for
     /// execution. This is the usual initial state of an order.
@@ -213,7 +213,7 @@ impl std::fmt::Display for OrderStatus {
 }
 
 /// Error when parsing order status from string fails
-#[derive(PartialEq, Debug, serde::Serialize)]
+#[derive(PartialEq, Debug, serde::Serialize, schemars::JsonSchema)]
 pub struct OrderStatusParseError;
 impl FromStr for OrderStatus {
     type Err = OrderStatusParseError;
@@ -265,7 +265,7 @@ impl std::fmt::Display for TimeInForce {
     }
 }
 /// Error when parsing time in force from string fails
-#[derive(PartialEq, Debug, serde::Serialize)]
+#[derive(PartialEq, Debug, serde::Serialize, schemars::JsonSchema)]
 pub struct TimeInForceParseError;
 impl std::str::FromStr for TimeInForce {
     type Err = TimeInForceParseError;
@@ -282,7 +282,7 @@ impl std::str::FromStr for TimeInForce {
 }
 
 /// Error when parsing order category from string fails
-#[derive(PartialEq, Debug, serde::Serialize)]
+#[derive(PartialEq, Debug, serde::Serialize, schemars::JsonSchema)]
 pub struct OrderCategoryParseError;
 impl std::str::FromStr for OrderCategory {
     type Err = OrderCategoryParseError;
@@ -310,7 +310,7 @@ impl std::fmt::Display for OrderAction {
 }
 
 /// Error when parsing order action from string fails
-#[derive(PartialEq, Debug, serde::Serialize)]
+#[derive(PartialEq, Debug, serde::Serialize, schemars::JsonSchema)]
 pub struct OrderActionParseError;
 impl std::str::FromStr for OrderAction {
     type Err = OrderActionParseError;

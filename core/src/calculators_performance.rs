@@ -10,7 +10,7 @@ use rust_decimal_macros::dec;
 use std::collections::BTreeMap;
 
 /// Error types for performance calculations
-#[derive(Debug, PartialEq, serde::Serialize)]
+#[derive(Debug, PartialEq, serde::Serialize, schemars::JsonSchema)]
 pub enum PerformanceError {
     /// Trade is not in a closed state
     TradeNotClosed,
@@ -21,7 +21,7 @@ pub enum PerformanceError {
 }
 
 /// Performance statistics for a collection of trades
-#[derive(Debug, PartialEq, Clone, serde::Serialize)]
+#[derive(Debug, PartialEq, Clone, serde::Serialize, schemars::JsonSchema)]
 pub struct PerformanceStats {
     /// Total number of trades analyzed
     pub total_trades: usize,
@@ -44,7 +44,7 @@ pub struct PerformanceStats {
 }
 
 /// Aggregated post-trade bias pattern summary for a fixed lookback window.
-#[derive(Debug, PartialEq, Eq, Clone, serde::Serialize)]
+#[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, schemars::JsonSchema)]
 pub struct BiasAggregation {
     /// Number of days included in the lookback window.
     pub window_days: i32,
@@ -65,11 +65,11 @@ pub struct BiasAggregation {
 }
 
 /// Calculator for trading performance metrics and statistics
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, serde::Serialize, schemars::JsonSchema)]
 pub struct PerformanceCalculator;
 
 /// Calculator for aggregating post-trade mistake bias tendencies.
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, serde::Serialize, schemars::JsonSchema)]
 pub struct BiasAggregationCalculator;
 
 impl BiasAggregationCalculator {

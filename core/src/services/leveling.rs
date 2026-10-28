@@ -10,7 +10,7 @@ use tracing::{debug, info};
 use uuid::Uuid;
 
 /// Performance snapshot used to evaluate automatic level transitions.
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, schemars::JsonSchema)]
 pub struct LevelPerformanceSnapshot {
     /// Number of profitable trades in the recent window.
     pub profitable_trades: u32,
@@ -25,7 +25,7 @@ pub struct LevelPerformanceSnapshot {
 }
 
 /// A policy decision to change levels.
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, schemars::JsonSchema)]
 pub struct LevelDecision {
     /// Target level.
     pub target_level: u8,
@@ -38,7 +38,7 @@ pub struct LevelDecision {
 }
 
 /// Progress for one criterion in a transition path.
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, schemars::JsonSchema)]
 pub struct LevelCriterionProgress {
     /// Criterion key, stable for machine consumption.
     pub key: &'static str,
@@ -55,7 +55,7 @@ pub struct LevelCriterionProgress {
 }
 
 /// Progress for a potential next transition.
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, schemars::JsonSchema)]
 pub struct LevelPathProgress {
     /// Stable path identifier.
     pub path: &'static str,
@@ -72,7 +72,7 @@ pub struct LevelPathProgress {
 }
 
 /// Progress report that explains what is missing to move up/down.
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, schemars::JsonSchema)]
 pub struct LevelProgressReport {
     /// Current level.
     pub current_level: u8,
@@ -99,7 +99,7 @@ pub trait LevelTransitionPolicy {
 }
 
 /// Default risk-first policy for automatic level transitions.
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, schemars::JsonSchema)]
 pub struct DefaultLevelTransitionPolicy {
     rules: LevelAdjustmentRules,
 }
@@ -118,6 +118,11 @@ impl DefaultLevelTransitionPolicy {
         level.checked_add(1).filter(|candidate| *candidate <= 4)
     }
 
+    fn is_risk_breach(&self, snapshot: &LevelPerformanceSnapshot) -> bool {
+        snapshot.monthly_loss_percentage <= self.rules.monthly_loss_downgrade_pct
+            || snapshot.largest_loss_percentage <= self.rules.single_loss_downgrade_pct
+    }
+
     fn is_exceptional_performance(&self, snapshot: &LevelPerformanceSnapshot) -> bool {
         snapshot.profitable_trades >= self.rules.cooldown_profitable_trades
             && snapshot.win_rate_percentage >= self.rules.cooldown_win_rate_pct
@@ -125,7 +130,8 @@ impl DefaultLevelTransitionPolicy {
     }
 
     fn is_recovery_ready(&self, snapshot: &LevelPerformanceSnapshot) -> bool {
-        snapshot.profitable_trades >= self.rules.recovery_profitable_trades
+        snapshot.monthly_loss_percentage >= Decimal::ZERO
+            && snapshot.profitable_trades >= self.rules.recovery_profitable_trades
             && snapshot.win_rate_percentage >= self.rules.recovery_win_rate_pct
             && snapshot.consecutive_wins >= self.rules.recovery_consecutive_wins
     }
@@ -169,6 +175,9 @@ impl DefaultLevelTransitionPolicy {
         current: &Level,
         snapshot: &LevelPerformanceSnapshot,
     ) -> Option<LevelPathProgress> {
+        if self.is_risk_breach(snapshot) || snapshot.monthly_loss_percentage < Decimal::ZERO {
+            return None;
+        }
         let target = Self::upgrade_target(current.current_level)?;
         let (profitable_threshold, win_rate_threshold, consecutive_wins_threshold) =
             if current.status == LevelStatus::Cooldown {
@@ -258,7 +267,7 @@ impl DefaultLevelTransitionPolicy {
         current: &Level,
         snapshot: &LevelPerformanceSnapshot,
     ) -> Option<LevelPathProgress> {
-        if current.status == LevelStatus::Cooldown {
+        if current.status == LevelStatus::Cooldown || self.is_risk_breach(snapshot) {
             return None;
         }
         let target = Self::downgrade_target(current.current_level)?;
@@ -297,6 +306,21 @@ impl LevelTransitionPolicy for DefaultLevelTransitionPolicy {
         current: &Level,
         snapshot: &LevelPerformanceSnapshot,
     ) -> Option<LevelDecision> {
+        // Loss controls take precedence even when a winning streak qualifies for recovery.
+        // At level zero, return without falling through to a performance upgrade.
+        if self.is_risk_breach(snapshot) {
+            let target = Self::downgrade_target(current.current_level)?;
+            return Some(LevelDecision {
+                target_level: target,
+                reason: format!(
+                    "Risk breach: monthly_loss={}%, largest_loss={}%",
+                    snapshot.monthly_loss_percentage, snapshot.largest_loss_percentage
+                ),
+                trigger_type: LevelTrigger::RiskBreach,
+                direction: LevelDirection::Downgrade,
+            });
+        }
+
         if current.status == model::LevelStatus::Cooldown && self.is_recovery_ready(snapshot) {
             let target = Self::upgrade_target(current.current_level)?;
             return Some(LevelDecision {
@@ -324,22 +348,8 @@ impl LevelTransitionPolicy for DefaultLevelTransitionPolicy {
             });
         }
 
-        if snapshot.monthly_loss_percentage <= self.rules.monthly_loss_downgrade_pct
-            || snapshot.largest_loss_percentage <= self.rules.single_loss_downgrade_pct
-        {
-            let target = Self::downgrade_target(current.current_level)?;
-            return Some(LevelDecision {
-                target_level: target,
-                reason: format!(
-                    "Risk breach: monthly_loss={}%, largest_loss={}%",
-                    snapshot.monthly_loss_percentage, snapshot.largest_loss_percentage
-                ),
-                trigger_type: LevelTrigger::RiskBreach,
-                direction: LevelDirection::Downgrade,
-            });
-        }
-
-        if snapshot.profitable_trades >= self.rules.upgrade_profitable_trades
+        if snapshot.monthly_loss_percentage >= Decimal::ZERO
+            && snapshot.profitable_trades >= self.rules.upgrade_profitable_trades
             && snapshot.win_rate_percentage >= self.rules.upgrade_win_rate_pct
             && snapshot.consecutive_wins >= self.rules.upgrade_consecutive_wins
         {
@@ -390,7 +400,7 @@ impl LevelTransitionPolicy for DefaultLevelTransitionPolicy {
 }
 
 /// Result for evaluate-and-apply workflows.
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, schemars::JsonSchema)]
 pub struct LevelEvaluationOutcome {
     /// Current level before any optional apply.
     pub current_level: Level,
@@ -403,7 +413,7 @@ pub struct LevelEvaluationOutcome {
 }
 
 /// Service coordinating level reads, policy evaluation, and writes.
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, serde::Serialize, schemars::JsonSchema)]
 pub struct LevelingService<P: LevelTransitionPolicy> {
     policy: P,
     min_trades_at_level_for_upgrade: u32,
@@ -542,6 +552,13 @@ impl<P: LevelTransitionPolicy> LevelingService<P> {
         let Some(decision) = decision else {
             return Ok(None);
         };
+
+        // Stabilization must never leave a loss-breaching account at a larger allowance.
+        if decision.direction == LevelDirection::Downgrade
+            && decision.trigger_type == LevelTrigger::RiskBreach
+        {
+            return Ok(Some(decision));
+        }
 
         if decision.direction == LevelDirection::Upgrade
             && current.trades_at_level < self.min_trades_at_level_for_upgrade
@@ -836,7 +853,7 @@ mod tests {
         LevelPerformanceSnapshot {
             profitable_trades: 12,
             win_rate_percentage: dec!(75),
-            monthly_loss_percentage: dec!(-1),
+            monthly_loss_percentage: Decimal::ZERO,
             largest_loss_percentage: dec!(-0.5),
             consecutive_wins: 4,
         }
@@ -861,7 +878,7 @@ mod tests {
         let snapshot = LevelPerformanceSnapshot {
             profitable_trades: 12,
             win_rate_percentage: dec!(75),
-            monthly_loss_percentage: dec!(-1),
+            monthly_loss_percentage: Decimal::ZERO,
             largest_loss_percentage: dec!(-0.5),
             consecutive_wins: 4,
         };
@@ -871,6 +888,31 @@ mod tests {
             .expect("expected decision");
         assert_eq!(decision.target_level, 3);
         assert_eq!(decision.direction, LevelDirection::Upgrade);
+    }
+
+    #[test]
+    fn losing_window_never_upgrades_even_with_many_winners() {
+        for status in [LevelStatus::Normal, LevelStatus::Cooldown] {
+            for level in 0..=4 {
+                let mut current = Level::default_for_account(Uuid::new_v4());
+                current.current_level = level;
+                current.status = status;
+                for loss in [dec!(-0.000001), dec!(-1), dec!(-4.99)] {
+                    let snapshot = LevelPerformanceSnapshot {
+                        monthly_loss_percentage: loss,
+                        ..upgrade_snapshot()
+                    };
+                    let policy = DefaultLevelTransitionPolicy::default();
+                    assert!(policy
+                        .evaluate(&current, &snapshot)
+                        .is_none_or(|d| d.direction != LevelDirection::Upgrade));
+                    assert!(policy
+                        .progress(&current, &snapshot)
+                        .upgrade_paths
+                        .is_empty());
+                }
+            }
+        }
     }
 
     #[test]
@@ -889,6 +931,89 @@ mod tests {
             .expect("expected decision");
         assert_eq!(decision.target_level, 2);
         assert_eq!(decision.direction, LevelDirection::Downgrade);
+        assert_eq!(decision.trigger_type, LevelTrigger::RiskBreach);
+    }
+
+    #[test]
+    fn risk_breach_overrides_every_winning_path_and_never_advertises_an_upgrade() {
+        let policy = DefaultLevelTransitionPolicy::default();
+        for level in 0..=4 {
+            for status in [
+                LevelStatus::Normal,
+                LevelStatus::Probation,
+                LevelStatus::Cooldown,
+            ] {
+                for (profitable_trades, win_rate_percentage, consecutive_wins) in
+                    [(6, dec!(70), 3), (12, dec!(75), 4), (25, dec!(95), 10)]
+                {
+                    // Either loss threshold alone, exactly at its boundary, must win.
+                    for (monthly_loss_percentage, largest_loss_percentage) in [
+                        (dec!(-5), dec!(-0.5)),
+                        (dec!(-4.999999), dec!(-2)),
+                        (dec!(-5), dec!(-2)),
+                        (dec!(-5.000001), dec!(-2.000001)),
+                    ] {
+                        let mut current = Level::default_for_account(Uuid::new_v4());
+                        current.current_level = level;
+                        current.risk_multiplier = Level::multiplier_for_level(level).unwrap();
+                        current.status = status;
+                        let snapshot = LevelPerformanceSnapshot {
+                            profitable_trades,
+                            win_rate_percentage,
+                            monthly_loss_percentage,
+                            largest_loss_percentage,
+                            consecutive_wins,
+                        };
+                        let decision = policy.evaluate(&current, &snapshot);
+                        if level == 0 {
+                            assert!(
+                                decision.is_none(),
+                                "a loss breach cannot recover from the floor"
+                            );
+                        } else {
+                            let decision = decision.expect("loss breach must reduce the level");
+                            assert_eq!(decision.target_level, level - 1);
+                            assert_eq!(decision.direction, LevelDirection::Downgrade);
+                            assert_eq!(decision.trigger_type, LevelTrigger::RiskBreach);
+                        }
+                        let progress = policy.progress(&current, &snapshot);
+                        assert!(
+                            progress.upgrade_paths.is_empty(),
+                            "loss breach blocks recovery guidance"
+                        );
+                        assert!(progress
+                            .downgrade_paths
+                            .iter()
+                            .all(|path| { path.trigger_type == LevelTrigger::RiskBreach }));
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn recovery_requires_nonlosing_window_and_no_single_loss_breach() {
+        let rules = LevelAdjustmentRules {
+            monthly_loss_downgrade_pct: dec!(-1.5),
+            single_loss_downgrade_pct: dec!(-0.75),
+            ..Default::default()
+        };
+        let policy = DefaultLevelTransitionPolicy::new(rules);
+        let mut current = Level::default_for_account(Uuid::new_v4());
+        current.status = LevelStatus::Cooldown;
+        for (monthly, single, direction) in [
+            (dec!(-1.5), dec!(-0.749999), LevelDirection::Downgrade),
+            (dec!(-1.499999), dec!(-0.75), LevelDirection::Downgrade),
+            (dec!(0), dec!(-0.749999), LevelDirection::Upgrade),
+        ] {
+            let snapshot = LevelPerformanceSnapshot {
+                monthly_loss_percentage: monthly,
+                largest_loss_percentage: single,
+                ..upgrade_snapshot()
+            };
+            let decision = policy.evaluate(&current, &snapshot).unwrap();
+            assert_eq!(decision.direction, direction);
+        }
     }
 
     #[test]
@@ -958,7 +1083,7 @@ mod tests {
         let snapshot = LevelPerformanceSnapshot {
             profitable_trades: 6,
             win_rate_percentage: dec!(70),
-            monthly_loss_percentage: dec!(-1),
+            monthly_loss_percentage: Decimal::ZERO,
             largest_loss_percentage: dec!(-0.7),
             consecutive_wins: 3,
         };
@@ -977,7 +1102,7 @@ mod tests {
         let snapshot = LevelPerformanceSnapshot {
             profitable_trades: 7,
             win_rate_percentage: dec!(64),
-            monthly_loss_percentage: dec!(-1),
+            monthly_loss_percentage: Decimal::ZERO,
             largest_loss_percentage: dec!(-0.7),
             consecutive_wins: 1,
         };
@@ -1039,7 +1164,7 @@ mod tests {
         let snapshot = LevelPerformanceSnapshot {
             profitable_trades: 5,
             win_rate_percentage: dec!(65),
-            monthly_loss_percentage: dec!(-1),
+            monthly_loss_percentage: Decimal::ZERO,
             largest_loss_percentage: dec!(-0.5),
             consecutive_wins: 2,
         };
@@ -1196,9 +1321,12 @@ mod tests {
     }
 
     #[test]
-    fn test_handle_trade_closed_with_snapshot_suppresses_when_recent_change_limit_reached() {
+    fn test_handle_trade_closed_with_snapshot_suppresses_upgrade_when_recent_change_limit_reached()
+    {
         let mut database = SqliteDatabase::new_in_memory();
-        let (account, level) = create_level_account(&database, "level-recent-change-limit");
+        let (account, mut level) = create_level_account(&database, "level-recent-change-limit");
+        level.trades_at_level = 5;
+        database.level_write().update_level(&level).unwrap();
         let (_updated, recent_change) = level
             .transition_to(
                 2,
@@ -1212,11 +1340,11 @@ mod tests {
             .create_level_change(&recent_change)
             .expect("recent change should be persisted");
 
-        let event = closed_event(account.id, dec!(-300));
-        let service = LevelingService::default().with_stabilization_rules(0, 1);
+        let event = closed_event(account.id, dec!(100));
+        let service = LevelingService::default().with_stabilization_rules(5, 1);
 
         let outcome = service
-            .handle_trade_closed_with_snapshot(&mut database, &event, &risk_breach_snapshot())
+            .handle_trade_closed_with_snapshot(&mut database, &event, &upgrade_snapshot())
             .expect("closed trade event should be handled");
 
         assert!(outcome.decision.is_none());
@@ -1227,7 +1355,56 @@ mod tests {
             .level_for_account(account.id)
             .expect("level should be readable");
         assert_eq!(persisted.current_level, 3);
-        assert_eq!(persisted.trades_at_level, 1);
+        assert_eq!(persisted.trades_at_level, 6);
+    }
+
+    #[test]
+    fn loss_downgrades_bypass_stabilization_limits_and_preserve_audit_history() {
+        let mut database = SqliteDatabase::new_in_memory();
+        let (account, _) = create_level_account(&database, "losses-after-change-limit");
+        let service = LevelingService::default();
+        // The default limit is two changes in 30 days; the third loss must still reduce size.
+        for target in [2, 1, 0] {
+            let outcome = service
+                .handle_trade_closed_with_snapshot(
+                    &mut database,
+                    &closed_event(account.id, dec!(-300)),
+                    &risk_breach_snapshot(),
+                )
+                .unwrap();
+            let applied = outcome
+                .applied_level
+                .expect("loss downgrade is never rate limited");
+            assert_eq!(applied.current_level, target);
+            assert_eq!(applied.status, LevelStatus::Probation);
+            assert_eq!(applied.trades_at_level, 0);
+        }
+        let history = database
+            .level_read()
+            .recent_level_changes(account.id, 30)
+            .unwrap();
+        assert_eq!(history.len(), 3);
+        assert!(history
+            .iter()
+            .all(|change| change.trigger_type == LevelTrigger::RiskBreach));
+
+        let outcome = service
+            .handle_trade_closed_with_snapshot(
+                &mut database,
+                &closed_event(account.id, dec!(-300)),
+                &risk_breach_snapshot(),
+            )
+            .unwrap();
+        assert!(outcome.applied_level.is_none());
+        assert_eq!(outcome.current_level.current_level, 0);
+        assert_eq!(
+            database
+                .level_read()
+                .recent_level_changes(account.id, 30)
+                .unwrap()
+                .len(),
+            3
+        );
     }
 
     #[test]
@@ -1445,7 +1622,7 @@ mod tests {
 
     #[test]
     fn test_progress_omits_paths_blocked_by_level_bounds() {
-        let snapshot = risk_breach_snapshot();
+        let snapshot = upgrade_snapshot();
         let mut level_zero = Level::default_for_account(Uuid::new_v4());
         level_zero.current_level = 0;
         level_zero.risk_multiplier = dec!(0.10);

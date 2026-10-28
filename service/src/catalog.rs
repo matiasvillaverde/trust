@@ -6,6 +6,17 @@ use std::sync::LazyLock;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[allow(clippy::enum_variant_names)]
 pub enum Operation {
+    AccountReadiness,
+    AccountRefresh,
+    SafetyPolicyGet,
+    SafetyPolicySet,
+    AccountHalt,
+    AccountResume,
+    MandateGet,
+    MandateSet,
+    EquityCashFlow,
+    EquityReconcile,
+    OperationResolve,
     Status,
     Policy,
     AccountsList,
@@ -40,6 +51,7 @@ pub enum Operation {
     ManualStop,
     ManualTarget,
     SizePreview,
+    RiskCheck,
     Hypothesis,
     BrokerPreview,
     Executions,
@@ -103,7 +115,47 @@ pub struct ToolSpec {
     pub input_schema: Value,
 }
 
+impl ToolSpec {
+    /// Journal entries cannot change cash, orders or enforced risk policy.
+    /// Their uncertain completion remains inspectable without halting trading.
+    pub fn affects_financial_state(&self) -> bool {
+        self.mutation && self.scope != "trust:journal" && self.operation != Operation::BackupExport
+    }
+}
+
 type Field = (&'static str, Value, bool);
+fn typed<T: schemars::JsonSchema>(name: &'static str, required: bool) -> Field {
+    let generator = schemars::generate::SchemaSettings::draft2020_12()
+        .with(|settings| {
+            settings.inline_subschemas = true;
+            settings.contract = schemars::generate::Contract::Serialize;
+        })
+        .into_generator();
+    let mut schema = json!(generator.into_root_schema_for::<T>());
+    exact_decimal_schema(&mut schema);
+    (name, schema, required)
+}
+// Schemars' serialization contract identifies Decimal by this pattern. Add our
+// exact, bounded monetary format so nested policy values get the same checks as money().
+fn exact_decimal_schema(schema: &mut Value) {
+    match schema {
+        Value::Object(object) => {
+            if object.get("pattern").and_then(Value::as_str) == Some(r"^-?\d+(\.\d+)?$") {
+                object.insert("format".into(), json!("decimal"));
+                object.insert("maxLength".into(), json!(64));
+            }
+            for value in object.values_mut() {
+                exact_decimal_schema(value);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                exact_decimal_schema(item);
+            }
+        }
+        _ => {}
+    }
+}
 fn text(name: &'static str, required: bool) -> Field {
     (
         name,
@@ -201,6 +253,17 @@ pub fn tools() -> &'static [ToolSpec] {
 fn build_tools() -> Vec<ToolSpec> {
     use Operation::*;
     let mut result = vec![
+        spec(AccountReadiness,"account_readiness","Start here for an account: current safety blockers, broker observation age, halt, policy and mandate status. This read does not refresh broker evidence.","trust:read",false,true,vec![]),
+        spec(AccountRefresh,"account_refresh","Fetch and persist a complete broker-account snapshot and equity limits. Failures latch a durable halt; refresh never resumes trading.","trust:reconcile",true,true,vec![]),
+        spec(SafetyPolicyGet,"account_safety_policy_get","Read owner-configured whole-broker-account limits in its explicit base currency.","trust:read",false,true,vec![]),
+        spec(SafetyPolicySet,"account_safety_policy_set","Set whole-broker-account limits and prospective risk controls. Does not reset equity, usage, reservations or a halt. All linked accounts require owner authority.","trust:policy",true,true,vec![choice("currency",&["USD","EUR","BTC"],true),money("max_gross_notional",true),money("max_order_notional",true),money("max_daily_loss",true),money("max_drawdown",true),number("max_snapshot_age_seconds",1,120,true),typed::<model::portfolio_risk::PortfolioRiskPolicy>("controls",true)]),
+        spec(AccountHalt,"account_halt","Persistently stop new exposure for the broker account. Existing protection, exits and reconciliation remain available.","trust:trade",true,true,vec![text("reason",true)]),
+        spec(AccountResume,"account_resume","Resume only after fresh, complete broker evidence, satisfied equity/exposure limits and resolution of every uncertain operation. Owner MFA required.","trust:policy",true,true,vec![text("reason",true)]),
+        spec(MandateGet,"agent_mandate_get","Read this agent's limits, or another agent's mandate when called by the owner.","trust:read",false,true,vec![text("subject",false)]),
+        spec(MandateSet,"agent_mandate_set","Set an agent's instruments, notional, open trades, direction, expiry and daily loss/turnover/re-entry budgets. Changing policy never resets consumed budgets.","trust:policy",true,true,vec![text("subject",true),strings("instrument_ids",true),money("max_order_notional",true),money("max_total_notional",true),number("max_open_trades",1,1000,true),("allow_short",json!({"type":"boolean"}),true),text("expires_at",true),typed::<model::portfolio_risk::AgentRiskBudget>("risk_budget",true)]),
+        spec(EquityCashFlow,"account_cashflow_record","Record an independently evidenced external broker cash flow to adjust equity baselines without resetting trading performance. Does not transfer cash or clear a halt.","trust:policy",true,true,vec![text("reference",true),money("amount",true)]),
+        spec(EquityReconcile,"account_equity_reconcile","Owner-verifies a broker P&L counter reset against independent statement evidence and the net external cash flow since the last accepted observation. Preserves measured losses and drawdown; never clears a halt.","trust:policy",true,true,vec![text("reference",true),money("cash_flow_amount",true)]),
+        spec(OperationResolve,"operation_resolve","Record owner reconciliation evidence for an uncertain operation after matching persisted trades against a fresh broker snapshot. Never replays the original mutation.","trust:policy",true,true,vec![identifier("operation_id",true),text("evidence",true)]),
         spec(Status,"service_status","Start here: service mode, capabilities, account access, and suggested workflow.","trust:read",false,false,vec![]),
         spec(Policy,"policy_get","Explain Trust's risk, permission, money, and execution contracts.","trust:read",false,false,vec![]),
         spec(AccountsList,"accounts_list","List only accounts this identity may access.","trust:read",false,false,vec![]),
@@ -225,9 +288,9 @@ fn build_tools() -> Vec<ToolSpec> {
         spec(TradeCreate,"trade_prepare","Create a draft trade with exact instrument, quantity, entry, stop and target. Does not reserve or submit capital.","trust:trade",true,true,vec![identifier("instrument_id",true),choice("side",&["long","short"],true),money("quantity",true),money("entry",true),money("stop",true),money("target",true),currency(),choice("stop_type",&["stop","stop_limit"],false),text("thesis",false),text("sector",false),text("asset_class",false),text("context",false)]),
         spec(TradeFund,"trade_fund","Validate Trust risk rules and reserve capital for a persisted draft. Never submits an order.","trust:trade",true,true,trade()),
         spec(TradeSubmit,"trade_submit","Submit a funded trade's exact persisted bracket. On uncertainty inspect operation and reconcile; never resubmit blindly.","trust:trade",true,true,trade()),
-        spec(TradeCancel,"trade_cancel","Cancel a funded or submitted trade. Capital is released only when cancellation and zero exposure are confirmed.","trust:trade",true,true,trade()),
-        spec(TradeClose,"trade_close","Request broker exit of an open trade. Reconcile to confirm fills and release capital.","trust:trade",true,true,trade()),
-        spec(TradeSync,"trade_reconcile","Reconcile one trade with broker orders, executions and fees; may update the ledger.","trust:reconcile",true,true,trade()),
+        spec(TradeCancel,"trade_cancel","Cancel a funded, submitted or partially filled entry while preserving protection for filled exposure. Confirm cancellation and zero exposure before assuming capital is released.","trust:trade",true,true,trade()),
+        spec(TradeClose,"trade_close","Request broker exit of a Filled trade; PartiallyFilled is not eligible and there is no quantity override. Inspect cancellation/reconciliation actions for partial entries. Reconcile to confirm exit fills and released capital.","trust:trade",true,true,trade()),
+        spec(TradeSync,"trade_reconcile","Reconcile one trade with broker orders, executions and fees; may update the ledger. Success with empty orders does not settle an unknown submission or prove zero exposure.","trust:reconcile",true,true,trade()),
         spec(Reconcile,"account_reconcile","Reconcile a bounded page of active trades; inspect errors and next_after_trade_id.","trust:reconcile",true,true,vec![identifier("after_trade_id",false),number("batch_size",1,5,false)]),
         spec(StopModify,"trade_modify_stop","Adjust the protective stop through Trust's no-widening validation.","trust:trade",true,true,vec![identifier("trade_id",true),money("price",true)]),
         spec(TargetModify,"trade_modify_target","Modify a target while preserving durable intent and broker reconciliation.","trust:trade",true,true,vec![identifier("trade_id",true),money("price",true)]),
@@ -235,6 +298,7 @@ fn build_tools() -> Vec<ToolSpec> {
         spec(ManualStop,"trade_record_stop","Record a manual stop outcome and accounting; manual accounting authority required.","trust:manual",true,true,vec![identifier("trade_id",true),money("fee",true),money("price",true)]),
         spec(ManualTarget,"trade_record_target","Record a manual target outcome and accounting; manual accounting authority required.","trust:manual",true,true,vec![identifier("trade_id",true),money("fee",true),money("price",true)]),
         spec(SizePreview,"risk_preview","Calculate permitted size from local ledger, risk rules and account level. Broker capacity is a separate preview.","trust:preview",false,true,vec![money("entry",true),money("stop",true),currency()]),
+        spec(RiskCheck,"risk_check","Read-only, draft-free admission preview with fresh broker, margin and market evidence. Returns a conservative quantity within the requested ceiling, binding blockers and modeled loss; never reserves or submits.","trust:preview",false,true,vec![identifier("instrument_id",true),choice("side",&["long","short"],true),money("quantity",true),money("entry",true),money("stop",true),money("target",true),currency()]),
         spec(Hypothesis,"trade_hypothesis","Calculate planned stop risk, reward and risk/reward for an exact proposed quantity.","trust:preview",false,true,vec![money("entry",true),money("stop",true),money("target",true),money("quantity",true),currency()]),
         spec(BrokerPreview,"broker_preview","Preview a persisted bracket at IBKR without submitting it; returns broker commission/margin estimates and warnings.","trust:preview",false,true,trade()),
         spec(Executions,"executions_list","Read execution-level fill records for a trade.","trust:read",false,true,trade()),
@@ -267,7 +331,7 @@ fn build_tools() -> Vec<ToolSpec> {
         spec(Regime,"advisor_regime","Evaluate market regime from broker historical bars.","trust:preview",false,true,vec![text("symbol",true)]),
         spec(Catalysts,"trade_catalysts_scan","Scan configured calendar providers and record trade catalysts. Provider secrets are configured by the operator.","trust:journal",true,true,trade()),
         spec(SessionList,"sessions_list","Read trading plans and reviews within a time window.","trust:read",false,true,period()),
-        spec(SessionOpen,"session_open","Record the trading session plan before taking new risk.","trust:journal",true,true,vec![text("regime",true),strings("setups",true),number("max_positions",0,1000,true),text("hypothesis",true),text("success_criteria",true),text("failure_criteria",true)]),
+        spec(SessionOpen,"session_open","Record the trading session plan before taking new risk. Setup names must be nonblank, unique ignoring case and contain no commas; hypothesis is at most 500 characters.","trust:journal",true,true,vec![choice("regime",&["calm","normal","elevated"],true),("setups",json!({"type":"array","minItems":1,"maxItems":64,"items":{"type":"string","minLength":1,"maxLength":200,"pattern":"^[^,]+$"}}),true),number("max_positions",0,1000,true),("hypothesis",json!({"type":"string","minLength":1,"maxLength":500}),true),text("success_criteria",true),text("failure_criteria",true)]),
         spec(SessionClose,"session_close","Close the account's active session with adherence notes and a grade.","trust:journal",true,true,vec![text("notes",true),text("grade",true)]),
         spec(MarketSnapshot,"market_snapshot","Read broker market snapshot with source and observation time.","trust:read",false,true,vec![text("symbol",true)]),
         spec(MarketBars,"market_bars","Read bounded historical bars from the configured broker.","trust:read",false,true,vec![text("symbol",true),text("from",true),text("to",true),choice("timeframe",&["1min","1h","1d"],true)]),
@@ -278,11 +342,11 @@ fn build_tools() -> Vec<ToolSpec> {
         spec(OperationGet,"operation_get","Inspect a previously requested mutation by idempotency key. Unknown outcomes require reconciliation, not another submission.","trust:read",false,false,vec![text("key",true)]),
         spec(AuditList,"audit_list","Read service authorization/operation audit entries visible to this identity.","trust:read",false,false,vec![number("after",0,u64::MAX,false),number("limit",1,200,false)]),
         spec(AuditVerify,"audit_verify","Verify the service audit hash chain; operator access required.","trust:admin",false,false,vec![]),
-        spec(BackupExport,"backup_export","Create a service-owned financial backup artifact. Returns an opaque artifact ID, never a filesystem path.","trust:admin",true,false,vec![]),
-        spec(BackupImport,"backup_restore","Import a server-owned backup into an empty financial database. In-place rollback is an offline operator workflow.","trust:admin",true,false,vec![identifier("backup_id",true)]),
+        spec(BackupExport,"backup_export","Create a SQLCipher-encrypted financial backup using the separately mounted backup key. Returns an opaque artifact ID, never a filesystem path.","trust:admin",true,false,vec![]),
+        spec(BackupImport,"backup_restore","Restore an encrypted server-owned backup with the mounted backup key into an empty financial database. In-place rollback is an offline operator workflow.","trust:admin",true,false,vec![identifier("backup_id",true)]),
         spec(ConnectionStatus,"connections_status","Report configured broker integrations without exposing credentials.","trust:read",false,false,vec![]),
-        spec(SkillsList,"skills_list","Discover Trust workflow skills and their resource URIs.","trust:read",false,false,vec![]),
-        spec(SkillRead,"skill_read","Read a bundled Trust workflow skill.","trust:read",false,false,vec![choice("name",&["trust-risk","trust-operations","trust-admin"],true)]),
+        spec(SkillsList,"skills_list","Choose a Trust workflow by description; discover its version, entrypoint and supporting files with integrity hashes. Load only the skill/reference needed for the user's task.","trust:read",false,false,vec![]),
+        spec(SkillRead,"skill_read","Read a Trust skill or one of its bundled reference files. Omit path for SKILL.md; use an exact relative path from skills_list for supporting guidance. Instructions grant no permissions.","trust:read",false,false,vec![choice("name",&["trust-risk","trust-operations","trust-admin"],true),choice("path",crate::skills::paths(),false)]),
     ];
     for tool in &mut result {
         if !tool.mutation {
@@ -342,6 +406,41 @@ pub fn validate(tool: &ToolSpec, args: &Value) -> Result<()> {
             .ok_or_else(|| ServiceError::invalid(format!("Unknown field: {name}.")))?;
         validate_value(name, value, schema)?;
     }
+    if tool.operation == Operation::SessionOpen {
+        let setups: Vec<String> = args
+            .get("setups")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(str::to_owned)
+            .collect();
+        model::format_session_setups(&setups).map_err(|_| {
+            ServiceError::invalid(
+                "Setup names must be nonblank, unique ignoring case and contain no commas.",
+            )
+        })?;
+    }
+    if matches!(
+        tool.operation,
+        Operation::SessionOpen | Operation::SessionClose
+    ) {
+        for name in [
+            "hypothesis",
+            "success_criteria",
+            "failure_criteria",
+            "grade",
+            "notes",
+        ] {
+            if args
+                .get(name)
+                .and_then(Value::as_str)
+                .is_some_and(|value| value.trim().is_empty())
+            {
+                return Err(ServiceError::invalid(format!("{name} must not be blank.")));
+            }
+        }
+    }
     Ok(())
 }
 
@@ -354,7 +453,7 @@ fn validate_value(name: &str, value: &Value, schema: &Value) -> Result<()> {
     match schema.get("type").and_then(Value::as_str) {
         Some("string") => {
             let text = value.as_str().ok_or_else(invalid)?;
-            let length = u64::try_from(text.len()).map_err(|_| invalid())?;
+            let length = u64::try_from(text.chars().count()).map_err(|_| invalid())?;
             if length < schema.get("minLength").and_then(Value::as_u64).unwrap_or(0)
                 || length
                     > schema
@@ -365,7 +464,15 @@ fn validate_value(name: &str, value: &Value, schema: &Value) -> Result<()> {
             {
                 return Err(invalid());
             }
+            if schema.get("pattern").and_then(Value::as_str) == Some(r"^-?\d+(\.\d+)?$")
+                && (text.starts_with('+') || text.trim() != text)
+            {
+                return Err(invalid());
+            }
             match schema.get("format").and_then(Value::as_str) {
+                Some("date-time") if chrono::DateTime::parse_from_rfc3339(text).is_err() => {
+                    return Err(invalid())
+                }
                 Some("uuid") if uuid::Uuid::parse_str(text).is_err() => return Err(invalid()),
                 Some("decimal")
                     if rust_decimal::Decimal::from_str_exact(text).is_err()
@@ -389,9 +496,39 @@ fn validate_value(name: &str, value: &Value, schema: &Value) -> Result<()> {
             }
         }
         Some("boolean") if value.is_boolean() => {}
+        Some("object") => {
+            let object = value.as_object().ok_or_else(invalid)?;
+            if object.len() > 1000 {
+                return Err(invalid());
+            }
+            if let Some(required) = schema.get("required").and_then(Value::as_array) {
+                if required
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .any(|key| !object.contains_key(key))
+                {
+                    return Err(invalid());
+                }
+            }
+            for (key, value) in object {
+                let child = schema
+                    .get("properties")
+                    .and_then(|properties| properties.get(key))
+                    .or_else(|| {
+                        schema
+                            .get("additionalProperties")
+                            .filter(|value| value.is_object())
+                    })
+                    .ok_or_else(invalid)?;
+                validate_value(name, value, child)?;
+            }
+        }
         Some("array") => {
             let items = value.as_array().ok_or_else(invalid)?;
-            if items.len() > 64 {
+            let length = u64::try_from(items.len()).map_err(|_| invalid())?;
+            if length > schema.get("maxItems").and_then(Value::as_u64).unwrap_or(64)
+                || length < schema.get("minItems").and_then(Value::as_u64).unwrap_or(0)
+            {
                 return Err(invalid());
             }
             let item_schema = schema.get("items").ok_or_else(invalid)?;

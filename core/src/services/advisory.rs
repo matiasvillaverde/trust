@@ -14,7 +14,7 @@ use std::error::Error;
 use std::fmt;
 use uuid::Uuid;
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, schemars::JsonSchema)]
 pub struct AdvisoryThresholds {
     pub sector_limit_pct: Decimal,
     pub asset_class_limit_pct: Decimal,
@@ -79,7 +79,7 @@ impl AdvisoryThresholds {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, schemars::JsonSchema)]
 pub enum AdvisoryThresholdError {
     /// A threshold is outside the allowed [0, 100] percentage range.
     OutOfRange { field: &'static str, value: Decimal },
@@ -103,7 +103,7 @@ impl fmt::Display for AdvisoryThresholdError {
 
 impl Error for AdvisoryThresholdError {}
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, schemars::JsonSchema)]
 pub enum AdvisoryAlertLevel {
     Ok,
     Warning,
@@ -111,7 +111,7 @@ pub enum AdvisoryAlertLevel {
     Block,
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, schemars::JsonSchema)]
 pub struct TradeProposal {
     pub account_id: Uuid,
     pub symbol: String,
@@ -121,7 +121,7 @@ pub struct TradeProposal {
     pub quantity: Decimal,
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, schemars::JsonSchema)]
 pub struct AdvisoryResult {
     pub level: AdvisoryAlertLevel,
     pub warnings: Vec<String>,
@@ -131,7 +131,7 @@ pub struct AdvisoryResult {
     pub projected_single_position_pct: Decimal,
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, schemars::JsonSchema)]
 pub struct AdvisoryHistoryEntry {
     pub account_id: Uuid,
     pub symbol: String,
@@ -140,7 +140,7 @@ pub struct AdvisoryHistoryEntry {
     pub created_at: NaiveDateTime,
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, schemars::JsonSchema)]
 pub struct PortfolioAdvisoryStatus {
     pub level: AdvisoryAlertLevel,
     pub top_sector_pct: Decimal,

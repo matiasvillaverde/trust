@@ -21,7 +21,7 @@ use std::error::Error;
 use uuid::Uuid;
 
 /// Grading weights in permille (sum must be 1000).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, schemars::JsonSchema)]
 pub struct GradingWeightsPermille {
     pub process: u16,
     pub risk: u16,
@@ -56,7 +56,7 @@ impl GradingWeightsPermille {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, schemars::JsonSchema)]
 pub struct WeightedPointsBreakdown {
     pub process_points: Decimal,
     pub risk_points: Decimal,
@@ -65,7 +65,7 @@ pub struct WeightedPointsBreakdown {
     pub total_points: Decimal,
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, schemars::JsonSchema)]
 pub struct MarketDataDetails {
     pub status: MarketDataStatus,
     pub timeframe: Option<BarTimeframe>,
@@ -78,7 +78,7 @@ pub struct MarketDataDetails {
     pub stop_distance_atr: Option<Decimal>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, schemars::JsonSchema)]
 pub enum MarketDataStatus {
     Ok,
     Unavailable,
@@ -86,7 +86,7 @@ pub enum MarketDataStatus {
     NotApplicable,
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, schemars::JsonSchema)]
 pub struct DetailedTradeGrade {
     pub trade_id: Uuid,
     pub grade: TradeGrade,

@@ -9,7 +9,7 @@ flowchart LR
   HTTP --> Worker[Single financial worker]
   Worker --> Journal[Operation journal and audit]
   Worker --> Facade[TrustFacade]
-  Facade --> Ledger[Financial SQLite database]
+  Facade --> Ledger[Encrypted financial database]
   Facade --> IBKR[IBKR Client Portal]
   Facade --> Alpaca[Alpaca]
 ```
@@ -17,6 +17,8 @@ flowchart LR
 The service is for one owner and multiple agents. It is a single process with one serialized financial worker, not a horizontally scaled broker gateway. Keep exclusive ownership of its financial and control databases. Do not run the legacy CLI or another writer against the service database.
 
 ## Authentication and permissions
+
+The supported self-hosted reference is [Keycloak with owner security keys and separate agent assertions](authentication.md). Its local browser and official MCP SDK acceptance harness exercises real issuer tokens. Production ingress, physical authenticators and recovery need their own acceptance.
 
 Use an existing OAuth/OIDC authorization server. Trust is the protected resource, not an authorization server. Register an API audience/resource equal to `https://YOUR_HOST/mcp`. Configure the provider to issue **RS256 access tokens** with `kid`, exact `iss`, that `aud`, a granted `sub`, `iat`, `exp`, and a space-separated `scope`. `nbf` is enforced when present. ID tokens and broker tokens are not Trust credentials.
 
@@ -55,12 +57,13 @@ MCP clients discover the authorization server through `/.well-known/oauth-protec
 1. Copy `deploy/config.example.json` to `deploy/config.local.json`. Set your actual issuer, public origin, subjects, and account grants. Replace placeholder UUIDs after the owner creates account profiles. Never copy a private signing key into this configuration.
 2. Put the provider's current public JWKS in `deploy/jwks.json`.
 3. Configure your HTTPS reverse proxy to forward to `127.0.0.1:8000`, preserving the **public Host** and Authorization header. No wildcard Hosts or Origins are accepted. Keep `allowed_origins` empty for non-browser clients; add exact origins only when needed.
-4. Configure the broker connection and optional secret mounts described below.
+4. Complete [encryption and key provisioning](security.md#provision-keys-and-storage), including `TRUST_SECRETS_DIR`, private UID 10001 storage and root/UID 10001 configuration ownership. Configure the broker connection and optional RAM-backed secret mounts described below.
 5. Run `docker compose -f deploy/compose.yaml up --build -d`. Check `/healthz` and `/readyz`, then authenticate and call `service_status`.
 
 The sample binds only the host loopback port. HTTPS termination is deliberately delegated to your existing proxy. It does not publish a domain, create an IdP, or expose IBKR's gateway. Public URL/issuer must use HTTPS except for a loopback-only local development listener. For a native local process:
 
 ```sh
+make native-sqlcipher
 cargo build --locked -p trust-service -p trust-cli
 # Use a local config with listen=127.0.0.1:8000 and matching public_url.
 ./target/debug/trust-service /absolute/path/config.local.json
@@ -84,6 +87,8 @@ The service retains Client Portal as the working adapter. It does not claim to i
 
 ### Alpaca and other secrets
 
+Whole-account snapshot admission is currently implemented for IBKR. Alpaca service funding and submission fail closed with `broker_snapshot_unavailable`; do not migrate an active Alpaca deployment expecting new entries until its complete snapshot contract is implemented and accepted. Existing adapter capabilities and risk-reducing workflows remain independently tested.
+
 For containers, set `TRUST_ALPACA_CREDENTIALS_FILE` to an individually mounted file whose top-level keys are Trust account UUIDs:
 
 ```json
@@ -104,7 +109,7 @@ Optional service configuration accepts `distribution_password_file` and `calenda
 
 Start with `service_status`, `policy_get`, and `accounts_list`. Tools use exact IDs, decimal strings, explicit accounts, and descriptive names. The normal workflow is:
 
-`risk_preview → trade_hypothesis → trade_prepare → broker_preview → trade_fund → trade_submit → trade_reconcile`
+`account_readiness → risk_check → trade_hypothesis → trade_prepare → broker_preview (IBKR) → trade_fund → trade_submit → trade_reconcile`
 
 Preparing does not reserve capital. Funding does not submit an order. Submission is not a fill. `trade_close` requests an exit; reconciliation confirms the resulting state. A broker preview never overrides Trust's sizing and funding checks.
 
@@ -120,7 +125,7 @@ Tools cover the existing workflow families:
 | --- | --- |
 | Accounts/capital | `accounts_list`, `account_get/create/delete`, `balances_get`, `transactions_list`, `capital_deposit/withdraw/transfer` |
 | Instruments | `instruments_list/stats`, `instrument_create/update/resolve` |
-| Risk/orders | `risk_rules_list`, `risk_rule_create/remove`, `risk_preview`, `trade_hypothesis`, all `trade_*` lifecycle tools, `broker_preview` |
+| Risk/orders | `risk_rules_list`, `risk_rule_create/remove`, `risk_check`, `risk_preview`, `trade_hypothesis`, all `trade_*` lifecycle tools, `broker_preview` |
 | Reconciliation/evidence | `account_reconcile`, `executions_list`, `trade_audit`, `operation_get`, `audit_list/verify` |
 | Reports | `report_get` (summary, performance, drawdown, risk, concentration, metrics, attribution, benchmark, timeline, bias, wash sales, tax), `metrics_get` (advanced, compare, bond) |
 | Levels/profit | `level_get/history/progress/evaluate`, `level_policy_get/set`, `distribution_policy_get/set`, `distribution_execute/history` |
@@ -130,17 +135,41 @@ Tools cover the existing workflow families:
 
 `GET /v1/tools` or MCP `tools/list` is the authoritative catalog with exact fields. `market_session` reports snapshot context, not an exchange-calendar guarantee. Market streams are finite batches. Advisor history is currently process-local; service audit and mutation outcomes are durable. Tax/wash-sale reports explicitly cover the full ledger. Currency aggregation is rejected when currency conversion would be required.
 
-Three packaged skills are also MCP resources and prompts: `trust-risk`, `trust-operations`, and `trust-admin`. Read `trust://skills/trust-risk`, use `skill_read`, or install the corresponding directory under `skills/` into your agent's skill location. The admin skill is only exposed to identities with admin scope. These workflows guide use; they grant no permissions.
+Three packaged skills with worked examples and supporting references are also MCP resources and prompts: `trust-risk`, `trust-operations`, and `trust-admin`. Read `trust://skills/trust-risk`, use `skill_read`, or install the corresponding directory under `skills/` into your agent's skill location. The admin skill is only exposed to identities with admin scope. These workflows guide use; they grant no permissions. `skills_list` returns descriptions, versions and file manifests; `skill_read` accepts an optional exact bundled `path`. References are also resources such as `skill://trust/trust-risk/references/trade-entry.md`. See [installation, client compatibility and skill usage](skills.md).
+
+Prompts accept `account_id` and optional `trade_id` UUID arguments. Account access is checked before contextual guidance is returned; use `trade_get` to confirm the trade belongs to that account. Freeform instructions are not accepted as prompt parameters. See [actual agent evaluations](reliability/agent-evaluations.md) for discovery, recovery and injection tests.
+
+### Broker-account safety and readiness
+
+An existing installation needs explicit owner setup before new funding/submission: both legacy risk rules, `account_safety_policy_set`, a successful `account_refresh`, and an `agent_mandate_set` for each trading agent. Policies and durable halts are keyed by broker, environment and native account ID, so aliases in Trust cannot multiply the available budget. Policy changes, mandate changes, explicit halts and recovery require grants for every linked profile. Agents cannot fund or submit another actor's draft.
+
+The required typed `controls` object adds broker-equity heat/trade/stress percentages, conservative margin buffer and maintenance stress, gross concentration by owner instrument/sector/group, quote/history/ATR requirements, liquidity/cost limits, explicit instrument entry schedules and drawdown steps with delayed recovery. Agent mandates require typed daily `risk_budget` limits. Legacy missing fields block admission instead of receiving permissive defaults. All decimal amounts are strings. See the [risk contract](risk-contract.md) and the bundled admin setup reference for exact semantics and deployment limitations.
+
+`risk_check` is a draft-free read-only preview over fresh broker, margin and contract market evidence. It returns a conservative quantity within the requested ceiling, exact modeled losses, source times, binding blockers and `reserves_capacity: false`. Funding/submission re-fetch and revalidate; a preview cannot reserve an allowance. Ordinary read audit records apply, but the preview does not persist safety refreshes or clear a halt.
+
+The policy sets exact-decimal gross exposure, per-order notional, daily equity loss and drawdown limits in one currency, plus a maximum snapshot age of 1–120 seconds. Admission counts absolute external/manual positions, working entries and all funded Trust reservations. Known bracket exits are excluded only when their identities, side and quantities reduce confirmed exposure. Unknown/unbounded orders, missing protection, unsupported assets/multipliers, mixed currencies and incomplete evidence block new risk. An accepted snapshot comes from two position/order passes around ledger and summary reads; it is bounded consistency evidence rather than an atomic broker transaction.
+
+Daily loss and drawdown include broker unrealized P&L. The baseline starts at the **first accepted observation**; it cannot reconstruct earlier same-day losses. UTC rollover preserves overnight changes and the high-water mark. An unexplained difference between equity changes and P&L changes halts admission. Record an independently verified external deposit/withdrawal using `account_cashflow_record`; it adjusts the equity baseline without moving cash or creating ledger capital. A broker P&L counter reset needs owner `account_equity_reconcile` with a unique evidence reference and explicit cash-flow amount (`"0"` for a verified counter-only reset). This retains actual equity loss/high-water history and does not clear the halt. Never label trading losses as deposits or withdrawals.
+
+`account_readiness` is a cached account view: connectivity, source/receipt times, policy completeness, current blockers, unresolved financial operation count and permitted new-notional capacity. Agent responses expose their own mandate and aggregate headroom without other agents' records; a globally authorized owner can inspect the full broker snapshot and equity baseline. `ready_for_new_risk` means the checks represented by the view passed; `constraints.max_new_notional` may still be zero and instrument/intent checks remain required. Use `risk_check` for the combined conservative quantity ceiling; also respect verified instrument increments and the mandate. Notional headroom is not loss capacity. `connections_status` uses the same evidence rather than reporting an unprobed connection. Neither view replaces fresh admission immediately before funding/submission.
+
+Stale evidence, unknown financial mutations, reconciliation failures and equity breaches latch a persistent halt. Successful refresh, a later profit, policy edits and service restarts cannot clear it. Failed advisory/market reads do not create financial uncertainty. Session/journal writes retain their own uncertain operation record but cannot change cash, orders or enforced policy, so they do not halt financial admission.
+
+Recovery is explicit: inspect the original operation, refresh the broker, reconcile affected trades and independently verify orders, positions, cash and fees. The owner records `operation_resolve` with evidence for each unresolved financial operation, then calls `account_resume`. Resolution preserves the original non-replayable intent; it does not fabricate a successful response. Resume checks fresh evidence, exposure, losses, protection and remaining unknowns. Permitted cancellation, stop tightening and exits remain available while halted, subject to their normal lifecycle/authorization checks.
+
+Periodic reconciliation visits broker-account scopes in rotation. Size its interval for the number of scopes and broker response latency so every account fits its freshness budget; stale state fails closed. Broker calls share the serialized worker and can dominate latency. Before production, measure this polling budget and alert delivery with the actual gateway and storage.
 
 ### Results and retries
 
-Every call returns `schema_version`, `request_id`, `operation_id`, `data`, `error`, and `next_actions`. Errors have stable `code`, safe `message`, `next_action`, and `retryable`. Array reads use `items`, `total`, and `next_offset`; defaults return 100 items, maximum 200. Nested reports are limited by the total response budget; narrow queries when needed.
+Every call returns `schema_version`, `request_id`, `operation_id`, `generated_at`, typed `data`, `error`, `actions`, and `next_actions`. Each MCP tool publishes its own output schema, including exact decimal strings and timestamps. Errors have stable `code`, safe `message`, `next_action`, and `retryable`. Each action supplies a tool, known arguments, missing required arguments, availability and blockers based on current permissions/broker/trade state. Guidance is not authorization. Historical replies can omit the newer additive fields. Array reads use `items`, `total`, and `next_offset`; defaults return 100 items, maximum 200. Nested reports are limited by the total response budget; narrow queries when needed.
 
 Every mutation requires a unique `idempotency_key` (8–128 characters). A key is scoped to the authenticated subject and permanently bound to its exact tool/arguments. Use the same key and arguments after a timeout. Different arguments with the same key are a conflict. Different agents should not independently issue the same financial intent; core trade state/intent validation remains the second protection.
 
 The journal commits intent before dispatch and commits the result afterward. An interrupted `running` operation becomes `outcome_unknown` on restart and is never automatically replayed. Broker failures after dispatch are conservatively uncertain unless a typed domain validation proves rejection. Use `operation_get` and reconcile; do not create another key to bypass uncertainty. Financial SQLite, control SQLite, and a remote broker cannot share an atomic transaction. This design does not claim exactly-once external execution.
 
 ### Fractional risk policy migration
+
+Control migration `0002_account_safety` adds shared safety state, owner operation resolutions and versioned safety evidence. Each state change commits atomically with its audit hash and historical record. Current state must match the latest history; missing, altered or rolled-back state fails closed. Global owner audit reads expose the historical evidence; agents never receive other agents' mandates or broker snapshots through it. Retain both databases and externally anchored audit heads. History is append-only application evidence and grows with refreshes; provision storage and an audited archive/retention process rather than deleting rows to reclaim capacity.
 
 Migration `2026-10-26-000001_preserve_fractional_risk` adds a decimal-string column while preserving existing integer policy values. It is an additive startup upgrade, with paired migration files and backup/restore tests. Downgrade refuses policies that would lose a fraction. Older backups still require a matching migration manifest: restore with their matching schema and then migrate the database.
 
@@ -205,7 +234,7 @@ Request bodies are limited to 128 KiB, results to 1 MiB, ordinary concurrent HTT
 
 Background reconciliation runs independently of MCP connections, when configured, rotating through one active trade per interval. `account_reconcile` processes a bounded page (default 1, maximum 5); follow `next_after_trade_id` with a new key for the next page. Failures are recorded per trade and a batch's `complete` flag must be checked. The current synchronous adapters serialize broker I/O; a large account can delay other operations. Use an operator monitor for readiness, unresolved operations, and reconciliation failures. The service is not a substitute for broker-native protective orders.
 
-For disaster recovery, stop the service and back up the financial database, control database (including SQLite WAL state if present), and configuration together; protect secrets separately. `backup_export` creates an opaque server-owned financial JSON artifact, not a full deployment backup. Online `backup_restore` is strict import into an empty financial database. In-place replacement must be performed offline after broker reconciliation; restoring a database cannot undo a live order. Keep the control journal to avoid forgetting past keys.
+For disaster recovery, stop the service and back up the financial database, control database (including SQLite WAL state if present), and configuration together; protect secrets separately. `backup_export` creates an opaque server-owned SQLCipher financial artifact using an independent backup key, not a full deployment backup. Encrypted restore requires that key; there is no plaintext service fallback. Follow the [migration, rotation and recovery procedure](security.md#migrate-plaintext-databases-and-rotate-keys). Online `backup_restore` is strict import into an empty financial database. In-place replacement must be performed offline after broker reconciliation; restoring a database cannot undo a live order. Keep the control journal to avoid forgetting past keys.
 
 ## Validation
 
@@ -231,7 +260,7 @@ docker build -t trust-service:local .
 trivy image --scanners vuln --severity HIGH,CRITICAL --exit-code 1 trust-service:local
 ```
 
-Tests use generated signing keys and fake brokers; they never connect to live brokerage accounts. Live IBKR/paper end-to-end tests remain explicit ignored tests under the repository's existing operator workflow.
+The default Rust suite uses generated signing keys and fake brokers. `make oidc-acceptance` separately tests a real disposable Keycloak issuer and official MCP clients with a virtual authenticator. Neither connects to live brokerage accounts. Real IBKR/paper end-to-end tests remain explicit ignored tests under the repository's operator workflow.
 
 
 ## Assurance levels
@@ -240,4 +269,4 @@ Use `make assurance-status` to inspect evidence for the current source. These le
 
 `make ibkr-paper-preflight` explicitly contacts an authenticated paper gateway after the offline levels pass. It never selects a submitting test. A supervised MCP paper submit/cancel harness is available in `scripts/ibkr_paper_acceptance.py`; it requires an operator-prepared one-unit trade, a notional bound, a token file and an explicit acknowledgment. Neither that smoke nor what-if success completes paper lifecycle acceptance. See [the six levels and acceptance criteria](reliability/verification.md#staged-ibkr-assurance).
 
-The runner records source fingerprints, exact commands, named assertions, exit codes and log hashes. Modified source, incomplete logs, missing/ignored required tests, altered logs and expired evidence prevent promotion. Reports are operator-controlled local evidence, not cryptographic certification, deployment authorization or guarantees about actual market losses. Levels 4–6 stay unverified until the external observations and remaining whole-account safeguards are complete. Existing `allow_live` flags are authorization controls; they are not evidence of readiness.
+The runner records source fingerprints, exact commands, named assertions, exit codes and log hashes. Modified source, incomplete logs, missing/ignored required tests, altered logs and expired evidence prevent promotion. Reports are operator-controlled local evidence, not cryptographic certification, deployment authorization or guarantees about actual market losses. [Read-only paper evidence capture and independent reconciliation](ibkr-paper-evidence.md) prepares the next broker-connected steps. Levels 4–6 stay unverified until their external observations and operational acceptance are complete. Existing `allow_live` flags are authorization controls; they are not evidence of readiness.

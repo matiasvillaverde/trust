@@ -150,8 +150,10 @@ impl Domain {
                             "Ask the operator to configure distribution_password_file.",
                         )
                     })?;
+                let password = trust_security::read_secret(path, 4096)
+                    .map_err(|_| crate::config::storage_error())?;
                 let password =
-                    std::fs::read_to_string(path).map_err(|_| ServiceError::internal())?;
+                    std::str::from_utf8(&password).map_err(|_| crate::config::storage_error())?;
                 output(self.facade.configure_distribution_with_insurance(
                     account_id,
                     decimal(args, "earnings")?,
@@ -219,7 +221,8 @@ impl Domain {
                     .checked_add_signed(chrono::Duration::days(30))
                     .ok_or_else(ServiceError::internal)?;
                 let credentials = if let Some(path) = &self.config.calendar_credentials_file {
-                    let bytes = std::fs::read(path).map_err(|_| ServiceError::internal())?;
+                    let bytes = trust_security::read_secret(path, 65536)
+                        .map_err(|_| crate::config::storage_error())?;
                     let credentials: CalendarSecret =
                         serde_json::from_slice(&bytes).map_err(|_| {
                             ServiceError::invalid("Invalid operator calendar credential file.")

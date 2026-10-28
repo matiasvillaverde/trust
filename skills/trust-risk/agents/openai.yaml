@@ -1,0 +1,4 @@
+interface:
+  display_name: "Trust: Research, risk and entries"
+  short_description: "Research markets, assess risk and manage new entries"
+  default_prompt: "Use $trust-risk to assess a proposed trade under my existing mandate."

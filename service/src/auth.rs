@@ -146,7 +146,7 @@ struct Claims {
 
 impl Authenticator {
     pub fn new(config: Arc<Config>) -> Result<Self> {
-        let bytes = std::fs::read(&config.jwks_file)
+        let bytes = trust_security::read_public_config(&config.jwks_file, 1024 * 1024)
             .map_err(|_| ServiceError::invalid("Cannot read the pinned public JWKS file."))?;
         let keys: JwkSet = serde_json::from_slice(&bytes)
             .map_err(|_| ServiceError::invalid("Invalid public JWKS file."))?;

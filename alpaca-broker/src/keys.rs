@@ -8,7 +8,7 @@ use std::{
 
 pub fn read_api_key(env: &Environment, account: &Account) -> Result<ApiInfo, Box<dyn Error>> {
     let keys = if let Some(path) = std::env::var_os("TRUST_ALPACA_CREDENTIALS_FILE") {
-        let bytes = std::fs::read(path).map_err(|_| "Cannot read Alpaca credential file")?;
+        let bytes = trust_security::read_secret(std::path::Path::new(&path), 65536)?;
         file_credentials(&bytes, env, account.id)?
     } else {
         Keys::read(env, &account.name)?
@@ -23,6 +23,14 @@ struct FileCredentials {
     environment: String,
     key_id: String,
     secret: String,
+}
+
+impl Drop for FileCredentials {
+    fn drop(&mut self) {
+        use zeroize::Zeroize;
+        self.key_id.zeroize();
+        self.secret.zeroize();
+    }
 }
 
 fn file_credentials(
@@ -112,7 +120,7 @@ impl Keys {
     /// Read API keys from keychain
     pub fn read(environment: &Environment, account_name: &str) -> trust_credentials::Result<Keys> {
         let entry = trust_credentials::entry(account_name, environment.to_string().as_str())?;
-        let password = entry.get_password()?;
+        let password = zeroize::Zeroizing::new(entry.get_password()?);
         let keys = Keys::from_str(password.as_str()).map_err(|_| {
             trust_credentials::Error::PlatformFailure(
                 "Failed to parse Keys from string".to_string().into(),

@@ -16,6 +16,9 @@ def b64(data):
 
 name='trust-smoke-'+uuid.uuid4().hex[:12]
 volume=name+'-data'
+config_volume=name+'-config'
+secret_folder=tempfile.TemporaryDirectory(prefix='trust-container-secrets-', dir='/dev/shm')
+secret_root=pathlib.Path(secret_folder.name)
 def container_logs():
     return subprocess.run(['docker','logs',name],check=False,stdout=subprocess.PIPE,stderr=subprocess.STDOUT).stdout
 
@@ -27,13 +30,35 @@ with tempfile.TemporaryDirectory(prefix='trust-container-smoke-') as folder:
     (root/'jwks.json').write_text(json.dumps({'keys':[{'kty':'RSA','use':'sig','alg':'RS256','kid':'smoke','n':b64(bytes.fromhex(modulus)),'e':'AQAB'}]}))
     scopes=['trust:read','trust:preview','trust:trade','trust:reconcile','trust:manual','trust:journal','trust:policy','trust:admin']
     config={'listen':'0.0.0.0:8000','public_url':'https://trust.test','issuer':'https://issuer.test','jwks_file':'/etc/trust/jwks.json','database':'/data/financial.db','journal':'/data/control.db','reconcile_interval_seconds':0,'grants':{'smoke-owner':{'role':'owner','all_accounts':True,'scopes':scopes}}}
+    config['storage_encryption'] = {name + '_key_file': '/run/trust-secrets/' + name + '-key.hex' for name in ['financial', 'journal', 'backup']}
     (root/'config.json').write_text(json.dumps(config))
     for file in [root/'config.json',root/'jwks.json']: file.chmod(0o444)
     now=int(time.time())
     unsigned=b64(json.dumps({'alg':'RS256','kid':'smoke','typ':'at+jwt'}).encode())+'.'+b64(json.dumps({'iss':config['issuer'],'aud':config['public_url']+'/mcp','sub':'smoke-owner','iat':now,'exp':now+900,'auth_time':now,'acr':'urn:trust:owner:mfa','scope':' '.join(scopes)}).encode())
     token=unsigned+'.'+b64(run('openssl','dgst','-sha256','-sign',str(private),input=unsigned.encode()))
     try:
-        run('docker','run','-d','--name',name,'--read-only','--cap-drop','ALL','--security-opt','no-new-privileges:true','--user','10001:10001','--pids-limit','128','--memory','512m','--tmpfs','/tmp:rw,noexec,nosuid,size=16m','-p','127.0.0.1::8000','-v',volume+':/data','-v',str(root/'config.json')+':/etc/trust/config.json:ro','-v',str(root/'jwks.json')+':/etc/trust/jwks.json:ro','trust-service:local')
+        # Only this test's fresh volumes/memory directory are mounted in the root
+        # provisioning helper; the long-running service always uses UID 10001.
+        run('docker','run','--rm','--network','none','--user','0:0',
+            '--entrypoint','sh','-v',config_volume+':/fixture',
+            '-v',str(root/'config.json')+':/input-config:ro',
+            '-v',str(root/'jwks.json')+':/input-jwks:ro',
+            '-v',str(secret_root)+':/run/trust-secrets', 'trust-service:local', '-ec',
+            'cp /input-config /fixture/config.json; cp /input-jwks /fixture/jwks.json; '
+            'chmod 444 /fixture/*.json; chown 10001:10001 /fixture; chmod 700 /fixture; '
+            'chown 0:0 /run/trust-secrets; '
+            'for kind in financial journal backup; do trust-storage keygen /run/trust-secrets/$kind-key.hex; done; '
+            'chown -R 10001:10001 /run/trust-secrets; '
+            'cp -p /run/trust-secrets/*-key.hex /fixture/')
+        # The same valid keys on a persistent volume must be refused.
+        rejected = subprocess.run(['docker','run','--rm','--network','none',
+            '--read-only','--cap-drop','ALL','--security-opt','no-new-privileges:true',
+            '-v',config_volume+':/etc/trust:ro','-v',config_volume+':/run/trust-secrets:ro',
+            'trust-service:local'],stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=30)
+        assert rejected.returncode != 0
+        assert b'Production secrets must be private regular files on tmpfs/ramfs' in rejected.stdout
+        assert b'service_ready' not in rejected.stdout
+        run('docker','run','-d','--name',name,'--read-only','--cap-drop','ALL','--security-opt','no-new-privileges:true','--user','10001:10001','--pids-limit','128','--memory','512m','--memory-swap','512m','--ulimit','core=0:0','--tmpfs','/tmp:rw,noexec,nosuid,nodev,size=16m','-p','127.0.0.1::8000','-v',volume+':/data','-v',config_volume+':/etc/trust:ro','-v',str(secret_root)+':/run/trust-secrets:ro','trust-service:local')
         address=run('docker','port',name,'8000/tcp').decode().strip()
         def request(path, payload=None, authorized=True, mcp=False):
             headers={'Host':'trust.test','Content-Type':'application/json'}
@@ -82,8 +107,15 @@ with tempfile.TemporaryDirectory(prefix='trust-container-smoke-') as folder:
         policies=call('risk_rules_list',{'account_id':account})['data']['items']
         assert len(policies)==1 and str(policies[0]['name']['RiskPerTrade'])=='0.3'
         assert request('/v1/tools/audit_verify',{})[1]['error'] is None
+        backup=call('backup_export',{'idempotency_key':'container-backup'})
+        assert backup['data']['backup_id']
+        for path in ['/data/financial.db','/data/control.db']:
+            raw=run('docker','exec',name,'cat',path)
+            assert not raw.startswith(b'SQLite format 3')
+            assert b'container-paper' not in raw and b'smoke-owner' not in raw
         assert token.encode() not in container_logs()
-        print('PASS: nonroot/read-only container, JWT auth denial, full catalog, fractional risk policy, MCP call, durable replay across restart, audit v2 verification, authenticated metrics, token-free logs')
+        assert run('docker','exec',name,'sh','-c','ulimit -c').strip()==b'0'
+        print('PASS: encrypted financial/control/backup storage, RAM-mounted independent keys, disabled core dumps, nonroot/read-only container, JWT auth denial, full catalog, fractional risk policy, MCP call, durable replay across restart, audit v2 verification, authenticated metrics, token-free logs')
     except Exception:
         logs=container_logs().decode().replace(token,'[REDACTED]')
         pathlib.Path('/tmp/trust-smoke-service.log').write_text(logs)
@@ -91,4 +123,7 @@ with tempfile.TemporaryDirectory(prefix='trust-container-smoke-') as folder:
     finally:
         subprocess.run(['docker','stop','--time','10',name],stdout=subprocess.PIPE,stderr=subprocess.PIPE)
         subprocess.run(['docker','rm',name],stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-        subprocess.run(['docker','volume','rm',volume],stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+        subprocess.run(['docker','volume','rm',volume,config_volume],stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+        run('docker','run','--rm','--network','none','--user','0:0','--entrypoint','chown',
+            '-v',str(secret_root)+':/fixture','trust-service:local','-R',f'{os.getuid()}:{os.getgid()}', '/fixture')
+        secret_folder.cleanup()

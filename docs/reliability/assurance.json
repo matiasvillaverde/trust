@@ -399,9 +399,13 @@
     }
   ],
   "live_blockers": [
-    "Current balances are local ledger projections; the Broker trait has no complete broker-account cash/positions snapshot contract.",
-    "Monthly risk uses UTC ledger entry basis, not broker mark-to-market account drawdown; service admission requires explicit policies, but this is not a broker-equity loss limit.",
-    "Background reconciliation iterates known active trades; errors can be logged without a portfolio-wide new-risk halt."
+    "Real IBKR paper lifecycle, independent fills/fees/cash/position reconciliation, partial fills, OCA behavior and multi-session recovery have not been observed for this revision.",
+    "Production identity ingress, physical security keys, recovery and key rotation require deployment acceptance; local Keycloak and virtual-authenticator results do not establish them.",
+    "Whole-account snapshots currently support IBKR only. Alpaca service funding/submission fail closed. Mixed currencies, derivatives/unknown multipliers and unbounded external orders remain unsupported.",
+    "Equity baselines start at the first accepted observation; earlier same-day losses cannot be reconstructed. Broker P&L counter resets and cash flows require independently evidenced owner reconciliation.",
+    "Snapshot consistency is bounded observation across multiple IBKR reads, not an atomic broker snapshot. Broker gaps, slippage, manual activity and market movement can exceed planned limits.",
+    "Periodic reconciliation must finish within each configured freshness budget. Production alert delivery, storage latency, restore and multi-account polling capacity require operational acceptance.",
+    "Encrypted host volumes, independently escrowed database/backup keys and production restore require deployment acceptance. The 2026-10-28 identity-container dependency blockers are remediated; continued scans and image compatibility gates are required. See docs/security.md."
   ],
   "sources": [
     "https://www.interactivebrokers.com/docs/web-api/api-reference/trading/trading-orders/get-open-orders",

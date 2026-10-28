@@ -56,12 +56,12 @@ fn test_levels_happy_path_progressively_reach_level_four() {
     evaluate_apply(
         &mut trust,
         account_id,
-        snapshot(15, dec!(75), dec!(-1), dec!(-0.4), 4),
+        snapshot(15, dec!(75), Decimal::ZERO, dec!(-0.4), 4),
     );
     evaluate_apply(
         &mut trust,
         account_id,
-        snapshot(18, dec!(78), dec!(-0.8), dec!(-0.3), 5),
+        snapshot(18, dec!(78), Decimal::ZERO, dec!(-0.3), 5),
     );
 
     let level = trust.level_for_account(account_id).expect("level");
@@ -77,12 +77,12 @@ fn test_levels_upper_bound_remains_capped_after_repeated_upgrades() {
         evaluate_apply(
             &mut trust,
             account_id,
-            snapshot(25, dec!(90), dec!(-0.2), dec!(-0.1), 9),
+            snapshot(25, dec!(90), Decimal::ZERO, dec!(-0.1), 9),
         );
         evaluate_apply(
             &mut trust,
             account_id,
-            snapshot(7, dec!(72), dec!(-0.6), dec!(-0.3), 3),
+            snapshot(7, dec!(72), Decimal::ZERO, dec!(-0.3), 3),
         );
     }
 
@@ -147,7 +147,7 @@ fn test_levels_exceptional_performance_enters_cooldown() {
     evaluate_apply(
         &mut trust,
         account_id,
-        snapshot(22, dec!(88), dec!(-0.3), dec!(-0.2), 9),
+        snapshot(22, dec!(88), Decimal::ZERO, dec!(-0.2), 9),
     );
 
     let level = trust.level_for_account(account_id).expect("level");
@@ -168,12 +168,12 @@ fn test_levels_failing_then_recovering_returns_to_normal_level() {
     evaluate_apply(
         &mut trust,
         account_id,
-        snapshot(12, dec!(76), dec!(-0.7), dec!(-0.4), 4),
+        snapshot(12, dec!(76), Decimal::ZERO, dec!(-0.4), 4),
     );
     evaluate_apply(
         &mut trust,
         account_id,
-        snapshot(7, dec!(72), dec!(-0.8), dec!(-0.4), 3),
+        snapshot(7, dec!(72), Decimal::ZERO, dec!(-0.4), 3),
     );
 
     let level = trust.level_for_account(account_id).expect("level");
@@ -189,12 +189,12 @@ fn test_levels_recovery_does_not_overshoot_from_cooldown() {
     evaluate_apply(
         &mut trust,
         account_id,
-        snapshot(24, dec!(92), dec!(-0.2), dec!(-0.1), 10),
+        snapshot(24, dec!(92), Decimal::ZERO, dec!(-0.1), 10),
     );
     evaluate_apply(
         &mut trust,
         account_id,
-        snapshot(9, dec!(79), dec!(-0.4), dec!(-0.3), 4),
+        snapshot(9, dec!(79), Decimal::ZERO, dec!(-0.3), 4),
     );
 
     let level = trust.level_for_account(account_id).expect("level");
@@ -210,13 +210,13 @@ fn test_levels_yearly_high_volume_simulation_stays_bounded() {
     for day in 0..365 {
         let phase = day % 30;
         let daily_snapshot = if phase < 10 {
-            snapshot(72, dec!(78), dec!(-1.2), dec!(-0.7), 5)
+            snapshot(72, dec!(78), Decimal::ZERO, dec!(-0.7), 5)
         } else if phase < 15 {
-            snapshot(84, dec!(91), dec!(-0.3), dec!(-0.2), 10)
+            snapshot(84, dec!(91), Decimal::ZERO, dec!(-0.2), 10)
         } else if phase < 20 {
             snapshot(28, dec!(42), dec!(-6.5), dec!(-2.7), 0)
         } else {
-            snapshot(68, dec!(73), dec!(-1.5), dec!(-0.8), 3)
+            snapshot(68, dec!(73), Decimal::ZERO, dec!(-0.8), 3)
         };
         evaluate_apply(&mut trust, account_id, daily_snapshot);
     }
@@ -240,8 +240,8 @@ fn test_levels_long_run_with_mixed_paths_never_leaves_bounds() {
     for i in 0..1_200 {
         let snapshot = match i % 6 {
             0 => snapshot(11, dec!(71), dec!(-1.0), dec!(-0.6), 3),
-            1 => snapshot(21, dec!(89), dec!(-0.2), dec!(-0.2), 8),
-            2 => snapshot(6, dec!(68), dec!(-0.9), dec!(-0.5), 2),
+            1 => snapshot(21, dec!(89), Decimal::ZERO, dec!(-0.2), 8),
+            2 => snapshot(6, dec!(68), Decimal::ZERO, dec!(-0.5), 2),
             3 => snapshot(3, dec!(35), dec!(-5.8), dec!(-1.4), 0),
             4 => snapshot(4, dec!(49), dec!(-3.0), dec!(-2.4), 1),
             _ => snapshot(8, dec!(66), dec!(-1.1), dec!(-0.9), 2),

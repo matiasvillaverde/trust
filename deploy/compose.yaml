@@ -12,6 +12,9 @@ services:
     security_opt: [no-new-privileges:true]
     pids_limit: 128
     mem_limit: 1g
+    memswap_limit: 1g
+    ulimits:
+      core: {soft: 0, hard: 0}
     cpus: 2
     stop_grace_period: 120s
     ports: ["127.0.0.1:8000:8000"]
@@ -19,9 +22,14 @@ services:
       - trust-data:/data
       - ./config.local.json:/etc/trust/config.json:ro
       - ./jwks.json:/etc/trust/jwks.json:ro
+      - type: bind
+        source: ${TRUST_SECRETS_DIR:?Set an absolute private runtime secrets directory outside the data volume}
+        target: /run/trust-secrets
+        read_only: true
+        bind: {create_host_path: false}
       # Mount optional secrets individually, then set their file path in config/env.
     tmpfs:
-      - /tmp:rw,noexec,nosuid,size=16m,mode=1777
+      - /tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777
     environment:
       TRUST_IBKR_URL: "${TRUST_IBKR_URL:-https://host.docker.internal:5000/v1/api}"
       TRUST_IBKR_ALLOW_INSECURE_TLS: "false"

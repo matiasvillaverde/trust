@@ -1,5 +1,6 @@
 [package]
 name = "trust-service"
+default-run = "trust-service"
 version.workspace = true
 edition = "2021"
 license.workspace = true
@@ -7,9 +8,10 @@ rust-version.workspace = true
 description = "Authenticated risk-management service and MCP interface for Trust"
 
 [dependencies]
+schemars.workspace = true
 trust-core = { package = "core", path = "../core", version = "0.3.5" }
 model = { package = "trust-model", path = "../model", version = "0.3.5" }
-db-sqlite = { path = "../db-sqlite", version = "0.3.5" }
+db-sqlite = { path = "../db-sqlite", version = "0.3.5", features = ["encrypted-storage"] }
 ibkr-broker = { path = "../ibkr-broker", version = "0.3.5" }
 alpaca-broker = { path = "../alpaca-broker", version = "0.3.5" }
 advisor = { path = "../advisor", version = "0.3.5" }
@@ -33,8 +35,11 @@ jsonwebtoken = { version = "11.1.0", default-features = false, features = ["aws_
 rusqlite = { version = "0.40.2", default-features = false, features = ["backup"] }
 fs2 = "0.4.3"
 url = "2.5.8"
+trust-security.workspace = true
+zeroize.workspace = true
 
 [dev-dependencies]
+jsonschema = { version = "0.60.2", default-features = false }
 reqwest.workspace = true
 jsonwebtoken = { version = "11.1.0", default-features = false, features = ["aws_lc_rs", "use_pem"] }
 tempfile = "3.27.0"

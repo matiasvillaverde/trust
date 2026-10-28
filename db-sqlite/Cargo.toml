@@ -28,3 +28,14 @@ tracing =  {workspace = true}
 serde = {workspace = true}
 serde_json = {workspace = true}
 thiserror = {workspace = true}
+trust-security.workspace = true
+zeroize.workspace = true
+# Service builds unify Diesel/rusqlite on the verified native SQLCipher build.
+# The standalone legacy/HTTP CLI retains its existing system SQLite build.
+libsqlite3-sys = { version = "0.38.2", optional = true, features = ["sqlcipher", "bundled_bindings"] }
+
+[features]
+encrypted-storage = ["dep:libsqlite3-sys"]
+
+[package.metadata.cargo-machete]
+ignored = ["libsqlite3-sys"] # Native backend feature unification, no direct FFI calls.

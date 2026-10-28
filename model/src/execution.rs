@@ -5,7 +5,7 @@ use std::str::FromStr;
 use uuid::Uuid;
 
 /// Where we learned about an execution.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, schemars::JsonSchema)]
 pub enum ExecutionSource {
     /// Real-time `trade_updates` websocket.
     TradeUpdates,
@@ -23,7 +23,7 @@ impl std::fmt::Display for ExecutionSource {
 }
 
 /// Error returned when parsing an invalid execution source.
-#[derive(Debug, PartialEq, serde::Serialize)]
+#[derive(Debug, PartialEq, serde::Serialize, schemars::JsonSchema)]
 pub struct ExecutionSourceParseError;
 
 impl FromStr for ExecutionSource {
@@ -39,7 +39,7 @@ impl FromStr for ExecutionSource {
 }
 
 /// Trade execution side as used by Alpaca payloads.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, schemars::JsonSchema)]
 pub enum ExecutionSide {
     /// Buy.
     Buy,
@@ -60,7 +60,7 @@ impl std::fmt::Display for ExecutionSide {
 }
 
 /// Error returned when parsing an invalid execution side.
-#[derive(Debug, PartialEq, serde::Serialize)]
+#[derive(Debug, PartialEq, serde::Serialize, schemars::JsonSchema)]
 pub struct ExecutionSideParseError;
 
 impl FromStr for ExecutionSide {
@@ -79,7 +79,7 @@ impl FromStr for ExecutionSide {
 /// An immutable broker execution (fill).
 ///
 /// This is the primitive event that order/trade accounting should be derived from.
-#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, schemars::JsonSchema)]
 pub struct Execution {
     /// Unique identifier for this execution row.
     pub id: Uuid,

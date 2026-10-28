@@ -558,6 +558,114 @@ fn preview_never_exceeds_fundable_base_at_any_level() {
 }
 
 #[test]
+fn loss_breach_shrinks_size_and_blocks_old_reservations_after_change_limit() {
+    use core::events::trade::{CloseReason, TradeClosed};
+    use core::services::leveling::{LevelPerformanceSnapshot, LevelingService};
+    use core::validation_errors::{FundValidationError, FundValidationErrorCode};
+    use model::{LevelStatus, LevelTrigger};
+
+    for side in [TradeCategory::Long, TradeCategory::Short] {
+        let mut f = Fixture::new();
+        f.rule(RuleName::RiskPerTrade(1.0));
+        f.rule(RuleName::RiskPerMonth(20.0));
+        let trade = f.trade(side, dec!(10));
+        let funded = f.facade.fund_trade(&trade).unwrap().0;
+
+        // Two audited changes exhaust the default stabilization limit, ending in cooldown.
+        let mut level = f.db.level_read().level_for_account(f.account.id).unwrap();
+        for (target, trigger) in [
+            (4, LevelTrigger::PerformanceUpgrade),
+            (3, LevelTrigger::PerformanceCooldown),
+        ] {
+            let (updated, change) = level
+                .transition_to(
+                    target,
+                    "prior performance",
+                    trigger,
+                    chrono::Utc::now().naive_utc(),
+                )
+                .unwrap();
+            level = f.db.level_write().update_level(&updated).unwrap();
+            f.db.level_write().create_level_change(&change).unwrap();
+        }
+        assert_eq!(level.status, LevelStatus::Cooldown);
+
+        let outcome = LevelingService::default()
+            .handle_trade_closed_with_snapshot(
+                &mut f.db,
+                &TradeClosed {
+                    trade_id: uuid::Uuid::new_v4(),
+                    account_id: f.account.id,
+                    final_pnl: dec!(-500),
+                    r_multiple: dec!(-5),
+                    close_reason: CloseReason::Manual,
+                    closed_at: chrono::Utc::now().naive_utc(),
+                },
+                &LevelPerformanceSnapshot {
+                    profitable_trades: 25,
+                    win_rate_percentage: dec!(95),
+                    monthly_loss_percentage: dec!(-5),
+                    largest_loss_percentage: dec!(-0.5),
+                    consecutive_wins: 10,
+                },
+            )
+            .unwrap();
+        let reduced = outcome
+            .applied_level
+            .expect("loss overrides recovery and rate limit");
+        assert_eq!(reduced.current_level, 2);
+        assert_eq!(reduced.risk_multiplier, dec!(0.5));
+        assert_eq!(reduced.status, LevelStatus::Probation);
+        let history =
+            f.db.level_read()
+                .recent_level_changes(f.account.id, 30)
+                .unwrap();
+        assert_eq!(history.len(), 3);
+        assert!(history.iter().any(|change| {
+            change.old_level == 3
+                && change.new_level == 2
+                && change.trigger_type == LevelTrigger::RiskBreach
+        }));
+
+        let stop = if side == TradeCategory::Long {
+            dec!(90)
+        } else {
+            dec!(110)
+        };
+        let preview = f
+            .facade
+            .calculate_level_adjusted_quantity(f.account.id, dec!(100), stop, &Currency::USD)
+            .unwrap();
+        assert!(preview.final_quantity <= dec!(5));
+        assert_eq!(preview.final_quantity, preview.base_quantity * dec!(0.5));
+
+        // Even a previously funded bracket must re-read the new, smaller allowance.
+        let before_submission = f.tables();
+        let error = f.facade.submit_trade(&funded).unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<FundValidationError>().unwrap().code,
+            FundValidationErrorCode::LevelAdjustedQuantityExceeded
+        );
+        assert_eq!(f.broker_calls.load(std::sync::atomic::Ordering::SeqCst), 0);
+        assert_eq!(f.tables(), before_submission);
+
+        let too_large = f.trade(side, preview.base_quantity);
+        let before_funding = f.tables();
+        let error = f.facade.fund_trade(&too_large).unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<FundValidationError>().unwrap().code,
+            FundValidationErrorCode::LevelAdjustedQuantityExceeded
+        );
+        assert_eq!(f.tables(), before_funding);
+        let smaller = f.trade(side, preview.final_quantity);
+        assert_eq!(
+            f.facade.fund_trade(&smaller).unwrap().0.status,
+            Status::Funded
+        );
+    }
+}
+
+#[test]
 fn fractional_risk_backup_round_trip_and_corruption_rejection() {
     use db_sqlite::ImportOptions;
     let mut f = Fixture::new();

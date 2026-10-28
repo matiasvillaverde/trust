@@ -53,6 +53,39 @@ impl Domain {
             }
         }
         if let Some(id) = account {
+            if matches!(
+                spec.operation,
+                Operation::TradeCreate | Operation::TradeFund | Operation::TradeSubmit
+            ) {
+                let account = self.facade.account_by_id(id).map_err(|_| not_found())?;
+                model::account_safety::BrokerAccountScope::from_account(&account)
+                    .map_err(ServiceError::invalid)?;
+            }
+            if matches!(
+                spec.operation,
+                Operation::SafetyPolicySet
+                    | Operation::AccountHalt
+                    | Operation::AccountResume
+                    | Operation::MandateSet
+                    | Operation::EquityCashFlow
+                    | Operation::EquityReconcile
+                    | Operation::OperationResolve
+            ) {
+                let account = self.facade.account_by_id(id).map_err(|_| not_found())?;
+                let scope = model::account_safety::BrokerAccountScope::from_account(&account)
+                    .map_err(ServiceError::invalid)?;
+                for related in self.facade.search_all_accounts().map_err(domain_error)? {
+                    if model::account_safety::BrokerAccountScope::from_account(&related)
+                        .ok()
+                        .as_ref()
+                        == Some(&scope)
+                    {
+                        identity.check(spec.scope, Some(related.id))?;
+                        self.check_live(identity, related.environment)?;
+                        affected.insert(related.id);
+                    }
+                }
+            }
             if spec.mutation {
                 // Closures/reconciliation can automatically distribute profit to child accounts.
                 for child in self
@@ -101,7 +134,7 @@ impl Domain {
             AccountsList | AccountGet | AccountCreate | AccountDelete | Balances | Transfer
             | Transactions | Deposit | Withdraw | Rules | RuleCreate | RuleRemove | Instruments
             | InstrumentCreate | InstrumentUpdate | InstrumentStats | InstrumentResolve
-            | BackupExport | BackupImport | ConnectionStatus => self.accounts(identity, op, args),
+            | BackupExport | BackupImport => self.accounts(identity, op, args),
             Trades | TradeGet | TradeCreate | TradeFund | TradeSubmit | TradeCancel
             | TradeClose | TradeSync | Reconcile | StopModify | TargetModify | ManualFill
             | ManualStop | ManualTarget | SizePreview | Hypothesis | BrokerPreview | Executions
@@ -136,10 +169,17 @@ impl Domain {
             | MarketSession
             | MarketStream => self.analysis(op, args),
             SkillsList => Ok(crate::skills::list(identity)),
-            SkillRead => Ok(
-                json!({"name":string(args,"name")?,"content":crate::skills::read(identity,string(args,"name")?)?}),
-            ),
-            OperationGet | AuditList | AuditVerify => Err(ServiceError::internal()), // handled by the journal owner
+            SkillRead => value(crate::skills::read_file(
+                identity,
+                string(args, "name")?,
+                args.get("path")
+                    .and_then(Value::as_str)
+                    .unwrap_or("SKILL.md"),
+            )?),
+            ConnectionStatus | OperationGet | AuditList | AuditVerify | AccountReadiness
+            | RiskCheck | AccountRefresh | SafetyPolicyGet | SafetyPolicySet | AccountHalt
+            | AccountResume | MandateGet | MandateSet | EquityCashFlow | EquityReconcile
+            | OperationResolve => Err(ServiceError::internal()), // handled by the journal owner
         }
     }
     fn account(&self, args: &Value) -> Result<Account> {
@@ -175,7 +215,7 @@ pub fn id(v: &Value, key: &str) -> Result<Uuid> {
 fn optional_id(v: &Value, key: &str) -> Result<Option<Uuid>> {
     v.get(key).map(|_| id(v, key)).transpose()
 }
-fn decimal(v: &Value, key: &str) -> Result<Decimal> {
+pub(crate) fn decimal(v: &Value, key: &str) -> Result<Decimal> {
     Decimal::from_str_exact(string(v, key)?)
         .map_err(|_| ServiceError::invalid(format!("Invalid decimal: {key}.")))
 }
@@ -196,7 +236,7 @@ fn parse<T: std::str::FromStr>(v: &Value, key: &str) -> Result<T> {
         .parse()
         .map_err(|_| ServiceError::invalid(format!("Invalid {key}.")))
 }
-fn currency(v: &Value) -> Result<model::Currency> {
+pub(crate) fn currency(v: &Value) -> Result<model::Currency> {
     match v.get("currency").and_then(Value::as_str).unwrap_or("usd") {
         "usd" => Ok(model::Currency::USD),
         "eur" => Ok(model::Currency::EUR),
@@ -286,7 +326,7 @@ pub fn paginate(value: Value, args: &Value) -> Value {
     }
 }
 
-fn domain_error(error: Box<dyn std::error::Error>) -> ServiceError {
+pub(crate) fn domain_error(error: Box<dyn std::error::Error>) -> ServiceError {
     use trust_core::validation_errors::{
         FundValidationError, FundValidationErrorCode, RuleValidationError, TradeValidationError,
         TradeValidationErrorCode, TransactionValidationError,

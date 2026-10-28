@@ -207,6 +207,8 @@ Evidence: complete catalogue schema/scope matrix, real HTTP/MCP contract, CLI se
 13. Duplicate close/reconcile: no second distribution for the same financial close.
 14. Configuration secret missing, weak password or malformed stored hash: no unauthorized configuration; never return the hash.
 15. Closing succeeded but post-close grading/level/distribution fails: retain truthful close state and surface follow-up failure.
+16. Winning/recovery criteria and either loss threshold are simultaneously met, including exact equality: a loss-driven downgrade wins at every level/status; the floor cannot upgrade and progress cannot advertise a winning path.
+17. Minimum-trade or recent-change stabilization limits reached: loss-driven downgrades still apply and append audit history; performance upgrades remain constrained. Newly funded and previously reserved long/short entries must observe the reduced level before broker dispatch.
 
 Evidence: model distribution/level tests, service/profit distribution suites, database atomicity tests, grade/level CLI integration and security regressions.
 
@@ -308,3 +310,91 @@ Evidence: `service/tests/e2e.rs`, `service/tests/service_contract.rs`, the core 
 7. IBKR success and error attempts: emit correlated endpoint-class timings without broker identifiers, URLs or sensitive response text; preserve the single-attempt mutation behavior.
 8. Concurrent HTTP/MCP previews: keep risk validation, audit every read, verify the resulting chain and submit no broker orders; measure response-body completion and enforce the release latency gate.
 9. Stop and target acknowledgements are both lost: reconcile their intents independently, whether observed together or separately; repeated snapshots do not duplicate confirmation evidence.
+
+## Shared broker-account safety
+
+These cases extend the register. A listed boundary is a requirement; use the named-test evidence and verification record to distinguish executed cases from broker/deployment acceptance.
+
+1. Two Trust profiles share the same broker/environment/native account: reservations consume one common budget, even when different agents fund concurrently.
+2. A different environment or broker has the same account text: scopes remain distinct; missing/invalid native identity blocks new exposure.
+3. External long/short positions consume absolute gross exposure, including positions unknown to Trust.
+4. Manual working orders have bounded price/quantity, no price, unknown type, missing currency, duplicate ID, pending cancellation or partial fill: no unbounded exposure is treated as zero.
+5. Known bracket children count as exits only when identity, instrument, direction and remaining quantity reduce confirmed exposure; unrecognized siblings do not receive that exemption.
+6. Missing, inactive, retyped or weakened safety stops block admission. Long/short protection compares the strongest audited stop, including external observations retained by financial audit.
+7. A fill appears between position/order reads: inconsistent evidence blocks admission; timestamps are broker source times, not just receipt times.
+8. Position pages truncate, repeat an instrument, hit the cap or fail mid-read; order snapshots are refresh acknowledgments rather than complete results.
+9. Snapshot is stale, future by less than a second, older than the last accepted observation, incomplete, foreign-account or foreign-currency.
+10. Option/future/bond/unknown multiplier or mixed currency appears: no implicit stock multiplier or FX aggregation.
+11. Price, quantity or aggregate exceeds Decimal range: fail explicitly; never substitute zero, saturate money or fall back to float.
+12. Submission credits only its own funded reservation; another profile's reservation remains committed.
+13. Available broker funds are lower than local ledger capital or are already reserved by other drafts.
+14. Readiness is clear but new-notional capacity or mandate slots are zero; a preview never constitutes execution permission.
+
+## Persistent halt, equity and mandates
+
+1. Unknown financial operation affects a secondary transfer/distribution account: all affected broker scopes remain blocked.
+2. Crash before/after intent, broker acceptance, financial write or completion record: retain uncertainty without replay; original keys stay bound to original arguments.
+3. A failed read, advisory request or journal-only mutation must not invent unresolved financial exposure. Journal-only uncertainty remains inspectable.
+4. Refresh succeeds, profit recovers, policy changes or the service restarts after a halt: none silently resume new exposure.
+5. During a halt, authorized protection, cancellation and exit workflows remain available with their existing lifecycle restrictions.
+6. Owner resume with unresolved operations, stale data, breached loss/exposure or missing Trust entry/protection fails; an agent cannot resolve or resume.
+7. Current safety row is altered, deleted or rolled back while historical evidence remains: fail closed; state/history/audit writes roll back together.
+8. Resolution evidence is altered or its audit reference is missing: it cannot hide the original unknown operation.
+9. A caller loses access to one linked profile: shared policy/halt/recovery checks fail before claiming or replaying an operation.
+10. Unrealized losses reach a daily/drawdown limit exactly; high-water history survives restart and later gains.
+11. UTC rollover occurs between observations, including an overnight loss; rolling the date must not forgive the unseen loss.
+12. External deposit/withdrawal, duplicate cash-flow reference, unexplained equity/P&L difference and broker P&L counter reset: distinguish evidenced cash flows from trading performance.
+13. Owner counter reconciliation with zero cash flow retains losses; a reset cannot erase drawdown or clear a halt.
+14. Initial baseline begins after earlier same-day losses: explicitly document the missing earlier history and require operational review.
+15. Agent mandate missing, expired at dispatch, instrument absent, short disallowed, order/aggregate budget exhausted or open-trade count reached.
+16. Existing agent positions appreciate: marked exposure cannot remain valued only at original entry; another agent's allocation does not reset the shared cap.
+17. Agent tries funding/submitting a draft prepared by another subject; owner policy authority does not change draft ownership automatically.
+18. Background poll duration across all scopes exceeds freshness budget; broker pacing, outages and disk delays must fail closed and trigger independently observed alerts.
+
+## MCP, identity and acceptance evidence
+
+1. Every result validates against its specific output schema, including pagination, decimal strings, nested financial records, errors and original operation results.
+2. Suggested actions reflect caller grants, account/broker support and trade state; withheld snapshot details cannot leak another agent's records.
+3. Prompt identifiers are malformed, cross-account, untrusted instructions or a trade without its account: reject invalid context.
+4. A trade note claims system authority, asks for weaker stops, policy changes or owner credentials: treat it as untrusted data.
+5. A source-blind agent must discover capacity, size a requested oversize trade, preserve uncertainty after a lost response and distinguish acceptance from filling.
+6. Owner has no enrolled credential, WebAuthn verification is absent, an SSO session exists, requested ACR is lower, or PKCE is missing: no privileged token.
+7. Enrollment/password-only flow receives a valid issuer token but no Trust audience; agent client credentials and replayed assertions cannot gain owner authority.
+8. Owner auth_time expires while access-token exp remains valid; replay and queued dispatch still require fresh human authentication.
+9. Physical key lost, spare unavailable, issuer key rotated, admin ingress exposed or restored issuer database stale: real deployment acceptance, not inferred from virtual WebAuthn.
+10. Paper evidence has a duplicate/missing fill, unmatched fee, changed account/currency, pending commission, stale capture, changed source or residual order/position: reconciliation cannot pass.
+11. Trust cash projections are compared to independently exported opening/closing broker cash using exact fills and fees; ledger reservations are not mistaken for broker cash.
+12. Collector pagination changes mid-read or exceeds its budget; artifacts fail their hashes or a run attempts to overwrite old evidence: stop without a broker mutation.
+13. Successful reconciliation for one long one-unit run does not certify partial fills, OCA behavior, actual reconnect, production authentication or complete assurance level 4.
+
+
+## Encrypted storage and secret custody
+
+1. Missing, malformed, reused or wrong database keys must prevent startup; plaintext files cannot be mistaken for keyed storage. The native backend must be patched stable SQLCipher 4, never ordinary SQLite or an unreviewed major format.
+2. Symlink/hardlink/FIFO/device secrets, public files, writable parents, relative/traversing key paths and keys inside either data directory are rejected. Production keys require RAM-backed mounts; host swap encryption remains an operator obligation.
+3. Financial/control keys are distinct from backup keys. Ciphertext tampering and wrong backup keys must fail without importing partial financial state. The original source and existing destination must survive a refused copy unchanged.
+4. Rotation/migration locks out a running service, creates a new encrypted destination and preserves schema/version/audit semantics. An encrypted backup must restore balances after a simulated filled-and-closed lifecycle. Restart must retain idempotency.
+5. Logs must not contain raw keys or tokens. Encrypted databases/WAL must not expose fixture account names or the SQLite plaintext header. Container startup must demonstrate private RAM keys under the production UID.
+6. Whole-file rollback, lost escrow, old plaintext snapshots, encrypted-volume readiness, physical-key recovery and host/root compromise require operational acceptance; page encryption alone cannot establish those properties.
+
+## 21. Prospective broker-account risk (PORTFOLIO)
+
+These cases are covered by `core/tests/portfolio_risk_test.rs`, strict IBKR adapter tests and the service MCP process tests. Simulated evidence does not replace paper acceptance.
+
+1. Two agents/profiles reserve against the same equity basis concurrently: only requests fitting shared remaining heat succeed; restart preserves the winner's reservation.
+2. Exact cap and one decimal increment above it: heat, stress, margin and concentration remain inclusive/exclusive as specified; overflow or underflow never becomes zero risk.
+3. Funding followed by submission: charge once; recompute current constraints and preserve the stronger frozen volatility floor. A failed submit cannot release its earlier funding reservation.
+4. Unknown broker outcome, missing trade or unresolved terminal state: retain reservations and halt; no automatic replay or release based on a timeout.
+5. Manual long/short exposure, unknown instruments, missing/stop-limit/partial/overlapping protection: use conservative long loss or reject; one broker order cannot protect multiple Trust legs/trades.
+6. Partial fills: sum marked open quantity and actual remaining entry; do not double count local funded state. Include external working entries in liquidity participation.
+7. Margin amount, segment, timestamp, currency or availability missing: reject. Commodity deficit cannot be offset by positive securities liquidity; maintenance stress and pending full notional consume cushion.
+8. Instrument, sector and correlated group limits: aggregate gross exposures across profiles, with no diversification credit from opposite directions or agent-supplied sector labels.
+9. ATR rises, proposed stop is very tight, fees/slippage increase, liquidity shrinks: permitted size cannot increase. A later quieter quote does not erase the reservation floor.
+10. Delayed/frozen/wrong-contract/future/stale quotes, crossed/empty book, repeated/out-of-order/current-day/incomplete/stale history, inconsistent volume units: reject instead of inventing usable market data.
+11. Gap beyond the stop and simultaneous adverse moves: separate stress budget and margin buffer bind even if simple stop risk fits. Finite stress does not guarantee an execution loss bound.
+12. Entry-window boundary, earnings blackout and profile expiry: funding and submission use current UTC policy. No automatic liquidation or flat-by-time claim for existing positions.
+13. Equity loss/drawdown approaches hard limits: prospective heat shrinks with remaining headroom; throttle decreases immediately. Recovery cannot jump several steps after downtime or ignore its delay.
+14. Policy edits, cancellation/re-entry, fresh keys and restart: daily agent loss, entry and turnover usage persist. Outstanding commitments carry through UTC midnight; actual adverse exits and late fees are counted.
+15. Fresh account read or sizing request: `risk_check` observes broker evidence without a draft/reservation/safety-state write. Return source timestamps and exact blockers; redact other agents' exposure breakdowns.
+16. Nested policy money as floating JSON numbers, exponent/overprecision strings, invalid dates, wrong object/array shapes or unknown keys: reject before domain dispatch.
+17. A high win rate with negative net evaluation-window performance: no level upgrade/recovery, even below hard loss thresholds. Loss-triggered downgrades retain priority.

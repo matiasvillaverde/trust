@@ -7,7 +7,7 @@ use uuid::Uuid;
 /// Rules can be used to limit the risk per trade or per month.
 /// Rules are a core functionality of Trust given that they are used to limit the risk.
 /// For more information about the rules, please check the documentation about rule names.
-#[derive(PartialEq, Debug, Clone, serde::Serialize)]
+#[derive(PartialEq, Debug, Clone, serde::Serialize, schemars::JsonSchema)]
 pub struct Rule {
     /// Unique identifier for the rule
     pub id: Uuid,
@@ -38,7 +38,7 @@ pub struct Rule {
 }
 
 /// RuleName entity - represents the name of a rule
-#[derive(PartialEq, Debug, Clone, Copy, serde::Serialize)]
+#[derive(PartialEq, Debug, Clone, Copy, serde::Serialize, schemars::JsonSchema)]
 pub enum RuleName {
     /// The maximum risk per trade defined in percentage
     /// This rule is used to limit the risk per trade
@@ -124,7 +124,7 @@ impl RuleName {
 }
 
 /// Error when parsing rule name from string fails
-#[derive(PartialEq, Debug, serde::Serialize)]
+#[derive(PartialEq, Debug, serde::Serialize, schemars::JsonSchema)]
 pub struct RuleNameParseError;
 
 impl RuleName {
@@ -139,7 +139,7 @@ impl RuleName {
 }
 
 /// RuleLevel entity - represents the level of a rule
-#[derive(PartialEq, Debug, Clone, Copy, serde::Serialize)]
+#[derive(PartialEq, Debug, Clone, Copy, serde::Serialize, schemars::JsonSchema)]
 pub enum RuleLevel {
     /// Just print a message in the logs to warn the user about something
     Advice,
@@ -169,7 +169,7 @@ impl fmt::Display for RuleLevel {
 }
 
 /// Error when parsing rule level from string fails
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, serde::Serialize, schemars::JsonSchema)]
 pub struct RuleLevelParseError;
 impl std::str::FromStr for RuleLevel {
     type Err = RuleLevelParseError;

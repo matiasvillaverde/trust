@@ -17,6 +17,10 @@ pub struct Reply {
     pub data: Option<Value>,
     pub error: Option<ServiceError>,
     pub next_actions: Vec<String>,
+    #[serde(default)]
+    pub actions: Vec<crate::guidance::NextAction>,
+    #[serde(default)]
+    pub generated_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 impl Reply {
@@ -33,6 +37,8 @@ impl Reply {
                 data: Some(data),
                 error: None,
                 next_actions: vec![],
+                actions: vec![],
+                generated_at: Some(chrono::Utc::now()),
             },
             Err(error) => Self {
                 schema_version: 1,
@@ -41,6 +47,8 @@ impl Reply {
                 next_actions: vec![error.next_action.clone()],
                 data: None,
                 error: Some(error),
+                actions: vec![],
+                generated_at: Some(chrono::Utc::now()),
             },
         }
     }
@@ -91,20 +99,44 @@ pub fn digest(value: &Value) -> Result<String> {
 impl Journal {
     pub fn open(path: &Path) -> Result<Self> {
         let connection = Connection::open(path).map_err(|_| ServiceError::internal())?;
+        Self::initialize(connection)
+    }
+
+    pub fn open_encrypted(path: &Path, key: &trust_security::DatabaseKey) -> Result<Self> {
+        let _file = trust_security::private_file(path, false)
+            .map_err(|_| crate::config::storage_error())?;
+        let connection = Connection::open(path).map_err(|_| crate::config::storage_error())?;
+        crate::storage::unlock(&connection, key)?;
+        Self::initialize(connection)
+    }
+
+    fn initialize(connection: Connection) -> Result<Self> {
+        connection
+            .execute_batch(
+                "PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;",
+            )
+            .map_err(|_| ServiceError::internal())?;
         connection
             .busy_timeout(std::time::Duration::from_secs(5))
             .map_err(|_| ServiceError::internal())?;
         let version: i64 = connection
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .map_err(|_| ServiceError::internal())?;
-        if version > 1 {
+        if version > 2 {
             return Err(ServiceError::invalid(
                 "Control database schema is newer than this service.",
             ));
         }
-        connection
-            .execute_batch(include_str!("../migrations/0001_control/up.sql"))
-            .map_err(|_| ServiceError::internal())?;
+        if version < 1 {
+            connection
+                .execute_batch(include_str!("../migrations/0001_control/up.sql"))
+                .map_err(|_| ServiceError::internal())?;
+        }
+        if version < 2 {
+            connection
+                .execute_batch(include_str!("../migrations/0002_account_safety/up.sql"))
+                .map_err(|_| ServiceError::internal())?;
+        }
         let mut journal = Self {
             connection,
             context: AuditContext::default(),
@@ -309,6 +341,178 @@ impl Journal {
         tx.commit().map_err(|_| ServiceError::internal())
     }
 
+    pub fn safety_state(
+        &self,
+        scope: &model::account_safety::BrokerAccountScope,
+    ) -> Result<model::account_safety::AccountSafetyState> {
+        let key = scope.storage_key();
+        let row = self.connection.query_row("SELECT s.state,a.event,s.audit_sequence FROM account_safety s LEFT JOIN audit a ON a.sequence=s.audit_sequence WHERE s.scope=?1", [&key], |r| Ok((r.get::<_,String>(0)?,r.get::<_,Option<String>>(1)?,r.get::<_,i64>(2)?))).optional().map_err(|_| ServiceError::internal())?;
+        let latest: Option<i64> = self
+            .connection
+            .query_row(
+                "SELECT MAX(audit_sequence) FROM account_safety_history WHERE scope=?1",
+                [&key],
+                |r| r.get(0),
+            )
+            .map_err(|_| ServiceError::internal())?;
+        let corrupt = || {
+            ServiceError::new(
+                "audit_integrity_failed",
+                "Account safety state is missing or does not match its latest audit record.",
+                "Stop trading and restore verified control storage.",
+            )
+        };
+        let Some((state, event, sequence)) = row else {
+            return if latest.is_some() {
+                Err(corrupt())
+            } else {
+                Ok(Default::default())
+            };
+        };
+        if latest != Some(sequence) {
+            return Err(corrupt());
+        }
+        let event = event.ok_or_else(corrupt)?;
+        self.verify()?;
+        let value: Value = serde_json::from_str(&state).map_err(|_| ServiceError::internal())?;
+        let event: Value = serde_json::from_str(&event).map_err(|_| ServiceError::internal())?;
+        if event.get("content_hash").and_then(Value::as_str)
+            != Some(digest(&json!({"scope":key,"state":value}))?.as_str())
+        {
+            return Err(ServiceError::new(
+                "audit_integrity_failed",
+                "Account safety state does not match its audit record.",
+                "Stop trading and restore verified control storage.",
+            ));
+        }
+        serde_json::from_value(value).map_err(|_| ServiceError::internal())
+    }
+
+    pub fn save_safety(
+        &mut self,
+        identity: &Identity,
+        request: Uuid,
+        account: Uuid,
+        scope: &model::account_safety::BrokerAccountScope,
+        state: &model::account_safety::AccountSafetyState,
+    ) -> Result<()> {
+        let key = scope.storage_key();
+        let value = serde_json::to_value(state).map_err(|_| ServiceError::internal())?;
+        let hash = digest(&json!({"scope":key,"state":value}))?;
+        let encoded = serde_json::to_string(&value).map_err(|_| ServiceError::internal())?;
+        let tx = self
+            .connection
+            .transaction()
+            .map_err(|_| ServiceError::internal())?;
+        append(
+            &tx,
+            identity,
+            request,
+            None,
+            "account_safety",
+            Some(account),
+            "safety_state",
+            Some(&hash),
+            &self.context,
+        )?;
+        let sequence = tx.last_insert_rowid();
+        tx.execute(
+            "INSERT INTO account_safety_history(audit_sequence,scope,state) VALUES(?1,?2,?3)",
+            params![sequence, key, encoded],
+        )
+        .map_err(|_| ServiceError::internal())?;
+        tx.execute("INSERT INTO account_safety(scope,state,audit_sequence) VALUES(?1,?2,?3) ON CONFLICT(scope) DO UPDATE SET state=excluded.state,audit_sequence=excluded.audit_sequence", params![key,encoded,sequence]).map_err(|_| ServiceError::internal())?;
+        tx.commit().map_err(|_| ServiceError::internal())
+    }
+
+    pub fn unresolved_for(&self, accounts: &BTreeSet<Uuid>) -> Result<BTreeSet<Uuid>> {
+        let mut stmt = self
+            .connection
+            .prepare("SELECT o.id,o.account_id,o.account_ids,o.tool FROM operations o WHERE o.state='outcome_unknown'")
+            .map_err(|_| ServiceError::internal())?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, Option<String>>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, String>(3)?,
+                ))
+            })
+            .map_err(|_| ServiceError::internal())?;
+        let mut ids = BTreeSet::new();
+        for row in rows {
+            let (operation, account, affected, tool) = row.map_err(|_| ServiceError::internal())?;
+            if !crate::catalog::find(&tool)?.affects_financial_state() {
+                continue;
+            }
+            let mut affected: BTreeSet<Uuid> =
+                serde_json::from_str(&affected).map_err(|_| ServiceError::internal())?;
+            if let Some(account) = account {
+                affected.insert(account.parse().map_err(|_| ServiceError::internal())?);
+            }
+            if !affected.is_disjoint(accounts) && self.resolution(&operation)?.is_none() {
+                ids.insert(operation.parse().map_err(|_| ServiceError::internal())?);
+            }
+        }
+        Ok(ids)
+    }
+
+    fn resolution(&self, operation: &str) -> Result<Option<Value>> {
+        let row = self.connection.query_row("SELECT r.evidence,a.event FROM operation_resolutions r LEFT JOIN audit a ON a.sequence=r.audit_sequence WHERE r.operation_id=?1", [operation], |r| Ok((r.get::<_,String>(0)?,r.get::<_,Option<String>>(1)?))).optional().map_err(|_|ServiceError::internal())?;
+        let Some((evidence, event)) = row else {
+            return Ok(None);
+        };
+        self.verify()?;
+        let evidence: Value =
+            serde_json::from_str(&evidence).map_err(|_| ServiceError::internal())?;
+        let event: Value = serde_json::from_str(event.as_deref().unwrap_or("null"))
+            .map_err(|_| ServiceError::internal())?;
+        if evidence.get("operation_id").and_then(Value::as_str) != Some(operation)
+            || event.get("content_hash").and_then(Value::as_str)
+                != Some(digest(&evidence)?.as_str())
+            || event.get("tool").and_then(Value::as_str) != Some("operation_resolve")
+        {
+            return Err(ServiceError::new(
+                "audit_integrity_failed",
+                "Operation resolution does not match its audit record.",
+                "Stop trading and restore verified control storage.",
+            ));
+        }
+        Ok(Some(evidence))
+    }
+
+    pub fn resolve_operation(
+        &mut self,
+        identity: &Identity,
+        request: Uuid,
+        account: Uuid,
+        operation: Uuid,
+        evidence: &str,
+    ) -> Result<()> {
+        let evidence =
+            serde_json::to_string(&json!({"operation_id":operation,"evidence":evidence}))
+                .map_err(|_| ServiceError::internal())?;
+        let hash = digest(&serde_json::from_str(&evidence).map_err(|_| ServiceError::internal())?)?;
+        let tx = self
+            .connection
+            .transaction()
+            .map_err(|_| ServiceError::internal())?;
+        append(
+            &tx,
+            identity,
+            request,
+            Some(operation),
+            "operation_resolve",
+            Some(account),
+            "owner_reconciled",
+            Some(&hash),
+            &self.context,
+        )?;
+        tx.execute("INSERT INTO operation_resolutions(operation_id,evidence,audit_sequence) VALUES(?1,?2,?3)",params![operation.to_string(),evidence,tx.last_insert_rowid()]).map_err(|_|ServiceError::internal())?;
+        tx.commit().map_err(|_| ServiceError::internal())
+    }
+
     pub fn operation(&self, identity: &Identity, key: &str) -> Result<Value> {
         let row = self.connection.query_row("SELECT id,tool,account_id,state,response,account_ids FROM operations WHERE subject=?1 AND request_key=?2",params![identity.subject,key],|row|Ok((row.get::<_,String>(0)?,row.get::<_,String>(1)?,row.get::<_,Option<String>>(2)?,row.get::<_,String>(3)?,row.get::<_,Option<String>>(4)?,row.get::<_,String>(5)?))).optional().map_err(|_|ServiceError::internal())?.ok_or_else(||ServiceError::new("not_found","Operation not found.","Use the same identity and original idempotency key."))?;
         let account = row
@@ -321,8 +525,8 @@ impl Journal {
         identity.check(tool.scope, account)?;
         let accounts: BTreeSet<Uuid> =
             serde_json::from_str(&row.5).map_err(|_| ServiceError::internal())?;
-        for account in accounts {
-            identity.check(tool.scope, Some(account))?;
+        for account in &accounts {
+            identity.check(tool.scope, Some(*account))?;
         }
         if !tool.account_required && tool.scope == "trust:admin" && !identity.grant.all_accounts {
             return Err(ServiceError::forbidden());
@@ -333,7 +537,10 @@ impl Journal {
             .map(serde_json::from_str::<Value>)
             .transpose()
             .map_err(|_| ServiceError::internal())?;
-        Ok(json!({"operation_id":row.0,"tool":row.1,"state":row.3,"result":response}))
+        let resolution = self.resolution(&row.0)?;
+        Ok(
+            json!({"operation_id":row.0,"tool":row.1,"account_id":account,"account_ids":accounts,"state":row.3,"result":response,"resolution":resolution}),
+        )
     }
 
     pub fn list(&self, identity: &Identity, after: u64, limit: u64) -> Result<Value> {
@@ -342,7 +549,7 @@ impl Journal {
         let mut stmt = self
             .connection
             .prepare(
-                "SELECT sequence,event,previous_hash,event_hash FROM audit WHERE sequence>?1 ORDER BY sequence LIMIT 2000",
+                "SELECT a.sequence,a.event,a.previous_hash,a.event_hash,h.scope,h.state FROM audit a LEFT JOIN account_safety_history h ON h.audit_sequence=a.sequence WHERE a.sequence>?1 ORDER BY a.sequence LIMIT 2000",
             )
             .map_err(|_| ServiceError::internal())?;
         let rows = stmt
@@ -352,13 +559,15 @@ impl Journal {
                     row.get::<_, String>(1)?,
                     row.get::<_, String>(2)?,
                     row.get::<_, String>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                    row.get::<_, Option<String>>(5)?,
                 ))
             })
             .map_err(|_| ServiceError::internal())?;
         let mut events = Vec::new();
         let mut cursor = u64::try_from(after).map_err(|_| ServiceError::internal())?;
         for row in rows {
-            let (sequence, text, previous_hash, event_hash) =
+            let (sequence, text, previous_hash, event_hash, scope, state) =
                 row.map_err(|_| ServiceError::internal())?;
             let sequence = u64::try_from(sequence).map_err(|_| ServiceError::internal())?;
             cursor = sequence;
@@ -383,7 +592,30 @@ impl Journal {
                 && accounts.iter().all(|id| identity.permits_account(*id))
                 || identity.permits("trust:admin") && identity.grant.all_accounts
             {
-                events.push(json!({"sequence":sequence,"event":event,"previous_hash":previous_hash,"event_hash":event_hash}));
+                // Complete historical broker evidence is restricted to the global owner.
+                let evidence = if identity.grant.role == crate::auth::Role::Owner
+                    && identity.grant.all_accounts
+                {
+                    state
+                        .as_deref()
+                        .map(serde_json::from_str::<Value>)
+                        .transpose()
+                        .map_err(|_| ServiceError::internal())?
+                } else {
+                    None
+                };
+                if let Some(state) = &evidence {
+                    if event.get("content_hash").and_then(Value::as_str)
+                        != Some(digest(&json!({"scope":scope,"state":state}))?.as_str())
+                    {
+                        return Err(ServiceError::new(
+                            "audit_integrity_failed",
+                            "Historical safety evidence does not match its audit record.",
+                            "Stop trading and restore verified control storage.",
+                        ));
+                    }
+                }
+                events.push(json!({"sequence":sequence,"event":event,"previous_hash":previous_hash,"event_hash":event_hash,"safety_evidence":evidence}));
             }
             if u64::try_from(events.len()).map_err(|_| ServiceError::internal())? >= limit {
                 break;

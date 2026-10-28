@@ -18,7 +18,7 @@ Risk is based on planned entry and stop distance. For long trades, the stop must
 
 ## Levels
 
-Levels adjust how much size a trader is allowed to take. Level policy can evaluate recent performance and move an account up, down, or into cooldown. Level-adjusted quantity appears in sizing previews and funding validation.
+Levels adjust how much size a trader is allowed to take. Level policy can evaluate recent performance and move an account up, down, or into cooldown. Level-adjusted quantity is enforced at funding and submission as well as shown in previews. Loss breaches take precedence over winning streaks and cooldown recovery; stabilization limits cannot suppress a loss-driven downgrade. Every increase remains capped by the owner's base limits, including the recorded 1.5x level. Level 0 still permits reduced sizing; a persistent trading halt is a separate control. See the [risk contract](risk-contract.md) for the account-wide percentage loss budget that remains to be implemented.
 
 ## Trade Lifecycle
 

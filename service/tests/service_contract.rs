@@ -4,6 +4,10 @@
     clippy::indexing_slicing,
     clippy::panic
 )]
+#[path = "support/risk.rs"]
+mod risk;
+#[path = "support/schema.rs"]
+mod schema;
 use axum::{
     body::{to_bytes, Body},
     http::{Request, StatusCode},
@@ -42,6 +46,12 @@ struct Fixture {
 impl Fixture {
     fn new() -> Self {
         let directory = tempfile::tempdir().unwrap();
+        #[cfg(unix)]
+        std::fs::set_permissions(
+            directory.path(),
+            std::os::unix::fs::PermissionsExt::from_mode(0o700),
+        )
+        .unwrap();
         let jwks = directory.path().join("jwks.json");
         std::fs::write(&jwks, key().1.to_string()).unwrap();
         let config:Config=serde_json::from_value(json!({"listen":"127.0.0.1:0","public_url":"http://localhost:8000","issuer":"http://localhost:9999/issuer","jwks_file":jwks,"database":directory.path().join("financial.db"),"journal":directory.path().join("control.db"),"reconcile_interval_seconds":0,"grants":{"owner":{"role":"owner","all_accounts":true,"scopes":SCOPES}}})).unwrap();
@@ -87,14 +97,19 @@ impl Fixture {
         .unwrap()
     }
     async fn call(&self, service: &Service, name: &str, args: Value) -> Reply {
-        service
+        let reply = service
             .call(self.identity(), name.into(), args, Uuid::new_v4())
-            .await
+            .await;
+        schema::validate(name, &serde_json::to_value(&reply).unwrap());
+        reply
     }
     async fn account(&self, service: &Service, name: &str) -> Uuid {
         let reply=self.call(service,"account_create",json!({"name":name,"description":"service contract","environment":"paper","broker":"ibkr","broker_account_id":"DU_TEST","idempotency_key":format!("create-{name}")})).await;
         assert!(reply.error.is_none(), "{reply:?}");
-        reply.data.unwrap()["id"].as_str().unwrap().parse().unwrap()
+        let id = reply.data.unwrap()["id"].as_str().unwrap().parse().unwrap();
+        let policy=self.call(service,"account_safety_policy_set",json!({"account_id":id,"currency":"USD","max_gross_notional":"100000","max_order_notional":"10000","max_daily_loss":"500","max_drawdown":"1000","max_snapshot_age_seconds":120,"controls":risk::controls(),"idempotency_key":format!("safety-{name}")})).await;
+        assert!(policy.error.is_none(), "{policy:?}");
+        id
     }
 }
 struct UncertainBroker(Arc<AtomicUsize>);
@@ -130,11 +145,11 @@ async fn metrics_distinguish_replay_denial_and_domain_execution() {
         .is_none());
     let metrics = service.prometheus();
     for expected in [
-        "trust_operations_total 6\n",
+        "trust_operations_total 7\n",
         "trust_replays_total 1\n",
-        "trust_stage_duration_seconds_count{stage=\"domain\"} 3\n",
-        "trust_stage_duration_seconds_count{stage=\"journal_claim\"} 3\n",
-        "trust_stage_duration_seconds_count{stage=\"journal_finish\"} 5\n",
+        "trust_stage_duration_seconds_count{stage=\"domain\"} 4\n",
+        "trust_stage_duration_seconds_count{stage=\"journal_claim\"} 4\n",
+        "trust_stage_duration_seconds_count{stage=\"journal_finish\"} 6\n",
         "trust_tool_duration_seconds_count{tool=\"capital_deposit\"} 3\n",
         "trust_tool_errors_total{tool=\"capital_deposit\"} 1\n",
     ] {
@@ -236,6 +251,39 @@ async fn monitoring_scope_cannot_read_finances_or_mutate_and_requires_global_gra
 }
 
 impl Broker for UncertainBroker {
+    fn risk_market_data(
+        &self,
+        account: &Account,
+        instrument_id: &str,
+        _: u32,
+    ) -> Result<model::portfolio_risk::RiskMarketData, Box<dyn std::error::Error>> {
+        Ok(risk::market(
+            model::account_safety::BrokerAccountScope::from_account(account)?,
+            instrument_id,
+        ))
+    }
+    fn account_snapshot(
+        &self,
+        account: &Account,
+    ) -> Result<model::account_safety::BrokerAccountSnapshot, Box<dyn std::error::Error>> {
+        let now = chrono::Utc::now();
+        Ok(model::account_safety::BrokerAccountSnapshot {
+            scope: model::account_safety::BrokerAccountScope::from_account(account)?,
+            currency: "USD".into(),
+            observed_at: now,
+            received_at: now,
+            complete: true,
+            consistent: true,
+            equity: Decimal::new(10000, 0),
+            cash: Decimal::new(10000, 0),
+            available_funds: Decimal::new(10000, 0),
+            realized_pnl: Decimal::ZERO,
+            unrealized_pnl: Decimal::ZERO,
+            positions: vec![],
+            working_orders: vec![],
+            margin: Some(risk::margin()),
+        })
+    }
     fn kind(&self) -> BrokerKind {
         BrokerKind::Ibkr
     }
@@ -432,6 +480,87 @@ async fn real_http_mcp_auth_discovery_tools_resources_and_prompts() {
 }
 
 #[tokio::test]
+async fn mcp_skill_references_discover_read_and_preserve_owner_visibility() {
+    let fixture = Fixture::new();
+    let (service, worker) = fixture.start();
+    let app = trust_service::http::router(fixture.config.clone(), service).unwrap();
+    for owner in [false, true] {
+        let mut claims = fixture.claims();
+        if !owner {
+            claims["scope"] = json!("trust:read");
+        }
+        let token = fixture.sign(claims);
+        for method in ["resources/list", "prompts/list"] {
+            let (_, _, reply) = http(
+                app.clone(),
+                Some(&token),
+                "/mcp",
+                Some(json!({"jsonrpc":"2.0","id":1,"method":method})),
+            )
+            .await;
+            assert!(reply["error"].is_null(), "{reply}");
+            let items = reply["result"][if method == "resources/list" {
+                "resources"
+            } else {
+                "prompts"
+            }]
+            .as_array()
+            .unwrap();
+            assert_eq!(
+                items
+                    .iter()
+                    .any(|item| item["name"].as_str().unwrap().starts_with("trust-admin")),
+                owner
+            );
+            assert!(items.iter().all(|item| item["description"]
+                .as_str()
+                .is_some_and(|text| !text.is_empty())));
+        }
+        for name in ["trust-risk", "trust-operations", "trust-admin"] {
+            let metadata = trust_service::skills::catalogue()
+                .iter()
+                .find(|skill| skill.name == name)
+                .unwrap();
+            for file in &metadata.files {
+                let (_, _, resource) = http(app.clone(), Some(&token), "/mcp",
+                    Some(json!({"jsonrpc":"2.0","id":2,"method":"resources/read","params":{"uri":file.uri}}))).await;
+                let (_, _, call) = http(app.clone(), Some(&token), "/mcp",
+                    Some(json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"skill_read","arguments":{"name":name,"path":file.path}}}))).await;
+                let reply = &call["result"]["structuredContent"];
+                schema::validate("skill_read", reply);
+                if !owner && name == "trust-admin" {
+                    assert!(resource["error"].is_object());
+                    assert_eq!(reply["error"]["code"], "forbidden");
+                } else {
+                    assert!(resource["error"].is_null(), "{resource}");
+                    assert!(reply["error"].is_null(), "{reply}");
+                    assert_eq!(
+                        resource["result"]["contents"][0]["text"],
+                        reply["data"]["content"]
+                    );
+                    assert_eq!(reply["data"]["sha256"], file.sha256);
+                    assert_eq!(reply["data"]["uri"], file.uri);
+                }
+            }
+        }
+        let (_, _, listing) = http(app.clone(), Some(&token), "/mcp",
+            Some(json!({"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"skills_list","arguments":{}}}))).await;
+        let reply = &listing["result"]["structuredContent"];
+        schema::validate("skills_list", reply);
+        assert_eq!(
+            reply["data"]["items"].as_array().unwrap().len(),
+            if owner { 3 } else { 2 }
+        );
+    }
+    assert_eq!(
+        fixture.calls.load(Ordering::SeqCst),
+        0,
+        "Skill discovery must never invoke a broker"
+    );
+    worker.shutdown().await.unwrap();
+}
+
+#[tokio::test]
 async fn host_origin_body_and_query_controls_precede_operations() {
     let fixture = Fixture::new();
     let (service, worker) = fixture.start();
@@ -543,6 +672,26 @@ async fn account_scopes_live_gates_and_secondary_accounts_are_enforced() {
     let mut restricted = fixture.identity();
     restricted.grant.all_accounts = false;
     restricted.grant.accounts = [a].into_iter().collect();
+    for (tool, args) in [
+        (
+            "account_halt",
+            json!({"account_id":a,"reason":"shared account","idempotency_key":"restricted-halt"}),
+        ),
+        (
+            "account_resume",
+            json!({"account_id":a,"reason":"shared account","idempotency_key":"restricted-resume"}),
+        ),
+        (
+            "account_cashflow_record",
+            json!({"account_id":a,"amount":"1","reference":"verified-reference","idempotency_key":"restricted-flow"}),
+        ),
+    ] {
+        let denied = service
+            .call(restricted.clone(), tool.into(), args, Uuid::new_v4())
+            .await;
+        assert_eq!(denied.error.unwrap().code, "forbidden", "{tool}");
+        assert!(denied.operation_id.is_none());
+    }
     let denied = service
         .call(
             restricted.clone(),
@@ -646,6 +795,212 @@ fn crash_recovery_never_replays_intent_and_rechecks_all_original_accounts() {
     assert!(Journal::open(&fixture.config.journal).is_err());
 }
 
+#[test]
+fn safety_state_history_is_atomic_private_and_rejects_deletion_or_rollback() {
+    use model::account_safety::{AccountSafetyState, BrokerAccountScope};
+    for fault in ["state", "history", "delete", "rollback", "tamper"] {
+        let f = Fixture::new();
+        let mut journal = Journal::open(&f.config.journal).unwrap();
+        let db = rusqlite::Connection::open(&f.config.journal).unwrap();
+        let account = Uuid::new_v4();
+        let scope = BrokerAccountScope {
+            broker: "ibkr".into(),
+            environment: "paper".into(),
+            account_id: "DU_TEST".into(),
+        };
+        let mut state = AccountSafetyState::default();
+        journal
+            .save_safety(&f.identity(), Uuid::new_v4(), account, &scope, &state)
+            .unwrap();
+        let before = journal.verify().unwrap();
+        let original: (String, i64) = db
+            .query_row("SELECT state,audit_sequence FROM account_safety", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+        state.halt("operator_halt", chrono::Utc::now());
+        if matches!(fault, "state" | "history") {
+            let table = if fault == "state" {
+                "account_safety"
+            } else {
+                "account_safety_history"
+            };
+            db.execute_batch(&format!("CREATE TRIGGER injected BEFORE INSERT ON {table} BEGIN SELECT RAISE(ABORT,'injected'); END")).unwrap();
+            assert!(journal
+                .save_safety(&f.identity(), Uuid::new_v4(), account, &scope, &state)
+                .is_err());
+            assert_eq!(journal.verify().unwrap(), before);
+            assert!(journal.safety_state(&scope).unwrap().halt.is_none());
+            let count: i64 = db
+                .query_row("SELECT COUNT(*) FROM account_safety_history", [], |r| {
+                    r.get(0)
+                })
+                .unwrap();
+            assert_eq!(count, 1);
+            continue;
+        }
+        journal
+            .save_safety(&f.identity(), Uuid::new_v4(), account, &scope, &state)
+            .unwrap();
+        let owner = journal.list(&f.identity(), 0, 100).unwrap();
+        assert!(owner["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|v| v["safety_evidence"].is_object()));
+        let mut agent = f.identity();
+        agent.grant.role = Role::Agent;
+        assert!(journal.list(&agent, 0, 100).unwrap()["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|v| v["safety_evidence"].is_null()));
+        match fault {
+            "delete" => {
+                db.execute("DELETE FROM account_safety", []).unwrap();
+            }
+            "rollback" => {
+                db.execute(
+                    "UPDATE account_safety SET state=?1,audit_sequence=?2",
+                    rusqlite::params![original.0, original.1],
+                )
+                .unwrap();
+            }
+            _ => {
+                db.execute("UPDATE account_safety SET state='{}'", [])
+                    .unwrap();
+            }
+        }
+        assert_eq!(
+            journal.safety_state(&scope).unwrap_err().code,
+            "audit_integrity_failed"
+        );
+    }
+}
+
+#[test]
+fn operation_resolution_is_audited_and_cannot_hide_secondary_account_uncertainty() {
+    let f = Fixture::new();
+    let a = Uuid::new_v4();
+    let b = Uuid::new_v4();
+    let accounts = [a, b].into_iter().collect();
+    let mut journal = Journal::open(&f.config.journal).unwrap();
+    let intent = journal
+        .claim(
+            &f.identity(),
+            "resolution-test",
+            "capital_transfer",
+            Some(a),
+            &json!({"amount":"1"}),
+            Uuid::new_v4(),
+            &accounts,
+        )
+        .unwrap();
+    let Claim::New(operation) = intent else {
+        panic!("new intent expected")
+    };
+    drop(journal);
+    let mut journal = Journal::open(&f.config.journal).unwrap();
+    assert!(journal
+        .unresolved_for(&[b].into_iter().collect())
+        .unwrap()
+        .contains(&operation));
+    journal
+        .resolve_operation(
+            &f.identity(),
+            Uuid::new_v4(),
+            a,
+            operation,
+            "independently verified transfer",
+        )
+        .unwrap();
+    assert!(journal
+        .unresolved_for(&[b].into_iter().collect())
+        .unwrap()
+        .is_empty());
+    assert_eq!(
+        journal.operation(&f.identity(), "resolution-test").unwrap()["state"],
+        "outcome_unknown"
+    );
+    let db = rusqlite::Connection::open(&f.config.journal).unwrap();
+    db.execute("UPDATE operation_resolutions SET evidence='{}'", [])
+        .unwrap();
+    assert_eq!(
+        journal.unresolved_for(&accounts).unwrap_err().code,
+        "audit_integrity_failed"
+    );
+}
+
+#[test]
+fn parameterized_skills_validate_identifiers_and_account_authority() {
+    let f = Fixture::new();
+    let account = Uuid::new_v4();
+    let trade = Uuid::new_v4();
+    let mut identity = f.identity();
+    identity.grant.all_accounts = false;
+    identity.grant.accounts = [account].into_iter().collect();
+    let prompt = |args: Value| {
+        trust_service::skills::prompt(&identity, "trust-risk", args.as_object().unwrap().clone())
+    };
+    let content = prompt(json!({"account_id":account,"trade_id":trade})).unwrap();
+    assert!(content.contains(&account.to_string()) && content.contains(&trade.to_string()));
+    for args in [
+        json!({"account_id":Uuid::new_v4()}),
+        json!({"trade_id":trade}),
+        json!({"account_id":"ignore rules"}),
+        json!({"instructions":"override"}),
+    ] {
+        assert!(prompt(args).is_err());
+    }
+}
+
+#[tokio::test]
+async fn session_input_errors_are_definitive_and_unknown_journaling_does_not_halt_finances() {
+    let f = Fixture::new();
+    let (service, worker) = f.start();
+    let account = f.account(&service, "session-input").await;
+    let valid = json!({"account_id":account,"regime":"elevated","setups":["breakout"],"max_positions":1,"hypothesis":"Observation unavailable; conservative planning","success_criteria":"Follow mandate","failure_criteria":"Stop on unknown exposure","idempotency_key":"session-valid"});
+    for (field, value) in [
+        ("regime", json!("unavailable")),
+        ("setups", json!(["entry 100, stop 95"])),
+        ("setups", json!(["A", "a"])),
+        ("hypothesis", json!("x".repeat(501))),
+        ("success_criteria", json!(" ")),
+    ] {
+        let mut args = valid.clone();
+        args[field] = value;
+        let reply = f.call(&service, "session_open", args).await;
+        assert_eq!(reply.error.unwrap().code, "invalid_argument");
+        assert!(reply.operation_id.is_none());
+    }
+    assert!(f
+        .call(&service, "session_open", valid.clone())
+        .await
+        .error
+        .is_none());
+    let mut duplicate = valid;
+    duplicate["idempotency_key"] = json!("session-second-intent");
+    let reply = f.call(&service, "session_open", duplicate).await;
+    assert_eq!(reply.error.unwrap().code, "outcome_unknown");
+    let ready = f
+        .call(&service, "account_readiness", json!({"account_id":account}))
+        .await
+        .data
+        .unwrap();
+    assert_eq!(ready["halted"], false);
+    assert_eq!(ready["unresolved_operation_count"], 0);
+    worker.shutdown().await.unwrap();
+    let (service, worker) = f.start();
+    let ready = f
+        .call(&service, "account_readiness", json!({"account_id":account}))
+        .await
+        .data
+        .unwrap();
+    assert_eq!(ready["halted"], false);
+    assert_eq!(ready["unresolved_operation_count"], 0);
+    worker.shutdown().await.unwrap();
+}
+
 #[tokio::test]
 async fn uncertain_broker_submission_is_never_executed_twice() {
     let fixture = Fixture::new();
@@ -669,6 +1024,7 @@ async fn uncertain_broker_submission_is_never_executed_twice() {
         assert!(reply.error.is_none(), "{reply:?}");
     }
     let instrument=fixture.call(&service,"instrument_create",json!({"symbol":"TEST","category":"stock","broker":"ibkr","idempotency_key":"seed-instrument"})).await.data.unwrap()["id"].clone();
+    assert!(fixture.call(&service,"instrument_update",json!({"instrument_id":instrument,"broker_asset_id":"1234","idempotency_key":"native-test"})).await.error.is_none());
     let draft=fixture.call(&service,"trade_prepare",json!({"account_id":account,"instrument_id":instrument,"side":"long","quantity":"1","entry":"100","stop":"95","target":"110","idempotency_key":"prepare-test"})).await;
     assert!(draft.error.is_none(), "{draft:?}");
     let trade = draft.data.unwrap()["id"].clone();
@@ -717,9 +1073,22 @@ fn catalogue_has_unique_strict_schemas_and_no_secret_arguments() {
                 .contains(&json!("idempotency_key")));
         }
         for key in tool.input_schema["properties"].as_object().unwrap().keys() {
-            assert!(
-                !["token", "password", "secret", "url", "path", "command"].contains(&key.as_str())
-            );
+            if tool.name == "skill_read" && key == "path" {
+                // This is an embedded-file identifier, never a filesystem path.
+                let allowed = tool.input_schema["properties"][key]["enum"]
+                    .as_array()
+                    .unwrap();
+                assert_eq!(allowed.len(), trust_service::skills::paths().len());
+                assert!(
+                    allowed
+                        .iter()
+                        .all(|value| trust_service::skills::paths()
+                            .contains(&value.as_str().unwrap()))
+                );
+            } else {
+                assert!(!["token", "password", "secret", "url", "path", "command"]
+                    .contains(&key.as_str()));
+            }
         }
     }
 }
@@ -736,11 +1105,24 @@ fn schema_sample(schema: &Value) -> Value {
         "string" => match schema["format"].as_str() {
             Some("uuid") => json!("00000000-0000-0000-0000-000000000001"),
             Some("decimal") => json!("1.25"),
+            Some("date-time") => json!("2099-01-01T00:00:00Z"),
             _ => json!("test-value"),
         },
         "integer" => schema.get("minimum").cloned().unwrap_or(json!(0)),
         "boolean" => json!(false),
         "array" => json!([schema_sample(&schema["items"])]),
+        "object" => Value::Object(
+            schema
+                .get("properties")
+                .and_then(Value::as_object)
+                .map(|props| {
+                    props
+                        .iter()
+                        .map(|(k, v)| (k.clone(), schema_sample(v)))
+                        .collect()
+                })
+                .unwrap_or_default(),
+        ),
         other => panic!("new schema kind needs a boundary fixture: {other}"),
     }
 }
@@ -824,6 +1206,7 @@ fn every_tool_rejects_missing_unknown_wrong_type_and_boundary_arguments() {
                     json!([{}]),
                     json!(vec!["a"; 65]),
                 ]),
+                "object" => invalid.extend([json!(1), json!("object"), json!({"unexpected":true})]),
                 _ => unreachable!(),
             }
             for value in invalid {
@@ -1011,7 +1394,16 @@ async fn second_worker_cannot_open_owned_storage_and_shutdown_rejects_new_work()
 #[tokio::test]
 async fn manual_tools_record_actual_prices_and_conserve_long_short_cash() {
     for (side, stop, target, fill) in [("long", "90", "120", "99"), ("short", "110", "80", "101")] {
-        let fixture = Fixture::new();
+        let mut fixture = Fixture::new();
+        let distribution_secret = fixture._directory.path().join("distribution-secret");
+        {
+            use std::io::Write;
+            trust_security::private_file(&distribution_secret, true)
+                .unwrap()
+                .write_all(Uuid::new_v4().to_string().as_bytes())
+                .unwrap();
+        }
+        Arc::make_mut(&mut fixture.config).distribution_password_file = Some(distribution_secret);
         let (service, worker) = fixture.start();
         let account = fixture.account(&service, side).await;
         let setup = [
@@ -1035,6 +1427,7 @@ async fn manual_tools_record_actual_prices_and_conserve_long_short_cash() {
         let instrument=fixture.call(&service,"instrument_create",json!({"symbol":"RELIABLE","category":"stock","broker":"ibkr","idempotency_key":"setup-instrument"})).await;
         assert!(instrument.error.is_none(), "{instrument:?}");
         let instrument = instrument.data.unwrap()["id"].clone();
+        assert!(fixture.call(&service,"instrument_update",json!({"instrument_id":instrument,"broker_asset_id":"1234","idempotency_key":"native-test"})).await.error.is_none());
         let trade=fixture.call(&service,"trade_prepare",json!({"account_id":account,"instrument_id":instrument,"side":side,"quantity":"1","entry":"100","stop":stop,"target":target,"idempotency_key":"prepare-trade"})).await;
         assert!(trade.error.is_none(), "{trade:?}");
         let id = trade.data.unwrap()["id"].clone();
@@ -1091,6 +1484,42 @@ async fn manual_tools_record_actual_prices_and_conserve_long_short_cash() {
             "10020.25".parse::<Decimal>().unwrap()
         );
         assert_eq!(fixture.calls.load(Ordering::SeqCst), 0);
+        // Exercise successful structured contracts beyond order/account mutations.
+        for (tool, args) in [
+            ("grade_preview", json!({"account_id":account,"trade_id":id})),
+            (
+                "grade_record",
+                json!({"account_id":account,"trade_id":id,"idempotency_key":"schema-grade-record"}),
+            ),
+            ("grade_get", json!({"account_id":account,"trade_id":id})),
+            ("grades_list", json!({"account_id":account})),
+            ("level_policy_get", json!({"account_id":account})),
+            ("level_progress", json!({"account_id":account})),
+            ("level_history", json!({"account_id":account})),
+            (
+                "distribution_policy_set",
+                json!({"account_id":account,"earnings":"0","tax":"0","reinvestment":"1","insurance":"0","minimum":"100","idempotency_key":"schema-distribution-policy"}),
+            ),
+            ("distribution_policy_get", json!({"account_id":account})),
+            ("distribution_history", json!({"account_id":account})),
+            ("advisor_status", json!({"account_id":account})),
+            ("advisor_history", json!({"account_id":account})),
+            (
+                "advisor_check",
+                json!({"account_id":account,"symbol":"RELIABLE","entry":"100","quantity":"1"}),
+            ),
+            (
+                "advisor_configure",
+                json!({"account_id":account,"sector_limit_pct":"40","asset_class_limit_pct":"80","single_position_limit_pct":"20","idempotency_key":"schema-advisor-config"}),
+            ),
+            (
+                "metrics_get",
+                json!({"account_id":account,"kind":"bond","face_value":"1000","price":"990","annual_coupon_rate_pct":"5","years_to_maturity":"10","quantity":1}),
+            ),
+        ] {
+            let reply = fixture.call(&service, tool, args).await;
+            assert!(reply.error.is_none(), "{tool}: {reply:?}");
+        }
         // All report variants are routed; empty/insufficient analysis remains explicit.
         for kind in [
             "summary",
@@ -1254,6 +1683,7 @@ async fn service_requires_explicit_trade_and_monthly_policy() {
         .await;
     assert!(deposit.error.is_none());
     let instrument = f.call(&service, "instrument_create", json!({"symbol":"POLICY","category":"stock","broker":"ibkr","idempotency_key":"policy-instrument"})).await.data.unwrap()["id"].clone();
+    assert!(f.call(&service,"instrument_update",json!({"instrument_id":instrument,"broker_asset_id":"1234","idempotency_key":"native-test"})).await.error.is_none());
     let trade = f.call(&service, "trade_prepare", json!({"account_id":account,"instrument_id":instrument,"side":"long","quantity":"1","entry":"100","stop":"95","target":"110","idempotency_key":"policy-prepare"})).await.data.unwrap()["id"].clone();
     for (index, kind) in ["per_trade", "per_month"].into_iter().enumerate() {
         let denied = f.call(&service, "trade_fund", json!({"account_id":account,"trade_id":trade,"idempotency_key":format!("missing-policy-{index}")})).await;
@@ -1480,4 +1910,40 @@ async fn owner_authentication_is_rechecked_before_dispatch_and_idempotent_replay
     assert_eq!(event["actor_role"], "owner");
     assert!(event["owner_authenticated_until"].as_u64().is_some());
     worker.shutdown().await.unwrap();
+}
+
+#[test]
+fn nested_risk_policy_rejects_lossy_money_and_untyped_fields_before_dispatch() {
+    use trust_service::catalog::{find, validate};
+    let tool = find("account_safety_policy_set").unwrap();
+    let base = json!({"account_id":Uuid::new_v4(),"currency":"USD","max_gross_notional":"10000","max_order_notional":"1000","max_daily_loss":"100","max_drawdown":"500","max_snapshot_age_seconds":30,"controls":risk::controls(),"idempotency_key":"nested-policy"});
+    validate(tool, &base).unwrap();
+    for value in [
+        json!(1.25),
+        json!("NaN"),
+        json!("1e2"),
+        json!("+1"),
+        json!(" 1"),
+        json!("79228162514264337593543950336"),
+        json!("0.00000000000000000000000000001"),
+    ] {
+        let mut args = base.clone();
+        args["controls"]["max_portfolio_heat_pct"] = value.clone();
+        assert!(validate(tool, &args).is_err(), "{value}");
+        let mut args = base.clone();
+        args["controls"]["instruments"]["1234"]["gap_stress_pct"] = value.clone();
+        assert!(validate(tool, &args).is_err(), "{value}");
+    }
+    for (field, value) in [
+        ("unknown", json!("1")),
+        ("max_quote_age_seconds", json!(-1)),
+        ("instruments", json!([])),
+    ] {
+        let mut args = base.clone();
+        args["controls"][field] = value;
+        assert!(validate(tool, &args).is_err(), "{field}");
+    }
+    let mut args = base;
+    args["controls"]["instruments"]["1234"]["valid_until"] = json!("tomorrow");
+    assert!(validate(tool, &args).is_err());
 }
