@@ -63,7 +63,7 @@ CLI (binary, Clap)
 - **db-sqlite**: `SqliteDatabase` implementing `DatabaseFactory`. Uses Diesel with 14+ migrations. Schema in `db-sqlite/src/schema.rs` (auto-generated). Includes backup/import functionality.
 - **cli**: Clap-based CLI. `dispatcher.rs` is the central routing file (~184KB). Commands in `cli/src/commands/`, views in `cli/src/views/`, interactive prompts in `cli/src/dialogs/`.
 - **alpaca-broker**: `AlpacaBroker` implementing the `Broker` trait. Handles order submission, sync, close, cancel, stop/target modification, market data, and execution fetching. API keys stored in system keychain.
-- **broker-sync**: Actor-based real-time sync via `BrokerSync`/`BrokerSyncHandle`. Commands (StartTradeSession, StopTradeSession, Shutdown) and events (TradeSessionSnapshot, etc.) for WebSocket-based state management.
+- **broker-sync**: In-memory session tracking via `TradeSessionTracker`/`TradeSessionHandle`. It does not perform broker synchronization; real reconciliation uses the facade and durable service journal.
 
 ### Key Patterns
 

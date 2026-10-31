@@ -14,7 +14,7 @@ Trust is a Rust 2021 workspace for risk-managed trading. Financial correctness, 
 - `cli` (`trust-cli`, binary `trust`): thin HTTP client. Historical commands/dialogs remain in `trust-legacy` behind `legacy-cli` for migration and regression tests.
 - `alpaca-broker`: Alpaca implementation of `Broker`.
 - `ibkr-broker`: Interactive Brokers Client Portal implementation of `Broker`.
-- `broker-sync`: in-memory actor/session scaffold plus serialized messages and a separate connection state machine. Real websocket reconciliation is not wired into the actor yet.
+- `broker-sync`: `TradeSessionTracker` for legacy in-memory sessions plus serialized events and a separate pure connection state machine. It performs no broker synchronization.
 - `advisor`: catalyst, correlation, regime, and advisory configuration support.
 
 The intended application flow is:
@@ -51,11 +51,19 @@ Every trade has entry, safety-stop, and target orders. Do not infer allowed tran
 ## Editing workflow
 
 - Inspect the relevant trait, facade method, persistence worker, adapter, and tests before changing a cross-layer workflow.
-- Keep changes scoped. Do not opportunistically rewrite the large CLI dispatcher or generated files.
+- Keep changes scoped. Do not opportunistically rewrite unrelated command groups or generated files.
 - Never edit `db-sqlite/src/schema.rs` manually. Create paired migrations under `db-sqlite/migrations/` and use the repository migration workflow.
 - Preserve existing user changes in a dirty worktree.
 - Add regression tests at the lowest useful layer and integration coverage for cross-crate behavior.
 - Treat CLI JSON as a public contract. Refresh snapshots only for intentional changes and inspect the diff.
+
+## Architectural size and ownership
+
+- New production Rust modules must stay at or below 800 physical lines (target 300–500); test modules at or below 1,000. `make architecture-check` enforces these limits.
+- Existing larger files have a shrinking allowance in `scripts/architecture_budget.json`. Do not increase allowances or add new exceptions to avoid decomposition. Generated schema is the explicit exception.
+- Split by responsibility, not numbered chunks or `include!` fragments. Avoid relocating a monolith into a shared context with many methods.
+- Use GoF Command for independently routed workflows, Strategy for genuine interchangeable behavior, and Adapter at external boundaries. Do not introduce abstraction layers without a concrete role.
+- Keep financial invariants in core/model and output formatting at client boundaries. See [command boundaries](docs/command-boundaries.md).
 
 ## Build and verification
 
@@ -85,7 +93,8 @@ make fmt                 # write formatting changes
 make fmt-check           # verify formatting
 make lint                # workspace Clippy, all targets/features
 make test-single         # serialize DB/CLI-sensitive workspace tests
-make ci-fast             # fmt-check + lint
+make architecture-check  # file-size limits + shrinking existing allowances
+make ci-fast             # fmt-check + architecture-check + lint
 make ci-snapshots        # verify CLI JSON snapshots
 make ci-perf             # broker-sync performance gate
 make ci                  # full local CI, including coverage

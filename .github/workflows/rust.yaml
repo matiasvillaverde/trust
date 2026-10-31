@@ -38,6 +38,7 @@ jobs:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         persist-credentials: false
+        fetch-depth: 2
 
     - name: Install system dependencies
       run: |
@@ -55,6 +56,11 @@ jobs:
 
     - name: Check formatting
       run: cargo fmt --all -- --check
+
+    - name: Enforce module size and architecture ratchet
+      run: |
+        python3 scripts/check_architecture.py --base HEAD^1
+        python3 -m unittest discover -s scripts -p 'test_check_architecture.py'
 
     - name: Test release version validation
       run: bash .github/test_version_parsing.sh

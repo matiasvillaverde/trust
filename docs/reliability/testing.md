@@ -45,7 +45,7 @@ Run the curated mutation experiments after preparing the native dependency with 
 make assurance-mutations
 ```
 
-The runner uses an isolated source copy and separate Cargo target directory. Each experiment must first pass its unmodified test, then compile and fail that exact test with the fault introduced. Compilation failures, missing tests and surviving mutations fail the gate. Results and log hashes are saved under `.local/assurance/mutations/`; the source fingerprint must remain unchanged. This is a curated set of 12 experiments, not an exhaustive mutation score.
+The runner uses an isolated source copy and separate Cargo target directory. Each experiment must first pass its unmodified test, then compile and fail that exact test with the fault introduced. Compilation failures, missing tests and surviving mutations fail the gate. Results and log hashes are saved under `.local/assurance/mutations/`; the source fingerprint must remain unchanged. This is a curated set of 16 experiments, not an exhaustive mutation score.
 
 `make assurance-unit` requires these cash and reservation scenarios in level 1 evidence. Use the workspace formatting, Clippy, all-feature, no-default-feature and coverage gates for wider changes. Preserve meaningful regression cases when consolidating tests; remove vacuous constructors and print-only probes only after their intended behavior has executable coverage.
 

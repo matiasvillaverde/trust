@@ -4,7 +4,7 @@ This file extends the repository `AGENTS.md` for `broker-sync/`.
 
 ## Current scope
 
-This crate currently contains an in-memory std-thread session actor, serialized command/event contracts, and a separate broker connection state machine. It is scaffolding: `StartSync`, `StopSync`, and `ManualReconcile` compatibility commands do not perform websocket synchronization, and the state machine is not wired into the actor.
+This crate contains `TradeSessionTracker`, an in-memory std-thread session actor, serialized command/event contracts, and a separate pure broker connection state machine. It performs no websocket synchronization. The formerly ignored `StartSync`, `StopSync`, and `ManualReconcile` variants were removed; deserialization now rejects them. Real reconciliation belongs to the facade and durable service journal.
 
 ## Contracts and invariants
 
@@ -19,4 +19,4 @@ This crate currently contains an in-memory std-thread session actor, serialized 
 cargo test -p broker-sync
 ```
 
-If wiring real broker I/O, define acknowledgement, retry/idempotency, shutdown, ordering, and reconciliation semantics explicitly before replacing the current no-ops.
+If wiring real broker I/O, define acknowledgement, retry/idempotency, shutdown, ordering, and reconciliation semantics explicitly before adding a synchronization interface. Never accept commands that silently do nothing.

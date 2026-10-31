@@ -8,12 +8,13 @@ The default `trust` binary uses `src/client_main.rs` and calls the authenticated
 
 - `src/main.rs`, `src/commands.rs`, `src/commands/`: Clap tree and command builders.
 - `src/command_routing.rs`: typed argument extraction/routing helpers.
-- `src/dispatcher.rs`: central orchestration; `ArgDispatcher` owns `TrustFacade`.
+- `src/dispatcher.rs`: composition root and Command invoker; `ArgDispatcher` owns `TrustFacade`.
+- `src/dispatcher/`: command groups own workflows and call the facade receiver; parsing and presentation use focused modules. Tests live in the cfg-gated `dispatcher/tests/` subtree.
 - `src/dialogs/`: interactive input only.
 - `src/views/`: terminal formatting only.
 - `src/exporters.rs` and dispatcher report paths: machine-readable output.
 
-Adding a command usually requires the builder, routing, dispatcher branch, interactive/non-interactive behavior, output, and tests. Keep monetary/risk logic in core.
+Adding a command usually requires the builder, routing, command handler, interactive/non-interactive behavior, output, and tests. Keep monetary/risk logic in core.
 
 ## Boundaries and safety
 
