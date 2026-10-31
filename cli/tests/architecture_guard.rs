@@ -82,7 +82,8 @@ fn cli_risk_mutations_route_through_trust_facade() {
             let context = format!("{previous_previous} {previous} {trimmed}");
             let routed_through_trust = context.contains("trust.")
                 || context.contains(".trust")
-                || (trimmed.starts_with('.') && matches!(previous, "trust" | ".trust"));
+                || (trimmed.starts_with('.')
+                    && (matches!(previous, "trust" | ".trust") || previous.ends_with("= trust")));
             for needle in [
                 ".create_trade(",
                 ".fund_trade(",
@@ -157,7 +158,10 @@ fn cli_constructs_sqlite_only_at_dispatcher_boundaries() {
         let source = production_source(&file);
         for (line_number, line) in source.lines().enumerate() {
             let trimmed = line.trim();
-            if trimmed.contains("SqliteDatabase::") && !file.ends_with("dispatcher.rs") {
+            if trimmed.contains("SqliteDatabase::")
+                && !file.ends_with("dispatcher.rs")
+                && !file.ends_with("dispatcher/database.rs")
+            {
                 violations.push(format!(
                     "{}:{}: SQLite construction must stay at dispatcher/database import-export boundaries",
                     display_path(&file),
@@ -197,6 +201,10 @@ fn collect_rust_source_files(path: &Path, files: &mut Vec<PathBuf>) {
 }
 
 fn production_source(path: &Path) -> String {
+    // This subtree is loaded only by the dispatcher's #[cfg(test)] module.
+    if path.starts_with(Path::new(CLI_SRC).join("dispatcher/tests")) {
+        return String::new();
+    }
     let source = fs::read_to_string(path)
         .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
     strip_cfg_test_modules(&source)
