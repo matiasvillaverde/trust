@@ -94,3 +94,7 @@ The highest-value remaining structural cleanup is:
 - Continue replacing diagnostic-only legacy probes with business assertions. The unregistered workflow/Phase 2 drafts and the unused success-only `ProfitDistributionService::transfer_funds` placeholder have been removed. Transfers use `TrustFacade::transfer_between_accounts` with an explicit currency. Executable cash contracts and lifecycle replay tests cover persisted outcomes; see [test design](reliability/testing.md).
 
 Run the workspace gates in [the repository guide](../AGENTS.md). The [verification record](reliability/verification.md) distinguishes offline evidence, real identity/client checks and broker-connected acceptance. Passing deterministic tests does not establish real IBKR fills, protection, fee fidelity or production readiness.
+
+## Bounded command modules
+
+The legacy CLI now uses a small Command invoker and focused workflow modules instead of the former 22,190-line dispatcher. [Command boundaries and size rules](command-boundaries.md) describe the enforced limits and the remaining size allowances. [Percentage, event, and history contracts](reliability/contracts-and-pagination.md) describe the financial compatibility and paging changes.

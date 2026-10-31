@@ -50,6 +50,21 @@ MUTATIONS = [
     ("funding_replay", "core/src/validators/trade.rs",
      'Status::New => Ok(()),', 'Status::New | Status::Funded => Ok(()),',
      "core", "reliability", "a_reservation_cannot_be_funded_again_after_funding_fill_cancel_or_close"),
+    ("account_percentage_validation", "model/src/percentage.rs",
+     '        if !(Decimal::ZERO..=dec!(100)).contains(&points) {\n            return Err(InvalidPercentage);\n        }', '',
+     "db-sqlite", "account_percentages", "new_accounts_use_points_and_reject_invalid_reserves_without_rows"),
+    ("percentage_units", "model/src/percentage.rs",
+     'self.0.checked_div(dec!(100)).ok_or(InvalidPercentage)',
+     'self.0.checked_div(dec!(1)).ok_or(InvalidPercentage)',
+     "core", "account_tax_units", "one_and_two_percent_have_consistent_tax_liability_on_realized_profit"),
+    ("short_close_risk", "core/src/events/trade.rs",
+     'model::TradeCategory::Short => trade\n                .safety_stop\n                .unit_price\n                .checked_sub(trade.entry.unit_price)',
+     'model::TradeCategory::Short => trade.entry.unit_price.checked_sub(trade.safety_stop.unit_price)',
+     "core", None, "events::trade::tests::long_and_short_brackets_have_the_same_reward_in_risk_units"),
+    ("bounded_history", "db-sqlite/src/history.rs",
+     '.select(trades::id)\n            .limit(page.limit())', '.select(trades::id)',
+     "core", "history_contracts", "small_pages_do_not_decode_trades_outside_the_page_or_scope"),
+
 ]
 
 
@@ -88,8 +103,9 @@ def main():
             original = path.read_text()
             if old not in original:
                 raise ValueError(f"Mutation {name} no longer matches its guard; update the experiment")
+            target = ["--test", suite] if suite is not None else ["--lib"]
             command = [os.environ.get("CARGO", "cargo"), "test", "--locked", "--offline", "-p", package,
-                       "--test", suite, test, "--", "--exact", "--test-threads=1"]
+                       *target, test, "--", "--exact", "--test-threads=1"]
             outcomes = {}
             try:
                 for variant in ("baseline", "mutant"):

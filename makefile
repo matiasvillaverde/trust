@@ -84,7 +84,8 @@ help:
 	@echo ""
 	@echo "$(GREEN)CI Commands:$(NC)"
 	@echo "  make ci             - Run full CI pipeline locally"
-	@echo "  make ci-fast        - Run quick CI checks (fmt + clippy)"
+	@echo "  make ci-fast        - Run quick CI checks (fmt + architecture + clippy)"
+	@echo "  make architecture-check - Enforce module size and shrinking debt allowances"
 	@echo "  make ci-test        - Run test suite as in CI"
 	@echo "  make ci-perf        - Run performance regression gate"
 	@echo "  make ci-build       - Run build checks as in CI"
@@ -296,7 +297,7 @@ ci: ci-fast ci-build ci-test ci-snapshots ci-coverage ci-perf security-check
 	@echo "$(GREEN)✓ Full CI pipeline passed!$(NC)"
 
 .PHONY: ci-fast
-ci-fast: fmt-check lint
+ci-fast: fmt-check architecture-check lint
 	@echo "$(GREEN)✓ Quick CI checks passed!$(NC)"
 
 .PHONY: ci-test
@@ -491,3 +492,8 @@ skills-check: ## Validate skill contracts, MCP delivery and offline packaging
 	@python3 -m unittest discover -s scripts -p test_package_skills.py
 	@python3 -m unittest discover -s scripts -p test_review_agent_eval.py
 	@python3 -m unittest discover -s scripts -p test_evaluate_skill_routing.py
+
+.PHONY: architecture-check
+architecture-check:
+	@python3 scripts/check_architecture.py --base HEAD
+	@python3 -m unittest discover -s scripts -p 'test_check_architecture.py'

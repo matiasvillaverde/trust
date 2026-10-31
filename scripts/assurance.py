@@ -16,7 +16,14 @@ EVIDENCE = ROOT / ".local/assurance"
 CARGO = os.environ.get("CARGO", "cargo")
 TAIL = ["--", "--test-threads=1"]
 REQUIRED = {
-    1: {"historical_gains_do_not_grant_an_agent_extra_daily_loss_capacity",
+    1: {"new_accounts_use_points_and_reject_invalid_reserves_without_rows",
+        "legacy_upgrade_preserves_old_tax_liability_and_new_values_survive_reopen",
+        "backups_roundtrip_explicit_units_and_restore_legacy_v2_without_guessing_new_values",
+        "malformed_percentage_units_or_negative_legacy_values_fail_closed",
+        "one_and_two_percent_have_consistent_tax_liability_on_realized_profit",
+        "events::trade::tests::long_and_short_brackets_have_the_same_reward_in_risk_units",
+        "small_pages_do_not_decode_trades_outside_the_page_or_scope",
+        "historical_gains_do_not_grant_an_agent_extra_daily_loss_capacity",
         "shared_heat_reserves_across_profiles_and_rejects_one_decimal_over_boundary",
         "funding_and_submission_do_not_double_charge_or_release_previous_reservation",
         "margin_buffer_reserves_cash_and_stresses_maintenance",
@@ -55,7 +62,8 @@ REQUIRED = {
         "arbitrary_transfer_sequences_cannot_create_money_or_overdraw",
         "broker_reconciliation_authority_cannot_record_manual_executions",
         "service_requires_explicit_trade_and_monthly_policy"},
-    2: {"portfolio_heat_is_atomic_across_agents_and_profiles_and_preview_never_reserves",
+    2: {"history::history_pages_match_over_mcp_http_and_restart_and_account_units_are_explicit",
+        "portfolio_heat_is_atomic_across_agents_and_profiles_and_preview_never_reserves",
         "admission_rechecks_quotes_margin_and_calendar_before_broker_submission",
         "observed_agent_losses_and_fees_block_reentry_after_restart_without_policy_reset",
         "risk_market_data_uses_exact_contract_and_requires_timestamped_realtime_evidence",
