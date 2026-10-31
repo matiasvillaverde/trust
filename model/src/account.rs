@@ -57,9 +57,9 @@ pub struct Account {
     pub description: String,
     /// Trading environment (paper or live)
     pub environment: Environment,
-    /// Tax percentage to withhold from earnings
+    /// Tax reserve in percentage points (1 = 1%, valid range 0..=100).
     pub taxes_percentage: Decimal,
-    /// Percentage of earnings to set aside
+    /// Earnings reserve in percentage points; combined reserves cannot exceed 100.
     pub earnings_percentage: Decimal,
     /// Account type for specialization
     pub account_type: AccountType,
@@ -167,6 +167,14 @@ impl Default for AccountBalance {
 }
 
 impl Account {
+    /// Validate a human-readable account name before persistence.
+    pub fn validate_name(name: &str) -> Result<(), &'static str> {
+        if name.trim().is_empty() || name.len() > 128 || name.chars().any(char::is_control) {
+            return Err("Account name must be nonempty, at most 128 bytes, and contain no control characters");
+        }
+        Ok(())
+    }
+
     /// Validates account hierarchy relationships
     pub fn validate_hierarchy(
         &self,

@@ -303,7 +303,10 @@ impl PerformanceCalculator {
             .iter()
             .filter(|trade| trade.balance.total_performance > dec!(0))
             .count();
-        let losing_trades = total_trades.saturating_sub(winning_trades);
+        let losing_trades = closed_trades
+            .iter()
+            .filter(|trade| trade.balance.total_performance < Decimal::ZERO)
+            .count();
 
         let win_rate = Self::calculate_win_rate(closed_trades);
         let (average_win, average_loss) = Self::calculate_average_win_loss(closed_trades);

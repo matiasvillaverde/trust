@@ -40,8 +40,8 @@ impl QuantityCalculator {
         if entry_price <= Decimal::ZERO {
             return Err(format!("Invalid entry price {entry_price} for quantity calculation (must be greater than 0)").into());
         }
-        if stop_price < Decimal::ZERO {
-            return Err("Stop price must not be negative".into());
+        if stop_price <= Decimal::ZERO || stop_price == entry_price {
+            return Err("Stop price must be positive and different from entry".into());
         }
         let rules = database.rule_read().read_all_rules(account_id)?;
         let (per_trade, per_month) =
@@ -465,7 +465,7 @@ mod tests {
         let error = QuantityCalculator::maximum_quantity(
             account.id,
             Decimal::new(1, 28),
-            Decimal::ZERO,
+            Decimal::new(2, 28),
             &Currency::USD,
             &mut database,
         )
@@ -483,7 +483,7 @@ mod tests {
         let quantity = QuantityCalculator::maximum_quantity(
             account.id,
             dec!(40000),
-            Decimal::ZERO,
+            dec!(39000),
             &Currency::USD,
             &mut database,
         )

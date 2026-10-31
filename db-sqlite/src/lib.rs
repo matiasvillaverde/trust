@@ -44,3 +44,7 @@ mod migration_fk_safety_tests;
 pub use backup::{ImportMode, ImportOptions, ImportReport};
 pub use database::SqliteDatabase;
 pub use encryption::StorageError;
+
+mod account_percentages;
+
+mod history;

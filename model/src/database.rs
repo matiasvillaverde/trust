@@ -264,6 +264,16 @@ pub trait OrderWrite {
 
 /// Trait for reading transaction data from the database
 pub trait ReadTransactionDB {
+    /// Page cash movements (excluding taxes), in ascending (created_at, id) order.
+    fn history_page(
+        &mut self,
+        _account_id: Uuid,
+        _filter: &crate::history::TransactionHistoryFilter,
+        _page: crate::history::PageRequest,
+    ) -> Result<crate::history::HistoryPage<Transaction>, Box<dyn Error>> {
+        Err("Bounded transaction history is not supported by this database".into())
+    }
+
     /// Live cost-basis exposure when cumulative fill quantities are available.
     fn trade_market_exposure(
         &mut self,
@@ -433,6 +443,26 @@ pub trait WriteExecutionDB {
 
 /// Trait for reading trade data from the database
 pub trait ReadTradeDB {
+    /// Filter and page in storage, in ascending (created_at, id) order.
+    /// Implementations must not load the full history to construct a page.
+    fn history_page(
+        &mut self,
+        _account_id: Uuid,
+        _filter: &crate::history::TradeHistoryFilter,
+        _page: crate::history::PageRequest,
+    ) -> Result<crate::history::HistoryPage<Trade>, Box<dyn Error>> {
+        Err("Bounded trade history is not supported by this database".into())
+    }
+    /// Broker-active batch in ascending UUID order, for bounded reconciliation.
+    fn active_batch(
+        &mut self,
+        _account_id: Uuid,
+        _after: Option<Uuid>,
+        _limit: u16,
+    ) -> Result<Vec<Trade>, Box<dyn Error>> {
+        Err("Bounded reconciliation is not supported by this database".into())
+    }
+
     /// Retrieves all open trades for a specific account and currency
     fn all_open_trades_for_currency(
         &mut self,
@@ -797,6 +827,15 @@ pub trait WriteLevelDB {
 
 /// Trait for reading distribution rules from the database.
 pub trait DistributionRead {
+    /// Page execution receipts in descending (distribution_date, id) order.
+    fn history_page(
+        &mut self,
+        _account_id: Uuid,
+        _page: crate::history::PageRequest,
+    ) -> Result<crate::history::HistoryPage<DistributionHistory>, Box<dyn Error>> {
+        Err("Bounded distribution history is not supported by this database".into())
+    }
+
     /// Retrieves distribution rules for a specific account.
     fn for_account(&mut self, account_id: Uuid) -> Result<DistributionRules, Box<dyn Error>>;
 

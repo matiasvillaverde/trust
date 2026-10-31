@@ -312,6 +312,11 @@ pub fn active(status: Status) -> bool {
     )
 }
 
+fn history_page(args: &Value) -> Result<model::history::PageRequest> {
+    model::history::PageRequest::new(uint(args, "limit", 100), uint(args, "offset", 0))
+        .map_err(ServiceError::invalid)
+}
+
 pub fn paginate(value: Value, args: &Value) -> Value {
     match value {
         Value::Array(items) => {
@@ -327,6 +332,12 @@ pub fn paginate(value: Value, args: &Value) -> Value {
 }
 
 pub(crate) fn domain_error(error: Box<dyn std::error::Error>) -> ServiceError {
+    if error
+        .downcast_ref::<model::percentage::InvalidPercentage>()
+        .is_some()
+    {
+        return ServiceError::invalid(error.to_string());
+    }
     use trust_core::validation_errors::{
         FundValidationError, FundValidationErrorCode, RuleValidationError, TradeValidationError,
         TradeValidationErrorCode, TransactionValidationError,

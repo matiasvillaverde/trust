@@ -1,8 +1,4 @@
-/// Bug-hunting integration tests
-///
-/// These tests systematically probe edge cases, boundary conditions, and potential
-/// bugs across the Trust trading system's core logic, validators, calculators,
-/// and lifecycle management.
+//! Financial boundary regressions through the public facade and isolated SQLite.
 use chrono::Utc;
 use core::TrustFacade;
 use db_sqlite::SqliteDatabase;
@@ -272,27 +268,23 @@ fn submit_and_get_trade(trust: &mut TrustFacade, account: &Account, trade: &Trad
 // ─────────────────────────────────────────────────────────────────
 
 #[test]
-fn bug_001_zero_deposit_should_be_rejected_or_create_zero_balance() {
+fn contract_001_zero_deposit_creates_neither_cash_nor_receipts() {
     let mut trust = create_trust();
     let account = trust
         .create_account("test", "test", Environment::Paper, dec!(20), dec!(10))
         .unwrap();
-
-    // A zero deposit should probably be rejected, but if accepted the balance should be zero
-    let result = trust.create_transaction(
-        &account,
-        &TransactionCategory::Deposit,
-        dec!(0),
-        &Currency::USD,
-    );
-    // BUG: Zero deposit is accepted without error, creating a meaningless transaction
-    if let Ok((_, balance)) = result {
-        assert_eq!(
-            balance.total_available,
+    assert!(trust
+        .create_transaction(
+            &account,
+            &TransactionCategory::Deposit,
             dec!(0),
-            "Zero deposit should result in zero balance"
-        );
-    }
+            &Currency::USD
+        )
+        .is_err());
+    assert!(trust
+        .get_account_transactions(account.id)
+        .unwrap()
+        .is_empty());
 }
 
 #[test]
@@ -376,25 +368,25 @@ fn bug_004_zero_withdrawal_should_be_rejected() {
 }
 
 #[test]
-fn bug_005_taxes_plus_earnings_percentage_exceeds_100() {
+fn contract_005_taxes_plus_earnings_percentage_exceeds_100() {
     let mut trust = create_trust();
-    // taxes=80%, earnings=80% = 160% total - should this be rejected?
     let result = trust.create_account("test", "test", Environment::Paper, dec!(80), dec!(80));
-    // BUG: No validation that taxes + earnings <= 100%
-    if result.is_ok() {
-        // If accepted, it means there's a validation gap
-        println!("WARNING: Account created with taxes(80%) + earnings(80%) = 160% total");
-    }
+    assert!(result.is_err(), "Invalid input must be rejected");
+    assert!(
+        trust.search_all_accounts().unwrap().is_empty(),
+        "Rejected creation must leave no account"
+    );
 }
 
 #[test]
-fn bug_006_negative_tax_percentage() {
+fn contract_006_negative_tax_percentage() {
     let mut trust = create_trust();
     let result = trust.create_account("test", "test", Environment::Paper, dec!(-10), dec!(10));
-    // BUG: Negative tax percentage should be rejected
-    if result.is_ok() {
-        println!("WARNING: Account created with negative tax percentage");
-    }
+    assert!(result.is_err(), "Invalid input must be rejected");
+    assert!(
+        trust.search_all_accounts().unwrap().is_empty(),
+        "Rejected creation must leave no account"
+    );
 }
 
 #[test]
@@ -493,123 +485,219 @@ fn bug_010_search_balance_nonexistent_currency() {
 // ─────────────────────────────────────────────────────────────────
 
 #[test]
-fn bug_011_trade_with_zero_quantity() {
+fn contract_011_trade_with_zero_quantity() {
     let mut trust = create_trust();
     let account = setup_account(&mut trust, dec!(50000));
     let tv = create_trading_vehicle(&mut trust, "AAPL");
 
     let draft = create_long_draft(&account, &tv, 0);
     let result = trust.create_trade(draft, dec!(38), dec!(40), dec!(50));
-    // BUG: Zero quantity trade should be rejected at creation time
-    if result.is_ok() {
-        println!("BUG: Trade with zero quantity was accepted");
+    let before = trust.search_balance(account.id, &Currency::USD).unwrap();
+    if let Ok(trade) = result {
+        let before_transactions = trust.get_account_transactions(account.id).unwrap();
+        assert!(
+            trust.fund_trade(&trade).is_err(),
+            "Invalid or unaffordable draft must not commit capital"
+        );
+        assert_eq!(
+            trust.get_account_transactions(account.id).unwrap(),
+            before_transactions
+        );
+        assert_eq!(trust.read_trade(trade.id).unwrap().status, Status::New);
     }
+    assert_eq!(
+        trust.search_balance(account.id, &Currency::USD).unwrap(),
+        before
+    );
 }
 
 #[test]
-fn bug_012_trade_with_stop_above_entry_for_long() {
+fn contract_012_trade_with_stop_above_entry_for_long() {
     let mut trust = create_trust();
     let account = setup_account(&mut trust, dec!(50000));
     let tv = create_trading_vehicle(&mut trust, "AAPL");
 
-    // For a LONG trade: stop should be BELOW entry
-    // Here stop=45 > entry=40 - this is backwards
     let draft = create_long_draft(&account, &tv, 100);
     let result = trust.create_trade(draft, dec!(45), dec!(40), dec!(50));
-    // BUG: No validation that stop < entry for long trades at creation time
-    if result.is_ok() {
-        println!("BUG: Long trade created with stop($45) above entry($40)");
+    let before = trust.search_balance(account.id, &Currency::USD).unwrap();
+    if let Ok(trade) = result {
+        let before_transactions = trust.get_account_transactions(account.id).unwrap();
+        assert!(
+            trust.fund_trade(&trade).is_err(),
+            "Invalid or unaffordable draft must not commit capital"
+        );
+        assert_eq!(
+            trust.get_account_transactions(account.id).unwrap(),
+            before_transactions
+        );
+        assert_eq!(trust.read_trade(trade.id).unwrap().status, Status::New);
     }
+    assert_eq!(
+        trust.search_balance(account.id, &Currency::USD).unwrap(),
+        before
+    );
 }
 
 #[test]
-fn bug_013_trade_with_target_below_entry_for_long() {
+fn contract_013_trade_with_target_below_entry_for_long() {
     let mut trust = create_trust();
     let account = setup_account(&mut trust, dec!(50000));
     let tv = create_trading_vehicle(&mut trust, "AAPL");
 
-    // For a LONG trade: target should be ABOVE entry
-    // Here target=35 < entry=40 - this is backwards
     let draft = create_long_draft(&account, &tv, 100);
     let result = trust.create_trade(draft, dec!(38), dec!(40), dec!(35));
-    // BUG: No validation that target > entry for long trades at creation time
-    if result.is_ok() {
-        println!("BUG: Long trade created with target($35) below entry($40)");
+    let before = trust.search_balance(account.id, &Currency::USD).unwrap();
+    if let Ok(trade) = result {
+        let before_transactions = trust.get_account_transactions(account.id).unwrap();
+        assert!(
+            trust.fund_trade(&trade).is_err(),
+            "Invalid or unaffordable draft must not commit capital"
+        );
+        assert_eq!(
+            trust.get_account_transactions(account.id).unwrap(),
+            before_transactions
+        );
+        assert_eq!(trust.read_trade(trade.id).unwrap().status, Status::New);
     }
+    assert_eq!(
+        trust.search_balance(account.id, &Currency::USD).unwrap(),
+        before
+    );
 }
 
 #[test]
-fn bug_014_trade_with_entry_equals_stop() {
+fn contract_014_trade_with_entry_equals_stop() {
     let mut trust = create_trust();
     let account = setup_account(&mut trust, dec!(50000));
     let tv = create_trading_vehicle(&mut trust, "AAPL");
 
-    // Entry == Stop means zero risk, which makes risk calculations meaningless
     let draft = create_long_draft(&account, &tv, 100);
     let result = trust.create_trade(draft, dec!(40), dec!(40), dec!(50));
-    // BUG: Trade with zero risk (entry == stop) should be rejected
-    if result.is_ok() {
-        println!("BUG: Trade with entry==stop (zero risk) was accepted");
+    let before = trust.search_balance(account.id, &Currency::USD).unwrap();
+    if let Ok(trade) = result {
+        let before_transactions = trust.get_account_transactions(account.id).unwrap();
+        assert!(
+            trust.fund_trade(&trade).is_err(),
+            "Invalid or unaffordable draft must not commit capital"
+        );
+        assert_eq!(
+            trust.get_account_transactions(account.id).unwrap(),
+            before_transactions
+        );
+        assert_eq!(trust.read_trade(trade.id).unwrap().status, Status::New);
     }
+    assert_eq!(
+        trust.search_balance(account.id, &Currency::USD).unwrap(),
+        before
+    );
 }
 
 #[test]
-fn bug_015_trade_with_entry_equals_target() {
+fn contract_015_trade_with_entry_equals_target() {
     let mut trust = create_trust();
     let account = setup_account(&mut trust, dec!(50000));
     let tv = create_trading_vehicle(&mut trust, "AAPL");
 
-    // Entry == Target means zero reward
     let draft = create_long_draft(&account, &tv, 100);
     let result = trust.create_trade(draft, dec!(38), dec!(40), dec!(40));
-    // BUG: Trade with zero reward (entry == target) should be rejected
-    if result.is_ok() {
-        println!("BUG: Trade with entry==target (zero reward) was accepted");
+    let before = trust.search_balance(account.id, &Currency::USD).unwrap();
+    if let Ok(trade) = result {
+        let before_transactions = trust.get_account_transactions(account.id).unwrap();
+        assert!(
+            trust.fund_trade(&trade).is_err(),
+            "Invalid or unaffordable draft must not commit capital"
+        );
+        assert_eq!(
+            trust.get_account_transactions(account.id).unwrap(),
+            before_transactions
+        );
+        assert_eq!(trust.read_trade(trade.id).unwrap().status, Status::New);
     }
+    assert_eq!(
+        trust.search_balance(account.id, &Currency::USD).unwrap(),
+        before
+    );
 }
 
 #[test]
-fn bug_016_trade_with_zero_prices() {
+fn contract_016_trade_with_zero_prices() {
     let mut trust = create_trust();
     let account = setup_account(&mut trust, dec!(50000));
     let tv = create_trading_vehicle(&mut trust, "AAPL");
 
     let draft = create_long_draft(&account, &tv, 100);
     let result = trust.create_trade(draft, dec!(0), dec!(0), dec!(0));
-    // BUG: Trade with zero prices should be rejected
-    if result.is_ok() {
-        println!("BUG: Trade with all zero prices was accepted");
+    let before = trust.search_balance(account.id, &Currency::USD).unwrap();
+    if let Ok(trade) = result {
+        let before_transactions = trust.get_account_transactions(account.id).unwrap();
+        assert!(
+            trust.fund_trade(&trade).is_err(),
+            "Invalid or unaffordable draft must not commit capital"
+        );
+        assert_eq!(
+            trust.get_account_transactions(account.id).unwrap(),
+            before_transactions
+        );
+        assert_eq!(trust.read_trade(trade.id).unwrap().status, Status::New);
     }
+    assert_eq!(
+        trust.search_balance(account.id, &Currency::USD).unwrap(),
+        before
+    );
 }
 
 #[test]
-fn bug_017_trade_with_negative_prices() {
+fn contract_017_trade_with_negative_prices() {
     let mut trust = create_trust();
     let account = setup_account(&mut trust, dec!(50000));
     let tv = create_trading_vehicle(&mut trust, "AAPL");
 
     let draft = create_long_draft(&account, &tv, 100);
     let result = trust.create_trade(draft, dec!(-5), dec!(-3), dec!(-1));
-    // BUG: Trade with negative prices should be rejected
-    if result.is_ok() {
-        println!("BUG: Trade with negative prices was accepted");
+    let before = trust.search_balance(account.id, &Currency::USD).unwrap();
+    if let Ok(trade) = result {
+        let before_transactions = trust.get_account_transactions(account.id).unwrap();
+        assert!(
+            trust.fund_trade(&trade).is_err(),
+            "Invalid or unaffordable draft must not commit capital"
+        );
+        assert_eq!(
+            trust.get_account_transactions(account.id).unwrap(),
+            before_transactions
+        );
+        assert_eq!(trust.read_trade(trade.id).unwrap().status, Status::New);
     }
+    assert_eq!(
+        trust.search_balance(account.id, &Currency::USD).unwrap(),
+        before
+    );
 }
 
 #[test]
-fn bug_018_short_trade_with_stop_below_entry() {
+fn contract_018_short_trade_with_stop_below_entry() {
     let mut trust = create_trust();
-    let account = setup_account_no_rules(&mut trust, dec!(50000));
+    let account = setup_account(&mut trust, dec!(50000));
     let tv = create_trading_vehicle(&mut trust, "AAPL");
 
-    // For SHORT: entry at $50, stop should be ABOVE entry (e.g., $55)
-    // Here stop=$45 is BELOW entry - this is backwards for a short
     let draft = create_short_draft(&account, &tv, 100);
     let result = trust.create_trade(draft, dec!(45), dec!(50), dec!(40));
-    // BUG: No validation that stop > entry for short trades
-    if result.is_ok() {
-        println!("BUG: Short trade created with stop($45) below entry($50)");
+    let before = trust.search_balance(account.id, &Currency::USD).unwrap();
+    if let Ok(trade) = result {
+        let before_transactions = trust.get_account_transactions(account.id).unwrap();
+        assert!(
+            trust.fund_trade(&trade).is_err(),
+            "Invalid or unaffordable draft must not commit capital"
+        );
+        assert_eq!(
+            trust.get_account_transactions(account.id).unwrap(),
+            before_transactions
+        );
+        assert_eq!(trust.read_trade(trade.id).unwrap().status, Status::New);
     }
+    assert_eq!(
+        trust.search_balance(account.id, &Currency::USD).unwrap(),
+        before
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -665,29 +753,62 @@ fn bug_020_fund_trade_one_cent_over_available() {
 }
 
 #[test]
-fn bug_022_short_trade_skips_level_adjusted_quantity_validation() {
-    let mut trust = create_trust();
-    let account = setup_account(&mut trust, dec!(50000));
-    let tv = create_trading_vehicle(&mut trust, "AAPL");
-
-    // Create a SHORT trade - level adjustment validation is skipped (funding.rs:124)
-    let draft = create_short_draft(&account, &tv, 500);
-    trust
-        .create_trade(draft, dec!(55), dec!(50), dec!(40))
-        .unwrap();
-    let trade = trust
-        .search_trades(account.id, Status::New)
-        .unwrap()
-        .first()
-        .unwrap()
-        .clone();
-
-    // This should either pass or fail consistently with long trades
-    // BUG: Short trades bypass level-adjusted quantity check
-    let result = trust.fund_trade(&trade);
-    // If this succeeds where a long trade with the same quantity would fail,
-    // that's the bug
-    println!("Short trade funding result: {:?}", result.is_ok());
+fn contract_022_level_limits_apply_to_longs_and_shorts_at_the_same_boundary() {
+    for short in [false, true] {
+        for quantity in [20, 21] {
+            let mut trust = create_trust();
+            let account = setup_account(&mut trust, dec!(50000));
+            let tv = create_trading_vehicle(&mut trust, "AAPL");
+            trust
+                .change_level(
+                    account.id,
+                    0,
+                    "restrict risk",
+                    model::LevelTrigger::ManualOverride,
+                )
+                .unwrap();
+            // 2% of 50,000 / 5 stop distance * 0.1 level multiplier = 20 units.
+            let (draft, stop, target) = if short {
+                (
+                    create_short_draft(&account, &tv, quantity),
+                    dec!(55),
+                    dec!(40),
+                )
+            } else {
+                (
+                    create_long_draft(&account, &tv, quantity),
+                    dec!(45),
+                    dec!(60),
+                )
+            };
+            let trade = trust.create_trade(draft, stop, dec!(50), target).unwrap();
+            let cash = trust.search_balance(account.id, &Currency::USD).unwrap();
+            let transactions = trust.get_account_transactions(account.id).unwrap();
+            let result = trust.fund_trade(&trade);
+            if quantity == 20 {
+                assert!(result.is_ok(), "permitted size must fund: {result:?}");
+                assert_eq!(trust.read_trade(trade.id).unwrap().status, Status::Funded);
+            } else {
+                let error = result.unwrap_err();
+                let validation = error
+                    .downcast_ref::<core::validation_errors::FundValidationError>()
+                    .expect("typed risk rejection");
+                assert_eq!(
+                    validation.code,
+                    core::validation_errors::FundValidationErrorCode::LevelAdjustedQuantityExceeded
+                );
+                assert_eq!(
+                    trust.search_balance(account.id, &Currency::USD).unwrap(),
+                    cash
+                );
+                assert_eq!(
+                    trust.get_account_transactions(account.id).unwrap(),
+                    transactions
+                );
+                assert_eq!(trust.read_trade(trade.id).unwrap().status, Status::New);
+            }
+        }
+    }
 }
 
 #[test]
@@ -814,7 +935,7 @@ fn bug_026_cancel_new_trade() {
 }
 
 #[test]
-fn bug_027_cancel_submitted_error_message_says_not_funded() {
+fn contract_027_cancel_submitted_explains_required_state() {
     let mut trust = create_trust();
     let account = setup_account_no_rules(&mut trust, dec!(50000));
     let tv = create_trading_vehicle(&mut trust, "AAPL");
@@ -834,10 +955,8 @@ fn bug_027_cancel_submitted_error_message_says_not_funded() {
     let result = trust.cancel_submitted_trade(&trade);
     assert!(result.is_err());
     let err = format!("{}", result.unwrap_err());
-    // BUG: Error message in can_cancel_submitted says "not funded" instead of "not submitted"
-    if err.to_lowercase().contains("not funded") {
-        println!("BUG: cancel_submitted error message incorrectly says 'not funded' instead of 'not submitted': {}", err);
-    }
+    assert!(err.contains("not submitted"), "{err}");
+    assert_eq!(trust.read_trade(trade.id).unwrap().status, Status::New);
 }
 
 #[test]
@@ -1002,7 +1121,7 @@ fn bug_030_sync_trade_wrong_account() {
 }
 
 #[test]
-fn bug_031_fill_trade_with_negative_fee() {
+fn contract_031_fill_trade_with_negative_fee() {
     let mut trust = create_trust_with_broker(SyncBroker {
         sync_fn: make_entry_filled_orders,
     });
@@ -1021,40 +1140,45 @@ fn bug_031_fill_trade_with_negative_fee() {
         .clone();
     let submitted = submit_and_get_trade(&mut trust, &account, &trade);
 
-    // Sync to get to filled state
-    trust.sync_trade(&submitted, &account).unwrap();
-    let filled = trust
-        .search_trades(account.id, Status::Filled)
-        .unwrap()
-        .first()
-        .unwrap()
-        .clone();
-
-    // Try to manually fill with negative fee
-    // This is through the public API fill_trade
-    let result = trust.fill_trade(&filled, dec!(-10));
-    // BUG: Negative fee should be rejected (fee handler only checks > 0 before applying)
-    if result.is_ok() {
-        println!("BUG: Negative fee was accepted in fill_trade");
-    }
+    let before = trust.get_account_transactions(account.id).unwrap();
+    let result = trust.fill_trade(&submitted, dec!(-10));
+    let error = result.unwrap_err();
+    assert!(
+        error.to_string().contains("fee"),
+        "Reject the fee itself, not an unrelated lifecycle error: {error}"
+    );
+    assert_eq!(trust.get_account_transactions(account.id).unwrap(), before);
+    assert_eq!(
+        trust.read_trade(submitted.id).unwrap().status,
+        Status::Submitted
+    );
 }
 
 #[test]
-fn bug_032_trade_with_entry_equals_target_breakeven() {
-    // BUG: The system accepts trade creation with entry == target ($40 == $40),
-    // meaning the trade has zero reward potential. This makes no trading sense
-    // and also creates problems downstream since can_transfer_close rejects total <= 0.
+fn contract_032_trade_with_entry_equals_target_breakeven() {
     let mut trust = create_trust();
-    let account = setup_account_no_rules(&mut trust, dec!(50000));
+    let account = setup_account(&mut trust, dec!(50000));
     let tv = create_trading_vehicle(&mut trust, "AAPL");
 
-    // Entry at $40, target at $40 (breakeven/zero reward)
     let draft = create_long_draft(&account, &tv, 100);
     let result = trust.create_trade(draft, dec!(38), dec!(40), dec!(40));
-    // This should fail because there's no profit potential
-    if result.is_ok() {
-        println!("BUG: Trade with entry==target (zero reward) was accepted during creation");
+    let before = trust.search_balance(account.id, &Currency::USD).unwrap();
+    if let Ok(trade) = result {
+        let before_transactions = trust.get_account_transactions(account.id).unwrap();
+        assert!(
+            trust.fund_trade(&trade).is_err(),
+            "Invalid or unaffordable draft must not commit capital"
+        );
+        assert_eq!(
+            trust.get_account_transactions(account.id).unwrap(),
+            before_transactions
+        );
+        assert_eq!(trust.read_trade(trade.id).unwrap().status, Status::New);
     }
+    assert_eq!(
+        trust.search_balance(account.id, &Currency::USD).unwrap(),
+        before
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -1284,13 +1408,11 @@ fn bug_042_deactivate_rule_then_fund_trade() {
 // ─────────────────────────────────────────────────────────────────
 
 #[test]
-fn bug_043_empty_symbol_trading_vehicle() {
+fn contract_043_empty_symbol_trading_vehicle() {
     let mut trust = create_trust();
     let result = trust.create_trading_vehicle("", None, &TradingVehicleCategory::Stock, "TEST");
-    // BUG: Empty symbol should be rejected
-    if result.is_ok() {
-        println!("BUG: Trading vehicle with empty symbol was accepted");
-    }
+    assert!(result.is_err(), "Invalid input must be rejected");
+    assert!(trust.search_trading_vehicles().unwrap().is_empty());
 }
 
 #[test]
@@ -1430,17 +1552,13 @@ fn bug_048_performance_stats_all_breakeven_trades() {
     ];
 
     let stats = PerformanceCalculator::calculate_performance_stats(&trades);
-    // BUG: Breakeven trades (performance == 0) are counted as losers
+    // Break-even trades are neither winners nor losers.
     assert_eq!(stats.total_trades, 2);
     assert_eq!(
         stats.winning_trades, 0,
         "Breakeven trades have 0 profit, so not winning"
     );
-    // losing_trades = total - winning = 2 - 0 = 2, but these aren't really losses
-    assert_eq!(
-        stats.losing_trades, 2,
-        "BUG: Breakeven trades are counted as losing trades (performance=0)"
-    );
+    assert_eq!(stats.losing_trades, 0, "Break-even trades are not losses");
 }
 
 #[test]
@@ -1624,32 +1742,32 @@ fn bug_056_level_for_new_account() {
 }
 
 #[test]
-fn bug_057_change_level_to_zero() {
+fn contract_057_change_level_to_zero_is_persisted() {
     let mut trust = create_trust();
     let account = setup_account_no_rules(&mut trust, dec!(50000));
 
-    // Level 0 might be below minimum
-    let result = trust.change_level(account.id, 0, "test", model::LevelTrigger::ManualOverride);
-    // Should either succeed or fail gracefully
-    if let Ok((level, _)) = result {
-        assert_eq!(level.current_level, 0);
-    }
+    let (level, change) = trust
+        .change_level(account.id, 0, "test", model::LevelTrigger::ManualOverride)
+        .unwrap();
+    assert_eq!(level.current_level, 0);
+    assert!(trust
+        .level_history_for_account(account.id, None)
+        .unwrap()
+        .contains(&change));
 }
 
 #[test]
-fn bug_058_change_level_above_maximum() {
+fn contract_058_change_level_above_maximum_does_not_write_history() {
     let mut trust = create_trust();
     let account = setup_account_no_rules(&mut trust, dec!(50000));
 
-    // Level 255 is way above the max (4)
+    let before = trust.level_history_for_account(account.id, None).unwrap();
     let result = trust.change_level(account.id, 255, "test", model::LevelTrigger::ManualOverride);
-    // BUG: Should reject levels above maximum (4)
-    if let Ok((level, _)) = result {
-        println!(
-            "BUG: Level set to {} which may exceed maximum (4)",
-            level.current_level
-        );
-    }
+    assert!(result.is_err());
+    assert_eq!(
+        trust.level_history_for_account(account.id, None).unwrap(),
+        before
+    );
 }
 
 #[test]
@@ -1694,17 +1812,12 @@ fn bug_061_search_nonexistent_account() {
 }
 
 #[test]
-fn bug_062_search_trades_nonexistent_account() {
+fn contract_062_search_trades_nonexistent_account_has_no_rows() {
     let mut trust = create_trust();
-    let fake_id = Uuid::new_v4();
-    let result = trust.search_trades(fake_id, Status::New);
-    // Should return empty vec or error
-    if let Ok(trades) = result {
-        assert!(
-            trades.is_empty(),
-            "Trades for non-existent account should be empty"
-        );
-    }
+    assert!(trust
+        .search_trades(Uuid::new_v4(), Status::New)
+        .unwrap()
+        .is_empty());
 }
 
 #[test]
@@ -1730,14 +1843,12 @@ fn bug_064_search_all_accounts_when_empty() {
 }
 
 #[test]
-fn bug_065_get_account_transactions_hardcoded_usd() {
+fn contract_065_account_history_contains_non_usd_cash() {
     let mut trust = create_trust();
     let account = trust
         .create_account("test", "test", Environment::Paper, dec!(20), dec!(10))
         .unwrap();
-
-    // Create EUR transaction
-    trust
+    let (deposit, _) = trust
         .create_transaction(
             &account,
             &TransactionCategory::Deposit,
@@ -1745,14 +1856,9 @@ fn bug_065_get_account_transactions_hardcoded_usd() {
             &Currency::EUR,
         )
         .unwrap();
-
-    // get_account_transactions hardcodes Currency::USD (lib.rs:760)
-    let txns = trust.get_account_transactions(account.id).unwrap();
-    // BUG: EUR transactions might not be returned because it uses Currency::USD
-    // This depends on whether the DB query filters by currency
-    println!(
-        "Transactions returned: {}, expected at least EUR deposit",
-        txns.len()
+    assert_eq!(
+        trust.get_account_transactions(account.id).unwrap(),
+        vec![deposit]
     );
 }
 
@@ -1798,7 +1904,6 @@ fn bug_067_advisory_zero_quantity_proposal() {
     };
 
     let result = trust.advisory_check_trade(proposal);
-    // BUG: Zero quantity should be flagged or rejected
     assert!(
         result.is_ok(),
         "Zero quantity proposal should at least not crash"
@@ -1820,7 +1925,6 @@ fn bug_068_advisory_zero_entry_price_proposal() {
     };
 
     let result = trust.advisory_check_trade(proposal);
-    // BUG: Zero notional should be handled gracefully
     assert!(
         result.is_ok(),
         "Zero price proposal should at least not crash"
@@ -2083,7 +2187,7 @@ fn bug_078_trading_summary_with_trades() {
 // ─────────────────────────────────────────────────────────────────
 
 #[test]
-fn bug_079_create_child_of_nonexistent_parent() {
+fn contract_079_create_child_of_nonexistent_parent() {
     let mut trust = create_trust();
     let fake_parent = Uuid::new_v4();
 
@@ -2096,14 +2200,11 @@ fn bug_079_create_child_of_nonexistent_parent() {
         AccountType::Earnings,
         Some(fake_parent),
     );
-    // BUG: Should fail if parent doesn't exist
-    if result.is_ok() {
-        println!("BUG: Child account created with non-existent parent");
-    }
+    assert!(result.is_err(), "Invalid input must be rejected");
 }
 
 #[test]
-fn bug_080_non_primary_account_has_no_level() {
+fn contract_080_non_primary_account_has_no_level() {
     let mut trust = create_trust();
     let parent = trust
         .create_account("parent", "parent", Environment::Paper, dec!(20), dec!(10))
@@ -2121,12 +2222,8 @@ fn bug_080_non_primary_account_has_no_level() {
         )
         .unwrap();
 
-    // Non-primary accounts should not have levels
-    let result = trust.level_for_account(child.id);
-    // Could be error or default level
-    if let Ok(level) = result {
-        println!("Non-primary account has level: {}", level.current_level);
-    }
+    assert!(trust.level_for_account(child.id).is_err());
+    assert!(trust.level_for_account(parent.id).is_ok());
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -2560,7 +2657,7 @@ fn fill_and_get_trade(trust: &mut TrustFacade, account: &Account) -> Trade {
 }
 
 #[test]
-fn bug_101_modify_target_to_zero_price() {
+fn contract_101_modify_target_to_zero_price() {
     let mut trust = create_trust_with_broker(SyncBroker {
         sync_fn: make_entry_filled_orders,
     });
@@ -2573,15 +2670,12 @@ fn bug_101_modify_target_to_zero_price() {
         .unwrap();
     let filled = fill_and_get_trade(&mut trust, &account);
 
-    // Modify target to $0
     let result = trust.modify_target(&filled, &account, dec!(0));
-    if result.is_ok() {
-        println!("BUG: Target price of $0 accepted for modify_target");
-    }
+    assert!(result.is_err(), "Invalid input must be rejected");
 }
 
 #[test]
-fn bug_102_modify_target_to_negative_price() {
+fn contract_102_modify_target_to_negative_price() {
     let mut trust = create_trust_with_broker(SyncBroker {
         sync_fn: make_entry_filled_orders,
     });
@@ -2594,15 +2688,12 @@ fn bug_102_modify_target_to_negative_price() {
         .unwrap();
     let filled = fill_and_get_trade(&mut trust, &account);
 
-    // Modify target to negative price
     let result = trust.modify_target(&filled, &account, dec!(-10));
-    if result.is_ok() {
-        println!("BUG: Negative target price accepted for modify_target");
-    }
+    assert!(result.is_err(), "Invalid input must be rejected");
 }
 
 #[test]
-fn bug_103_modify_target_below_entry_for_long() {
+fn contract_103_modify_target_below_entry_for_long() {
     let mut trust = create_trust_with_broker(SyncBroker {
         sync_fn: make_entry_filled_orders,
     });
@@ -2615,15 +2706,16 @@ fn bug_103_modify_target_below_entry_for_long() {
         .unwrap();
     let filled = fill_and_get_trade(&mut trust, &account);
 
-    // Modify target below entry for LONG trade (makes no trading sense)
     let result = trust.modify_target(&filled, &account, dec!(35));
-    if result.is_ok() {
-        println!("BUG: Long trade target set below entry price ($35 < $40) accepted");
-    }
+    let updated = result.expect("Positive exit changes and tighter stops are permitted");
+    let persisted = trust.read_trade(updated.id).unwrap();
+    assert_eq!(persisted.target.unit_price, dec!(35));
+    assert_eq!(persisted.status, Status::Filled);
+    assert!(persisted.safety_stop.unit_price >= filled.safety_stop.unit_price);
 }
 
 #[test]
-fn bug_104_modify_target_equal_to_entry_for_long() {
+fn contract_104_modify_target_equal_to_entry_for_long() {
     let mut trust = create_trust_with_broker(SyncBroker {
         sync_fn: make_entry_filled_orders,
     });
@@ -2636,15 +2728,16 @@ fn bug_104_modify_target_equal_to_entry_for_long() {
         .unwrap();
     let filled = fill_and_get_trade(&mut trust, &account);
 
-    // Target = Entry for LONG (zero reward)
     let result = trust.modify_target(&filled, &account, dec!(40));
-    if result.is_ok() {
-        println!("BUG: Long trade target set equal to entry ($40 == $40) accepted");
-    }
+    let updated = result.expect("Positive exit changes and tighter stops are permitted");
+    let persisted = trust.read_trade(updated.id).unwrap();
+    assert_eq!(persisted.target.unit_price, dec!(40));
+    assert_eq!(persisted.status, Status::Filled);
+    assert!(persisted.safety_stop.unit_price >= filled.safety_stop.unit_price);
 }
 
 #[test]
-fn bug_105_modify_target_below_stop_for_long() {
+fn contract_105_modify_target_below_stop_for_long() {
     let mut trust = create_trust_with_broker(SyncBroker {
         sync_fn: make_entry_filled_orders,
     });
@@ -2657,11 +2750,12 @@ fn bug_105_modify_target_below_stop_for_long() {
         .unwrap();
     let filled = fill_and_get_trade(&mut trust, &account);
 
-    // Target below stop for LONG (completely backwards)
     let result = trust.modify_target(&filled, &account, dec!(37));
-    if result.is_ok() {
-        println!("BUG: Long trade target set below stop ($37 < $38) accepted");
-    }
+    let updated = result.expect("Positive exit changes and tighter stops are permitted");
+    let persisted = trust.read_trade(updated.id).unwrap();
+    assert_eq!(persisted.target.unit_price, dec!(37));
+    assert_eq!(persisted.status, Status::Filled);
+    assert!(persisted.safety_stop.unit_price >= filled.safety_stop.unit_price);
 }
 
 #[test]
@@ -2710,7 +2804,7 @@ fn bug_107_modify_stop_to_negative_for_long() {
 }
 
 #[test]
-fn bug_108_modify_stop_equal_to_entry_for_long() {
+fn contract_108_modify_stop_equal_to_entry_for_long() {
     let mut trust = create_trust_with_broker(SyncBroker {
         sync_fn: make_entry_filled_orders,
     });
@@ -2724,15 +2818,20 @@ fn bug_108_modify_stop_equal_to_entry_for_long() {
     let filled = fill_and_get_trade(&mut trust, &account);
 
     // Stop = Entry for LONG (zero risk but also locks in zero P&L)
-    let result = trust.modify_stop(&filled, &account, dec!(40));
-    // Should succeed since $40 > $38 (tightening stop)
-    if result.is_ok() {
-        println!("Note: Stop raised to entry price ($40) accepted (breakeven stop)");
-    }
+    trust.modify_stop(&filled, &account, dec!(40)).unwrap();
+    assert_eq!(
+        trust.read_trade(filled.id).unwrap().safety_stop.unit_price,
+        dec!(40)
+    );
+    assert!(trust.modify_stop(&filled, &account, dec!(39)).is_err());
+    assert_eq!(
+        trust.read_trade(filled.id).unwrap().safety_stop.unit_price,
+        dec!(40)
+    );
 }
 
 #[test]
-fn bug_109_modify_stop_above_target_for_long() {
+fn contract_109_modify_stop_above_target_for_long() {
     let mut trust = create_trust_with_broker(SyncBroker {
         sync_fn: make_entry_filled_orders,
     });
@@ -2745,13 +2844,12 @@ fn bug_109_modify_stop_above_target_for_long() {
         .unwrap();
     let filled = fill_and_get_trade(&mut trust, &account);
 
-    // Stop above target for LONG - stop at $55 when target is $50
     let result = trust.modify_stop(&filled, &account, dec!(55));
-    // This tightens the stop (good from risk perspective) but makes no sense
-    // because the trade would be stopped out before hitting target
-    if result.is_ok() {
-        println!("BUG: Long trade stop raised above target ($55 > $50) accepted");
-    }
+    let updated = result.expect("Positive exit changes and tighter stops are permitted");
+    let persisted = trust.read_trade(updated.id).unwrap();
+    assert_eq!(persisted.safety_stop.unit_price, dec!(55));
+    assert_eq!(persisted.status, Status::Filled);
+    assert!(persisted.safety_stop.unit_price >= filled.safety_stop.unit_price);
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -2759,10 +2857,7 @@ fn bug_109_modify_stop_above_target_for_long() {
 // ─────────────────────────────────────────────────────────────────
 
 #[test]
-fn bug_110_close_trade_sets_status_to_canceled_not_closed() {
-    // The close() function in commands/trade.rs:1171 sets status to Status::Canceled
-    // instead of a proper closed status. This is semantically wrong -
-    // a manually closed trade at market is not the same as a canceled trade.
+fn contract_110_close_trade_sets_status_to_canceled_not_closed() {
     let mut trust = create_trust_with_broker(SyncBroker {
         sync_fn: make_entry_filled_orders,
     });
@@ -2775,15 +2870,23 @@ fn bug_110_close_trade_sets_status_to_canceled_not_closed() {
         .unwrap();
     let filled = fill_and_get_trade(&mut trust, &account);
 
-    // Close the trade at market
-    let result = trust.close_trade(&filled);
-    if let Ok((_trade_bal, _log)) = result {
-        // After closing, the trade should NOT be in Canceled status
-        let canceled = trust.search_trades(account.id, Status::Canceled).unwrap();
-        if !canceled.is_empty() {
-            println!("BUG: close_trade sets status to Canceled instead of a proper close status");
-        }
-    }
+    let before = trust.search_balance(account.id, &Currency::USD).unwrap();
+    trust.close_trade(&filled).unwrap();
+    let persisted = trust.read_trade(filled.id).unwrap();
+    assert_eq!(
+        persisted.status,
+        Status::Filled,
+        "Broker acknowledgement is not an exit fill"
+    );
+    assert_eq!(persisted.target.category, model::OrderCategory::Market);
+    assert_eq!(
+        trust.search_balance(account.id, &Currency::USD).unwrap(),
+        before
+    );
+    assert!(
+        trust.close_trade(&filled).is_err(),
+        "Do not send another market exit while the first is pending"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -2791,9 +2894,7 @@ fn bug_110_close_trade_sets_status_to_canceled_not_closed() {
 // ─────────────────────────────────────────────────────────────────
 
 #[test]
-fn bug_111_cancel_submitted_error_code_says_not_funded() {
-    // The can_cancel_submitted function (trade.rs:47) returns
-    // TradeValidationErrorCode::TradeNotFunded instead of a "TradeNotSubmitted" code
+fn contract_111_cancel_submitted_returns_typed_state_error() {
     let mut trust = create_trust();
     let account = setup_account_no_rules(&mut trust, dec!(50000));
     let tv = create_trading_vehicle(&mut trust, "AAPL");
@@ -2809,13 +2910,19 @@ fn bug_111_cancel_submitted_error_code_says_not_funded() {
         .unwrap()
         .clone();
 
-    let result = trust.cancel_submitted_trade(&trade);
-    assert!(result.is_err());
-    let err = format!("{}", result.unwrap_err());
-    // The error message and code are wrong - it says "not funded" when it should say "not submitted"
-    if err.contains("not funded") {
-        println!("BUG: cancel_submitted error code/message incorrectly references 'funded' instead of 'submitted'");
-    }
+    let error = trust.cancel_submitted_trade(&trade).unwrap_err();
+    let validation = error
+        .downcast_ref::<core::validation_errors::TradeValidationError>()
+        .or_else(|| {
+            error
+                .downcast_ref::<Box<core::validation_errors::TradeValidationError>>()
+                .map(AsRef::as_ref)
+        })
+        .expect("typed lifecycle error");
+    assert_eq!(
+        validation.code,
+        core::validation_errors::TradeValidationErrorCode::TradeNotSubmitted
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -2823,59 +2930,68 @@ fn bug_111_cancel_submitted_error_code_says_not_funded() {
 // ─────────────────────────────────────────────────────────────────
 
 #[test]
-fn bug_112_create_account_with_negative_taxes() {
+fn contract_112_create_account_with_negative_taxes() {
     let mut trust = create_trust();
     let result = trust.create_account("test", "test", Environment::Paper, dec!(-10), dec!(10));
-    if result.is_ok() {
-        println!("BUG: Account created with negative taxes percentage (-10%)");
-    }
+    assert!(result.is_err(), "Invalid input must be rejected");
+    assert!(
+        trust.search_all_accounts().unwrap().is_empty(),
+        "Rejected creation must leave no account"
+    );
 }
 
 #[test]
-fn bug_113_create_account_with_over_100_taxes() {
+fn contract_113_create_account_with_over_100_taxes() {
     let mut trust = create_trust();
     let result = trust.create_account("test", "test", Environment::Paper, dec!(150), dec!(10));
-    if result.is_ok() {
-        println!("BUG: Account created with taxes > 100% (150%)");
-    }
+    assert!(result.is_err(), "Invalid input must be rejected");
+    assert!(
+        trust.search_all_accounts().unwrap().is_empty(),
+        "Rejected creation must leave no account"
+    );
 }
 
 #[test]
-fn bug_114_create_account_with_taxes_plus_earnings_over_100() {
+fn contract_114_create_account_with_taxes_plus_earnings_over_100() {
     let mut trust = create_trust();
-    // Taxes 60% + Earnings 60% = 120% — impossible
     let result = trust.create_account("test", "test", Environment::Paper, dec!(60), dec!(60));
-    if result.is_ok() {
-        println!("BUG: Account created where taxes (60%) + earnings (60%) > 100%");
-    }
+    assert!(result.is_err(), "Invalid input must be rejected");
+    assert!(
+        trust.search_all_accounts().unwrap().is_empty(),
+        "Rejected creation must leave no account"
+    );
 }
 
 #[test]
-fn bug_115_create_account_with_empty_name() {
+fn contract_115_create_account_with_empty_name() {
     let mut trust = create_trust();
     let result = trust.create_account("", "desc", Environment::Paper, dec!(20), dec!(10));
-    if result.is_ok() {
-        println!("BUG: Account created with empty name");
-    }
+    assert!(result.is_err(), "Invalid input must be rejected");
+    assert!(
+        trust.search_all_accounts().unwrap().is_empty(),
+        "Rejected creation must leave no account"
+    );
 }
 
 #[test]
-fn bug_116_create_account_with_whitespace_name() {
+fn contract_116_create_account_with_whitespace_name() {
     let mut trust = create_trust();
     let result = trust.create_account("   ", "desc", Environment::Paper, dec!(20), dec!(10));
-    if result.is_ok() {
-        println!("BUG: Account created with whitespace-only name");
-    }
+    assert!(result.is_err(), "Invalid input must be rejected");
+    assert!(
+        trust.search_all_accounts().unwrap().is_empty(),
+        "Rejected creation must leave no account"
+    );
 }
 
 #[test]
-fn bug_117_create_account_with_empty_description() {
+fn contract_117_empty_description_remains_valid() {
     let mut trust = create_trust();
-    let result = trust.create_account("test", "", Environment::Paper, dec!(20), dec!(10));
-    if result.is_ok() {
-        // Empty description might be acceptable, but should be consistent
-        println!("Note: Account created with empty description (may be intentional)");
-    }
+    let account = trust
+        .create_account("test", "", Environment::Paper, dec!(20), dec!(10))
+        .unwrap();
+    assert_eq!(trust.search_account("test").unwrap(), account);
+    assert!(account.description.is_empty());
 }
 
 #[test]
@@ -2978,7 +3094,7 @@ fn bug_123_rule_with_nan_risk() {
 // ─────────────────────────────────────────────────────────────────
 
 #[test]
-fn bug_124_trading_vehicle_with_whitespace_only_symbol() {
+fn contract_124_trading_vehicle_with_whitespace_only_symbol() {
     let mut trust = create_trust();
     let result = trust.create_trading_vehicle(
         "   ",
@@ -2986,13 +3102,12 @@ fn bug_124_trading_vehicle_with_whitespace_only_symbol() {
         &TradingVehicleCategory::Stock,
         "TEST",
     );
-    if result.is_ok() {
-        println!("BUG: Trading vehicle with whitespace-only symbol accepted");
-    }
+    assert!(result.is_err(), "Invalid input must be rejected");
+    assert!(trust.search_trading_vehicles().unwrap().is_empty());
 }
 
 #[test]
-fn bug_125_trading_vehicle_with_very_long_symbol() {
+fn contract_125_trading_vehicle_with_very_long_symbol() {
     let mut trust = create_trust();
     let long_symbol = "A".repeat(1000);
     let result = trust.create_trading_vehicle(
@@ -3001,13 +3116,12 @@ fn bug_125_trading_vehicle_with_very_long_symbol() {
         &TradingVehicleCategory::Stock,
         "TEST",
     );
-    if result.is_ok() {
-        println!("BUG: Trading vehicle with 1000-char symbol accepted");
-    }
+    assert!(result.is_err(), "Invalid input must be rejected");
+    assert!(trust.search_trading_vehicles().unwrap().is_empty());
 }
 
 #[test]
-fn bug_126_trading_vehicle_with_special_chars_symbol() {
+fn contract_126_trading_vehicle_with_special_chars_symbol() {
     let mut trust = create_trust();
     let result = trust.create_trading_vehicle(
         "A@#$%!",
@@ -3015,13 +3129,13 @@ fn bug_126_trading_vehicle_with_special_chars_symbol() {
         &TradingVehicleCategory::Stock,
         "TEST",
     );
-    if result.is_ok() {
-        println!("BUG: Trading vehicle with special chars in symbol accepted");
-    }
+    let vehicle = result.unwrap();
+    assert_eq!(vehicle.symbol, "A@#$%!");
+    assert_eq!(trust.search_trading_vehicles().unwrap(), vec![vehicle]);
 }
 
 #[test]
-fn bug_127_trading_vehicle_with_empty_exchange() {
+fn contract_127_trading_vehicle_with_empty_exchange() {
     let mut trust = create_trust();
     let result = trust.create_trading_vehicle(
         "AAPL",
@@ -3029,9 +3143,8 @@ fn bug_127_trading_vehicle_with_empty_exchange() {
         &TradingVehicleCategory::Stock,
         "",
     );
-    if result.is_ok() {
-        println!("BUG: Trading vehicle with empty exchange accepted");
-    }
+    assert!(result.is_err(), "Invalid input must be rejected");
+    assert!(trust.search_trading_vehicles().unwrap().is_empty());
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -3039,44 +3152,84 @@ fn bug_127_trading_vehicle_with_empty_exchange() {
 // ─────────────────────────────────────────────────────────────────
 
 #[test]
-fn bug_128_trade_with_negative_quantity() {
+fn contract_128_trade_with_negative_quantity() {
     let mut trust = create_trust();
-    let account = setup_account_no_rules(&mut trust, dec!(50000));
+    let account = setup_account(&mut trust, dec!(50000));
     let tv = create_trading_vehicle(&mut trust, "AAPL");
 
-    // DraftTrade.quantity is i64, so negative values are possible
     let draft = create_long_draft(&account, &tv, -100);
     let result = trust.create_trade(draft, dec!(38), dec!(40), dec!(50));
-    if result.is_ok() {
-        println!("BUG: Trade with negative quantity (-100) was accepted");
+    let before = trust.search_balance(account.id, &Currency::USD).unwrap();
+    if let Ok(trade) = result {
+        let before_transactions = trust.get_account_transactions(account.id).unwrap();
+        assert!(
+            trust.fund_trade(&trade).is_err(),
+            "Invalid or unaffordable draft must not commit capital"
+        );
+        assert_eq!(
+            trust.get_account_transactions(account.id).unwrap(),
+            before_transactions
+        );
+        assert_eq!(trust.read_trade(trade.id).unwrap().status, Status::New);
     }
+    assert_eq!(
+        trust.search_balance(account.id, &Currency::USD).unwrap(),
+        before
+    );
 }
 
 #[test]
-fn bug_129_trade_with_max_i64_quantity() {
+fn contract_129_trade_with_max_i64_quantity() {
     let mut trust = create_trust();
-    let account = setup_account_no_rules(&mut trust, dec!(50000));
+    let account = setup_account(&mut trust, dec!(50000));
     let tv = create_trading_vehicle(&mut trust, "AAPL");
 
     let draft = create_long_draft(&account, &tv, i64::MAX);
     let result = trust.create_trade(draft, dec!(38), dec!(40), dec!(50));
-    // Should fail: i64::MAX * $40 overflows Decimal
-    if result.is_ok() {
-        println!("BUG: Trade with i64::MAX quantity accepted (potential overflow)");
+    let before = trust.search_balance(account.id, &Currency::USD).unwrap();
+    if let Ok(trade) = result {
+        let before_transactions = trust.get_account_transactions(account.id).unwrap();
+        assert!(
+            trust.fund_trade(&trade).is_err(),
+            "Invalid or unaffordable draft must not commit capital"
+        );
+        assert_eq!(
+            trust.get_account_transactions(account.id).unwrap(),
+            before_transactions
+        );
+        assert_eq!(trust.read_trade(trade.id).unwrap().status, Status::New);
     }
+    assert_eq!(
+        trust.search_balance(account.id, &Currency::USD).unwrap(),
+        before
+    );
 }
 
 #[test]
-fn bug_130_trade_with_i64_min_quantity() {
+fn contract_130_trade_with_i64_min_quantity() {
     let mut trust = create_trust();
-    let account = setup_account_no_rules(&mut trust, dec!(50000));
+    let account = setup_account(&mut trust, dec!(50000));
     let tv = create_trading_vehicle(&mut trust, "AAPL");
 
     let draft = create_long_draft(&account, &tv, i64::MIN);
     let result = trust.create_trade(draft, dec!(38), dec!(40), dec!(50));
-    if result.is_ok() {
-        println!("BUG: Trade with i64::MIN quantity accepted");
+    let before = trust.search_balance(account.id, &Currency::USD).unwrap();
+    if let Ok(trade) = result {
+        let before_transactions = trust.get_account_transactions(account.id).unwrap();
+        assert!(
+            trust.fund_trade(&trade).is_err(),
+            "Invalid or unaffordable draft must not commit capital"
+        );
+        assert_eq!(
+            trust.get_account_transactions(account.id).unwrap(),
+            before_transactions
+        );
+        assert_eq!(trust.read_trade(trade.id).unwrap().status, Status::New);
     }
+    assert_eq!(
+        trust.search_balance(account.id, &Currency::USD).unwrap(),
+        before
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -3084,48 +3237,84 @@ fn bug_130_trade_with_i64_min_quantity() {
 // ─────────────────────────────────────────────────────────────────
 
 #[test]
-fn bug_131_long_trade_stop_equals_target() {
+fn contract_131_long_trade_stop_equals_target() {
     let mut trust = create_trust();
-    let account = setup_account_no_rules(&mut trust, dec!(50000));
+    let account = setup_account(&mut trust, dec!(50000));
     let tv = create_trading_vehicle(&mut trust, "AAPL");
 
-    // Stop == Target for long: $40 stop, $40 entry, $40 target
     let draft = create_long_draft(&account, &tv, 100);
     let result = trust.create_trade(draft, dec!(40), dec!(40), dec!(40));
-    if result.is_ok() {
-        println!("BUG: Trade where stop == entry == target was accepted");
+    let before = trust.search_balance(account.id, &Currency::USD).unwrap();
+    if let Ok(trade) = result {
+        let before_transactions = trust.get_account_transactions(account.id).unwrap();
+        assert!(
+            trust.fund_trade(&trade).is_err(),
+            "Invalid or unaffordable draft must not commit capital"
+        );
+        assert_eq!(
+            trust.get_account_transactions(account.id).unwrap(),
+            before_transactions
+        );
+        assert_eq!(trust.read_trade(trade.id).unwrap().status, Status::New);
     }
+    assert_eq!(
+        trust.search_balance(account.id, &Currency::USD).unwrap(),
+        before
+    );
 }
 
 #[test]
-fn bug_132_short_trade_stop_above_entry() {
-    // For SHORT trades: stop should be ABOVE entry (buy back higher = loss)
-    // but the test inverts the typical relationship
+fn contract_132_short_trade_stop_above_entry() {
     let mut trust = create_trust();
-    let account = setup_account_no_rules(&mut trust, dec!(50000));
+    let account = setup_account(&mut trust, dec!(50000));
     let tv = create_trading_vehicle(&mut trust, "AAPL");
 
-    // Short trade: entry $50, target $40, but stop at $45 (below entry!)
-    // For a short, stop should be above entry
     let draft = create_short_draft(&account, &tv, 100);
     let result = trust.create_trade(draft, dec!(45), dec!(50), dec!(40));
-    if result.is_ok() {
-        // For short trades, stop price below entry price means no protection
-        println!("BUG: Short trade with stop ($45) below entry ($50) accepted");
+    let before = trust.search_balance(account.id, &Currency::USD).unwrap();
+    if let Ok(trade) = result {
+        let before_transactions = trust.get_account_transactions(account.id).unwrap();
+        assert!(
+            trust.fund_trade(&trade).is_err(),
+            "Invalid or unaffordable draft must not commit capital"
+        );
+        assert_eq!(
+            trust.get_account_transactions(account.id).unwrap(),
+            before_transactions
+        );
+        assert_eq!(trust.read_trade(trade.id).unwrap().status, Status::New);
     }
+    assert_eq!(
+        trust.search_balance(account.id, &Currency::USD).unwrap(),
+        before
+    );
 }
 
 #[test]
-fn bug_133_long_trade_all_prices_identical() {
+fn contract_133_long_trade_all_prices_identical() {
     let mut trust = create_trust();
-    let account = setup_account_no_rules(&mut trust, dec!(50000));
+    let account = setup_account(&mut trust, dec!(50000));
     let tv = create_trading_vehicle(&mut trust, "AAPL");
 
     let draft = create_long_draft(&account, &tv, 100);
     let result = trust.create_trade(draft, dec!(100), dec!(100), dec!(100));
-    if result.is_ok() {
-        println!("BUG: Trade with all three prices identical ($100) was accepted");
+    let before = trust.search_balance(account.id, &Currency::USD).unwrap();
+    if let Ok(trade) = result {
+        let before_transactions = trust.get_account_transactions(account.id).unwrap();
+        assert!(
+            trust.fund_trade(&trade).is_err(),
+            "Invalid or unaffordable draft must not commit capital"
+        );
+        assert_eq!(
+            trust.get_account_transactions(account.id).unwrap(),
+            before_transactions
+        );
+        assert_eq!(trust.read_trade(trade.id).unwrap().status, Status::New);
     }
+    assert_eq!(
+        trust.search_balance(account.id, &Currency::USD).unwrap(),
+        before
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -3199,7 +3388,6 @@ fn bug_137_grading_weights_u16_max_overflow() {
         documentation: u16::MAX,
     };
     let result = weights.validate();
-    // BUG: saturating_add means sum = 65535 (capped), not 262140
     // 65535 != 1000, so should fail
     assert!(result.is_err(), "u16::MAX weights should fail validation");
 }
@@ -3342,17 +3530,21 @@ fn bug_145_trade_with_very_small_price_diff() {
 }
 
 #[test]
-fn bug_146_trade_with_extreme_price_ratios() {
+fn contract_146_trade_with_extreme_price_ratios() {
     let mut trust = create_trust();
     let account = setup_account_no_rules(&mut trust, dec!(50000));
     let tv = create_trading_vehicle(&mut trust, "AAPL");
 
     // Entry $0.01, Target $999999 (insane reward-to-risk)
     let draft = create_long_draft(&account, &tv, 1);
-    let result = trust.create_trade(draft, dec!(0.001), dec!(0.01), dec!(999999));
-    if result.is_ok() {
-        println!("Note: Trade with extreme price ratio accepted");
-    }
+    let trade = trust
+        .create_trade(draft, dec!(0.001), dec!(0.01), dec!(999999))
+        .unwrap();
+    let persisted = trust.read_trade(trade.id).unwrap();
+    assert_eq!(persisted.entry.unit_price, dec!(0.01));
+    assert_eq!(persisted.safety_stop.unit_price, dec!(0.001));
+    assert_eq!(persisted.target.unit_price, dec!(999999));
+    assert_eq!(persisted.status, Status::New);
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -3502,18 +3694,16 @@ fn bug_150_change_level_with_empty_reason() {
 }
 
 #[test]
-fn bug_151_change_level_with_whitespace_reason() {
+fn contract_151_change_level_with_whitespace_reason() {
     let mut trust = create_trust();
     let account = setup_account_no_rules(&mut trust, dec!(50000));
 
     let result = trust.change_level(account.id, 4, "   ", model::LevelTrigger::ManualOverride);
-    if result.is_ok() {
-        println!("BUG: Level change with whitespace-only reason was accepted");
-    }
+    assert!(result.is_err(), "Invalid input must be rejected");
 }
 
 #[test]
-fn bug_152_change_level_with_custom_empty_trigger() {
+fn contract_152_change_level_with_custom_empty_trigger() {
     let mut trust = create_trust();
     let account = setup_account_no_rules(&mut trust, dec!(50000));
 
@@ -3523,9 +3713,7 @@ fn bug_152_change_level_with_custom_empty_trigger() {
         "test reason",
         model::LevelTrigger::Custom("".to_string()),
     );
-    if result.is_ok() {
-        println!("BUG: Level change with empty custom trigger was accepted");
-    }
+    assert!(result.is_err(), "Invalid input must be rejected");
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -3566,18 +3754,22 @@ fn bug_155_search_balance_nonexistent_account() {
 }
 
 #[test]
-fn bug_156_search_balance_wrong_currency() {
+fn contract_156_search_balance_wrong_currency() {
     let mut trust = create_trust();
     let account = setup_account_no_rules(&mut trust, dec!(50000));
 
-    // We deposited USD, search for EUR
     let result = trust.search_balance(account.id, &Currency::EUR);
-    // Should either fail or return zero balance
-    if let Ok(balance) = &result {
-        if balance.total_available > dec!(0) {
-            println!("BUG: Non-zero balance found for currency that was never deposited");
-        }
-    }
+    assert!(
+        result.is_err(),
+        "An absent currency must not inherit USD capital"
+    );
+    assert_eq!(
+        trust
+            .search_balance(account.id, &Currency::USD)
+            .unwrap()
+            .total_available,
+        dec!(50000)
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -3654,31 +3846,36 @@ fn bug_158_cancel_funded_on_submitted_trade() {
 // ─────────────────────────────────────────────────────────────────
 
 #[test]
-fn bug_160_distribution_negative_earnings_percentage() {
+fn contract_160_distribution_negative_earnings_percentage() {
     let mut trust = create_trust();
     let result = trust.create_account("test", "test", Environment::Paper, dec!(20), dec!(-10));
-    if result.is_ok() {
-        println!("BUG: Account with negative earnings percentage (-10%) was created");
-    }
+    assert!(result.is_err(), "Invalid input must be rejected");
+    assert!(
+        trust.search_all_accounts().unwrap().is_empty(),
+        "Rejected creation must leave no account"
+    );
 }
 
 #[test]
-fn bug_161_distribution_100_percent_taxes() {
+fn contract_161_one_hundred_percent_tax_reserve_roundtrips() {
     let mut trust = create_trust();
-    // 100% taxes, 0% earnings = all profit goes to taxes
-    let result = trust.create_account("test", "test", Environment::Paper, dec!(100), dec!(0));
-    if result.is_ok() {
-        println!("Note: Account with 100% taxes, 0% earnings was created (edge case)");
-    }
+    trust
+        .create_account("test", "test", Environment::Paper, dec!(100), dec!(0))
+        .unwrap();
+    let account = trust.search_account("test").unwrap();
+    assert_eq!(account.taxes_percentage, dec!(100));
+    assert_eq!(account.earnings_percentage, dec!(0));
 }
 
 #[test]
-fn bug_162_distribution_100_percent_earnings() {
+fn contract_162_one_hundred_percent_earnings_reserve_roundtrips() {
     let mut trust = create_trust();
-    let result = trust.create_account("test", "test", Environment::Paper, dec!(0), dec!(100));
-    if result.is_ok() {
-        println!("Note: Account with 0% taxes, 100% earnings was created (edge case)");
-    }
+    trust
+        .create_account("test", "test", Environment::Paper, dec!(0), dec!(100))
+        .unwrap();
+    let account = trust.search_account("test").unwrap();
+    assert_eq!(account.taxes_percentage, dec!(0));
+    assert_eq!(account.earnings_percentage, dec!(100));
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -3756,31 +3953,57 @@ fn bug_164_short_trade_capital_calculation() {
 }
 
 #[test]
-fn bug_165_short_trade_with_stop_equal_entry() {
+fn contract_165_short_trade_with_stop_equal_entry() {
     let mut trust = create_trust();
-    let account = setup_account_no_rules(&mut trust, dec!(50000));
+    let account = setup_account(&mut trust, dec!(50000));
     let tv = create_trading_vehicle(&mut trust, "AAPL");
 
-    // Short: stop == entry (zero risk)
     let draft = create_short_draft(&account, &tv, 100);
     let result = trust.create_trade(draft, dec!(50), dec!(50), dec!(40));
-    if result.is_ok() {
-        println!("BUG: Short trade with stop == entry (zero risk) accepted");
+    let before = trust.search_balance(account.id, &Currency::USD).unwrap();
+    if let Ok(trade) = result {
+        let before_transactions = trust.get_account_transactions(account.id).unwrap();
+        assert!(
+            trust.fund_trade(&trade).is_err(),
+            "Invalid or unaffordable draft must not commit capital"
+        );
+        assert_eq!(
+            trust.get_account_transactions(account.id).unwrap(),
+            before_transactions
+        );
+        assert_eq!(trust.read_trade(trade.id).unwrap().status, Status::New);
     }
+    assert_eq!(
+        trust.search_balance(account.id, &Currency::USD).unwrap(),
+        before
+    );
 }
 
 #[test]
-fn bug_166_short_trade_with_target_above_entry() {
+fn contract_166_short_trade_with_target_above_entry() {
     let mut trust = create_trust();
-    let account = setup_account_no_rules(&mut trust, dec!(50000));
+    let account = setup_account(&mut trust, dec!(50000));
     let tv = create_trading_vehicle(&mut trust, "AAPL");
 
-    // Short: target above entry (guaranteed loss)
     let draft = create_short_draft(&account, &tv, 100);
     let result = trust.create_trade(draft, dec!(60), dec!(50), dec!(55));
-    if result.is_ok() {
-        println!("BUG: Short trade with target ($55) above entry ($50) accepted (guaranteed loss)");
+    let before = trust.search_balance(account.id, &Currency::USD).unwrap();
+    if let Ok(trade) = result {
+        let before_transactions = trust.get_account_transactions(account.id).unwrap();
+        assert!(
+            trust.fund_trade(&trade).is_err(),
+            "Invalid or unaffordable draft must not commit capital"
+        );
+        assert_eq!(
+            trust.get_account_transactions(account.id).unwrap(),
+            before_transactions
+        );
+        assert_eq!(trust.read_trade(trade.id).unwrap().status, Status::New);
     }
+    assert_eq!(
+        trust.search_balance(account.id, &Currency::USD).unwrap(),
+        before
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -3788,7 +4011,7 @@ fn bug_166_short_trade_with_target_above_entry() {
 // ─────────────────────────────────────────────────────────────────
 
 #[test]
-fn bug_167_trade_thesis_over_200_chars() {
+fn contract_167_trade_thesis_over_200_chars() {
     let mut trust = create_trust();
     let account = setup_account_no_rules(&mut trust, dec!(50000));
     let tv = create_trading_vehicle(&mut trust, "AAPL");
@@ -3807,13 +4030,11 @@ fn bug_167_trade_thesis_over_200_chars() {
     };
 
     let result = trust.create_trade(draft, dec!(38), dec!(40), dec!(50));
-    if result.is_ok() {
-        println!("BUG: Trade thesis over 200 chars accepted (doc says max 200)");
-    }
+    assert!(result.is_err(), "Invalid input must be rejected");
 }
 
 #[test]
-fn bug_168_trade_sector_very_long() {
+fn contract_168_trade_sector_very_long() {
     let mut trust = create_trust();
     let account = setup_account_no_rules(&mut trust, dec!(50000));
     let tv = create_trading_vehicle(&mut trust, "AAPL");
@@ -3831,9 +4052,7 @@ fn bug_168_trade_sector_very_long() {
     };
 
     let result = trust.create_trade(draft, dec!(38), dec!(40), dec!(50));
-    if result.is_ok() {
-        println!("BUG: Trade with 10000-char sector accepted");
-    }
+    assert!(result.is_err(), "Invalid input must be rejected");
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -3841,47 +4060,48 @@ fn bug_168_trade_sector_very_long() {
 // ─────────────────────────────────────────────────────────────────
 
 #[test]
-fn bug_169_max_quantity_with_zero_entry_price() {
+fn contract_169_max_quantity_with_zero_entry_price_is_rejected() {
     let mut trust = create_trust();
     let account = setup_account_no_rules(&mut trust, dec!(50000));
 
     let result = trust.calculate_maximum_quantity(account.id, dec!(0), dec!(0), &Currency::USD);
-    // Zero entry and stop prices should fail gracefully
-    if let Ok(qty) = &result {
-        println!(
-            "BUG: calculate_maximum_quantity with zero prices returned: {}",
-            qty
-        );
-    }
+    assert!(
+        result.is_err(),
+        "Zero prices cannot produce an executable size"
+    );
 }
 
 #[test]
-fn bug_170_max_quantity_entry_equals_stop() {
+fn contract_170_max_quantity_entry_equals_stop() {
     let mut trust = create_trust();
     let account = setup_account_no_rules(&mut trust, dec!(50000));
 
-    // Entry == stop: zero risk per share
     let result = trust.calculate_maximum_quantity(account.id, dec!(100), dec!(100), &Currency::USD);
-    if let Ok(qty) = &result {
-        if *qty > Decimal::ZERO {
-            println!("BUG: calculate_maximum_quantity returns positive qty ({}) when entry==stop (infinite position)", qty);
-        }
-    }
+    assert!(
+        result.is_err(),
+        "Zero stop distance cannot produce an executable size"
+    );
 }
 
 #[test]
-fn bug_171_max_quantity_stop_above_entry() {
+fn contract_171_max_quantity_stop_above_entry() {
     let mut trust = create_trust();
-    let account = setup_account_no_rules(&mut trust, dec!(50000));
+    let account = setup_account(&mut trust, dec!(50000));
 
-    // Stop above entry for a long trade: $110 stop, $100 entry
-    let result = trust.calculate_maximum_quantity(account.id, dec!(110), dec!(100), &Currency::USD);
-    // Negative risk per share for a long trade
-    if let Ok(qty) = &result {
-        if *qty > Decimal::ZERO {
-            println!("BUG: calculate_maximum_quantity returns positive qty ({}) when stop > entry (inverted risk)", qty);
-        }
-    }
+    let result = trust.calculate_maximum_quantity(account.id, dec!(100), dec!(110), &Currency::USD);
+    let quantity = result.unwrap();
+    assert!(
+        quantity > Decimal::ZERO,
+        "A short stop above entry is valid"
+    );
+    assert!(
+        quantity * dec!(10) <= dec!(1000),
+        "Size must respect 2% risk on $50,000"
+    );
+    assert!(
+        quantity * dec!(110) <= dec!(50000),
+        "Short stop notional must fit available capital"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -3889,7 +4109,7 @@ fn bug_171_max_quantity_stop_above_entry() {
 // ─────────────────────────────────────────────────────────────────
 
 #[test]
-fn bug_172_advisory_thresholds_negative_limits() {
+fn contract_172_advisory_thresholds_negative_limits() {
     let mut trust = create_trust();
     let account = setup_account_no_rules(&mut trust, dec!(50000));
 
@@ -3901,13 +4121,11 @@ fn bug_172_advisory_thresholds_negative_limits() {
             single_position_limit_pct: dec!(-10),
         },
     );
-    if result.is_ok() {
-        println!("BUG: Negative advisory thresholds accepted");
-    }
+    assert!(result.is_err(), "Invalid input must be rejected");
 }
 
 #[test]
-fn bug_173_advisory_thresholds_over_100() {
+fn contract_173_advisory_thresholds_over_100() {
     let mut trust = create_trust();
     let account = setup_account_no_rules(&mut trust, dec!(50000));
 
@@ -3919,9 +4137,7 @@ fn bug_173_advisory_thresholds_over_100() {
             single_position_limit_pct: dec!(200),
         },
     );
-    if result.is_ok() {
-        println!("BUG: Advisory thresholds > 100% accepted");
-    }
+    assert!(result.is_err(), "Invalid input must be rejected");
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -4072,48 +4288,41 @@ fn bug_179_cancel_funded_restores_exact_amount() {
 // ─────────────────────────────────────────────────────────────────
 
 #[test]
-fn bug_180_level_0_restricts_position_size() {
+fn contract_180_level_0_throttles_size() {
     let mut trust = create_trust();
-    let account = setup_account_no_rules(&mut trust, dec!(50000));
-
-    // Change to level 0 (multiplier 0.10x)
+    let account = setup_account(&mut trust, dec!(50000));
     trust
         .change_level(
             account.id,
             0,
-            "test restriction",
+            "sizing contract",
             model::LevelTrigger::ManualOverride,
         )
         .unwrap();
-
-    // Calculate max quantity at level 0
-    let result = trust.calculate_maximum_quantity(account.id, dec!(95), dec!(100), &Currency::USD);
-    if let Ok(qty) = result {
-        println!("Level 0 max quantity: {}", qty);
-        // Level 0 (0.10x multiplier) should significantly reduce position size
-    }
+    // 2% of 50,000 / 5 stop distance = 200 units before level throttling.
+    let quantity = trust
+        .calculate_maximum_quantity(account.id, dec!(100), dec!(95), &Currency::USD)
+        .unwrap();
+    assert_eq!(quantity, dec!(20));
 }
 
 #[test]
-fn bug_181_level_4_increases_position_size() {
+fn contract_181_level_4_cannot_override_hard_risk_budget() {
     let mut trust = create_trust();
-    let account = setup_account_no_rules(&mut trust, dec!(50000));
-
-    // Change to level 4 (multiplier 1.50x)
+    let account = setup_account(&mut trust, dec!(50000));
     trust
         .change_level(
             account.id,
             4,
-            "enhanced trading",
-            model::LevelTrigger::PerformanceUpgrade,
+            "sizing contract",
+            model::LevelTrigger::ManualOverride,
         )
         .unwrap();
-
-    let result = trust.calculate_maximum_quantity(account.id, dec!(95), dec!(100), &Currency::USD);
-    if let Ok(qty) = result {
-        println!("Level 4 max quantity: {}", qty);
-        // Level 4 (1.50x multiplier) should increase position size
-    }
+    // 2% of 50,000 / 5 stop distance = 200 units before level throttling.
+    let quantity = trust
+        .calculate_maximum_quantity(account.id, dec!(100), dec!(95), &Currency::USD)
+        .unwrap();
+    assert_eq!(quantity, dec!(200));
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -4305,19 +4514,13 @@ fn bug_186_modify_target_on_funded_trade() {
 // ─────────────────────────────────────────────────────────────────
 
 #[test]
-fn bug_187_level_history_zero_days() {
+fn contract_187_zero_day_history_has_no_prior_events() {
     let mut trust = create_trust();
     let account = setup_account_no_rules(&mut trust, dec!(50000));
-
-    // 0 days window
-    let result = trust.level_history_for_account(account.id, Some(0));
-    // 0 days should return empty or just initial
-    if let Ok(history) = &result {
-        assert!(
-            history.is_empty() || history.len() <= 1,
-            "0-day window should return empty or minimal history"
-        );
-    }
+    assert!(trust
+        .level_history_for_account(account.id, Some(0))
+        .unwrap()
+        .is_empty());
 }
 
 #[test]
@@ -4413,10 +4616,9 @@ fn bug_191_performance_stats_single_winner() {
 }
 
 #[test]
-fn bug_192_performance_stats_breakeven_counted_as_loser() {
+fn contract_192_performance_stats_breakeven_counted_as_loser() {
     use core::calculators_performance::PerformanceCalculator;
 
-    // Breakeven trade: performance = 0
     let trades = vec![create_closed_trade(
         dec!(100),
         dec!(95),
@@ -4426,11 +4628,12 @@ fn bug_192_performance_stats_breakeven_counted_as_loser() {
     )];
 
     let stats = PerformanceCalculator::calculate_performance_stats(&trades);
-    // BUG: Breakeven (performance=0) should not be counted as a loser
-    // losing_trades = total_trades - winning_trades, so 1 - 0 = 1 (wrong!)
-    if stats.losing_trades > 0 && stats.winning_trades == 0 {
-        println!("BUG: Breakeven trade (performance=0) counted as a loser");
-    }
+    assert_eq!(stats.total_trades, 1);
+    assert_eq!(stats.winning_trades, 0);
+    assert_eq!(
+        stats.losing_trades, 0,
+        "Break-even is neither a gain nor a loss"
+    );
 }
 
 #[test]
@@ -4477,14 +4680,12 @@ fn bug_194_drawdown_empty_equity_curve() {
     use core::calculators_drawdown::{RealizedDrawdownCalculator, RealizedEquityCurve};
 
     let curve = RealizedEquityCurve { points: vec![] };
-    let result = RealizedDrawdownCalculator::calculate_drawdown_metrics(&curve);
-    if let Ok(metrics) = result {
-        assert_eq!(
-            metrics.max_drawdown_percentage,
-            dec!(0),
-            "Empty curve max drawdown should be 0"
-        );
-    }
+    let metrics = RealizedDrawdownCalculator::calculate_drawdown_metrics(&curve).unwrap();
+    assert_eq!(
+        metrics.max_drawdown_percentage,
+        dec!(0),
+        "Empty curve max drawdown should be 0"
+    );
 }
 
 #[test]
@@ -4511,14 +4712,12 @@ fn bug_195_drawdown_monotonically_increasing() {
             },
         ],
     };
-    let result = RealizedDrawdownCalculator::calculate_drawdown_metrics(&curve);
-    if let Ok(metrics) = result {
-        assert_eq!(
-            metrics.max_drawdown_percentage,
-            dec!(0),
-            "Monotonically increasing curve has no drawdown"
-        );
-    }
+    let metrics = RealizedDrawdownCalculator::calculate_drawdown_metrics(&curve).unwrap();
+    assert_eq!(
+        metrics.max_drawdown_percentage,
+        dec!(0),
+        "Monotonically increasing curve has no drawdown"
+    );
 }
 
 #[test]
@@ -4535,14 +4734,12 @@ fn bug_196_drawdown_single_value() {
             balance: dec!(100),
         }],
     };
-    let result = RealizedDrawdownCalculator::calculate_drawdown_metrics(&curve);
-    if let Ok(metrics) = result {
-        assert_eq!(
-            metrics.max_drawdown_percentage,
-            dec!(0),
-            "Single value has no drawdown"
-        );
-    }
+    let metrics = RealizedDrawdownCalculator::calculate_drawdown_metrics(&curve).unwrap();
+    assert_eq!(
+        metrics.max_drawdown_percentage,
+        dec!(0),
+        "Single value has no drawdown"
+    );
 }
 
 #[test]
@@ -4569,14 +4766,12 @@ fn bug_197_drawdown_with_zero_values() {
             },
         ],
     };
-    let result = RealizedDrawdownCalculator::calculate_drawdown_metrics(&curve);
-    if let Ok(metrics) = result {
-        assert_eq!(
-            metrics.max_drawdown_percentage,
-            dec!(100),
-            "Going to zero should be 100% drawdown"
-        );
-    }
+    let metrics = RealizedDrawdownCalculator::calculate_drawdown_metrics(&curve).unwrap();
+    assert_eq!(
+        metrics.max_drawdown_percentage,
+        dec!(100),
+        "Going to zero should be 100% drawdown"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────

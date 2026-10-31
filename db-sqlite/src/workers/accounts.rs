@@ -188,6 +188,8 @@ impl AccountWrite for AccountDB {
         broker_kind: BrokerKind,
         broker_account_id: Option<&str>,
     ) -> Result<Account, Box<dyn Error>> {
+        model::percentage::validate_account_percentages(taxes_percentage, earnings_percentage)?;
+        Account::validate_name(name)?;
         if account_type.requires_parent() && parent_account_id.is_none() {
             return Err("Child account types require a parent account ID".into());
         }
@@ -230,6 +232,7 @@ impl AccountWrite for AccountDB {
             parent_account_id: parent_account_id.map(|id| id.to_string()),
             broker_kind: broker_kind.to_string(),
             broker_account_id: broker_account_id.map(ToOwned::to_owned),
+            tax_percentage_units: crate::account_percentages::POINTS.to_owned(),
         };
 
         diesel::insert_into(accounts::table)
@@ -363,6 +366,7 @@ pub struct AccountSQLite {
     pub parent_account_id: Option<String>,
     pub broker_kind: String,
     pub broker_account_id: Option<String>,
+    pub tax_percentage_units: String,
 }
 
 impl TryFrom<AccountSQLite> for Account {
@@ -392,6 +396,13 @@ impl TryFrom<AccountSQLite> for Account {
                 ConversionError::new("parent_account_id", "Failed to parse parent account ID")
             })?;
 
+        let (taxes_percentage, earnings_percentage) = crate::account_percentages::decode(
+            &value.taxes_percentage,
+            &value.earnings_percentage,
+            &value.tax_percentage_units,
+        )
+        .map_err(|error| ConversionError::new("account_percentages", error.to_string()))?;
+
         Ok(Account {
             id: Uuid::parse_str(&value.id)
                 .map_err(|_| ConversionError::new("id", "Failed to parse account ID"))?,
@@ -402,12 +413,8 @@ impl TryFrom<AccountSQLite> for Account {
             description: value.description,
             environment: Environment::from_str(&value.environment)
                 .map_err(|_| ConversionError::new("environment", "Failed to parse environment"))?,
-            taxes_percentage: Decimal::from_str(&value.taxes_percentage).map_err(|_| {
-                ConversionError::new("taxes_percentage", "Failed to parse taxes percentage")
-            })?,
-            earnings_percentage: Decimal::from_str(&value.earnings_percentage).map_err(|_| {
-                ConversionError::new("earnings_percentage", "Failed to parse earnings percentage")
-            })?,
+            taxes_percentage,
+            earnings_percentage,
             account_type,
             parent_account_id,
             broker_kind: BrokerKind::from_str(&value.broker_kind)
@@ -440,6 +447,7 @@ struct NewAccount {
     parent_account_id: Option<String>,
     broker_kind: String,
     broker_account_id: Option<String>,
+    tax_percentage_units: String,
 }
 
 #[derive(Queryable)]
@@ -514,6 +522,7 @@ mod tests {
             parent_account_id: None,
             broker_kind: "alpaca".to_string(),
             broker_account_id: None,
+            tax_percentage_units: crate::account_percentages::POINTS.to_owned(),
         }
     }
 
@@ -719,11 +728,11 @@ mod tests {
 
         let mut invalid_taxes = valid_account_sqlite();
         invalid_taxes.taxes_percentage = "nan".to_string();
-        assert_account_conversion_error(invalid_taxes, "taxes_percentage");
+        assert_account_conversion_error(invalid_taxes, "account_percentages");
 
         let mut invalid_earnings = valid_account_sqlite();
         invalid_earnings.earnings_percentage = "nan".to_string();
-        assert_account_conversion_error(invalid_earnings, "earnings_percentage");
+        assert_account_conversion_error(invalid_earnings, "account_percentages");
 
         let mut invalid_account_type = valid_account_sqlite();
         invalid_account_type.account_type = "settlement".to_string();

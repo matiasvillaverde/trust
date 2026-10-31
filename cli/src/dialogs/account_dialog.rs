@@ -114,7 +114,7 @@ impl AccountDialogBuilder {
     }
 
     pub fn tax_percentage_with_io(mut self, io: &mut dyn DialogIo) -> Self {
-        match io.input_text("Taxes percentage", false) {
+        match io.input_text("Taxes percentage points (1 = 1%, 0..=100)", false) {
             Ok(raw) => match raw.parse::<Decimal>() {
                 Ok(value) => self.tax_percentage = Some(value),
                 Err(_) => println!("Please enter a valid number."),
@@ -131,7 +131,10 @@ impl AccountDialogBuilder {
     }
 
     pub fn earnings_percentage_with_io(mut self, io: &mut dyn DialogIo) -> Self {
-        match io.input_text("Earning percentage", false) {
+        match io.input_text(
+            "Earnings percentage points (1 = 1%, total reserves <= 100)",
+            false,
+        ) {
             Ok(raw) => match raw.parse::<Decimal>() {
                 Ok(value) => self.earnings_percentage = Some(value),
                 Err(_) => println!("Please enter a valid number."),

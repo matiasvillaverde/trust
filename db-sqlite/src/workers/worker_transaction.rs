@@ -15,7 +15,7 @@ use super::WorkerTrade;
 #[derive(Debug)]
 pub struct WorkerTransaction;
 
-const CASH_FLOW_CATEGORIES: [&str; 8] = [
+pub(crate) const CASH_FLOW_CATEGORIES: [&str; 8] = [
     "deposit",
     "withdrawal",
     "withdrawal_earnings",

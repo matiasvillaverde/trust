@@ -5,8 +5,6 @@
 
 /// Advisory services for concentration/risk recommendations.
 pub mod advisory;
-/// Event distribution service for automatic profit distribution on trade closure
-pub mod event_distribution_service;
 /// Fund transfer service for handling transfers between accounts
 pub mod fund_transfer_service;
 /// Trade grading services and helpers
@@ -24,7 +22,6 @@ pub use advisory::{
     AdvisoryAlertLevel, AdvisoryHistoryEntry, AdvisoryResult, AdvisoryThresholds,
     PortfolioAdvisoryStatus, TradeProposal,
 };
-pub use event_distribution_service::EventDistributionService;
 pub use fund_transfer_service::FundTransferService;
 pub use profit_distribution_service::ProfitDistributionService;
 pub use tax::{

@@ -69,14 +69,7 @@ pub fn create_trade_with_safety_order_category(
         database,
         "create_trade_with_safety_order_category",
         |database| {
-            if trade.quantity <= Decimal::ZERO {
-                return Err(format!(
-                    "Trade quantity must be greater than zero, got {}",
-                    trade.quantity
-                )
-                .into());
-            }
-            validate_broker_asset_support(&trade)?;
+            validate_draft(&trade)?;
 
             // 1. Create Stop-loss Order
             let stop = match safety_order_category {
@@ -143,6 +136,30 @@ pub fn create_trade_with_safety_order_category(
                 .create_trade(draft, &stop, &entry, &target)
         },
     )
+}
+
+fn validate_draft(trade: &DraftTrade) -> Result<(), Box<dyn Error>> {
+    if trade.quantity <= Decimal::ZERO {
+        return Err(format!(
+            "Trade quantity must be greater than zero, got {}",
+            trade.quantity
+        )
+        .into());
+    }
+    validate_broker_asset_support(trade)?;
+    if trade
+        .thesis
+        .as_deref()
+        .is_some_and(|value| value.chars().count() > 200)
+        || trade
+            .sector
+            .as_deref()
+            .is_some_and(|value| value.chars().count() > 128)
+    {
+        return Err("Trade thesis must be at most 200 characters and sector at most 128".into());
+    }
+
+    Ok(())
 }
 
 fn validate_broker_asset_support(trade: &DraftTrade) -> Result<(), Box<dyn std::error::Error>> {

@@ -61,9 +61,11 @@ fn upgrade_existing_schema(
     const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
     const FEE_LEDGER_VERSION: &str = "20260909000001";
     const FRACTIONAL_RISK_VERSION: &str = "20261026000001";
+    const ACCOUNT_UNITS_VERSION: &str = "20261031000001";
+    const HISTORY_PAGES_VERSION: &str = "20261031000002";
     connection.immediate_transaction(|connection| {
         let pending = connection.pending_migrations(MIGRATIONS)?;
-        if pending.iter().any(|migration| !matches!(migration.name().version().to_string().as_str(), FEE_LEDGER_VERSION | FRACTIONAL_RISK_VERSION)) {
+        if pending.iter().any(|migration| !matches!(migration.name().version().to_string().as_str(), FEE_LEDGER_VERSION | FRACTIONAL_RISK_VERSION | ACCOUNT_UNITS_VERSION | HISTORY_PAGES_VERSION)) {
             return Err("Database schema requires the repository migration workflow before startup; back up the database and run make migration for this database".into());
         }
         for migration in pending {
@@ -825,6 +827,19 @@ fn market_exposure(trade: &Trade) -> Result<Option<Decimal>, Box<dyn Error>> {
 }
 
 impl ReadTransactionDB for SqliteDatabase {
+    fn history_page(
+        &mut self,
+        account_id: Uuid,
+        filter: &model::history::TransactionHistoryFilter,
+        page: model::history::PageRequest,
+    ) -> Result<model::history::HistoryPage<Transaction>, Box<dyn Error>> {
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| "Transaction history database lock unavailable")?;
+        crate::history::transactions(&mut connection, account_id, filter, page)
+    }
+
     fn trade_market_exposure(&mut self, trade_id: Uuid) -> Result<Option<Decimal>, Box<dyn Error>> {
         let trade = self.trade_read().read_trade(trade_id)?;
         market_exposure(&trade)
@@ -1096,6 +1111,31 @@ impl WriteTradeDB for SqliteDatabase {
 }
 
 impl ReadTradeDB for SqliteDatabase {
+    fn history_page(
+        &mut self,
+        account_id: Uuid,
+        filter: &model::history::TradeHistoryFilter,
+        page: model::history::PageRequest,
+    ) -> Result<model::history::HistoryPage<Trade>, Box<dyn Error>> {
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| "Trade history database lock unavailable")?;
+        crate::history::trades(&mut connection, account_id, filter, page)
+    }
+    fn active_batch(
+        &mut self,
+        account_id: Uuid,
+        after: Option<Uuid>,
+        limit: u16,
+    ) -> Result<Vec<Trade>, Box<dyn Error>> {
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| "Trade history database lock unavailable")?;
+        crate::history::active_batch(&mut connection, account_id, after, limit)
+    }
+
     fn read_trade(&mut self, id: Uuid) -> Result<Trade, Box<dyn Error>> {
         WorkerTrade::read_trade(&mut lock_connection_or_exit(&self.connection), id)
     }
@@ -1250,6 +1290,11 @@ mod tests {
         let account = create_account(&database, "preserved-on-upgrade");
         {
             let mut connection = database.connection.lock().unwrap();
+            diesel::sql_query("UPDATE accounts SET tax_percentage_units = 'legacy'")
+                .execute(&mut *connection)
+                .unwrap();
+            connection.revert_last_migration(MIGRATIONS).unwrap();
+            connection.revert_last_migration(MIGRATIONS).unwrap();
             assert_eq!(
                 connection
                     .revert_last_migration(MIGRATIONS)
@@ -1287,11 +1332,13 @@ mod tests {
         connection.revert_last_migration(MIGRATIONS).unwrap();
         connection.revert_last_migration(MIGRATIONS).unwrap();
         connection.revert_last_migration(MIGRATIONS).unwrap();
+        connection.revert_last_migration(MIGRATIONS).unwrap();
+        connection.revert_last_migration(MIGRATIONS).unwrap();
         assert!(upgrade_existing_schema(&mut connection)
             .unwrap_err()
             .to_string()
             .contains("repository migration workflow"));
-        assert_eq!(connection.pending_migrations(MIGRATIONS).unwrap().len(), 3);
+        assert_eq!(connection.pending_migrations(MIGRATIONS).unwrap().len(), 5);
     }
 
     fn create_account(database: &SqliteDatabase, name: &str) -> Account {

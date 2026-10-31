@@ -106,6 +106,7 @@ pub struct TradingSummary {
 
 /// Deterministic whole-account admission and persistent safety-state transitions.
 pub mod account_safety;
+mod history;
 /// Prospective portfolio budgets, execution constraints and adaptive admission.
 pub mod portfolio_risk;
 mod service_api;
@@ -749,6 +750,7 @@ impl TrustFacade {
         broker: &str,
     ) -> Result<TradingVehicle, Box<dyn std::error::Error>> {
         self.consume_protected_authorization("create_trading_vehicle")?;
+        model::TradingVehicle::validate_identifiers(symbol, broker)?;
         self.factory
             .trading_vehicle_write()
             .create_trading_vehicle(symbol, isin, category, broker)
@@ -1389,12 +1391,13 @@ impl TrustFacade {
 
         let mut rates = BTreeMap::new();
         for account in accounts {
-            let configured_tax_rate =
-                if let Some(rules) = self.cached_distribution_rules(account.id)? {
-                    rules.tax_percent
-                } else {
-                    normalize_account_tax_rate(account.taxes_percentage)?
-                };
+            let configured_tax_rate = if let Some(rules) =
+                self.cached_distribution_rules(account.id)?
+            {
+                rules.tax_percent
+            } else {
+                model::percentage::PercentagePoints::new(account.taxes_percentage)?.fraction()?
+            };
             let short_term = overrides.short_term.unwrap_or(configured_tax_rate);
             let long_term = overrides.long_term.unwrap_or(configured_tax_rate);
             rates.insert(account.id, TaxRates::new(short_term, long_term)?);
@@ -1722,34 +1725,7 @@ impl TrustFacade {
         trade: &Trade,
         close_reason: CloseReason,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let risk_per_share = match trade
-            .entry
-            .unit_price
-            .checked_sub(trade.safety_stop.unit_price)
-        {
-            Some(value) if value > Decimal::ZERO => value,
-            _ => Decimal::ZERO,
-        };
-        let qty = trade.entry.quantity;
-        let risk_amount = risk_per_share.checked_mul(qty).unwrap_or(Decimal::ZERO);
-        let r_multiple = if risk_amount > Decimal::ZERO {
-            trade
-                .balance
-                .total_performance
-                .checked_div(risk_amount)
-                .unwrap_or(Decimal::ZERO)
-        } else {
-            Decimal::ZERO
-        };
-
-        let event = TradeClosed {
-            trade_id: trade.id,
-            account_id: trade.account_id,
-            final_pnl: trade.balance.total_performance,
-            r_multiple,
-            close_reason,
-            closed_at: trade.updated_at,
-        };
+        let event = TradeClosed::from_trade(trade, close_reason)?;
 
         let snapshot = self.cached_level_snapshot_for_trade_close(trade)?;
         let service = self.leveling_service_for_account(trade.account_id)?;
@@ -2147,6 +2123,8 @@ impl TrustFacade {
         broker_account_id: Option<&str>,
     ) -> Result<Account, Box<dyn std::error::Error>> {
         self.consume_protected_authorization("create_account_with_profile")?;
+        model::percentage::validate_account_percentages(taxes_percentage, earnings_percentage)?;
+        Account::validate_name(name)?;
         let savepoint = "create_account_with_profile";
         self.factory.begin_savepoint(savepoint)?;
 
@@ -2496,22 +2474,6 @@ impl TrustFacade {
             insurance: insurance_account,
         })
     }
-}
-
-fn normalize_account_tax_rate(rate: Decimal) -> Result<Decimal, Box<dyn std::error::Error>> {
-    if rate < Decimal::ZERO {
-        return Err("Account tax percentage cannot be negative".into());
-    }
-    let normalized = if rate > Decimal::ONE {
-        rate.checked_div(dec!(100))
-            .ok_or("Account tax percentage normalization overflow")?
-    } else {
-        rate
-    };
-    if normalized > Decimal::ONE {
-        return Err("Account tax percentage cannot exceed 100%".into());
-    }
-    Ok(normalized)
 }
 
 fn hash_distribution_password(password: &str) -> Result<String, Box<dyn std::error::Error>> {
