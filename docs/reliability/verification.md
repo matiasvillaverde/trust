@@ -438,3 +438,82 @@ python3 scripts/assurance.py run --level 2
 The assurance runner now requires the new prospective-risk and MCP concurrency assertions; an older run missing them cannot satisfy these levels. Source fingerprints and local reports determine whether evidence is current. Source review uses the isolated delta from the inherited dirty worktree; review is advisory, not financial certification.
 
 Real IBKR preflight/fills/protection/fees/reconnect/cash reconciliation, actual OAuth clients, and deployment-specific quote/history/segment conventions remain separate acceptance work. No ignored broker tests or real orders were run for this change. Entry calendars do not auto-flatten holdings; static correlation groups and finite gap/margin scenarios do not prove that an account cannot lose its capital. The earlier `risk_preview` performance results do not measure the new network-backed admission path; no production latency claim is made here.
+
+## Service and MCP hardening — 2026-10-30
+
+This iteration removes repeated full-chain verification for resolved operations by sharing a successful verification only inside one SQLite read transaction. Each safety/resolution record still needs its own evidence/hash check. Regression tests alter evidence both between reads and from another connection during a read: the active snapshot stays consistent and the next read detects tampering. Control migration `0003_control_indexes` preserves audit hashes and operation results while indexing admission queries. Existing hash fixtures still match.
+
+Authentication now prepares public verification keys and immutable validation settings at startup. Tests reject ambiguous/private/weak key material, enforce JWK algorithm/use/operation restrictions even for otherwise valid signatures, and reject unsupported JWT extensions. Signatures, expiry, claims, grants and owner authentication remain per-request checks. Real Keycloak 26.8.1, PostgreSQL 18.6, a browser virtual CTAP2 authenticator and official TypeScript 1.32.2/Python 2.3.0 MCP SDKs pass the owner/agent, expiry, negative-login and cold-restart flows. This is not physical-key or production-ingress acceptance.
+
+Malformed HTTP tool bodies return sanitized, correlated errors without worker dispatch. MCP catalogues reject unsupported cursors consistently. Queue/rate/concurrency rejections identify safe retries, while uncertain dispatched operations remain non-retryable. The real-process timeout test verifies those flags alongside its existing no-resubmission and no-expired-dispatch assertions.
+
+| Check | Observed result |
+| --- | --- |
+| All-features workspace tests through `cargo llvm-cov --workspace --all-features --locked -- --test-threads=1` | **2,607 passed**, 0 failed, 9 ignored; the two service performance cases were separately executed below. |
+| Coverage thresholds: lines ≥94%, functions ≥90%, regions ≥93% | **95.57% lines, 90.26% functions, 94.16% regions**; thresholds passed without changes. Test-support files excluded using the existing CI expression. |
+| `cargo test --locked --no-default-features --workspace -- --test-threads=1` | **1,927 passed**, 0 failed, 8 ignored. |
+| Real-process service E2E suite, included in workspace tests | **14 passed**; concurrent heat reservations, changed admission evidence, broker uncertainty, stop tightening, queue cancellation, graceful shutdown, encrypted restore and restart. |
+| Formatting, workspace Clippy with all targets/features, diff whitespace and updated documentation file links | Passed. |
+| `python3 -m unittest discover -s scripts -p 'test_*.py'` | **32 passed**. |
+| `make security-check` | Passed: dependency advisory/license checks and unused-dependency analysis. |
+| `python3 service/tests/oidc/run.py` with the candidate release binary | Passed with real reference identity containers and both official MCP SDKs; redacted evidence retained. |
+| Candidate production image build, encrypted container smoke and Trivy High/Critical scan | Passed; **zero High/Critical findings**, including unfixed vulnerabilities and without added suppressions. Smoke covers nonroot/read-only operation, independent RAM keys, metrics, audit verification and durable idempotency across restart. |
+
+Release-profile measurements on the same local host:
+
+| Offline scenario | Before | After |
+| --- | ---: | ---: |
+| Journal: 10,000 historical reads, 50 resolved outcomes; median of 10 checks | 1,027.792 ms | 11.695 ms |
+| Encrypted HTTP `risk_preview`, sequential; p50 / p95 | 3.632 / 6.217 ms | 2.632 / 3.571 ms |
+| Encrypted HTTP, concurrency 4; p50 / p95 | 6.974 / 12.024 ms | 6.060 / 9.428 ms |
+| Encrypted MCP `risk_preview`, sequential; p50 / p95 | 4.478 / 6.338 ms | 3.233 / 5.178 ms |
+| Encrypted MCP, concurrency 4; p50 / p95 | 9.024 / 13.913 ms | 7.694 / 12.845 ms |
+
+`make service-perf` now enforces both gates. The journal fixture uses ordinary SQLite to isolate query/verification cost; its median budget is 250 ms. The HTTP/MCP fixture uses real service processes, SQLCipher, JWT validation and FULL-synchronous audit writes, with 32 sequential and 64 concurrent samples per transport. Its existing p95 budgets remain 50/200 ms. The journal improvement is approximately 88× for this workload; these local samples do not establish production percentiles, large-portfolio behavior, storage power-loss resilience or network-backed broker admission latency.
+
+Verification logs and measurements are retained locally in `.local/server-hardening-20261030/`; real identity evidence is in `output/playwright/oidc/evidence.json`. Source review used `autoreview --mode local` with a scope prompt covering service authentication, transport, journal consistency, migration preservation and safe retry semantics. The secret scan passed and the default blocking review returned no findings; none were accepted or rejected. No ignored broker tests, real orders or production deployment were performed.
+
+## Repository simplification — 2026-10-30
+
+The repository was mapped with `tree --gitignore`, all eleven workspace crates and their dependency boundaries. [Architecture](../architecture.md) now describes the service as the production entry point, distinguishes the thin client from the legacy dispatcher, and identifies the actual scope of broker-sync and the remaining structural debt.
+
+The default CLI previously compiled database, broker, advisor and native credential dependencies even though only `trust-legacy` used them. They are now optional behind `legacy-cli`; existing facade tests retain development dependencies and remain enabled without that feature. On the current Linux host, `cargo tree --locked --offline -p trust-cli --no-default-features --edges normal --prefix none` contains **114 unique package names including the client, down from 238**. This measures the normal dependency graph, not binary size or a production speedup. A clean standalone build passed with SQLCipher paths deliberately pointing to nonexistent directories and `LIBDBUS1_NO_PKG_CONFIG=1`. The native HTTP/TLS stack remains required. A permanent architecture test rejects financial, broker and credential packages in the default normal/build graph.
+
+Nine subprocess suites now share a temporary-directory fixture and Cargo-selected executable. Their commands disable keychain access and use explicit test policy credentials. Database files and sidecars are removed with the fixture, including during unwinding. The harness regression compares the executable's profile directory to its test executable, runs the actual CLI against the private database, and verifies cleanup. A focused run with a deliberately invalid runtime `CARGO_BIN_EXE_trust-legacy` override passed **72 tests**, including JSON snapshots, client calls and all refactored suites.
+
+The removed `cli/tests/integration_test.rs` contained only four module declarations. Cargo already discovered those four files independently, so the aggregator duplicated **65 tests**. Their original files and every original test function remain present. Test totals therefore decrease by 65 duplicate executions before counting new regressions; no financial scenario was removed. The CLI/lockfile cleanup removes a net **473 lines**, including the new helper and regression tests. The 150 pre-existing leaked databases matching the old fixture filenames were moved to the ignored local `legacy-test-artifacts/` evidence directory; a completed coverage run produced no new databases in `cli/`.
+
+| Check | Observed result |
+| --- | --- |
+| All-features workspace tests with coverage | **2,544 passed**, 0 failed, 9 ignored. Both new regression guards passed under the instrumented build. |
+| No-default-features workspace tests | **1,863 passed**, 0 failed, 8 ignored; original facade scenarios remain enabled. |
+| Coverage thresholds unchanged | **95.57% lines, 90.26% functions, 94.16% regions**; all thresholds passed. |
+| Workspace Clippy, all targets/features, formatting and diff whitespace | Passed. |
+| `make security-check` | Passed; a transient advisory database fetch timeout required one retry. No dependencies were upgraded and no exceptions were added. |
+| `autoreview --mode local` with the cleanup scope prompt | Clean under its default blocking review; secret scan passed, no findings accepted or rejected. |
+
+Local source baselines, dependency graphs, clean-build output and verification logs are retained in `.local/repo-simplification-20261030/`. Earlier service-hardening changes were preserved. Financial formulas, lifecycle behavior, service APIs and legacy JSON snapshots were not changed by this cleanup.
+
+The same isolation check found six ordinary Make targets depending on `setup`, which runs Diesel against `~/.trust/debug.db` by default. Build/test targets now invoke Cargo without implicitly initializing that operator database, and ordinary test targets honor `CARGO_FLAGS` (`--locked` by default). Explicit setup/migration commands remain available. A regression executes Make with recording Cargo/Diesel substitutes and a disposable sentinel database: all six ordinary targets failed the isolation assertion before the change and pass afterward. The complete Python script suite passes **34 tests**. No operator database was used for this check.
+
+## Business test quality — 2026-10-30
+
+Twelve permissive or misleading CLI cash/funding probes were replaced with public-facade contracts in core. Some only printed a warning when an invalid operation succeeded; the old overdraft test used unrelated accounts and could pass at the hierarchy check. The replacements use valid prerequisites, positive boundary cases, exact persisted balances and receipts, and unchanged-state assertions after rejection.
+
+[`capital_contracts.rs`](../../core/tests/capital_contracts.rs) covers related-account transfers, currency isolation, nonpositive amounts, overdrafts, distribution thresholds and all four allocation destinations. Seven injected write boundaries exercise rollback of transfers/distributions, reopening the database, and a successful retry without duplicate cash or history. A property test checks 32 generated transfer sequences against an independent ledger of cents. [`reliability.rs`](../../core/tests/reliability.rs) adds 30 rejected funding replays across ten long/short lifecycles, using fresh, stale and fabricated client state after funding, fills, cancellation and both exit outcomes.
+
+The unused `ProfitDistributionService::transfer_funds` method returned success without moving money. It and its two success/error-only tests were removed; actual transfers continue through `TrustFacade::transfer_between_accounts` with an explicit currency. Four type-existence smoke tests and two unregistered historical workflow drafts were also removed. Nine new runnable business tests replace eighteen weak checks; the unregistered drafts never contributed to Cargo's test totals. Existing protocol, permission, serialization and CLI snapshot checks remain intact. [The testing guide](testing.md) explains the replacement criteria and examples.
+
+| Check | Observed result |
+| --- | --- |
+| Focused cash and lifecycle suites | **28 passed**, including the nine new tests. |
+| All-features workspace tests with coverage | **2,535 passed**, 0 failed, 9 ignored. |
+| No-default-features workspace tests | **1,854 passed**, 0 failed, 8 ignored. |
+| Coverage thresholds unchanged | **95.57% lines, 90.26% functions, 94.16% regions**; all gates passed. |
+| Curated mutation experiments | **12/12 detected**, including five new financial faults. Each baseline passed, each mutant compiled and failed the exact selected test, and the source fingerprint remained unchanged. |
+| Workspace Clippy, formatting, Markdown links and diff whitespace | Passed. |
+| Python script tests | **34 passed**. |
+
+The five new mutations inject a wrong transfer credit, omitted rollback, bypassed distribution threshold, incorrect allocation history and repeated funding. The runner also now resolves the prepared SQLCipher library from the original checkout and copies the embedded skill YAML manifests into its isolated build. The initial run correctly classified missing-manifest compilation failures as invalid evidence; it is archived separately from the successful final run.
+
+Level 1 assurance now requires the nine new contracts. Logs, source baselines and the final summary are retained in `.local/business-tests-20261030/`; mutation reports and individual log hashes are in `.local/assurance/mutations/`. These are offline accounting and protocol checks. No ignored live-broker test, real order, broker cash transfer or production deployment was performed.

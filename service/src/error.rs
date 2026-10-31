@@ -28,6 +28,14 @@ impl ServiceError {
         )
     }
 
+    /// Retrying the same intent is safe only when dispatch never started.
+    pub fn before_dispatch_retry(code: &str, message: &str, next_action: &str) -> Self {
+        Self {
+            retryable: true,
+            ..Self::new(code, message, next_action)
+        }
+    }
+
     pub fn forbidden() -> Self {
         Self::new(
             "forbidden",

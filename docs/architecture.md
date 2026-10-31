@@ -1,107 +1,96 @@
-# Service boundary
+# Trust architecture
 
-The production flow is MCP/HTTP clients → authenticated `trust-service` → serialized `TrustFacade` → domain contracts → database/broker adapters. The service owns agent authorization, operation idempotency, and its separate audit journal. Broker credentials and storage remain server-side. See [service architecture and operations](service.md) for the new boundary. The sections below describe the existing core and legacy terminal internals.
+Trust is a service for risk-managed trading. MCP and the default CLI call the same authenticated boundary. The service owns identity, authorization, durable intent and recovery; core owns financial decisions. Broker credentials and financial storage stay on the server.
 
-# Architecture
+```mermaid
+flowchart LR
+    MCP[MCP clients] --> Service[trust-service]
+    CLI[trust HTTP client] --> Service
+    Service --> Worker[Single financial worker]
+    Worker --> Journal[Control journal and audit]
+    Worker --> Core[core::TrustFacade]
+    Core --> Model[model contracts]
+    Model --> DB[db-sqlite]
+    Model --> Brokers[IBKR / Alpaca adapters]
+    Core --> Advisor[advisor]
+```
 
-Trust is organized as a Rust workspace with strict boundaries between domain types, business logic, persistence, brokers, and CLI presentation.
+See [service operations](service.md), [the risk contract](risk-contract.md), [authentication](authentication.md) and [storage security](security.md) for the enforced behavior and deployment requirements.
 
-## Workspace Crates
+## Repository map
 
-- `trust-model`: domain types and trait contracts. Monetary values use `rust_decimal::Decimal`.
-- `core`: business logic and the `TrustFacade` entry point.
-- `db-sqlite`: Diesel-backed SQLite implementation of the database factory traits.
-- `trust-cli`: Clap CLI, dialogs, command routing, and user-facing views.
-- `alpaca-broker`: Alpaca implementation of the `Broker` trait.
-- `ibkr-broker`: Interactive Brokers implementation and gateway adapters.
-- `broker-sync`: actor-based realtime sync and reconciliation support.
-- `advisor`: advisory checks for catalyst, correlation, regime, and position heat.
-
-## Dependency Direction
-
-The intended runtime flow is:
+Use `tree --gitignore -a -L 3 -I '.git'` from the repository root to inspect source without build products, local secrets or test artifacts.
 
 ```text
-MCP/CLI -> service -> core::TrustFacade -> model traits -> db/broker implementations
+trust/
+├── service/       HTTP/MCP, worker, control journal, authorization, skills delivery
+├── core/          TrustFacade, risk engines, accounting and trade orchestration
+├── model/         Domain types and Broker / DatabaseFactory contracts
+├── db-sqlite/     Financial storage, migrations, atomic writes and encrypted backups
+├── ibkr-broker/   Client Portal requests and broker-to-domain translation
+├── alpaca-broker/ Alpaca requests and broker-to-domain translation
+├── advisor/       Catalyst, correlation and regime analysis
+├── security/      Private-file, encryption-key and secret handling
+├── credentials/   Native credential stores for local adapters and legacy use
+├── cli/           Default HTTP client plus optional trust-legacy compatibility binary
+├── broker-sync/   Session actor and separate connection-state scaffold
+├── skills/        Risk, operations and owner-administration agent workflows
+├── deploy/        Service, Keycloak and PostgreSQL container configuration
+├── scripts/       Assurance, identity setup, packaging and acceptance runners
+├── docs/          Contracts, operations and verification records
+├── tests/         Installer tests
+└── .github/       Build, coverage, security, performance and release gates
 ```
 
-The CLI should not call the database or broker directly for business decisions. It parses arguments, asks dialogs, calls core, and renders results. Core validates and coordinates state transitions. Database and broker crates implement the traits defined in `trust-model`.
+The Cargo workspace contains eleven crates. Each crate's `AGENTS.md`, where present, describes its narrower ownership and verification requirements. The root Dockerfile builds the service, storage utility and default HTTP client.
 
-## Core Facade
+## Responsibility boundaries
 
-`TrustFacade` is the single public business-logic entry point used by the CLI. It owns:
+| Layer | Owns | Must delegate |
+| --- | --- | --- |
+| MCP/HTTP/CLI | Request presentation, discovery, schemas and responses | Financial decisions, storage and broker execution |
+| Service | Verified identity, scopes/accounts, owner MFA, queueing, durable operation records, safety-state persistence and recovery | Risk formulas and financial mutations to core |
+| Core | Sizing, portfolio admission, lifecycle validation, accounting, reconciliation, leveling and distributions | External representation and persistence details to adapters |
+| Model | Exact-decimal entities, state and adapter contracts | Application workflows |
+| Database/broker adapters | Translate and persist domain values; preserve account/contract identity and explicit errors | Risk policy decisions |
 
-- account and transaction operations
-- trade creation, funding, submission, sync, cancellation, and close workflows
-- risk validation before capital commitment
-- level evaluation and adjustment
-- distribution rules and execution
-- grading, catalyst events, mistakes, session plans, and reports
-- advisor checks and broker registry routing
+`service/src/catalog.rs` defines tool names, permissions and input contracts. `runtime.rs` validates and authorizes before claiming an idempotency key or dispatching work. `safety.rs` connects persisted whole-account state to core risk engines. `domain/` calls the facade; transports never submit directly to a broker. Output schemas, guidance and skill workflows are separate presentation modules, with contract tests covering their agreement.
 
-This keeps user-facing commands thin and makes tests exercise the same path real users exercise.
+## Financial and control storage
 
-## Database Layer
+`DatabaseFactory` supplies account, order, trade, execution, fee and other financial readers/writers. `db-sqlite` implements them using Diesel and SQLCipher. Financial workflows use transactions/savepoints so partial failures cannot leave only some accounting writes committed.
 
-`DatabaseFactory` returns specialized read/write trait objects such as account, trade, order, execution, grade, mistake, and session-plan readers/writers. SQLite implements those traits in `db-sqlite`.
+The service's separately encrypted control database stores idempotency claims, operation outcomes, audit history, account safety policies, reservations, mandates and durable halts. It commits intent before financial dispatch. An unfinished operation after a crash is uncertain and must be reconciled; it is never automatically submitted again. A broker request and the two databases cannot share an atomic transaction. Back up both databases while the worker is stopped and retain externally anchored audit evidence.
 
-Schema changes are made through migrations:
+Financial migrations live in `db-sqlite/migrations/`; control migrations live in `service/migrations/`. Both need paired migration files and preservation tests. Never edit the generated `db-sqlite/src/schema.rs` directly.
 
-```bash
-make migration NAME=descriptive_name
-make build
-```
+Build and test Make targets do not initialize or migrate the operator's legacy database. Tests create their own storage. `make setup`, `make migration` and `make clean-db` are explicit database operations; use a deliberate `CLI_DATABASE_URL` when invoking them. Ordinary test targets use the pinned lockfile.
 
-Do not manually edit `db-sqlite/src/schema.rs`; Diesel generates it.
+## Trade and risk workflow
 
-## Trade State Machine
+`DraftTrade` is creation input; a persisted trade starts at `New`. The main lifecycle includes funding, submission, partial/full fills and terminal outcomes. Every trade has entry, safety-stop and target orders. The authoritative transition rules and accounting effects are in `core/src/commands/trade.rs`; a diagram is not a substitute for those checks.
 
-Trades move through explicit states:
+Funding and submission validate current account and trade state, owner policy, broker evidence, portfolio capacity and the agent mandate. Shared prospective loss reservations include all linked Trust profiles and observed external exposure. Submission rechecks current conditions; a preview does not reserve capacity. Existing stops may only tighten. Unknown financial outcomes, stale evidence and reconciliation failures can latch a durable halt; permitted protection and exits retain their normal authorization and lifecycle checks.
 
-```text
-Draft/New -> Funded -> Submitted -> Filled -> ClosedTarget | ClosedStopLoss
-                         |              |
-                         |              -> Canceled for manual close/cancel paths
-                         -> Canceled
-```
+Closing a trade feeds leveling and conditional positive-profit distribution. Grading is an explicit operation. Execution and fee reconciliation must remain consistent with balances and the trade lifecycle. Detailed limits, formulas and remaining acceptance requirements are in [the risk contract](risk-contract.md).
 
-Each trade owns three order records:
+## Clients, legacy code and broker synchronization
 
-- entry order
-- safety stop order
-- target order
+`cli/src/client_main.rs` builds the default `trust` HTTP client. Its normal dependencies are limited to the client stack; database, broker, advisor and native credential dependencies are optional and enabled by `--features legacy-cli`. Development dependencies retain existing facade regressions even when that feature is disabled. The default client can be built without SQLCipher or D-Bus development libraries; its HTTP/TLS dependencies still have their own build requirements.
 
-State transitions are persisted with transaction records so capital reservation, fills, fees, and releases are auditable.
+`trust-legacy` uses `cli/src/main.rs`, the large dispatcher, dialogs and views. It remains a compatibility/testing surface and must never share a database with the running service. New product workflows belong in the service. Keep legacy JSON snapshots stable until an intentional migration retires their contract.
 
-## Risk Validation Flow
+`broker-sync` is an in-memory session actor plus message types and a separate connection state machine. It does **not** provide production websocket reconciliation. The legacy watch command polls through the facade; the actor tracks its sessions. Production reconciliation is the service worker's bounded background polling. Wiring websocket events would require explicit acknowledgement, ordering, idempotency and recovery semantics.
 
-Funding is the main capital commitment boundary:
+## Verification and remaining debt
 
-```text
-CLI command
-  -> TrustFacade
-  -> validators and calculators
-  -> database reads for balances, rules, and open exposure
-  -> database writes for funded trade and fund transaction
-```
+CLI subprocess tests use `cli/tests/support/mod.rs` for temporary database directories, disabled keychain access and Cargo's selected executable. They use the compile-time binary path rather than searching `target/debug`, which could select an old or non-instrumented executable during coverage. This follows [Cargo's integration-test binary support](https://doc.rust-lang.org/cargo/reference/cargo-targets.html#integration-tests). Each top-level integration-test file is already a Cargo target; do not import it into a second aggregator just to run it again.
 
-Submission happens after funding. Broker calls do not decide whether a trade is acceptable; core does that first.
+The highest-value remaining structural cleanup is:
 
-## Broker Integration
+- Move facade/accounting regressions from `cli/tests/` to the crates that own those behaviors, preserving their cases and fixtures. This would reduce development dependencies as well as clarify ownership.
+- Retire legacy command groups incrementally after their migration contracts and service replacements are proven. The large dispatcher includes substantial inline tests; a bulk deletion would lose useful evidence.
+- Decide whether the broker-sync scaffold is still needed before expanding it. Its current session tracking is not evidence of websocket recovery.
+- Continue replacing diagnostic-only legacy probes with business assertions. The unregistered workflow/Phase 2 drafts and the unused success-only `ProfitDistributionService::transfer_funds` placeholder have been removed. Transfers use `TrustFacade::transfer_between_accounts` with an explicit currency. Executable cash contracts and lifecycle replay tests cover persisted outcomes; see [test design](reliability/testing.md).
 
-Brokers implement `model::Broker`. The core broker registry routes operations based on account broker kind. Broker crates are responsible for mapping broker-specific order payloads, statuses, market data, executions, and fees into Trust domain objects.
-
-Broker operations are split by behavior. For Alpaca, submit, sync, close, cancel, and modify operations each have dedicated modules.
-
-## Event-Driven Review
-
-Closed trades feed post-trade processes:
-
-- trade grading
-- profit distribution
-- level evaluation
-- catalyst event review
-- mistake and bias autopsy
-- session plan review
-
-The key principle is that closing a trade creates data for both accounting and future decision quality, not just a terminal trade status.
+Run the workspace gates in [the repository guide](../AGENTS.md). The [verification record](reliability/verification.md) distinguishes offline evidence, real identity/client checks and broker-connected acceptance. Passing deterministic tests does not establish real IBKR fills, protection, fee fidelity or production readiness.

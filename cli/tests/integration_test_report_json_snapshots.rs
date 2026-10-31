@@ -1,4 +1,5 @@
 #![cfg(feature = "legacy-cli")]
+mod support;
 use core::TrustFacade;
 use db_sqlite::SqliteDatabase;
 use model::{
@@ -9,69 +10,11 @@ use rust_decimal_macros::dec;
 use serde_json::Value;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use support::TestDatabase;
 use uuid::Uuid;
 
-fn cli_bin_path() -> String {
-    if let Ok(bin) = std::env::var("CARGO_BIN_EXE_trust-legacy") {
-        return bin;
-    }
-
-    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let candidates = [
-        manifest_dir
-            .join("..")
-            .join("target")
-            .join("debug")
-            .join("trust-legacy"),
-        manifest_dir
-            .join("..")
-            .join("target")
-            .join("llvm-cov-target")
-            .join("debug")
-            .join("trust-legacy"),
-    ];
-    for candidate in &candidates {
-        if candidate.exists() {
-            return candidate.to_string_lossy().to_string();
-        }
-    }
-
-    if let Ok(current_exe) = std::env::current_exe() {
-        if let Some(debug_dir) = current_exe.parent().and_then(Path::parent) {
-            let sibling_bin = debug_dir.join("trust-legacy");
-            if sibling_bin.exists() {
-                return sibling_bin.to_string_lossy().to_string();
-            }
-        }
-    }
-
-    candidates[0].to_string_lossy().to_string()
-}
-
-struct TestDatabaseCleanup {
-    database_path: String,
-}
-
-impl TestDatabaseCleanup {
-    fn new(database_url: &str) -> Self {
-        Self {
-            database_path: database_url.replace("file:", ""),
-        }
-    }
-}
-
-impl Drop for TestDatabaseCleanup {
-    fn drop(&mut self) {
-        if Path::new(&self.database_path).exists() {
-            let _ = fs::remove_file(&self.database_path);
-        }
-    }
-}
-
 fn run_report(database_url: &str, args: &[&str]) -> std::process::Output {
-    Command::new(cli_bin_path())
-        .env("TRUST_DB_URL", database_url)
+    support::legacy_command(database_url, "test_keyword")
         .args(args)
         .output()
         .expect("run cli report command")
@@ -345,11 +288,8 @@ fn assert_or_update_snapshot(name: &str, payload: &Value) {
 
 #[test]
 fn test_report_json_snapshots() {
-    let database_url = format!(
-        "file:test_report_json_snapshots_{}.db",
-        Uuid::new_v4().simple()
-    );
-    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let fixture = TestDatabase::new();
+    let database_url = fixture.url();
     let account_id = seed_snapshot_dataset(&database_url);
     let account_arg = account_id.to_string();
 

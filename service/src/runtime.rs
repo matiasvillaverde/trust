@@ -259,7 +259,7 @@ impl Service {
             metrics::decrement(&self.metrics.queued);
             metrics::increment(&self.metrics.busy, 1);
             tracing::warn!(event="queue_rejected", request_id=%request_id, "Financial worker queue is full or unavailable");
-            return error(ServiceError::new(
+            return error(ServiceError::before_dispatch_retry(
                 "busy",
                 "The service queue is full or unavailable.",
                 "Retry with the same idempotency key after a short delay.",
@@ -296,7 +296,7 @@ impl Worker {
     }
 }
 fn expired() -> ServiceError {
-    ServiceError::new(
+    ServiceError::before_dispatch_retry(
         "request_expired",
         "The request expired before dispatch; no operation was started.",
         "Retry with the same idempotency key after the queue clears.",

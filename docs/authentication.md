@@ -50,6 +50,14 @@ The reference stack is [deploy/keycloak/compose.yaml](../deploy/keycloak/compose
 6. Obtain public JWKS from the verified issuer and mount them at Trust's configured `jwks_file`. Trust intentionally uses pinned keys rather than fetching arbitrary JWT URLs. For rotation, stage both old and new public keys, restart Trust, rotate the issuer, wait for old tokens to expire, then remove retired keys and restart. Test both overlap and retirement before production rollout.
 7. Retain identity and Trust audit logs outside the writable application host. Back up Keycloak PostgreSQL/signing keys and Trust's stopped financial/control databases. Exercise restore and key revocation. Alert on login failures, privileged mutations, unresolved operations and durable halts.
 
+### Pinned signing-key requirements
+
+Trust validates the pinned JWKS at startup and prepares its verification keys once. It still verifies every token's signature, issuer, audience, lifetime, revocation, scopes and owner authentication window on every request; it does not cache authenticated identities.
+
+The file must contain 1–32 public keys with unique, nonempty `kid` values of at most 256 bytes and no control characters. Private and symmetric key parameters are rejected. Eligible verification keys are RSA with a canonical 2048–8192-bit public modulus and an odd public exponent between 3 and 4294967295. When present, `alg` must be `RS256`, `use` must be `sig`, and `key_ops` must be exactly `["verify"]`. Other algorithm/use/operation keys in a mixed issuer JWKS are excluded; at least one eligible key is required. A token cannot select an excluded key even if its signature would otherwise verify. These restrictions follow the application-level algorithm binding in [JWT best practices](https://www.rfc-editor.org/info/rfc8725/) and the key-purpose metadata in [JWK](https://www.rfc-editor.org/rfc/rfc7517.html).
+
+Trust accepts signed RS256 access tokens without critical extensions. Headers containing `crit`, `enc`, `zip` or `b64` are rejected because those extensions are unsupported. Changing the pinned file takes effect only after restart. Include these checks in issuer onboarding and rotation tests before changing production keys.
+
 Keep dynamic client registration disabled unless a specific MCP client's requirements have been reviewed. Clients must support a pre-registered client ID and exact callback; a client that insists on unrestricted dynamic registration is not yet approved. Neither this stack nor the local harness provisions a public hostname or production certificates.
 
 ## Run the isolated compatibility test

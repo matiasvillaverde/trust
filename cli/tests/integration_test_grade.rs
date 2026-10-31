@@ -1,4 +1,5 @@
 #![cfg(feature = "legacy-cli")]
+mod support;
 use core::TrustFacade;
 use db_sqlite::SqliteDatabase;
 use model::DatabaseFactory;
@@ -7,72 +8,11 @@ use model::{
 };
 use rust_decimal_macros::dec;
 use serde_json::Value;
-use std::fs;
-use std::path::Path;
-use std::process::Command;
+use support::TestDatabase;
 use uuid::Uuid;
 
-fn cli_bin_path() -> String {
-    if let Ok(bin) = std::env::var("CARGO_BIN_EXE_trust-legacy") {
-        return bin;
-    }
-
-    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let candidates = [
-        manifest_dir
-            .join("..")
-            .join("target")
-            .join("debug")
-            .join("trust-legacy"),
-        manifest_dir
-            .join("..")
-            .join("target")
-            .join("llvm-cov-target")
-            .join("debug")
-            .join("trust-legacy"),
-    ];
-    for candidate in &candidates {
-        if candidate.exists() {
-            return candidate.to_string_lossy().to_string();
-        }
-    }
-
-    if let Ok(current_exe) = std::env::current_exe() {
-        if let Some(debug_dir) = current_exe.parent().and_then(Path::parent) {
-            let sibling_bin = debug_dir.join("trust-legacy");
-            if sibling_bin.exists() {
-                return sibling_bin.to_string_lossy().to_string();
-            }
-        }
-    }
-
-    candidates[0].to_string_lossy().to_string()
-}
-
-struct TestDatabaseCleanup {
-    database_path: String,
-}
-
-impl TestDatabaseCleanup {
-    fn new(database_url: &str) -> Self {
-        Self {
-            database_path: database_url.replace("file:", ""),
-        }
-    }
-}
-
-impl Drop for TestDatabaseCleanup {
-    fn drop(&mut self) {
-        if Path::new(&self.database_path).exists() {
-            let _ = fs::remove_file(&self.database_path);
-        }
-    }
-}
-
 fn run_cli(database_url: &str, args: &[&str]) -> std::process::Output {
-    Command::new(cli_bin_path())
-        .env("TRUST_DB_URL", database_url)
-        .env("TRUST_DISABLE_KEYCHAIN", "1")
+    support::legacy_command(database_url, "test_keyword")
         .args(args)
         .output()
         .expect("run cli")
@@ -272,8 +212,8 @@ fn seed_canceled_trade_without_exit_fill(database_url: &str) -> Uuid {
 
 #[test]
 fn test_grade_show_json() {
-    let database_url = format!("file:/tmp/trust-grade-show-{}.db", Uuid::new_v4());
-    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let fixture = TestDatabase::new();
+    let database_url = fixture.url();
     let (_account_id, trade_id) = seed_closed_trade_with_grade(&database_url);
 
     let output = run_cli(
@@ -291,8 +231,8 @@ fn test_grade_show_json() {
 
 #[test]
 fn test_grade_summary_json() {
-    let database_url = format!("file:/tmp/trust-grade-summary-{}.db", Uuid::new_v4());
-    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let fixture = TestDatabase::new();
+    let database_url = fixture.url();
     let (account_id, _trade_id) = seed_closed_trade_with_grade(&database_url);
 
     let output = run_cli(
@@ -320,8 +260,8 @@ fn test_grade_summary_json() {
 
 #[test]
 fn test_grade_show_without_weights_reads_existing_custom_weight_grade() {
-    let database_url = format!("file:/tmp/trust-grade-custom-weights-{}.db", Uuid::new_v4());
-    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let fixture = TestDatabase::new();
+    let database_url = fixture.url();
     let (_account_id, trade_id) = seed_closed_trade_with_grade(&database_url);
 
     // Regrade with non-default weights.
@@ -358,11 +298,8 @@ fn test_grade_show_without_weights_reads_existing_custom_weight_grade() {
 
 #[test]
 fn test_grade_show_fails_for_canceled_trade_without_real_exit_fill() {
-    let database_url = format!(
-        "file:/tmp/trust-grade-canceled-unfilled-{}.db",
-        Uuid::new_v4()
-    );
-    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let fixture = TestDatabase::new();
+    let database_url = fixture.url();
     let trade_id = seed_canceled_trade_without_exit_fill(&database_url);
 
     let output = run_cli(

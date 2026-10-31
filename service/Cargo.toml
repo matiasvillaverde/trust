@@ -8,6 +8,7 @@ rust-version.workspace = true
 description = "Authenticated risk-management service and MCP interface for Trust"
 
 [dependencies]
+base64 = "0.23.1"
 schemars.workspace = true
 trust-core = { package = "core", path = "../core", version = "0.3.5" }
 model = { package = "trust-model", path = "../model", version = "0.3.5" }
@@ -44,7 +45,6 @@ reqwest.workspace = true
 jsonwebtoken = { version = "11.1.0", default-features = false, features = ["aws_lc_rs", "use_pem"] }
 tempfile = "3.27.0"
 openssl = "0.10.81"
-base64 = "0.23.1"
 
 [lints.clippy]
 unwrap_used = "deny"

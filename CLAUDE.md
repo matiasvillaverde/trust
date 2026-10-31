@@ -85,8 +85,8 @@ CLI (binary, Clap)
 
 ### Testing
 
-- **Integration tests** in `cli/tests/` (18 test files). Must run single-threaded (`--test-threads=1`) due to shared SQLite access.
-- **Core tests** in `core/src/integration_tests.rs` with mock implementations in `core/src/mocks.rs`.
+- **Integration tests** in `cli/tests/`, `core/tests/`, and `service/tests/`. Serialize DB/CLI suites with `--test-threads=1`.
+- **Core tests** include public-facade cash/lifecycle contracts with real SQLite, inline tests, and focused mocks in `core/src/mocks.rs`. See [test design](docs/reliability/testing.md).
 - **DB tests** in `db-sqlite/src/migration_fk_safety_tests.rs` for foreign key constraint validation.
 - **Snapshot tests**: JSON contract tests for CLI reports. Update with `make snapshots-update`.
 - **Perf gate**: `make ci-perf` runs regression guard on sync lifecycle.

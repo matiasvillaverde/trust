@@ -4,6 +4,56 @@ use std::path::{Path, PathBuf};
 const CLI_SRC: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src");
 
 #[test]
+fn default_client_dependency_graph_excludes_financial_and_credential_stacks() {
+    let output = std::process::Command::new(env!("CARGO"))
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .args([
+            "tree",
+            "--locked",
+            "--offline",
+            "-p",
+            "trust-cli",
+            "--no-default-features",
+            "--edges",
+            "normal,build",
+            "--prefix",
+            "none",
+        ])
+        .output()
+        .expect("inspect default client dependency graph");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let graph = String::from_utf8(output.stdout).expect("Cargo tree must be UTF-8");
+    let forbidden = [
+        "core",
+        "trust-model",
+        "db-sqlite",
+        "alpaca-broker",
+        "ibkr-broker",
+        "broker-sync",
+        "advisor",
+        "trust-credentials",
+        "trust-service",
+        "diesel",
+        "libsqlite3-sys",
+        "dbus",
+        "keyring-core",
+    ];
+    let violations: Vec<_> = graph
+        .lines()
+        .filter_map(|line| line.split_whitespace().next())
+        .filter(|package| forbidden.contains(package))
+        .collect();
+    assert!(
+        violations.is_empty(),
+        "Default HTTP client includes server or legacy dependencies: {violations:?}"
+    );
+}
+
+#[test]
 fn cli_risk_mutations_route_through_trust_facade() {
     let mut violations = Vec::new();
     for file in rust_source_files(Path::new(CLI_SRC)) {

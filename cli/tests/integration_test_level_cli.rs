@@ -1,78 +1,17 @@
 #![cfg(feature = "legacy-cli")]
+mod support;
 use core::TrustFacade;
 use db_sqlite::SqliteDatabase;
 use model::{Currency, Environment, RuleLevel, RuleName, TransactionCategory};
 use rust_decimal_macros::dec;
 use serde_json::Value;
-use std::fs;
-use std::path::Path;
-use std::process::Command;
+use support::TestDatabase;
 use uuid::Uuid;
 
 const PROTECTED_KEYWORD: &str = "I_UNDERSTAND_RISK";
 
-fn cli_bin_path() -> String {
-    if let Ok(bin) = std::env::var("CARGO_BIN_EXE_trust-legacy") {
-        return bin;
-    }
-
-    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let candidates = [
-        manifest_dir
-            .join("..")
-            .join("target")
-            .join("debug")
-            .join("trust-legacy"),
-        manifest_dir
-            .join("..")
-            .join("target")
-            .join("llvm-cov-target")
-            .join("debug")
-            .join("trust-legacy"),
-    ];
-    for candidate in &candidates {
-        if candidate.exists() {
-            return candidate.to_string_lossy().to_string();
-        }
-    }
-
-    if let Ok(current_exe) = std::env::current_exe() {
-        if let Some(debug_dir) = current_exe.parent().and_then(Path::parent) {
-            let sibling_bin = debug_dir.join("trust-legacy");
-            if sibling_bin.exists() {
-                return sibling_bin.to_string_lossy().to_string();
-            }
-        }
-    }
-
-    candidates[0].to_string_lossy().to_string()
-}
-
-struct TestDatabaseCleanup {
-    database_path: String,
-}
-
-impl TestDatabaseCleanup {
-    fn new(database_url: &str) -> Self {
-        Self {
-            database_path: database_url.replace("file:", ""),
-        }
-    }
-}
-
-impl Drop for TestDatabaseCleanup {
-    fn drop(&mut self) {
-        if Path::new(&self.database_path).exists() {
-            let _ = fs::remove_file(&self.database_path);
-        }
-    }
-}
-
 fn run_cli(database_url: &str, args: &[&str]) -> std::process::Output {
-    Command::new(cli_bin_path())
-        .env("TRUST_DB_URL", database_url)
-        .env("TRUST_DISABLE_KEYCHAIN", "1")
-        .env("TRUST_PROTECTED_KEYWORD_EXPECTED", PROTECTED_KEYWORD)
+    support::legacy_command(database_url, PROTECTED_KEYWORD)
         .args(args)
         .output()
         .expect("run cli")
@@ -146,8 +85,8 @@ fn seed_account_with_capital_and_rules(database_url: &str, name: &str) -> Uuid {
 
 #[test]
 fn test_level_status_json_contract() {
-    let database_url = format!("file:test_level_status_cli_{}.db", Uuid::new_v4().simple());
-    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let fixture = TestDatabase::new();
+    let database_url = fixture.url();
     let account_id = seed_account(&database_url, "level-status");
 
     let output = run_cli(
@@ -175,8 +114,8 @@ fn test_level_status_json_contract() {
 
 #[test]
 fn test_level_change_then_history_json_contains_event() {
-    let database_url = format!("file:test_level_change_cli_{}.db", Uuid::new_v4().simple());
-    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let fixture = TestDatabase::new();
+    let database_url = fixture.url();
     let account_id = seed_account(&database_url, "level-change");
 
     let change = run_cli(
@@ -232,8 +171,8 @@ fn test_level_change_then_history_json_contains_event() {
 
 #[test]
 fn test_level_evaluate_apply_json_changes_level() {
-    let database_url = format!("file:test_level_eval_cli_{}.db", Uuid::new_v4().simple());
-    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let fixture = TestDatabase::new();
+    let database_url = fixture.url();
     let account_id = seed_account(&database_url, "level-evaluate");
 
     let output = run_cli(
@@ -280,11 +219,8 @@ fn test_level_evaluate_apply_json_changes_level() {
 
 #[test]
 fn test_level_evaluate_text_contract_covers_apply_outcomes() {
-    let database_url = format!(
-        "file:test_level_eval_text_cli_{}.db",
-        Uuid::new_v4().simple()
-    );
-    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let fixture = TestDatabase::new();
+    let database_url = fixture.url();
     let downgrade_account_id = seed_account(&database_url, "level-evaluate-text-downgrade");
     let stable_account_id = seed_account(&database_url, "level-evaluate-text-stable");
 
@@ -357,8 +293,8 @@ fn test_level_evaluate_text_contract_covers_apply_outcomes() {
 
 #[test]
 fn test_level_status_without_account_errors_when_multiple_accounts_exist() {
-    let database_url = format!("file:test_level_scope_cli_{}.db", Uuid::new_v4().simple());
-    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let fixture = TestDatabase::new();
+    let database_url = fixture.url();
     let _ = seed_account(&database_url, "level-a");
     let _ = seed_account(&database_url, "level-b");
 
@@ -371,11 +307,8 @@ fn test_level_status_without_account_errors_when_multiple_accounts_exist() {
 
 #[test]
 fn test_level_change_requires_protected_keyword() {
-    let database_url = format!(
-        "file:test_level_protected_cli_{}.db",
-        Uuid::new_v4().simple()
-    );
-    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let fixture = TestDatabase::new();
+    let database_url = fixture.url();
     let account_id = seed_account(&database_url, "level-protected");
 
     let output = run_cli(
@@ -406,11 +339,8 @@ fn test_level_change_requires_protected_keyword() {
 
 #[test]
 fn test_level_triggers_json_contract() {
-    let database_url = format!(
-        "file:test_level_triggers_cli_{}.db",
-        Uuid::new_v4().simple()
-    );
-    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let fixture = TestDatabase::new();
+    let database_url = fixture.url();
 
     let output = run_cli(&database_url, &["level", "triggers", "--format", "json"]);
     assert!(output.status.success(), "level triggers should succeed");
@@ -428,11 +358,8 @@ fn test_level_triggers_json_contract() {
 
 #[test]
 fn test_level_progress_json_contract() {
-    let database_url = format!(
-        "file:test_level_progress_cli_{}.db",
-        Uuid::new_v4().simple()
-    );
-    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let fixture = TestDatabase::new();
+    let database_url = fixture.url();
     let account_id = seed_account(&database_url, "level-progress");
 
     let output = run_cli(
@@ -471,8 +398,8 @@ fn test_level_progress_json_contract() {
 
 #[test]
 fn test_level_rules_show_json_contract() {
-    let database_url = format!("file:test_level_rules_show_{}.db", Uuid::new_v4().simple());
-    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let fixture = TestDatabase::new();
+    let database_url = fixture.url();
     let account_id = seed_account(&database_url, "level-rules-show");
 
     let text_output = run_cli(
@@ -517,11 +444,8 @@ fn test_level_rules_show_json_contract() {
 
 #[test]
 fn test_level_rules_set_requires_protected_keyword() {
-    let database_url = format!(
-        "file:test_level_rules_protected_{}.db",
-        Uuid::new_v4().simple()
-    );
-    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let fixture = TestDatabase::new();
+    let database_url = fixture.url();
     let account_id = seed_account(&database_url, "level-rules-protected");
 
     let output = run_cli(
@@ -550,8 +474,8 @@ fn test_level_rules_set_requires_protected_keyword() {
 
 #[test]
 fn test_level_rules_set_updates_value() {
-    let database_url = format!("file:test_level_rules_set_{}.db", Uuid::new_v4().simple());
-    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let fixture = TestDatabase::new();
+    let database_url = fixture.url();
     let account_id = seed_account(&database_url, "level-rules-set");
 
     let set_output = run_cli(
@@ -597,11 +521,8 @@ fn test_level_rules_set_updates_value() {
 
 #[test]
 fn test_trade_size_preview_json_contract() {
-    let database_url = format!(
-        "file:test_trade_size_preview_{}.db",
-        Uuid::new_v4().simple()
-    );
-    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let fixture = TestDatabase::new();
+    let database_url = fixture.url();
     let account_id = seed_account_with_capital_and_rules(&database_url, "size-preview");
 
     let output = run_cli(
@@ -640,8 +561,8 @@ fn test_trade_size_preview_json_contract() {
 
 #[test]
 fn test_trade_hypothesis_json_contract() {
-    let database_url = format!("file:test_trade_hypothesis_{}.db", Uuid::new_v4().simple());
-    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let fixture = TestDatabase::new();
+    let database_url = fixture.url();
     let account_id = seed_account_with_capital_and_rules(&database_url, "hypothesis");
 
     let output = run_cli(
@@ -685,11 +606,8 @@ fn test_trade_hypothesis_json_contract() {
 
 #[test]
 fn test_trade_hypothesis_short_setup_uses_stop_for_capital_required() {
-    let database_url = format!(
-        "file:test_trade_hypothesis_short_{}.db",
-        Uuid::new_v4().simple()
-    );
-    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let fixture = TestDatabase::new();
+    let database_url = fixture.url();
     let account_id = seed_account_with_capital_and_rules(&database_url, "hypothesis-short");
 
     let output = run_cli(
@@ -729,11 +647,8 @@ fn test_trade_hypothesis_short_setup_uses_stop_for_capital_required() {
 
 #[test]
 fn test_trade_hypothesis_short_setup_text_uses_stop_for_capital_required() {
-    let database_url = format!(
-        "file:test_trade_hypothesis_short_text_{}.db",
-        Uuid::new_v4().simple()
-    );
-    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let fixture = TestDatabase::new();
+    let database_url = fixture.url();
     let account_id = seed_account_with_capital_and_rules(&database_url, "hypothesis-short-text");
 
     let output = run_cli(
@@ -769,11 +684,8 @@ fn test_trade_hypothesis_short_setup_text_uses_stop_for_capital_required() {
 
 #[test]
 fn test_trade_hypothesis_decimal_json_contract() {
-    let database_url = format!(
-        "file:test_trade_hypothesis_decimal_{}.db",
-        Uuid::new_v4().simple()
-    );
-    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let fixture = TestDatabase::new();
+    let database_url = fixture.url();
     let account_id = seed_account_with_capital_and_rules(&database_url, "hypothesis-decimal");
 
     let output = run_cli(
@@ -819,11 +731,8 @@ fn test_trade_hypothesis_decimal_json_contract() {
 
 #[test]
 fn test_trade_hypothesis_zero_available_capital_contracts() {
-    let database_url = format!(
-        "file:test_trade_hypothesis_zero_capital_{}.db",
-        Uuid::new_v4().simple()
-    );
-    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let fixture = TestDatabase::new();
+    let database_url = fixture.url();
     let account_id = seed_account(&database_url, "hypothesis-zero-capital");
 
     let json_output = run_cli(
@@ -890,11 +799,8 @@ fn test_trade_hypothesis_zero_available_capital_contracts() {
 
 #[test]
 fn test_trade_hypothesis_invalid_price_reports_json_error() {
-    let database_url = format!(
-        "file:test_trade_hypothesis_invalid_price_{}.db",
-        Uuid::new_v4().simple()
-    );
-    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let fixture = TestDatabase::new();
+    let database_url = fixture.url();
     let account_id = seed_account(&database_url, "hypothesis-invalid-price");
 
     let output = run_cli(
@@ -933,11 +839,8 @@ fn test_trade_hypothesis_invalid_price_reports_json_error() {
 
 #[test]
 fn test_trade_hypothesis_rejects_conflicting_direction_inputs() {
-    let database_url = format!(
-        "file:test_trade_hypothesis_conflicting_direction_{}.db",
-        Uuid::new_v4().simple()
-    );
-    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let fixture = TestDatabase::new();
+    let database_url = fixture.url();
     let account_id = seed_account(&database_url, "hypothesis-conflicting-direction");
 
     let output = run_cli(
@@ -976,11 +879,8 @@ fn test_trade_hypothesis_rejects_conflicting_direction_inputs() {
 
 #[test]
 fn test_trade_hypothesis_unknown_account_reports_json_error() {
-    let database_url = format!(
-        "file:test_trade_hypothesis_unknown_account_{}.db",
-        Uuid::new_v4().simple()
-    );
-    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let fixture = TestDatabase::new();
+    let database_url = fixture.url();
     let _existing_account = seed_account(&database_url, "hypothesis-known-account");
     let unknown_account_id = Uuid::new_v4();
 
@@ -1020,8 +920,8 @@ fn test_trade_hypothesis_unknown_account_reports_json_error() {
 
 #[test]
 fn test_level_status_text_contract() {
-    let database_url = format!("file:test_level_status_text_{}.db", Uuid::new_v4().simple());
-    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let fixture = TestDatabase::new();
+    let database_url = fixture.url();
     let account_id = seed_account(&database_url, "level-status-text");
 
     let output = run_cli(
@@ -1037,11 +937,8 @@ fn test_level_status_text_contract() {
 
 #[test]
 fn test_level_history_text_contract_after_change() {
-    let database_url = format!(
-        "file:test_level_history_text_{}.db",
-        Uuid::new_v4().simple()
-    );
-    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let fixture = TestDatabase::new();
+    let database_url = fixture.url();
     let account_id = seed_account(&database_url, "level-history-text");
 
     let change = run_cli(

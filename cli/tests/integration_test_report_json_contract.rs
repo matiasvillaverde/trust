@@ -1,4 +1,5 @@
 #![cfg(feature = "legacy-cli")]
+mod support;
 use chrono::{NaiveDate, NaiveDateTime};
 use core::TrustFacade;
 use db_sqlite::SqliteDatabase;
@@ -9,68 +10,9 @@ use model::{
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use serde_json::Value;
-use std::fs;
-use std::path::Path;
-use std::process::Command;
 use std::str::FromStr;
+use support::TestDatabase;
 use uuid::Uuid;
-
-fn cli_bin_path() -> String {
-    if let Ok(bin) = std::env::var("CARGO_BIN_EXE_trust-legacy") {
-        return bin;
-    }
-
-    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let candidates = [
-        manifest_dir
-            .join("..")
-            .join("target")
-            .join("debug")
-            .join("trust-legacy"),
-        manifest_dir
-            .join("..")
-            .join("target")
-            .join("llvm-cov-target")
-            .join("debug")
-            .join("trust-legacy"),
-    ];
-    for candidate in &candidates {
-        if candidate.exists() {
-            return candidate.to_string_lossy().to_string();
-        }
-    }
-
-    if let Ok(current_exe) = std::env::current_exe() {
-        if let Some(debug_dir) = current_exe.parent().and_then(Path::parent) {
-            let sibling_bin = debug_dir.join("trust-legacy");
-            if sibling_bin.exists() {
-                return sibling_bin.to_string_lossy().to_string();
-            }
-        }
-    }
-
-    candidates[0].to_string_lossy().to_string()
-}
-
-struct TestDatabaseCleanup {
-    database_path: String,
-}
-
-impl TestDatabaseCleanup {
-    fn new(database_url: &str) -> Self {
-        Self {
-            database_path: database_url.replace("file:", ""),
-        }
-    }
-}
-
-impl Drop for TestDatabaseCleanup {
-    fn drop(&mut self) {
-        if Path::new(&self.database_path).exists() {
-            let _ = fs::remove_file(&self.database_path);
-        }
-    }
-}
 
 fn decimal_from_json(value: &Value) -> Decimal {
     let as_str = value
@@ -136,8 +78,7 @@ fn seed_account_with_open_and_closed_trade(database_url: &str) -> Uuid {
 }
 
 fn run_report(database_url: &str, args: &[&str]) -> std::process::Output {
-    Command::new(cli_bin_path())
-        .env("TRUST_DB_URL", database_url)
+    support::legacy_command(database_url, "test_keyword")
         .args(args)
         .output()
         .expect("run cli report command")
@@ -643,8 +584,8 @@ fn seed_account_with_tax_scenarios(database_url: &str) -> Uuid {
 
 #[test]
 fn test_risk_report_json_math_consistency() {
-    let database_url = format!("file:test_risk_report_json_{}.db", Uuid::new_v4().simple());
-    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let fixture = TestDatabase::new();
+    let database_url = fixture.url();
     let account_id = seed_account_with_open_and_closed_trade(&database_url);
 
     let output = run_report(
@@ -681,11 +622,8 @@ fn test_risk_report_json_math_consistency() {
 
 #[test]
 fn test_concentration_report_json_math_consistency() {
-    let database_url = format!(
-        "file:test_concentration_report_json_{}.db",
-        Uuid::new_v4().simple()
-    );
-    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let fixture = TestDatabase::new();
+    let database_url = fixture.url();
     let account_id = seed_account_with_open_and_closed_trade(&database_url);
 
     let output = run_report(
@@ -728,11 +666,8 @@ fn test_concentration_report_json_math_consistency() {
 
 #[test]
 fn test_summary_report_json_contains_advanced_metrics_and_balanced_counts() {
-    let database_url = format!(
-        "file:test_summary_report_json_{}.db",
-        Uuid::new_v4().simple()
-    );
-    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let fixture = TestDatabase::new();
+    let database_url = fixture.url();
     let account_id = seed_account_with_open_and_closed_trade(&database_url);
 
     let output = run_report(
@@ -784,11 +719,8 @@ fn test_summary_report_json_contains_advanced_metrics_and_balanced_counts() {
 
 #[test]
 fn test_summary_report_all_accounts_scope_is_explicit_and_non_random() {
-    let database_url = format!(
-        "file:test_summary_report_all_accounts_{}.db",
-        Uuid::new_v4().simple()
-    );
-    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let fixture = TestDatabase::new();
+    let database_url = fixture.url();
     let _ = seed_account_with_open_and_closed_trade(&database_url);
 
     let output = run_report(&database_url, &["report", "summary", "--format", "json"]);
@@ -805,11 +737,8 @@ fn test_summary_report_all_accounts_scope_is_explicit_and_non_random() {
 
 #[test]
 fn test_report_invalid_account_in_json_mode_is_structured_error_and_non_zero() {
-    let database_url = format!(
-        "file:test_report_invalid_account_{}.db",
-        Uuid::new_v4().simple()
-    );
-    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let fixture = TestDatabase::new();
+    let database_url = fixture.url();
 
     let output = run_report(
         &database_url,
@@ -834,11 +763,8 @@ fn test_report_invalid_account_in_json_mode_is_structured_error_and_non_zero() {
 
 #[test]
 fn test_drawdown_report_json_has_consistency_flags() {
-    let database_url = format!(
-        "file:test_drawdown_report_json_{}.db",
-        Uuid::new_v4().simple()
-    );
-    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let fixture = TestDatabase::new();
+    let database_url = fixture.url();
     let account_id = seed_account_with_open_and_closed_trade(&database_url);
 
     let output = run_report(
@@ -863,11 +789,8 @@ fn test_drawdown_report_json_has_consistency_flags() {
 
 #[test]
 fn test_performance_report_json_has_balanced_counts() {
-    let database_url = format!(
-        "file:test_performance_report_json_{}.db",
-        Uuid::new_v4().simple()
-    );
-    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let fixture = TestDatabase::new();
+    let database_url = fixture.url();
     let account_id = seed_account_with_open_and_closed_trade(&database_url);
 
     let output = run_report(
@@ -892,11 +815,8 @@ fn test_performance_report_json_has_balanced_counts() {
 
 #[test]
 fn test_wash_sales_report_json_flags_loss_trade_and_basis_adjustment() {
-    let database_url = format!(
-        "file:test_wash_sales_report_json_{}.db",
-        Uuid::new_v4().simple()
-    );
-    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let fixture = TestDatabase::new();
+    let database_url = fixture.url();
     let account_id = seed_account_with_wash_sale(&database_url);
 
     let output = run_report(
@@ -947,8 +867,8 @@ fn test_wash_sales_report_json_flags_loss_trade_and_basis_adjustment() {
 
 #[test]
 fn test_tax_report_json_classifies_terms_and_applies_wash_sales() {
-    let database_url = format!("file:test_tax_report_json_{}.db", Uuid::new_v4().simple());
-    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let fixture = TestDatabase::new();
+    let database_url = fixture.url();
     let account_id = seed_account_with_tax_scenarios(&database_url);
 
     let output = run_report(
@@ -1009,11 +929,8 @@ fn test_tax_report_json_classifies_terms_and_applies_wash_sales() {
 
 #[test]
 fn test_metrics_report_json_schema_contract() {
-    let database_url = format!(
-        "file:test_metrics_report_json_{}.db",
-        Uuid::new_v4().simple()
-    );
-    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let fixture = TestDatabase::new();
+    let database_url = fixture.url();
     let account_id = seed_account_with_open_and_closed_trade(&database_url);
 
     let output = run_report(
@@ -1067,11 +984,8 @@ fn test_metrics_report_json_schema_contract() {
 
 #[test]
 fn test_metrics_report_json_adjusted_ratios_are_non_null_for_varied_closed_history() {
-    let database_url = format!(
-        "file:test_metrics_report_adjusted_ratios_{}.db",
-        Uuid::new_v4().simple()
-    );
-    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let fixture = TestDatabase::new();
+    let database_url = fixture.url();
     let account_id = seed_account_with_adjusted_metrics_history(&database_url);
 
     let output = run_report(
@@ -1120,11 +1034,8 @@ fn test_metrics_report_json_adjusted_ratios_are_non_null_for_varied_closed_histo
 
 #[test]
 fn test_metrics_report_json_adjusted_sortino_falls_back_to_base_for_repeated_losses() {
-    let database_url = format!(
-        "file:test_metrics_report_adjusted_sortino_sparse_{}.db",
-        Uuid::new_v4().simple()
-    );
-    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let fixture = TestDatabase::new();
+    let database_url = fixture.url();
     let account_id = seed_account_with_closed_performance_series(
         &database_url,
         &[
@@ -1171,11 +1082,8 @@ fn test_metrics_report_json_adjusted_sortino_falls_back_to_base_for_repeated_los
 
 #[test]
 fn test_metrics_advanced_text_includes_concrete_adjusted_ratio_lines() {
-    let database_url = format!(
-        "file:test_metrics_advanced_text_adjusted_{}.db",
-        Uuid::new_v4().simple()
-    );
-    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let fixture = TestDatabase::new();
+    let database_url = fixture.url();
     let account_id = seed_account_with_adjusted_metrics_history(&database_url);
 
     let output = run_report(
@@ -1198,11 +1106,8 @@ fn test_metrics_advanced_text_includes_concrete_adjusted_ratio_lines() {
 
 #[test]
 fn test_concentration_open_only_for_empty_account_returns_empty_groups() {
-    let database_url = format!(
-        "file:test_concentration_open_only_empty_{}.db",
-        Uuid::new_v4().simple()
-    );
-    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let fixture = TestDatabase::new();
+    let database_url = fixture.url();
     let account_id = seed_empty_account(&database_url);
 
     let output = run_report(
@@ -1240,11 +1145,8 @@ fn test_concentration_open_only_for_empty_account_returns_empty_groups() {
 
 #[test]
 fn test_performance_report_json_for_empty_account_has_zero_trade_counts() {
-    let database_url = format!(
-        "file:test_performance_report_empty_json_{}.db",
-        Uuid::new_v4().simple()
-    );
-    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let fixture = TestDatabase::new();
+    let database_url = fixture.url();
     let account_id = seed_empty_account(&database_url);
 
     let output = run_report(
@@ -1270,11 +1172,8 @@ fn test_performance_report_json_for_empty_account_has_zero_trade_counts() {
 
 #[test]
 fn test_text_mode_invalid_account_exits_non_zero_with_plain_error() {
-    let database_url = format!(
-        "file:test_report_invalid_account_text_{}.db",
-        Uuid::new_v4().simple()
-    );
-    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let fixture = TestDatabase::new();
+    let database_url = fixture.url();
 
     let output = run_report(
         &database_url,
@@ -1295,11 +1194,8 @@ fn test_text_mode_invalid_account_exits_non_zero_with_plain_error() {
 
 #[test]
 fn test_summary_and_risk_reports_have_matching_total_capital_at_risk() {
-    let database_url = format!(
-        "file:test_summary_risk_consistency_{}.db",
-        Uuid::new_v4().simple()
-    );
-    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let fixture = TestDatabase::new();
+    let database_url = fixture.url();
     let account_id = seed_account_with_open_and_closed_trade(&database_url);
 
     let risk_output = run_report(
@@ -1339,11 +1235,8 @@ fn test_summary_and_risk_reports_have_matching_total_capital_at_risk() {
 
 #[test]
 fn test_concentration_group_shares_are_within_bounds() {
-    let database_url = format!(
-        "file:test_concentration_share_bounds_{}.db",
-        Uuid::new_v4().simple()
-    );
-    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let fixture = TestDatabase::new();
+    let database_url = fixture.url();
     let account_id = seed_account_with_open_and_closed_trade(&database_url);
 
     let output = run_report(

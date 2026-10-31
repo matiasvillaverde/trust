@@ -665,39 +665,6 @@ fn bug_020_fund_trade_one_cent_over_available() {
 }
 
 #[test]
-fn bug_021_fund_already_funded_trade() {
-    let mut trust = create_trust();
-    let account = setup_account_no_rules(&mut trust, dec!(50000));
-    let tv = create_trading_vehicle(&mut trust, "AAPL");
-
-    let draft = create_long_draft(&account, &tv, 100);
-    trust
-        .create_trade(draft, dec!(38), dec!(40), dec!(50))
-        .unwrap();
-    let trade = trust
-        .search_trades(account.id, Status::New)
-        .unwrap()
-        .first()
-        .unwrap()
-        .clone();
-
-    trust.fund_trade(&trade).expect("first fund");
-    let funded_trade = trust
-        .search_trades(account.id, Status::Funded)
-        .unwrap()
-        .first()
-        .unwrap()
-        .clone();
-
-    // Try to fund the already-funded trade
-    let result = trust.fund_trade(&funded_trade);
-    // BUG: This should fail, but it succeeds — trade gets double-funded
-    if result.is_ok() {
-        println!("BUG: Funding an already-funded trade should fail but succeeded");
-    }
-}
-
-#[test]
 fn bug_022_short_trade_skips_level_adjusted_quantity_validation() {
     let mut trust = create_trust();
     let account = setup_account(&mut trust, dec!(50000));
@@ -911,32 +878,6 @@ fn bug_028_cancel_funded_trade_restores_balance() {
         balance_after.total_available, balance_before.total_available,
         "BUG: Balance should be fully restored after canceling funded trade"
     );
-}
-
-#[test]
-fn bug_029_double_fund_same_trade() {
-    let mut trust = create_trust();
-    let account = setup_account_no_rules(&mut trust, dec!(50000));
-    let tv = create_trading_vehicle(&mut trust, "AAPL");
-
-    let draft = create_long_draft(&account, &tv, 100);
-    trust
-        .create_trade(draft, dec!(38), dec!(40), dec!(50))
-        .unwrap();
-    let trade = trust
-        .search_trades(account.id, Status::New)
-        .unwrap()
-        .first()
-        .unwrap()
-        .clone();
-
-    trust.fund_trade(&trade).unwrap();
-    // Try funding again with the original (stale) trade object
-    let result = trust.fund_trade(&trade);
-    // BUG: This should fail, but it succeeds — trade gets double-funded
-    if result.is_ok() {
-        println!("BUG: Double-funding the same trade should fail but succeeded");
-    }
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -1584,57 +1525,6 @@ fn bug_051_distribution_percentages_not_summing_to_100() {
         result.is_err(),
         "Distribution percentages not summing to 100% should fail"
     );
-}
-
-#[test]
-fn bug_052_distribution_with_zero_profit() {
-    let mut trust = create_trust();
-    let account = setup_account_no_rules(&mut trust, dec!(50000));
-
-    create_distribution_hierarchy(&mut trust, account.id);
-
-    trust
-        .configure_distribution(
-            account.id,
-            dec!(0.30),
-            dec!(0.25),
-            dec!(0.45),
-            dec!(0),
-            "test-password",
-        )
-        .unwrap();
-
-    let result = trust.execute_distribution(account.id, dec!(0), Currency::USD);
-    // Zero profit distribution should probably be rejected
-    if result.is_err() {
-        println!("Zero profit distribution correctly rejected");
-    }
-}
-
-#[test]
-fn bug_053_distribution_with_negative_profit() {
-    let mut trust = create_trust();
-    let account = setup_account_no_rules(&mut trust, dec!(50000));
-
-    create_distribution_hierarchy(&mut trust, account.id);
-
-    trust
-        .configure_distribution(
-            account.id,
-            dec!(0.30),
-            dec!(0.25),
-            dec!(0.45),
-            dec!(0),
-            "test-password",
-        )
-        .unwrap();
-
-    // Negative profit - should be rejected, not distributed
-    let result = trust.execute_distribution(account.id, dec!(-1000), Currency::USD);
-    // BUG: Negative profit distribution could cause money to flow backwards
-    if result.is_ok() {
-        println!("BUG: Negative profit distribution was accepted");
-    }
 }
 
 #[test]
@@ -2310,106 +2200,6 @@ fn bug_084_latest_grade_no_grades() {
 // ─────────────────────────────────────────────────────────────────
 // BUG CATEGORY 22: Fund Transfer Edge Cases
 // ─────────────────────────────────────────────────────────────────
-
-#[test]
-fn bug_085_transfer_between_same_account() {
-    let mut trust = create_trust();
-    let account = setup_account_no_rules(&mut trust, dec!(50000));
-
-    let result = trust.transfer_between_accounts(
-        account.id,
-        account.id,
-        dec!(1000),
-        Currency::USD,
-        "self transfer",
-    );
-    // BUG: Self-transfer should be rejected
-    if result.is_ok() {
-        println!("BUG: Transfer between same account was allowed");
-    }
-}
-
-#[test]
-fn bug_086_transfer_zero_amount() {
-    let mut trust = create_trust();
-    let account = setup_account_no_rules(&mut trust, dec!(50000));
-
-    let parent = trust
-        .create_account("parent2", "parent", Environment::Paper, dec!(20), dec!(10))
-        .unwrap();
-    trust
-        .create_transaction(
-            &parent,
-            &TransactionCategory::Deposit,
-            dec!(1000),
-            &Currency::USD,
-        )
-        .unwrap();
-
-    let result = trust.transfer_between_accounts(
-        account.id,
-        parent.id,
-        dec!(0),
-        Currency::USD,
-        "zero transfer",
-    );
-    // BUG: Zero amount transfer should be rejected
-    if result.is_ok() {
-        println!("BUG: Zero amount transfer was allowed");
-    }
-}
-
-#[test]
-fn bug_087_transfer_negative_amount() {
-    let mut trust = create_trust();
-    let account = setup_account_no_rules(&mut trust, dec!(50000));
-
-    let other = trust
-        .create_account("other", "other", Environment::Paper, dec!(20), dec!(10))
-        .unwrap();
-
-    let result = trust.transfer_between_accounts(
-        account.id,
-        other.id,
-        dec!(-1000),
-        Currency::USD,
-        "negative transfer",
-    );
-    // BUG: Negative amount transfer should be rejected
-    if result.is_ok() {
-        println!("BUG: Negative amount transfer was allowed");
-    }
-}
-
-#[test]
-fn bug_088_transfer_more_than_available() {
-    let mut trust = create_trust();
-    let account = setup_account_no_rules(&mut trust, dec!(1000));
-
-    let other = trust
-        .create_account("other", "other", Environment::Paper, dec!(20), dec!(10))
-        .unwrap();
-    trust
-        .create_transaction(
-            &other,
-            &TransactionCategory::Deposit,
-            dec!(100),
-            &Currency::USD,
-        )
-        .unwrap();
-
-    let result = trust.transfer_between_accounts(
-        account.id,
-        other.id,
-        dec!(5000),
-        Currency::USD,
-        "overdraft",
-    );
-    assert!(
-        result.is_err(),
-        "BUG: Transfer exceeding available balance should fail"
-    );
-}
 
 // ─────────────────────────────────────────────────────────────────
 // BUG CATEGORY 23: Extreme Values & Overflow
@@ -3418,78 +3208,9 @@ fn bug_137_grading_weights_u16_max_overflow() {
 // BUG CATEGORY 38: Double-Funding Balance Corruption
 // ─────────────────────────────────────────────────────────────────
 
-#[test]
-fn bug_138_double_funding_corrupts_balance() {
-    let mut trust = create_trust();
-    let account = setup_account_no_rules(&mut trust, dec!(50000));
-    let tv = create_trading_vehicle(&mut trust, "AAPL");
-
-    let draft = create_long_draft(&account, &tv, 100);
-    trust
-        .create_trade(draft, dec!(38), dec!(40), dec!(50))
-        .unwrap();
-    let trade = trust
-        .search_trades(account.id, Status::New)
-        .unwrap()
-        .first()
-        .unwrap()
-        .clone();
-
-    let balance_before = trust.search_balance(account.id, &Currency::USD).unwrap();
-
-    // Fund once
-    trust.fund_trade(&trade).unwrap();
-    let balance_after_first = trust.search_balance(account.id, &Currency::USD).unwrap();
-
-    // Fund again (BUG: this succeeds)
-    let trade_again = trust
-        .search_trades(account.id, Status::Funded)
-        .unwrap()
-        .first()
-        .unwrap()
-        .clone();
-    let result = trust.fund_trade(&trade_again);
-    if result.is_ok() {
-        let balance_after_second = trust.search_balance(account.id, &Currency::USD).unwrap();
-        if balance_after_second.total_available < balance_after_first.total_available {
-            println!("BUG: Double-funding deducted capital TWICE! Before: {}, After first: {}, After second: {}",
-                balance_before.total_available, balance_after_first.total_available, balance_after_second.total_available);
-        }
-    }
-}
-
 // ─────────────────────────────────────────────────────────────────
 // BUG CATEGORY 39: Deposit & Withdrawal Edge Cases
 // ─────────────────────────────────────────────────────────────────
-
-#[test]
-fn bug_139_zero_deposit_accepted() {
-    let mut trust = create_trust();
-    let account = trust
-        .create_account("test", "test", Environment::Paper, dec!(20), dec!(10))
-        .unwrap();
-
-    // First make a valid deposit so the balance exists
-    trust
-        .create_transaction(
-            &account,
-            &TransactionCategory::Deposit,
-            dec!(1000),
-            &Currency::USD,
-        )
-        .unwrap();
-
-    // Now try a zero deposit
-    let result = trust.create_transaction(
-        &account,
-        &TransactionCategory::Deposit,
-        dec!(0),
-        &Currency::USD,
-    );
-    if result.is_ok() {
-        println!("BUG: Zero deposit ($0) was accepted");
-    }
-}
 
 #[test]
 fn bug_140_withdraw_exact_balance() {
@@ -3546,33 +3267,6 @@ fn bug_141_withdraw_more_than_balance() {
         &Currency::USD,
     );
     assert!(result.is_err(), "Withdrawing more than balance should fail");
-}
-
-#[test]
-fn bug_142_deposit_zero_amount() {
-    // transaction.rs:83 only checks is_sign_negative, not is_zero
-    let mut trust = create_trust();
-    let account = trust
-        .create_account("test", "test", Environment::Paper, dec!(20), dec!(10))
-        .unwrap();
-    trust
-        .create_transaction(
-            &account,
-            &TransactionCategory::Deposit,
-            dec!(100),
-            &Currency::USD,
-        )
-        .unwrap();
-
-    let result = trust.create_transaction(
-        &account,
-        &TransactionCategory::Deposit,
-        dec!(0),
-        &Currency::USD,
-    );
-    if result.is_ok() {
-        println!("BUG: Zero deposit accepted (transaction.rs:83 checks is_sign_negative but not is_zero)");
-    }
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -3953,59 +3647,6 @@ fn bug_158_cancel_funded_on_submitted_trade() {
         result.is_err(),
         "cancel_funded should fail on submitted trade"
     );
-}
-
-#[test]
-fn bug_159_fund_closed_trade() {
-    let mut trust = create_trust_with_broker(SyncBroker {
-        sync_fn: make_entry_filled_orders,
-    });
-    let account = setup_account_no_rules(&mut trust, dec!(50000));
-    let tv = create_trading_vehicle(&mut trust, "AAPL");
-
-    let draft = create_long_draft(&account, &tv, 100);
-    trust
-        .create_trade(draft, dec!(38), dec!(40), dec!(50))
-        .unwrap();
-    let trade = trust
-        .search_trades(account.id, Status::New)
-        .unwrap()
-        .first()
-        .unwrap()
-        .clone();
-
-    // Go through full lifecycle to close
-    trust.fund_trade(&trade).unwrap();
-    let funded = trust
-        .search_trades(account.id, Status::Funded)
-        .unwrap()
-        .first()
-        .unwrap()
-        .clone();
-    trust.submit_trade(&funded).unwrap();
-    let submitted = trust
-        .search_trades(account.id, Status::Submitted)
-        .unwrap()
-        .first()
-        .unwrap()
-        .clone();
-    trust.sync_trade(&submitted, &account).unwrap();
-    let filled = trust
-        .search_trades(account.id, Status::Filled)
-        .unwrap()
-        .first()
-        .unwrap()
-        .clone();
-
-    let result = trust.close_trade(&filled);
-    // close_trade might be tricky since it calls broker
-    if result.is_ok() {
-        // Now try to fund the closed trade
-        let result2 = trust.fund_trade(&filled);
-        if result2.is_ok() {
-            println!("BUG: Funding a closed trade was accepted");
-        }
-    }
 }
 
 // ─────────────────────────────────────────────────────────────────

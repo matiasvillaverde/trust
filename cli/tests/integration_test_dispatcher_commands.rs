@@ -1,4 +1,5 @@
 #![cfg(feature = "legacy-cli")]
+mod support;
 use chrono::NaiveDate;
 use core::TrustFacade;
 use db_sqlite::SqliteDatabase;
@@ -8,75 +9,14 @@ use model::{
 };
 use rust_decimal_macros::dec;
 use serde_json::Value;
-use std::fs;
 use std::path::Path;
-use std::process::Command;
+use support::TestDatabase;
 use uuid::Uuid;
 
 const PROTECTED_KEYWORD: &str = "I_UNDERSTAND_RISK";
 
-fn cli_bin_path() -> String {
-    if let Ok(bin) = std::env::var("CARGO_BIN_EXE_trust-legacy") {
-        return bin;
-    }
-
-    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let candidates = [
-        manifest_dir
-            .join("..")
-            .join("target")
-            .join("debug")
-            .join("trust-legacy"),
-        manifest_dir
-            .join("..")
-            .join("target")
-            .join("llvm-cov-target")
-            .join("debug")
-            .join("trust-legacy"),
-    ];
-    for candidate in &candidates {
-        if candidate.exists() {
-            return candidate.to_string_lossy().to_string();
-        }
-    }
-
-    if let Ok(current_exe) = std::env::current_exe() {
-        if let Some(debug_dir) = current_exe.parent().and_then(Path::parent) {
-            let sibling_bin = debug_dir.join("trust-legacy");
-            if sibling_bin.exists() {
-                return sibling_bin.to_string_lossy().to_string();
-            }
-        }
-    }
-
-    candidates[0].to_string_lossy().to_string()
-}
-
-struct TestDatabaseCleanup {
-    database_path: String,
-}
-
-impl TestDatabaseCleanup {
-    fn new(database_url: &str) -> Self {
-        Self {
-            database_path: database_url.replace("file:", ""),
-        }
-    }
-}
-
-impl Drop for TestDatabaseCleanup {
-    fn drop(&mut self) {
-        if Path::new(&self.database_path).exists() {
-            let _ = fs::remove_file(&self.database_path);
-        }
-    }
-}
-
 fn run_cli(database_url: &str, args: &[&str]) -> std::process::Output {
-    Command::new(cli_bin_path())
-        .env("TRUST_DB_URL", database_url)
-        .env("TRUST_PROTECTED_KEYWORD_EXPECTED", PROTECTED_KEYWORD)
-        .env("TRUST_DISABLE_KEYCHAIN", "1")
+    support::legacy_command(database_url, PROTECTED_KEYWORD)
         .args(args)
         .output()
         .expect("run cli")
@@ -202,8 +142,8 @@ fn seed_multi_asset_vehicle_inventory(database_url: &str) {
 
 #[test]
 fn test_transaction_non_interactive_cli_round_trip() {
-    let database_url = format!("file:test_tx_cli_{}.db", Uuid::new_v4().simple());
-    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let fixture = TestDatabase::new();
+    let database_url = fixture.url();
     let account_id = seed_account(&database_url, "tx-cli");
 
     let deposit = run_cli(
@@ -250,8 +190,8 @@ fn test_transaction_non_interactive_cli_round_trip() {
 
 #[test]
 fn test_account_create_list_balance_and_transfer_cli_round_trip() {
-    let database_url = format!("file:test_accounts_cli_{}.db", Uuid::new_v4().simple());
-    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let fixture = TestDatabase::new();
+    let database_url = fixture.url();
 
     let empty_list = run_cli(&database_url, &["accounts", "list"]);
     assert!(
@@ -431,9 +371,10 @@ fn test_account_create_list_balance_and_transfer_cli_round_trip() {
 
 #[test]
 fn test_db_export_and_import_error_paths_cli() {
-    let database_url = format!("file:test_db_cli_{}.db", Uuid::new_v4().simple());
-    let _cleanup = TestDatabaseCleanup::new(&database_url);
-    let export_path = format!("/tmp/trust-export-{}.json", Uuid::new_v4().simple());
+    let fixture = TestDatabase::new();
+    let database_url = fixture.url();
+    let export_path = format!("{database_url}.export.json");
+    let missing_import = format!("{database_url}.missing.json");
 
     let export = run_cli(&database_url, &["db", "export", "--output", &export_path]);
     assert!(export.status.success(), "db export should succeed");
@@ -448,7 +389,7 @@ fn test_db_export_and_import_error_paths_cli() {
             "db",
             "import",
             "--input",
-            "/tmp/does-not-exist-trust-import.json",
+            &missing_import,
             "--confirm-protected",
             PROTECTED_KEYWORD,
         ],
@@ -463,14 +404,12 @@ fn test_db_export_and_import_error_paths_cli() {
         stderr_text.contains("db_import_failed"),
         "structured db import error code should be present in stderr: {stderr_text}"
     );
-
-    let _ = fs::remove_file(export_path);
 }
 
 #[test]
 fn test_bond_terms_update_and_metrics_cli_round_trip() {
-    let database_url = format!("file:test_bond_terms_cli_{}.db", Uuid::new_v4().simple());
-    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let fixture = TestDatabase::new();
+    let database_url = fixture.url();
     {
         let database = SqliteDatabase::new(&database_url);
         let mut trust = TrustFacade::new(Box::new(database), Box::new(alpaca_broker::AlpacaBroker));
@@ -560,11 +499,8 @@ fn test_bond_terms_update_and_metrics_cli_round_trip() {
 
 #[test]
 fn test_trading_vehicle_stats_cli_reports_multi_asset_bond_inventory() {
-    let database_url = format!(
-        "file:test_trading_vehicle_stats_cli_{}.db",
-        Uuid::new_v4().simple()
-    );
-    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let fixture = TestDatabase::new();
+    let database_url = fixture.url();
     seed_multi_asset_vehicle_inventory(&database_url);
 
     let stats = run_cli(
@@ -595,11 +531,8 @@ fn test_trading_vehicle_stats_cli_reports_multi_asset_bond_inventory() {
 
 #[test]
 fn test_trading_vehicle_search_cli_filters_missing_bond_terms_json() {
-    let database_url = format!(
-        "file:test_trading_vehicle_search_cli_{}.db",
-        Uuid::new_v4().simple()
-    );
-    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let fixture = TestDatabase::new();
+    let database_url = fixture.url();
     seed_multi_asset_vehicle_inventory(&database_url);
 
     let search = run_cli(
@@ -646,8 +579,8 @@ fn test_trading_vehicle_search_cli_filters_missing_bond_terms_json() {
 
 #[test]
 fn test_trade_fund_cancel_submit_and_sync_dispatch_paths() {
-    let database_url = format!("file:test_trade_dispatch_{}.db", Uuid::new_v4().simple());
-    let _cleanup = TestDatabaseCleanup::new(&database_url);
+    let fixture = TestDatabase::new();
+    let database_url = fixture.url();
 
     let (_new_account, new_trade_id) = seed_trade(&database_url, "trade-new", "AAPL", false);
     let (_funded_account, funded_trade_id) =

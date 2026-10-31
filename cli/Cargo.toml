@@ -22,25 +22,43 @@ required-features = ["legacy-cli"]
 
 [features]
 default = []
-legacy-cli = []
+legacy-cli = [
+    "dep:model", "dep:core", "dep:alpaca-broker", "dep:ibkr-broker",
+    "dep:db-sqlite", "dep:broker-sync", "dep:advisor", "dep:dialoguer",
+    "dep:tabled", "dep:rust_decimal_macros", "dep:rust_decimal",
+    "dep:shellexpand", "dep:uuid", "dep:chrono", "dep:trust-credentials",
+]
 
 [dependencies]
 reqwest.workspace = true
+clap.workspace = true
+serde_json.workspace = true
+
+# Only the migration binary constructs the financial stack or uses native credentials.
+model = { package = "trust-model", path = "../model", version = "0.3.2", optional = true }
+core = { path = "../core", version = "0.3.2", optional = true }
+alpaca-broker = { path = "../alpaca-broker", version = "0.3.2", optional = true }
+ibkr-broker = { path = "../ibkr-broker", version = "0.3.2", optional = true }
+db-sqlite = { path = "../db-sqlite", version = "0.3.2", optional = true }
+broker-sync = { path = "../broker-sync", version = "0.3.2", optional = true }
+advisor = { path = "../advisor", version = "0.3.2", optional = true }
+dialoguer = { workspace = true, optional = true }
+tabled = { workspace = true, optional = true }
+rust_decimal_macros = { workspace = true, optional = true }
+rust_decimal = { workspace = true, optional = true }
+shellexpand = { workspace = true, optional = true }
+uuid = { workspace = true, optional = true }
+chrono = { workspace = true, optional = true }
+trust-credentials = { workspace = true, optional = true }
+
+[dev-dependencies]
+# Existing facade regressions remain runnable without enabling the legacy binary.
 model = { package = "trust-model", path = "../model", version = "0.3.2" }
 core = { path = "../core", version = "0.3.2" }
 alpaca-broker = { path = "../alpaca-broker", version = "0.3.2" }
-ibkr-broker = { path = "../ibkr-broker", version = "0.3.2" }
 db-sqlite = { path = "../db-sqlite", version = "0.3.2" }
-broker-sync = { path = "../broker-sync", version = "0.3.2" }
-advisor = { path = "../advisor", version = "0.3.2" }
-
-clap = {workspace = true}
-dialoguer = {workspace = true}
-tabled = {workspace = true}
-rust_decimal_macros = {workspace = true}
-rust_decimal = {workspace = true}
-shellexpand = {workspace = true}
-uuid = {workspace = true}
-chrono = {workspace = true}
-serde_json = {workspace = true}
-trust-credentials = {workspace = true}
+rust_decimal_macros.workspace = true
+rust_decimal.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+tempfile = "3.27.0"

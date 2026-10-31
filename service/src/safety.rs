@@ -58,9 +58,8 @@ fn load(
     journal: &Journal,
     scope: &BrokerAccountScope,
 ) -> Result<AccountSafetyState> {
-    let mut state = journal.safety_state(scope).map_err(storage_error)?;
-    state.unresolved_operations = journal
-        .unresolved_for(&linked_accounts(domain, scope)?)
+    let mut state = journal
+        .account_safety(scope, &linked_accounts(domain, scope)?)
         .map_err(storage_error)?;
     if !state.unresolved_operations.is_empty() {
         state.halt("unresolved_operations", Utc::now());
