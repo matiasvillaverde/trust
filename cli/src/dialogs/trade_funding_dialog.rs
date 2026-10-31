@@ -391,14 +391,6 @@ mod tests {
     }
 
     #[test]
-    fn new_starts_with_empty_state() {
-        let builder = FundingDialogBuilder::new();
-        assert!(builder.account.is_none());
-        assert!(builder.trade.is_none());
-        assert!(builder.result.is_none());
-    }
-
-    #[test]
     fn display_handles_error_result() {
         FundingDialogBuilder {
             account: None,

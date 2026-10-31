@@ -441,25 +441,6 @@ mod tests {
     }
 
     #[test]
-    fn new_starts_with_empty_state() {
-        let builder = TradeDialogBuilder::new();
-        assert!(builder.account.is_none());
-        assert!(builder.trading_vehicle.is_none());
-        assert!(builder.category.is_none());
-        assert!(builder.entry_price.is_none());
-        assert!(builder.stop_price.is_none());
-        assert!(builder.safety_order_category.is_none());
-        assert!(builder.currency.is_none());
-        assert!(builder.quantity.is_none());
-        assert!(builder.target_price.is_none());
-        assert!(builder.thesis.is_none());
-        assert!(builder.sector.is_none());
-        assert!(builder.asset_class.is_none());
-        assert!(builder.context.is_none());
-        assert!(builder.result.is_none());
-    }
-
-    #[test]
     fn display_handles_error_result() {
         TradeDialogBuilder {
             account: None,

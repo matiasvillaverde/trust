@@ -37,7 +37,7 @@ mod tests {
 
     #[test]
     fn policy_defaults_to_text_format() {
-        let cmd = PolicyCommandBuilder::new().build();
+        let cmd = PolicyCommandBuilder::default().build();
         let matches = cmd
             .try_get_matches_from(["policy"])
             .expect("policy should parse");
@@ -57,12 +57,5 @@ mod tests {
             matches.get_one::<String>("format").map(String::as_str),
             Some("json")
         );
-    }
-
-    #[test]
-    fn policy_default_matches_new() {
-        let from_default = PolicyCommandBuilder::default().build();
-        let from_new = PolicyCommandBuilder::new().build();
-        assert_eq!(from_default.get_name(), from_new.get_name());
     }
 }

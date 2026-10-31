@@ -89,7 +89,7 @@ REQUIRED = {
     "concurrent_duplicates_credit_once_and_distinct_withdrawals_cannot_overspend",
     "journal_intent_failure_stops_worker_before_financial_mutation",
     "journal_completion_failure_keeps_committed_deposit_unknown_without_replay",
-    "manual_tools_record_actual_prices_and_conserve_long_short_cash",
+    "manual_tools::manual_tools_record_actual_prices_and_conserve_long_short_cash",
     "real_http_mcp_auth_discovery_tools_resources_and_prompts",
     "uncertain_broker_submission_is_never_executed_twice",
 }

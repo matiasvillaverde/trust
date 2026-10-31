@@ -63,6 +63,15 @@ REQUIRED = {
         "broker_reconciliation_authority_cannot_record_manual_executions",
         "service_requires_explicit_trade_and_monthly_policy"},
     2: {"history::history_pages_match_over_mcp_http_and_restart_and_account_units_are_explicit",
+        "reports_reconcile_realized_fees_open_exposure_and_account_scope_after_restart",
+        "reports_reject_missing_accounts_and_mixed_currencies_instead_of_plausible_totals",
+        "non_success_http_status_cannot_be_reported_as_success_by_a_null_error_envelope",
+        "lost_mutation_response_sends_once_and_requires_reconciliation_with_the_original_key",
+        "operator_environment_selects_service_and_token_without_exposing_them",
+        "discovery_resolves_exact_instruments_and_previews_without_committing_cash_or_orders",
+        "invalid_operator_configuration_stops_before_readiness_or_financial_storage",
+        "connected_events_remove_credentials_from_wire_and_debug_output",
+        "serialized_session_workflow_replaces_duplicates_removes_only_the_requested_trade_and_shuts_down",
         "portfolio_heat_is_atomic_across_agents_and_profiles_and_preview_never_reserves",
         "admission_rechecks_quotes_margin_and_calendar_before_broker_submission",
         "observed_agent_losses_and_fees_block_reentry_after_restart_without_policy_reset",
@@ -151,8 +160,9 @@ def commands(level):
         return [base + ["-p", "core", "-p", "trust-model", "-p", "db-sqlite"] + TAIL,
                 base + ["-p", "trust-service", "--test", "service_contract"] + TAIL]
     if level == 2:
-        return [base + ["-p", "ibkr-broker"] + TAIL,
-                base + ["-p", "trust-service", "--test", "e2e"] + TAIL]
+        return [base + ["-p", "ibkr-broker", "-p", "broker-sync"] + TAIL,
+                base + ["-p", "trust-service", "--test", "e2e", "--test", "product_reports", "--test", "product_discovery"] + TAIL,
+                base + ["-p", "trust-cli", "--test", "service_client"] + TAIL]
     return [base + ["-p", "ibkr-broker", "--test", "live_gateway_smoke_test", name,
                     "--", "--ignored", "--exact", "--test-threads=1"] for name in sorted(REQUIRED[3])]
 

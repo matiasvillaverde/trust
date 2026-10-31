@@ -366,7 +366,7 @@ mod tests {
 
     #[test]
     fn report_performance_parses_days_and_format() {
-        let cmd = ReportCommandBuilder::new().performance().build();
+        let cmd = ReportCommandBuilder::default().performance().build();
         let matches = cmd
             .try_get_matches_from([
                 "report",
@@ -457,13 +457,6 @@ mod tests {
             Some("acc-4")
         );
         assert_eq!(metrics_sub.get_one::<u32>("days"), Some(&14));
-    }
-
-    #[test]
-    fn report_default_matches_new() {
-        let from_default = ReportCommandBuilder::default().summary().build();
-        let from_new = ReportCommandBuilder::new().summary().build();
-        assert_eq!(from_default.get_name(), from_new.get_name());
     }
 
     #[test]

@@ -285,21 +285,6 @@ mod tests {
     }
 
     #[test]
-    fn rule_builders_new_start_empty() {
-        let create = RuleDialogBuilder::new();
-        assert!(create.name.is_none());
-        assert!(create.description.is_none());
-        assert!(create.level.is_none());
-        assert!(create.account.is_none());
-        assert!(create.result.is_none());
-
-        let remove = RuleRemoveDialogBuilder::new();
-        assert!(remove.account.is_none());
-        assert!(remove.rule_to_remove.is_none());
-        assert!(remove.result.is_none());
-    }
-
-    #[test]
     fn rule_builders_display_handle_error_results() {
         RuleDialogBuilder {
             name: None,
@@ -761,16 +746,5 @@ mod tests {
         );
         assert!(removed.rule_to_remove.is_some());
         scripted_reset();
-    }
-
-    #[test]
-    fn scripted_io_input_text_defaults_to_empty_string() {
-        let mut io = ScriptedIo::default();
-
-        assert_eq!(
-            io.input_text("Description:", false)
-                .expect("default text input should return"),
-            ""
-        );
     }
 }

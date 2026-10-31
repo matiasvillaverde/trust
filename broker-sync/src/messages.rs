@@ -109,6 +109,7 @@ fn sanitize_url(url: &str) -> String {
     if let Ok(mut parsed) = url.parse::<url::Url>() {
         // Remove query parameters that might contain tokens
         parsed.set_query(None);
+        parsed.set_fragment(None);
 
         // Remove password from URL if present
         let _ = parsed.set_password(None);

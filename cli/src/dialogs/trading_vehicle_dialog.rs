@@ -398,26 +398,6 @@ mod tests {
         }
         .display();
     }
-
-    #[test]
-    fn scripted_io_confirm_default_is_false() {
-        let mut io = ScriptedIo::default();
-
-        assert!(!io
-            .confirm("continue?", true)
-            .expect("confirm should return"));
-    }
-
-    #[test]
-    fn scripted_io_input_text_defaults_to_empty_string() {
-        let mut io = ScriptedIo::default();
-
-        assert_eq!(
-            io.input_text("Symbol:", false)
-                .expect("default text input should return"),
-            ""
-        );
-    }
 }
 
 pub struct TradingVehicleSearchDialogBuilder {

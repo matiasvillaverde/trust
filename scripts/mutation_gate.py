@@ -64,7 +64,16 @@ MUTATIONS = [
     ("bounded_history", "db-sqlite/src/history.rs",
      '.select(trades::id)\n            .limit(page.limit())', '.select(trades::id)',
      "core", "history_contracts", "small_pages_do_not_decode_trades_outside_the_page_or_scope"),
-
+    ("client_http_status", "cli/src/client_main.rs",
+     'value.get("error").is_none_or(Value::is_null)', 'value.get("error").is_none()',
+     "trust-cli", "service_client", "non_success_http_status_cannot_be_reported_as_success_by_a_null_error_envelope"),
+    ("connection_url_fragment", "broker-sync/src/messages.rs",
+     '        parsed.set_fragment(None);', '',
+     "broker-sync", "session_contracts", "connected_events_remove_credentials_from_wire_and_debug_output"),
+    ("report_realized_losses", "core/src/calculators_advanced_metrics.rs",
+     'pub fn calculate_net_profit(closed_trades: &[Trade]) -> Decimal {\n        closed_trades\n            .iter()\n            .map(|trade| trade.balance.total_performance)',
+     'pub fn calculate_net_profit(closed_trades: &[Trade]) -> Decimal {\n        closed_trades\n            .iter()\n            .map(|trade| trade.balance.total_performance.abs())',
+     "trust-service", "product_reports", "reports_reconcile_realized_fees_open_exposure_and_account_scope_after_restart"),
 ]
 
 

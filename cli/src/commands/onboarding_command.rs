@@ -71,7 +71,7 @@ mod tests {
 
     #[test]
     fn test_onboarding_init_and_status_parse() {
-        let init_cmd = OnboardingCommandBuilder::new().init().build();
+        let init_cmd = OnboardingCommandBuilder::default().init().build();
         let init = init_cmd
             .try_get_matches_from([
                 "onboarding",
@@ -99,12 +99,5 @@ mod tests {
             .try_get_matches_from(["onboarding", "status"])
             .expect("onboarding status should parse");
         assert!(status.subcommand_matches("status").is_some());
-    }
-
-    #[test]
-    fn test_onboarding_default_matches_new() {
-        let from_default = OnboardingCommandBuilder::default().status().build();
-        let from_new = OnboardingCommandBuilder::new().status().build();
-        assert_eq!(from_default.get_name(), from_new.get_name());
     }
 }

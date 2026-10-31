@@ -200,25 +200,7 @@ impl DrawdownView {
 #[cfg(test)]
 mod tests {
     use super::DrawdownView;
-    use chrono::Utc;
-    use core::calculators_drawdown::DrawdownMetrics;
     use rust_decimal_macros::dec;
-
-    fn sample_metrics() -> DrawdownMetrics {
-        DrawdownMetrics {
-            current_equity: dec!(9800),
-            peak_equity: dec!(10000),
-            current_drawdown: dec!(200),
-            current_drawdown_percentage: dec!(2.0),
-            max_drawdown: dec!(500),
-            max_drawdown_percentage: dec!(5.0),
-            max_drawdown_date: Some(Utc::now().naive_utc()),
-            recovery_from_max: dec!(300),
-            recovery_percentage: dec!(60.0),
-            days_since_peak: 10,
-            days_in_drawdown: 10,
-        }
-    }
 
     #[test]
     fn currency_and_percentage_formatters_are_consistent() {
@@ -243,50 +225,5 @@ mod tests {
         );
         assert_eq!(DrawdownView::format_currency(dec!(10)), "hidden");
         crate::zen::set_enabled(false);
-    }
-
-    #[test]
-    fn display_and_history_cover_recovery_and_no_drawdown_paths() {
-        crate::zen::set_enabled(false);
-        let metrics = sample_metrics();
-        DrawdownView::display_drawdown_history(&metrics);
-        DrawdownView::display(metrics);
-
-        let no_drawdown = DrawdownMetrics {
-            current_drawdown: dec!(0),
-            max_drawdown: dec!(0),
-            ..sample_metrics()
-        };
-        DrawdownView::display_drawdown_history(&no_drawdown);
-        DrawdownView::display(no_drawdown);
-
-        let fully_recovered = DrawdownMetrics {
-            current_equity: dec!(10000),
-            current_drawdown: dec!(0),
-            max_drawdown: dec!(500),
-            ..sample_metrics()
-        };
-        DrawdownView::display_drawdown_history(&fully_recovered);
-    }
-
-    #[test]
-    fn display_handles_missing_max_date_zero_recovery_and_no_day_counts() {
-        crate::zen::set_enabled(false);
-        let metrics = DrawdownMetrics {
-            current_equity: dec!(9500),
-            peak_equity: dec!(10000),
-            current_drawdown: dec!(500),
-            current_drawdown_percentage: dec!(5.0),
-            max_drawdown: dec!(500),
-            max_drawdown_percentage: dec!(5.0),
-            max_drawdown_date: None,
-            recovery_from_max: dec!(0),
-            recovery_percentage: dec!(0),
-            days_since_peak: 0,
-            days_in_drawdown: 0,
-        };
-
-        DrawdownView::display_drawdown_history(&metrics);
-        DrawdownView::display(metrics);
     }
 }

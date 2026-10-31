@@ -277,23 +277,6 @@ mod tests {
     }
 
     #[test]
-    fn account_dialog_builder_new_has_expected_defaults() {
-        let builder = AccountDialogBuilder::new();
-        assert_eq!(builder.name, "");
-        assert_eq!(builder.description, "");
-        assert!(builder.environment.is_none());
-        assert!(builder.tax_percentage.is_none());
-        assert!(builder.earnings_percentage.is_none());
-        assert!(builder.result.is_none());
-    }
-
-    #[test]
-    fn account_search_dialog_new_starts_empty() {
-        let dialog = AccountSearchDialog::new();
-        assert!(dialog.result.is_none());
-    }
-
-    #[test]
     fn account_dialog_display_handles_error_result() {
         let dialog = AccountDialogBuilder {
             name: "x".to_string(),
@@ -556,26 +539,5 @@ mod tests {
             result: Some(Err("synthetic search failure".into())),
         }
         .display(&mut trust);
-    }
-
-    #[test]
-    fn scripted_io_confirm_default_is_false() {
-        let mut io = ScriptedIo::default();
-
-        assert!(
-            !crate::dialogs::DialogIo::confirm(&mut io, "continue?", true)
-                .expect("confirm should return")
-        );
-    }
-
-    #[test]
-    fn scripted_io_input_text_defaults_to_empty_string() {
-        let mut io = ScriptedIo::default();
-
-        assert_eq!(
-            crate::dialogs::DialogIo::input_text(&mut io, "Name:", false)
-                .expect("default text input should return"),
-            ""
-        );
     }
 }

@@ -93,7 +93,7 @@ mod tests {
 
     #[test]
     fn db_export_parses_optional_output() {
-        let cmd = DbCommandBuilder::new().export().build();
+        let cmd = DbCommandBuilder::default().export().build();
         let matches = cmd
             .try_get_matches_from(["db", "export", "--output", "backup.json"])
             .expect("db export should parse");
@@ -140,12 +140,5 @@ mod tests {
                 .map(String::as_str),
             Some("keyword")
         );
-    }
-
-    #[test]
-    fn default_matches_new() {
-        let from_default = DbCommandBuilder::default().export().build();
-        let from_new = DbCommandBuilder::new().export().build();
-        assert_eq!(from_default.get_name(), from_new.get_name());
     }
 }

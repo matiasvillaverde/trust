@@ -106,7 +106,7 @@ mod tests {
 
     #[test]
     fn grade_show_parses_required_and_optional_args() {
-        let cmd = GradeCommandBuilder::new().show().build();
+        let cmd = GradeCommandBuilder::default().show().build();
         let matches = cmd
             .try_get_matches_from([
                 "grade",
@@ -162,12 +162,5 @@ mod tests {
             summary.get_one::<String>("weights").map(String::as_str),
             Some("400,300,200,100")
         );
-    }
-
-    #[test]
-    fn default_matches_new() {
-        let from_default = GradeCommandBuilder::default().show().build();
-        let from_new = GradeCommandBuilder::new().show().build();
-        assert_eq!(from_default.get_name(), from_new.get_name());
     }
 }

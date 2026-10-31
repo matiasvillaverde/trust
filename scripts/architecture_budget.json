@@ -5,13 +5,12 @@
     "alpaca-broker/src/order_mapper.rs": 979,
     "cli/src/command_routing.rs": 1056,
     "cli/src/commands/trade_command.rs": 959,
-    "cli/src/dialogs/modify_dialog.rs": 862,
-    "cli/src/dialogs/trade_create_dialog.rs": 906,
-    "cli/src/dialogs/trade_funding_dialog.rs": 808,
-    "cli/src/dialogs/trade_watch_dialog.rs": 943,
+    "cli/src/dialogs/modify_dialog.rs": 853,
+    "cli/src/dialogs/trade_create_dialog.rs": 887,
+    "cli/src/dialogs/trade_watch_dialog.rs": 935,
     "cli/src/test_support.rs": 1737,
     "cli/tests/integration_test_broker_failures.rs": 1344,
-    "cli/tests/integration_test_bug_hunt.rs": 4855,
+    "cli/tests/integration_test_bug_hunt.rs": 4852,
     "cli/tests/integration_test_report_json_contract.rs": 1265,
     "cli/tests/integration_test_sync_edge_cases.rs": 1494,
     "cli/tests/integration_test_trade.rs": 1207,
@@ -47,6 +46,6 @@
     "service/src/journal.rs": 831,
     "service/src/safety.rs": 899,
     "service/tests/e2e.rs": 1346,
-    "service/tests/service_contract.rs": 2161
+    "service/tests/service_contract.rs": 2002
   }
 }
