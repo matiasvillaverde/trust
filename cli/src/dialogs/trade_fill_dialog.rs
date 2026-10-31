@@ -289,15 +289,6 @@ mod tests {
     }
 
     #[test]
-    fn new_starts_with_empty_state() {
-        let builder = FillTradeDialogBuilder::new();
-        assert!(builder.account.is_none());
-        assert!(builder.trade.is_none());
-        assert!(builder.fee.is_none());
-        assert!(builder.result.is_none());
-    }
-
-    #[test]
     fn display_handles_error_result() {
         FillTradeDialogBuilder {
             account: None,
@@ -554,15 +545,6 @@ mod tests {
             .modify_target(&trade, &account, dec!(1))
             .expect_err("target modify should be unsupported");
         assert!(target.to_string().contains("modify target not supported"));
-    }
-
-    #[test]
-    fn scripted_io_confirm_default_is_false() {
-        let mut io = ScriptedIo::new();
-
-        assert!(!io
-            .confirm("continue?", true)
-            .expect("confirm should return"));
     }
 
     #[test]

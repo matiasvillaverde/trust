@@ -258,7 +258,7 @@ mod tests {
 
     #[test]
     fn metrics_advanced_parses_all_options() {
-        let cmd = MetricsCommandBuilder::new().advanced().build();
+        let cmd = MetricsCommandBuilder::default().advanced().build();
         let matches = cmd
             .try_get_matches_from([
                 "metrics",
@@ -429,12 +429,5 @@ mod tests {
             Some("ibkr")
         );
         assert_eq!(bond.get_one::<i64>("quantity"), Some(&5));
-    }
-
-    #[test]
-    fn metrics_default_matches_new() {
-        let from_default = MetricsCommandBuilder::default().advanced().build();
-        let from_new = MetricsCommandBuilder::new().advanced().build();
-        assert_eq!(from_default.get_name(), from_new.get_name());
     }
 }

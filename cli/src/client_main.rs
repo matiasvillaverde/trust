@@ -130,7 +130,7 @@ fn run(cli: Cli) -> Result<Value, &'static str> {
     let success = response.status().is_success();
     let bytes = read_limited(response, 1_048_576)?;
     let value:Value=serde_json::from_slice(&bytes).map_err(|_|"The service returned an invalid response. Check its health and authentication configuration.")?;
-    if !success && value.get("error").is_none() {
+    if !success && value.get("error").is_none_or(Value::is_null) {
         return Err("The service rejected the request. Check authentication, permissions, and service availability.");
     }
     Ok(value)

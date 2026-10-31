@@ -137,11 +137,8 @@ impl RiskView {
 #[cfg(test)]
 mod tests {
     use super::RiskView;
-    use chrono::Utc;
-    use core::calculators_risk::OpenPosition;
     use model::Status;
     use rust_decimal_macros::dec;
-    use uuid::Uuid;
 
     #[test]
     fn format_currency_covers_positive_and_negative_values() {
@@ -179,21 +176,5 @@ mod tests {
             "Target/Stop active"
         );
         assert_eq!(RiskView::format_status(&Status::Canceled), "Unknown status");
-    }
-
-    #[test]
-    fn display_renders_without_panicking_for_positions_and_empty_state() {
-        crate::zen::set_enabled(false);
-        let positions = vec![OpenPosition {
-            trade_id: Uuid::new_v4(),
-            symbol: "AAPL".to_string(),
-            capital_amount: dec!(1000),
-            status: Status::Filled,
-            funded_date: Utc::now().naive_utc(),
-        }];
-
-        RiskView::display(positions, dec!(1000), dec!(10000));
-        RiskView::display(Vec::new(), dec!(25), dec!(100));
-        RiskView::display(Vec::new(), dec!(0), dec!(0));
     }
 }

@@ -5,48 +5,6 @@ use broker_sync::{BrokerState, StateError, StateTransition};
 use std::time::{Duration, Instant};
 
 #[test]
-fn test_all_states_exist() {
-    // Verify all required states exist
-    let _disconnected = BrokerState::Disconnected;
-    let _connecting = BrokerState::Connecting;
-    let _reconciling = BrokerState::Reconciling {
-        start_time: Instant::now(),
-    };
-    let _live = BrokerState::Live {
-        connected_since: Instant::now(),
-    };
-    let _error_recovery = BrokerState::ErrorRecovery {
-        attempt: 1,
-        next_retry: Instant::now() + Duration::from_secs(5),
-        config: broker_sync::BackoffConfig::default(),
-    };
-}
-
-#[test]
-fn test_state_implements_debug() {
-    // States should be debuggable
-    let state = BrokerState::Disconnected;
-    let debug_str = format!("{state:?}");
-    assert!(debug_str.contains("Disconnected"));
-}
-
-#[test]
-fn test_state_implements_clone() {
-    // States should be cloneable
-    let state = BrokerState::Disconnected;
-    let cloned = state.clone();
-    assert!(matches!(cloned, BrokerState::Disconnected));
-}
-
-#[test]
-fn test_state_implements_eq() {
-    // States should be comparable
-    let state1 = BrokerState::Disconnected;
-    let state2 = BrokerState::Disconnected;
-    assert_eq!(state1, state2);
-}
-
-#[test]
 fn test_disconnected_can_transition_to_connecting() {
     let state = BrokerState::Disconnected;
     let next = state.transition(StateTransition::Connect).unwrap();

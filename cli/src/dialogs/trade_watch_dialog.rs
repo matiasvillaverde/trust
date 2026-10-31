@@ -590,14 +590,6 @@ mod tests {
     }
 
     #[test]
-    fn new_starts_with_empty_state() {
-        let builder = TradeWatchDialogBuilder::new();
-        assert!(builder.account.is_none());
-        assert!(builder.trade.is_none());
-        assert!(builder.result.is_none());
-    }
-
-    #[test]
     fn search_and_latest_fail_fast_without_account() {
         let mut trust = test_trust();
 

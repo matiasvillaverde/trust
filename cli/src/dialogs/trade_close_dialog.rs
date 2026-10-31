@@ -345,15 +345,6 @@ mod tests {
     }
 
     #[test]
-    fn new_starts_with_empty_state() {
-        let builder = CloseDialogBuilder::new();
-        assert!(builder.account.is_none());
-        assert!(builder.trade.is_none());
-        assert!(!builder.auto_distribute);
-        assert!(builder.result.is_none());
-    }
-
-    #[test]
     fn auto_distribute_sets_flag() {
         let builder = CloseDialogBuilder::new().auto_distribute(true);
         assert!(builder.auto_distribute);
@@ -594,18 +585,6 @@ mod tests {
         }
         .build(&mut trust);
         assert!(distributed.result.is_some());
-    }
-
-    #[test]
-    fn stub_dialog_io_confirm_default_is_false() {
-        let mut io = StubDialogIo {
-            select_result: Ok(None),
-        };
-
-        assert!(
-            !crate::dialogs::DialogIo::confirm(&mut io, "continue?", true)
-                .expect("confirm should return")
-        );
     }
 
     #[test]

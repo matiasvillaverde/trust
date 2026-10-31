@@ -230,16 +230,6 @@ mod tests {
     }
 
     #[test]
-    fn new_starts_with_expected_values() {
-        let builder = TransactionDialogBuilder::new(TransactionCategory::Deposit);
-        assert!(builder.amount.is_none());
-        assert!(builder.currency.is_none());
-        assert!(builder.account.is_none());
-        assert_eq!(builder.category, TransactionCategory::Deposit);
-        assert!(builder.result.is_none());
-    }
-
-    #[test]
     fn display_handles_error_result() {
         TransactionDialogBuilder {
             amount: None,
@@ -577,26 +567,6 @@ mod tests {
 
         assert!(builder.account.is_none());
         scripted_reset();
-    }
-
-    #[test]
-    fn scripted_io_confirm_default_is_false() {
-        let mut io = ScriptedIo::default();
-
-        assert!(!io
-            .confirm("continue?", true)
-            .expect("confirm should return"));
-    }
-
-    #[test]
-    fn scripted_io_input_text_defaults_to_empty_string() {
-        let mut io = ScriptedIo::default();
-
-        assert_eq!(
-            crate::dialogs::DialogIo::input_text(&mut io, "Amount:", false)
-                .expect("default text input should return"),
-            ""
-        );
     }
 
     #[test]

@@ -131,24 +131,7 @@ impl ConcentrationView {
 #[cfg(test)]
 mod tests {
     use super::ConcentrationView;
-    use core::calculators_concentration::{
-        ConcentrationAnalysis, ConcentrationGroup, ConcentrationWarning, WarningLevel,
-    };
-    use rust_decimal_macros::dec;
-
-    fn group(
-        name: &str,
-        risk: rust_decimal::Decimal,
-        pnl: rust_decimal::Decimal,
-    ) -> ConcentrationGroup {
-        ConcentrationGroup {
-            name: name.to_string(),
-            trade_count: 2,
-            total_capital_deployed: dec!(1000),
-            realized_pnl: pnl,
-            current_open_risk: risk,
-        }
-    }
+    use core::calculators_concentration::WarningLevel;
 
     #[test]
     fn warning_icon_maps_all_levels() {
@@ -157,81 +140,5 @@ mod tests {
             ConcentrationView::warning_icon(&WarningLevel::Moderate),
             "⚠️"
         );
-    }
-
-    #[test]
-    fn display_groups_and_warnings_handle_positive_negative_and_zero_deployed() {
-        crate::zen::set_enabled(false);
-        let groups = vec![
-            group("Tech", dec!(500), dec!(100)),
-            group("Energy", dec!(0), dec!(-30)),
-            ConcentrationGroup {
-                total_capital_deployed: dec!(0),
-                ..group("Cash", dec!(10), dec!(10))
-            },
-        ];
-        let warnings = vec![
-            ConcentrationWarning {
-                group_name: "Tech".to_string(),
-                risk_percentage: dec!(70),
-                level: WarningLevel::High,
-            },
-            ConcentrationWarning {
-                group_name: "Energy".to_string(),
-                risk_percentage: dec!(55),
-                level: WarningLevel::Moderate,
-            },
-        ];
-
-        ConcentrationView::display_groups(&groups, dec!(510));
-        ConcentrationView::display_warnings(&warnings);
-    }
-
-    #[test]
-    fn display_handles_open_only_and_all_modes() {
-        crate::zen::set_enabled(false);
-        let sector_analysis = ConcentrationAnalysis {
-            groups: vec![group("Tech", dec!(250), dec!(50))],
-            total_risk: dec!(250),
-            concentration_warnings: vec![ConcentrationWarning {
-                group_name: "Tech".to_string(),
-                risk_percentage: dec!(70),
-                level: WarningLevel::High,
-            }],
-        };
-        let asset_analysis = ConcentrationAnalysis {
-            groups: vec![group("Stocks", dec!(150), dec!(25))],
-            total_risk: dec!(0),
-            concentration_warnings: vec![ConcentrationWarning {
-                group_name: "Stocks".to_string(),
-                risk_percentage: dec!(55),
-                level: WarningLevel::Moderate,
-            }],
-        };
-
-        ConcentrationView::display(sector_analysis, asset_analysis, true);
-
-        let empty = ConcentrationAnalysis {
-            groups: vec![],
-            total_risk: dec!(0),
-            concentration_warnings: vec![],
-        };
-        ConcentrationView::display(
-            empty,
-            ConcentrationAnalysis {
-                groups: vec![],
-                total_risk: dec!(0),
-                concentration_warnings: vec![],
-            },
-            false,
-        );
-    }
-
-    #[test]
-    fn display_groups_use_percentages_in_zen_mode() {
-        crate::zen::set_enabled(true);
-        let groups = vec![group("Tech", dec!(500), dec!(100))];
-        ConcentrationView::display_groups(&groups, dec!(1000));
-        crate::zen::set_enabled(false);
     }
 }

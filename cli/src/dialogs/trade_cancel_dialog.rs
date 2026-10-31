@@ -218,14 +218,6 @@ mod tests {
     }
 
     #[test]
-    fn new_starts_with_empty_state() {
-        let builder = CancelDialogBuilder::new();
-        assert!(builder.account.is_none());
-        assert!(builder.trade.is_none());
-        assert!(builder.result.is_none());
-    }
-
-    #[test]
     fn build_returns_error_when_trade_is_missing() {
         let mut trust = test_trust();
         let builder = CancelDialogBuilder::new().build(&mut trust);
@@ -379,18 +371,6 @@ mod tests {
         .build(&mut trust);
 
         assert!(builder.result.is_some());
-    }
-
-    #[test]
-    fn stub_dialog_io_confirm_default_is_false() {
-        let mut io = StubDialogIo {
-            select_result: Ok(None),
-        };
-
-        assert!(
-            !crate::dialogs::DialogIo::confirm(&mut io, "continue?", true)
-                .expect("confirm should return")
-        );
     }
 
     #[test]

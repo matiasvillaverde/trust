@@ -116,11 +116,4 @@ mod tests {
             Some(ErrorKind::InvalidInput)
         );
     }
-
-    #[test]
-    fn scripted_io_confirm_uses_default_false_response() {
-        let mut io = ScriptedIo::default();
-
-        assert!(!io.confirm("Continue?", true).expect("confirm stub"));
-    }
 }

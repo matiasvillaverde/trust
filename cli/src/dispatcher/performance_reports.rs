@@ -168,7 +168,21 @@ pub(in crate::dispatcher) fn performance_report(
         return Ok(());
     }
 
-    let stats = PerformanceCalculator::calculate_performance_stats(&all_trades);
+    output::print_json(&performance_payload(account_id, days_filter, &all_trades))
+}
+
+fn performance_payload(
+    account_id: Option<Uuid>,
+    days_filter: Option<u32>,
+    all_trades: &[model::Trade],
+) -> serde_json::Value {
+    let stats = core::calculators_performance::PerformanceCalculator::calculate_performance_stats(
+        all_trades,
+    );
+    let breakeven_trades = all_trades
+        .iter()
+        .filter(|trade| trade.balance.total_performance.is_zero())
+        .count();
     let calculated_win_rate = if stats.total_trades == 0 {
         dec!(0)
     } else {
@@ -178,7 +192,7 @@ pub(in crate::dispatcher) fn performance_report(
             .unwrap_or(dec!(0))
     };
 
-    let payload = json!({
+    json!({
         "report": "performance",
         "format_version": 1,
         "generated_at": chrono::Utc::now().to_rfc3339(),
@@ -196,7 +210,7 @@ pub(in crate::dispatcher) fn performance_report(
             "worst_trade": stats.worst_trade.map(output::decimal_string)
         },
         "consistency": {
-            "trade_count_balanced": stats.total_trades == stats.winning_trades.saturating_add(stats.losing_trades),
+            "trade_count_balanced": stats.total_trades == stats.winning_trades.saturating_add(stats.losing_trades).saturating_add(breakeven_trades),
             "win_rate_recomputed_percentage": output::decimal_string(calculated_win_rate),
             "win_rate_delta_percentage": output::decimal_string(
                 stats
@@ -206,8 +220,5 @@ pub(in crate::dispatcher) fn performance_report(
                     .abs()
             )
         }
-    });
-    output::print_json(&payload)?;
-
-    Ok(())
+    })
 }

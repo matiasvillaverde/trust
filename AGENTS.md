@@ -55,6 +55,9 @@ Every trade has entry, safety-stop, and target orders. Do not infer allowed tran
 - Never edit `db-sqlite/src/schema.rs` manually. Create paired migrations under `db-sqlite/migrations/` and use the repository migration workflow.
 - Preserve existing user changes in a dirty worktree.
 - Add regression tests at the lowest useful layer and integration coverage for cross-crate behavior.
+- Test observable outcomes, not fixture construction, derived traits or private call sequences. A financial rejection test must establish valid unrelated preconditions and verify unchanged money/state and no unauthorized broker effects.
+- Report tests must check returned values or captured process output. Exercise persisted lifecycle operations instead of assigning the expected status/P&L to the fixture. Keep pure Decimal boundary tests; moving a test to `tests/` alone does not make it an integration test.
+- Do not accept either success or an arbitrary error, discard an undesirable generated outcome, or add print-only probes to raise coverage. See [test contracts](docs/reliability/testing.md).
 - Treat CLI JSON as a public contract. Refresh snapshots only for intentional changes and inspect the diff.
 
 ## Architectural size and ownership

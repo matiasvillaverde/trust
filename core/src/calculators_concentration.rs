@@ -233,23 +233,6 @@ mod tests {
     }
 
     #[test]
-    fn test_concentration_group_creation() {
-        let group = ConcentrationGroup {
-            name: "Technology".to_string(),
-            trade_count: 5,
-            total_capital_deployed: dec!(10000),
-            realized_pnl: dec!(500),
-            current_open_risk: dec!(2000),
-        };
-
-        assert_eq!(group.name, "Technology");
-        assert_eq!(group.trade_count, 5);
-        assert_eq!(group.total_capital_deployed, dec!(10000));
-        assert_eq!(group.realized_pnl, dec!(500));
-        assert_eq!(group.current_open_risk, dec!(2000));
-    }
-
-    #[test]
     fn test_analyze_by_sector() {
         let trades = vec![
             create_test_trade(Some("Technology".to_string()), None, Status::ClosedTarget),

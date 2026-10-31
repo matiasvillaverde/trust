@@ -399,15 +399,6 @@ mod tests {
     }
 
     #[test]
-    fn new_starts_with_empty_state() {
-        let builder = ModifyDialogBuilder::new();
-        assert!(builder.account.is_none());
-        assert!(builder.trade.is_none());
-        assert!(builder.new_price.is_none());
-        assert!(builder.result.is_none());
-    }
-
-    #[test]
     fn build_stop_returns_error_when_trade_is_missing() {
         let mut trust = test_trust();
         let builder = ModifyDialogBuilder::new().build_stop(&mut trust);

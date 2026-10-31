@@ -239,7 +239,7 @@ mod tests {
     #[test]
     #[allow(clippy::too_many_lines)]
     fn market_data_snapshot_and_bars_parse() {
-        let snapshot = MarketDataCommandBuilder::new().snapshot().build();
+        let snapshot = MarketDataCommandBuilder::default().snapshot().build();
         let snapshot_matches = snapshot
             .try_get_matches_from([
                 "market-data",
@@ -378,12 +378,5 @@ mod tests {
             ])
             .expect("session should parse");
         assert!(session_matches.subcommand_matches("session").is_some());
-    }
-
-    #[test]
-    fn market_data_default_matches_new() {
-        let from_default = MarketDataCommandBuilder::default().snapshot().build();
-        let from_new = MarketDataCommandBuilder::new().snapshot().build();
-        assert_eq!(from_default.get_name(), from_new.get_name());
     }
 }

@@ -347,7 +347,7 @@ mod tests {
 
     #[test]
     fn test_level_subcommand_parsing_shapes() {
-        let status_cmd = LevelCommandBuilder::new().status().build();
+        let status_cmd = LevelCommandBuilder::default().status().build();
         let status = status_cmd
             .try_get_matches_from([
                 "level",
@@ -422,12 +422,5 @@ mod tests {
             rules_set.get_one::<String>("value").map(String::as_str),
             Some("7")
         );
-    }
-
-    #[test]
-    fn test_level_default_matches_new() {
-        let from_default = LevelCommandBuilder::default().status().build();
-        let from_new = LevelCommandBuilder::new().status().build();
-        assert_eq!(from_default.get_name(), from_new.get_name());
     }
 }

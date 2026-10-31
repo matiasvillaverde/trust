@@ -347,37 +347,6 @@ mod tests {
     }
 
     #[test]
-    fn keys_builders_new_start_with_empty_state() {
-        let write = KeysWriteDialogBuilder::new();
-        assert_eq!(write.url, "");
-        assert_eq!(write.key_id, "");
-        assert_eq!(write.key_secret, "");
-        assert!(write.allow_insecure_tls);
-        assert!(write.environment.is_none());
-        assert!(write.account.is_none());
-        assert!(write.result.is_none());
-
-        let read = KeysReadDialogBuilder::new();
-        assert!(read.environment.is_none());
-        assert!(read.account.is_none());
-        assert!(read.result.is_none());
-
-        let delete = KeysDeleteDialogBuilder::new();
-        assert!(delete.environment.is_none());
-        assert!(delete.account.is_none());
-        assert!(delete.result.is_none());
-
-        let mut io = ScriptedIo::default();
-        assert!(!io.confirm("Continue?", true).expect("confirm default"));
-    }
-
-    #[test]
-    fn scripted_io_input_text_defaults_to_empty_string() {
-        let mut io = ScriptedIo::default();
-        assert_eq!(io.input_text("Value:", false).expect("input default"), "");
-    }
-
-    #[test]
     fn keys_builders_display_handle_success_and_error_results() {
         KeysWriteDialogBuilder {
             url: String::new(),

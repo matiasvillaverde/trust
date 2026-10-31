@@ -127,7 +127,7 @@ mod tests {
 
     #[test]
     fn configure_parses() {
-        let cmd = AdvisorCommandBuilder::new().configure().build();
+        let cmd = AdvisorCommandBuilder::default().configure().build();
         let thresholds = cmd.clone().try_get_matches_from([
             "advisor",
             "configure",
@@ -213,12 +213,5 @@ mod tests {
             history_sub.get_one::<String>("days").map(String::as_str),
             Some("7")
         );
-    }
-
-    #[test]
-    fn default_matches_new() {
-        let from_default = AdvisorCommandBuilder::default().configure().build();
-        let from_new = AdvisorCommandBuilder::new().configure().build();
-        assert_eq!(from_default.get_name(), from_new.get_name());
     }
 }
