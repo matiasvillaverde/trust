@@ -649,6 +649,24 @@ fn test_trade_target_filled_triggers_auto_distribution_from_persisted_close_stat
             .any(|t| t.category == TransactionCategory::Deposit && t.amount == dec!(2925.0)),
         "reinvestment account should receive a Deposit"
     );
+    // A repeated broker observation must not distribute the profit a second time.
+    let balances_before: Vec<_> = trust
+        .search_all_accounts()
+        .unwrap()
+        .into_iter()
+        .map(|account| trust.search_all_balances(account.id).unwrap())
+        .collect();
+    let ledger_before = trust.get_all_transactions().unwrap();
+    trust.sync_trade(&trade, &account).unwrap();
+    let balances_after: Vec<_> = trust
+        .search_all_accounts()
+        .unwrap()
+        .into_iter()
+        .map(|account| trust.search_all_balances(account.id).unwrap())
+        .collect();
+    assert_eq!(trust.distribution_history(account.id).unwrap(), history);
+    assert_eq!(trust.get_all_transactions().unwrap(), ledger_before);
+    assert_eq!(balances_after, balances_before);
 }
 
 #[test]

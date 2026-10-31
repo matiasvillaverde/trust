@@ -6,21 +6,23 @@ impl Domain {
         let account = self.account(args)?;
         match op {
             Trades => {
-                let mut trades = self
-                    .facade
-                    .account_trades(account.id)
-                    .map_err(domain_error)?;
-                trades.retain(|trade| {
-                    args.get("status")
+                let filter = model::history::TradeHistoryFilter {
+                    status: args
+                        .get("status")
                         .and_then(Value::as_str)
-                        .is_none_or(|s| trade.status.to_string().eq_ignore_ascii_case(s))
-                        && args
-                            .get("symbol")
-                            .and_then(Value::as_str)
-                            .is_none_or(|s| trade.trading_vehicle.symbol.eq_ignore_ascii_case(s))
-                        && (!boolean(args, "open_only") || active(trade.status))
-                });
-                value(trades)
+                        .map(|status| status.to_ascii_lowercase().parse::<model::Status>())
+                        .transpose()
+                        .map_err(|_| ServiceError::invalid("Invalid trade status."))?,
+                    symbol: args
+                        .get("symbol")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned),
+                    active_only: boolean(args, "open_only"),
+                };
+                output(
+                    self.facade
+                        .trade_history_page(account.id, &filter, history_page(args)?),
+                )
             }
             TradeCreate => {
                 let instrument = self
@@ -75,16 +77,15 @@ impl Domain {
             )),
             Reconcile => {
                 let after = optional_id(args, "after_trade_id")?;
-                let mut trades: Vec<_> = self
+                let limit = u16::try_from(uint(args, "batch_size", 1))
+                    .ok()
+                    .filter(|limit| (1..=500).contains(limit))
+                    .ok_or_else(|| ServiceError::invalid("Invalid batch size."))?;
+                let mut trades = self
                     .facade
-                    .account_trades(account.id)
-                    .map_err(domain_error)?
-                    .into_iter()
-                    .filter(|t| active(t.status) && after.is_none_or(|id| t.id > id))
-                    .collect();
-                trades.sort_by_key(|t| t.id);
-                let limit = usize::try_from(uint(args, "batch_size", 1))
-                    .map_err(|_| ServiceError::invalid("Invalid batch size."))?;
+                    .active_trade_batch(account.id, after, limit.saturating_add(1))
+                    .map_err(domain_error)?;
+                let limit = usize::from(limit);
                 let more = trades.len() > limit;
                 trades.truncate(limit);
                 let next = if more {

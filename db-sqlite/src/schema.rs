@@ -15,6 +15,7 @@ diesel::table! {
         parent_account_id -> Nullable<Text>,
         broker_kind -> Text,
         broker_account_id -> Nullable<Text>,
+        tax_percentage_units -> Text,
     }
 }
 

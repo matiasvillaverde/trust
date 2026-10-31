@@ -166,6 +166,15 @@ fn text(name: &'static str, required: bool) -> Field {
 fn identifier(name: &'static str, required: bool) -> Field {
     (name, json!({"type":"string","format":"uuid"}), required)
 }
+
+fn percentage_points(name: &'static str) -> (&'static str, Value, bool) {
+    (
+        name,
+        json!({"type":"string", "maxLength":64, "description":"Exact decimal percentage points: 1 means 1%, range 0..100. Tax plus earnings must be <=100."}),
+        false,
+    )
+}
+
 fn money(name: &'static str, required: bool) -> Field {
     (
         name,
@@ -268,7 +277,7 @@ fn build_tools() -> Vec<ToolSpec> {
         spec(Policy,"policy_get","Explain Trust's risk, permission, money, and execution contracts.","trust:read",false,false,vec![]),
         spec(AccountsList,"accounts_list","List only accounts this identity may access.","trust:read",false,false,vec![]),
         spec(AccountGet,"account_get","Read one permitted account and its current balances.","trust:read",false,true,vec![]),
-        spec(AccountCreate,"account_create","Create a local account profile. Does not open a brokerage account; operator grant required.","trust:admin",true,false,vec![text("name",true),text("description",true),choice("environment",&["paper","live"],true),choice("broker",&["ibkr","alpaca"],true),text("broker_account_id",false),choice("account_type",&["primary","earnings","tax_reserve","reinvestment","insurance"],false),identifier("parent_account_id",false),money("taxes_percentage",false),money("earnings_percentage",false)]),
+        spec(AccountCreate,"account_create","Create a local account profile. Does not open a brokerage account; operator grant required.","trust:admin",true,false,vec![text("name",true),text("description",true),choice("environment",&["paper","live"],true),choice("broker",&["ibkr","alpaca"],true),text("broker_account_id",false),choice("account_type",&["primary","earnings","tax_reserve","reinvestment","insurance"],false),identifier("parent_account_id",false),percentage_points("taxes_percentage"),percentage_points("earnings_percentage")]),
         spec(AccountDelete,"account_delete","Soft-delete an empty account; active trades and children still block deletion.","trust:admin",true,true,vec![flag("force")]),
         spec(Balances,"balances_get","Read the local ledger balances; these are not a live broker balance snapshot.","trust:read",false,true,vec![]),
         spec(Transfer,"capital_transfer","Transfer ledger capital within an account hierarchy; requires access to both accounts.","trust:policy",true,true,vec![identifier("to_account_id",true),money("amount",true),currency(),text("reason",true)]),

@@ -16,8 +16,8 @@ use std::path::Path;
 use uuid::Uuid;
 
 const BACKUP_FORMAT: &str = "trust-backup";
-// Version 2 requires every financial and risk-policy table; incomplete v1 exports are rejected.
-const BACKUP_VERSION: u32 = 2;
+// Version 3 records explicit account percentage units. Complete v2 exports remain readable.
+const BACKUP_VERSION: u32 = 3;
 const MAX_BACKUP_BYTES: usize = 16 * 1024 * 1024;
 
 /// Errors returned by backup/export/import operations.
@@ -82,7 +82,7 @@ pub struct FeeActivityRow {
     pub trade_id: Option<String>,
 }
 
-/// Complete version 2 JSON backup envelope. The Rust type name is retained for source compatibility.
+/// Complete JSON backup envelope. The Rust type name is retained for source compatibility.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BackupEnvelopeV1 {
     pub format: String,
@@ -230,6 +230,13 @@ pub struct AccountRow {
     pub broker_kind: String,
     #[serde(default)]
     pub broker_account_id: Option<String>,
+    /// Explicit units; a missing v2 field retains legacy tax interpretation.
+    #[serde(default = "legacy_percentage_units")]
+    pub tax_percentage_units: String,
+}
+
+fn legacy_percentage_units() -> String {
+    "legacy".to_owned()
 }
 
 fn default_account_type() -> String {
@@ -763,7 +770,25 @@ pub fn read_backup_from_reader(mut reader: impl Read) -> Result<BackupEnvelopeV1
             "backup JSON exceeds maximum size of {MAX_BACKUP_BYTES} bytes"
         )));
     }
-    let backup: BackupEnvelopeV1 = serde_json::from_str(&buf)?;
+    let raw: serde_json::Value = serde_json::from_str(&buf)?;
+    if raw
+        .get("version")
+        .and_then(serde_json::Value::as_u64)
+        .is_some_and(|version| version >= 3)
+        && raw
+            .pointer("/tables/accounts")
+            .and_then(serde_json::Value::as_array)
+            .is_some_and(|accounts| {
+                accounts
+                    .iter()
+                    .any(|row| row.get("tax_percentage_units").is_none())
+            })
+    {
+        return Err(BackupError::Invalid(
+            "version 3 accounts require explicit tax_percentage_units".into(),
+        ));
+    }
+    let backup: BackupEnvelopeV1 = serde_json::from_value(raw)?;
     validate_backup_rows(&backup)?;
     Ok(backup)
 }
@@ -784,7 +809,7 @@ fn validate_backup_metadata(
             backup.format
         )));
     }
-    if backup.version != BACKUP_VERSION {
+    if backup.version != BACKUP_VERSION && backup.version != 2 {
         return Err(BackupError::Invalid(format!(
             "unsupported backup version: {}",
             backup.version
@@ -792,7 +817,13 @@ fn validate_backup_metadata(
     }
 
     let current = read_applied_migrations(conn)?;
-    if current != backup.schema.diesel_migrations {
+    let legacy_schema: Vec<_> = current
+        .iter()
+        .filter(|version| !matches!(version.as_str(), "20261031000001" | "20261031000002"))
+        .cloned()
+        .collect();
+    let compatible_v2 = backup.version == 2 && backup.schema.diesel_migrations == legacy_schema;
+    if current != backup.schema.diesel_migrations && !compatible_v2 {
         return Err(BackupError::Invalid(format!(
             "migration mismatch: target={current:?} backup={:?}",
             backup.schema.diesel_migrations
@@ -1094,6 +1125,12 @@ fn validate_financial_fields(tables: &BackupTablesV1) -> Result<(), BackupError>
 
 fn validate_account_uuid_rows(tables: &BackupTablesV1) -> Result<(), BackupError> {
     for row in &tables.accounts {
+        crate::account_percentages::decode(
+            &row.taxes_percentage,
+            &row.earnings_percentage,
+            &row.tax_percentage_units,
+        )
+        .map_err(|error| BackupError::Invalid(format!("invalid account percentages: {error}")))?;
         validate_uuid_field("accounts", "id", &row.id)?;
         validate_optional_uuid_field(
             "accounts",
@@ -1272,6 +1309,7 @@ mod tests {
             parent_account_id: None,
             broker_kind: "alpaca".to_string(),
             broker_account_id: None,
+            tax_percentage_units: crate::account_percentages::POINTS.to_owned(),
         }
     }
 
@@ -2043,6 +2081,7 @@ mod tests {
                 parent_account_id: None,
                 broker_kind: "alpaca".to_string(),
                 broker_account_id: None,
+                tax_percentage_units: crate::account_percentages::POINTS.to_owned(),
             })
             .execute(&mut conn1)
             .unwrap();

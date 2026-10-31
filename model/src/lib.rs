@@ -48,6 +48,8 @@ pub mod distribution;
 pub mod execution;
 /// Fee/pass-through activity primitives used for execution accounting.
 pub mod fee_activity;
+/// Bounded database history queries.
+pub mod history;
 /// Trading level management and risk multipliers
 pub mod level;
 /// Market data types
@@ -56,6 +58,8 @@ pub mod market_data;
 pub mod mistake;
 /// Order types and order management
 pub mod order;
+/// Explicit percentage-point values and account allocation validation.
+pub mod percentage;
 pub mod portfolio_risk;
 /// Risk management rules and enforcement
 pub mod rule;

@@ -37,6 +37,14 @@ impl DistributionDB {
 }
 
 impl DistributionRead for DistributionDB {
+    fn history_page(
+        &mut self,
+        account_id: Uuid,
+        page: model::history::PageRequest,
+    ) -> Result<model::history::HistoryPage<DistributionHistory>, Box<dyn Error>> {
+        crate::history::distributions(&mut *self.connection_guard()?, account_id, page)
+    }
+
     fn for_account(&mut self, account_id: Uuid) -> Result<DistributionRules, Box<dyn Error>> {
         let mut guard = self.connection_guard()?;
         let connection: &mut SqliteConnection = &mut guard;

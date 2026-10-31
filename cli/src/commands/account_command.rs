@@ -49,14 +49,14 @@ impl AccountCommandBuilder {
                     Arg::new("taxes")
                         .long("taxes")
                         .value_name("DECIMAL")
-                        .help("Tax percentage (e.g. 25.0) (non-interactive mode)")
+                        .help("Tax percentage points, 0..=100 (1 means 1%; non-interactive mode)")
                         .required(false),
                 )
                 .arg(
                     Arg::new("earnings")
                         .long("earnings")
                         .value_name("DECIMAL")
-                        .help("Earnings percentage (e.g. 30.0) (non-interactive mode)")
+                        .help("Earnings percentage points, 0..=100 (combined with taxes <= 100; non-interactive mode)")
                         .required(false),
                 )
                 .arg(

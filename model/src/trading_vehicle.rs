@@ -184,6 +184,18 @@ impl Default for TradingVehicle {
     }
 }
 
+impl TradingVehicle {
+    /// Broker identifiers are opaque, but must be bounded and nonempty.
+    pub fn validate_identifiers(symbol: &str, broker: &str) -> Result<(), &'static str> {
+        for value in [symbol, broker] {
+            if value.trim().is_empty() || value.len() > 128 || value.chars().any(char::is_control) {
+                return Err("Instrument symbol and broker must be nonempty, at most 128 bytes, and contain no control characters");
+            }
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

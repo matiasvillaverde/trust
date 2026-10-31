@@ -171,18 +171,17 @@ impl Domain {
                     )),
                     Transactions => {
                         let (from, to) = period(args)?;
-                        value(
-                            self.facade
-                                .get_account_transactions(account.id)
-                                .map_err(domain_error)?
-                                .into_iter()
-                                .filter(|t| {
-                                    t.created_at >= from.naive_utc()
-                                        && t.created_at <= to.naive_utc()
-                                })
-                                .collect::<Vec<_>>(),
-                        )
+                        let filter = model::history::TransactionHistoryFilter {
+                            from: from.naive_utc(),
+                            to: to.naive_utc(),
+                        };
+                        output(self.facade.transaction_history_page(
+                            account.id,
+                            &filter,
+                            history_page(args)?,
+                        ))
                     }
+
                     Deposit | Withdraw => {
                         let amount = decimal(args, "amount")?;
                         if amount <= Decimal::ZERO {

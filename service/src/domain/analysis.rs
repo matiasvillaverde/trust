@@ -169,7 +169,10 @@ impl Domain {
                 decimal(args, "amount")?,
                 currency(args)?,
             )),
-            DistributionHistory => output(self.facade.distribution_history(account_id)),
+            DistributionHistory => output(
+                self.facade
+                    .distribution_history_page(account_id, history_page(args)?),
+            ),
             AdvisorStatus => Ok(
                 json!({"thresholds":self.facade.advisory_thresholds(account_id).map_err(domain_error)?,"portfolio":self.facade.advisory_status_for_account(account_id).map_err(domain_error)?}),
             ),

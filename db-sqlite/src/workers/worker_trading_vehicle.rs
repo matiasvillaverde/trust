@@ -22,6 +22,7 @@ impl WorkerTradingVehicle {
         category: &TradingVehicleCategory,
         broker: &str,
     ) -> Result<TradingVehicle, Box<dyn Error>> {
+        TradingVehicle::validate_identifiers(symbol, broker)?;
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().naive_utc();
 

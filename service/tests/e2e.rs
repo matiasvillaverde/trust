@@ -5,6 +5,8 @@
     clippy::indexing_slicing,
     clippy::panic
 )]
+#[path = "e2e/history.rs"]
+mod history;
 mod support;
 use serde_json::{json, Value};
 use std::{sync::atomic::Ordering, time::Duration};

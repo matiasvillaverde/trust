@@ -2,7 +2,7 @@ mod account_balance;
 mod accounts;
 mod broker_logs;
 mod worker_advisory;
-mod worker_distribution;
+pub(crate) mod worker_distribution;
 mod worker_execution;
 mod worker_level;
 mod worker_mistake;
@@ -13,7 +13,7 @@ mod worker_trade;
 mod worker_trade_event;
 mod worker_trade_grade;
 mod worker_trading_vehicle;
-mod worker_transaction;
+pub(crate) mod worker_transaction;
 
 pub use account_balance::AccountBalanceDB;
 pub use accounts::AccountDB;
