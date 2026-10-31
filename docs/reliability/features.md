@@ -123,7 +123,7 @@ An operation-specific account requirement does not mean unrestricted access. Cre
 | Agent UX | Tool discovery with schemas and scopes; exact decimal strings; error codes and next actions; operation inspection; pagination; three workflow skills as resources/prompts/tools; thin CLI using the same service. |
 | Persistence and recovery | SQLite financial records, migrations and FK checks, savepoints and rollback, separate operation journal, hash-chain verification, strict backup validation, server-owned backup IDs, empty-target restore. Both databases require coordinated offline backup. |
 | Packaging | Locked Rust dependencies, credential backends, non-root container, read-only root filesystem, mounted private state/secrets, health probes, CI formatting/lint/test/security/container gates. |
-| Legacy and scaffolding | Optional legacy CLI and its JSON contract remain testable. broker-sync has actor/state/message and jitter tests, but no production websocket reconciliation connection. Unreferenced `core/src/integration_tests.rs` and root standalone Rust files are not executed by cargo merely because they contain tests. |
+| Legacy and scaffolding | Optional legacy CLI and its JSON contract remain testable. broker-sync has actor/state/message and jitter tests, but no production websocket reconciliation connection. Historical unregistered workflow drafts were removed; executable cash contracts live in `core/tests/capital_contracts.rs`. |
 
 ## Verification index
 

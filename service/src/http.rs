@@ -9,7 +9,7 @@ use crate::{
     runtime::{Service, Source},
 };
 use axum::{
-    extract::{Path, Request, State},
+    extract::{rejection::JsonRejection, Path, Request, State},
     http::{header, HeaderValue, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
@@ -26,6 +26,8 @@ use std::{
     time::{Duration, Instant},
 };
 use uuid::Uuid;
+
+const MAX_REQUEST_BYTES: usize = 131072;
 #[derive(Clone)]
 struct App {
     service: Service,
@@ -33,6 +35,7 @@ struct App {
     config: Arc<Config>,
     limits: Arc<Mutex<Limits>>,
     inflight: Arc<tokio::sync::Semaphore>,
+    expected_host: String,
 }
 struct Limits {
     since: Instant,
@@ -58,6 +61,7 @@ impl Limits {
 }
 pub fn router(config: Arc<Config>, service: Service) -> crate::error::Result<Router> {
     let auth = Authenticator::new(config.clone())?;
+    let public = url::Url::parse(&config.public_url).map_err(|_| ServiceError::internal())?;
     let app = App {
         service: service.clone(),
         auth,
@@ -68,12 +72,12 @@ pub fn router(config: Arc<Config>, service: Service) -> crate::error::Result<Rou
             subjects: BTreeMap::new(),
         })),
         inflight: Arc::new(tokio::sync::Semaphore::new(32)),
+        expected_host: public.authority().to_owned(),
     };
     let mut transport = StreamableHttpServerConfig::default();
     transport.legacy_session_mode = false;
     transport.json_response = true;
-    transport.max_request_body_bytes = 131072;
-    let public = url::Url::parse(&config.public_url).map_err(|_| ServiceError::internal())?;
+    transport.max_request_body_bytes = MAX_REQUEST_BYTES;
     transport.allowed_hosts = vec![public.authority().to_owned()];
     transport.allowed_origins = config.allowed_origins.iter().cloned().collect();
     transport = transport.enforce_origin_validation();
@@ -98,7 +102,9 @@ pub fn router(config: Arc<Config>, service: Service) -> crate::error::Result<Rou
         .route("/v1/tools", get(list_tools))
         .route("/v1/tools/{tool}", post(call))
         .nest_service("/mcp", mcp)
-        .layer(tower_http::limit::RequestBodyLimitLayer::new(131072))
+        .layer(tower_http::limit::RequestBodyLimitLayer::new(
+            MAX_REQUEST_BYTES,
+        ))
         .layer(middleware::from_fn_with_state(app.clone(), guard))
         .with_state(app))
 }
@@ -144,16 +150,37 @@ async fn call(
     Extension(identity): Extension<Identity>,
     Extension(request_id): Extension<Uuid>,
     Path(tool): Path<String>,
-    Json(arguments): Json<Value>,
-) -> Json<Reply> {
+    arguments: std::result::Result<Json<Value>, JsonRejection>,
+) -> Response {
+    let Json(arguments) = match arguments {
+        Ok(arguments) => arguments,
+        Err(rejection) => return failure(
+            rejection.status(),
+            ServiceError::invalid("Send valid JSON within the 128 KiB request limit using Content-Type: application/json."),
+            request_id,
+        ),
+    };
     Json(
         app.service
             .call_from(identity, tool, arguments, request_id, Source::Http)
             .await,
     )
+    .into_response()
 }
 fn failure(status: StatusCode, error: ServiceError, request: Uuid) -> Response {
-    (status, Json(Reply::from_result(request, None, Err(error)))).into_response()
+    let delay = if error.code == "rate_limited" {
+        "60"
+    } else {
+        "1"
+    };
+    let mut response =
+        (status, Json(Reply::from_result(request, None, Err(error)))).into_response();
+    if status == StatusCode::TOO_MANY_REQUESTS {
+        response
+            .headers_mut()
+            .insert(header::RETRY_AFTER, HeaderValue::from_static(delay));
+    }
+    response
 }
 
 async fn guard(State(app): State<App>, mut request: Request, next: Next) -> Response {
@@ -169,7 +196,7 @@ async fn guard(State(app): State<App>, mut request: Request, next: Next) -> Resp
             Err(_) => {
                 response = Some(failure(
                     StatusCode::TOO_MANY_REQUESTS,
-                    ServiceError::new(
+                    ServiceError::before_dispatch_retry(
                         "busy",
                         "Request concurrency limit reached.",
                         "Retry after a short delay with the same idempotency key.",
@@ -242,7 +269,7 @@ async fn check_request(app: &App, request: &mut Request, id: Uuid) -> Option<Res
     if !health && !app.limits.lock().is_ok_and(|mut limits| limits.allow(None)) {
         return deny(
             StatusCode::TOO_MANY_REQUESTS,
-            ServiceError::new(
+            ServiceError::before_dispatch_retry(
                 "rate_limited",
                 "Request rate exceeded.",
                 "Wait one minute before retrying.",
@@ -268,12 +295,9 @@ async fn check_request(app: &App, request: &mut Request, id: Uuid) -> Option<Res
         .headers()
         .get(header::HOST)
         .and_then(|v| v.to_str().ok());
-    let expected = url::Url::parse(&app.config.public_url).ok();
     if !health
         && (request.headers().get_all(header::HOST).iter().count() != 1
-            || expected
-                .as_ref()
-                .is_none_or(|url| host != Some(url.authority())))
+            || host != Some(app.expected_host.as_str()))
     {
         return deny(StatusCode::FORBIDDEN, ServiceError::forbidden());
     }
@@ -293,6 +317,20 @@ async fn check_request(app: &App, request: &mut Request, id: Uuid) -> Option<Res
     }
     if health || path.starts_with("/.well-known/oauth-protected-resource") {
         return None;
+    }
+    if request
+        .headers()
+        .get(header::CONTENT_LENGTH)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<u64>().ok())
+        .is_some_and(|length| {
+            usize::try_from(length).map_or(true, |length| length > MAX_REQUEST_BYTES)
+        })
+    {
+        return deny(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            ServiceError::invalid("The request exceeds the 128 KiB body limit."),
+        );
     }
     let token = if request
         .headers()
@@ -326,7 +364,7 @@ async fn check_request(app: &App, request: &mut Request, id: Uuid) -> Option<Res
             {
                 return deny(
                     StatusCode::TOO_MANY_REQUESTS,
-                    ServiceError::new(
+                    ServiceError::before_dispatch_retry(
                         "rate_limited",
                         "Agent request rate exceeded.",
                         "Wait one minute before retrying.",

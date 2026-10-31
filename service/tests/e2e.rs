@@ -747,6 +747,7 @@ async fn queue_timeout_never_dispatches_expired_intent_and_audit_failure_stops_w
     }
     let busy = f.call(&p, "service_status", json!({}), false).await;
     assert_eq!(error(&busy), "busy");
+    assert_eq!(busy["error"]["retryable"], true);
     assert_eq!(
         f.request(&p, "/readyz", None)
             .send()
@@ -755,8 +756,12 @@ async fn queue_timeout_never_dispatches_expired_intent_and_audit_failure_stops_w
             .status(),
         200
     );
-    assert_eq!(error(&submit.await.unwrap().unwrap()), "outcome_unknown");
-    assert_eq!(error(&queued.await.unwrap().unwrap()), "request_expired");
+    let unknown = submit.await.unwrap().unwrap();
+    assert_eq!(error(&unknown), "outcome_unknown");
+    assert_eq!(unknown["error"]["retryable"], false);
+    let expired = queued.await.unwrap().unwrap();
+    assert_eq!(error(&expired), "request_expired");
+    assert_eq!(expired["error"]["retryable"], true);
     gateway.state.release.add_permits(1);
     // Observe completion without dispatching new financial work into the full queue.
     let start = std::time::Instant::now();

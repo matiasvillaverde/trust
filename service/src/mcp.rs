@@ -46,6 +46,16 @@ fn tool(spec: &ToolSpec) -> Tool {
         )
         .with_raw_output_schema(crate::output_schema::output(spec))
 }
+
+fn single_page(request: Option<PaginatedRequestParams>) -> Result<(), McpError> {
+    if request.and_then(|request| request.cursor).is_some() {
+        return Err(McpError::invalid_params(
+            "This catalogue fits in one page; omit cursor.",
+            None,
+        ));
+    }
+    Ok(())
+}
 impl ServerHandler for Mcp {
     fn get_info(&self) -> ServerConfig {
         ServerConfig::new(ServerCapabilities::builder().enable_tools().enable_resources().enable_prompts().build())
@@ -58,12 +68,7 @@ impl ServerHandler for Mcp {
         context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, McpError> {
         let identity = identity(&context)?;
-        if request.and_then(|r| r.cursor).is_some() {
-            return Err(McpError::invalid_params(
-                "This tool catalogue fits in one page",
-                None,
-            ));
-        }
+        single_page(request)?;
         Ok(ListToolsResult::with_all_items(
             catalog::tools()
                 .iter()
@@ -109,10 +114,11 @@ impl ServerHandler for Mcp {
     }
     async fn list_resources(
         &self,
-        _: Option<PaginatedRequestParams>,
+        request: Option<PaginatedRequestParams>,
         context: RequestContext<RoleServer>,
     ) -> Result<ListResourcesResult, McpError> {
         let identity = identity(&context)?;
+        single_page(request)?;
         Ok(ListResourcesResult::with_all_items(
             skills::catalogue()
                 .iter()
@@ -153,10 +159,11 @@ impl ServerHandler for Mcp {
     }
     async fn list_prompts(
         &self,
-        _: Option<PaginatedRequestParams>,
+        request: Option<PaginatedRequestParams>,
         context: RequestContext<RoleServer>,
     ) -> Result<ListPromptsResult, McpError> {
         let identity = identity(&context)?;
+        single_page(request)?;
         Ok(ListPromptsResult::with_all_items(
             skills::catalogue()
                 .iter()

@@ -122,24 +122,6 @@ impl<'a> ProfitDistributionService<'a> {
             Ok(result)
         })
     }
-
-    /// Transfers funds between accounts in hierarchy
-    pub fn transfer_funds(
-        &self,
-        _from_account: &Account,
-        _to_account: &Account,
-        amount: Decimal,
-        _reason: &str,
-    ) -> Result<(), Box<dyn Error>> {
-        // Validate transfer amount
-        if amount <= Decimal::ZERO {
-            return Err("Transfer amount cannot be negative or zero".into());
-        }
-
-        // For now, just validate the input and return success
-        // Later this will create actual transactions
-        Ok(())
-    }
 }
 
 fn build_distribution_legs(
@@ -594,55 +576,6 @@ mod tests {
         assert_eq!(history.len(), 1);
         let first_history = history.first().expect("history entry should exist");
         assert_eq!(first_history.original_amount, profit_amount);
-    }
-
-    #[test]
-    fn test_transfer_funds_between_accounts() {
-        // Given: A profit distribution service
-        let mut database = SqliteDatabase::new_in_memory();
-        let service = ProfitDistributionService::new(&mut database);
-
-        // And: Two accounts in the same hierarchy
-        let parent_account = create_test_account(AccountType::Primary, None);
-        let child_account = create_test_account(AccountType::Earnings, Some(parent_account.id));
-
-        // And: A transfer amount and reason
-        let transfer_amount = dec!(500);
-        let reason = "Test transfer for earnings distribution";
-
-        // When: We transfer funds between accounts
-        let result =
-            service.transfer_funds(&parent_account, &child_account, transfer_amount, reason);
-
-        // Then: The transfer should succeed
-        assert!(result.is_ok(), "Fund transfer should succeed");
-    }
-
-    #[test]
-    fn test_transfer_funds_with_negative_amount_fails() {
-        // Given: A profit distribution service
-        let mut database = SqliteDatabase::new_in_memory();
-        let service = ProfitDistributionService::new(&mut database);
-
-        // And: Two valid accounts
-        let from_account = create_test_account(AccountType::Primary, None);
-        let to_account = create_test_account(AccountType::Earnings, Some(from_account.id));
-
-        // And: A negative transfer amount
-        let negative_amount = dec!(-100);
-
-        // When: We attempt to transfer negative amount
-        let result = service.transfer_funds(
-            &from_account,
-            &to_account,
-            negative_amount,
-            "Invalid transfer",
-        );
-
-        // Then: The transfer should fail
-        assert!(result.is_err());
-        let error_msg = result.unwrap_err().to_string();
-        assert!(error_msg.contains("negative") || error_msg.contains("invalid"));
     }
 
     #[test]

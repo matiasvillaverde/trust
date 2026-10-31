@@ -351,6 +351,122 @@ fn funding_geometry_is_enforced_even_without_risk_rules() {
 }
 
 #[test]
+fn a_reservation_cannot_be_funded_again_after_funding_fill_cancel_or_close() {
+    fn view(fixture: &mut Fixture, trade_id: uuid::Uuid) -> serde_json::Value {
+        serde_json::to_value((
+            fixture.facade.read_trade(trade_id).unwrap(),
+            fixture
+                .facade
+                .search_balance(fixture.account.id, &Currency::USD)
+                .unwrap(),
+            fixture
+                .facade
+                .get_account_transactions(fixture.account.id)
+                .unwrap(),
+        ))
+        .unwrap()
+    }
+
+    for side in [TradeCategory::Long, TradeCategory::Short] {
+        for final_state in [
+            Status::Funded,
+            Status::Filled,
+            Status::Canceled,
+            Status::ClosedTarget,
+            Status::ClosedStopLoss,
+        ] {
+            let mut fixture = Fixture::new();
+            let draft = fixture.trade(side, dec!(10));
+            let (mut funded, _, _, _) = fixture.facade.fund_trade(&draft).unwrap();
+            let expected_cash = if side == TradeCategory::Long {
+                dec!(9000)
+            } else {
+                dec!(8900)
+            };
+            assert_eq!(
+                fixture
+                    .facade
+                    .search_balance(fixture.account.id, &Currency::USD)
+                    .unwrap()
+                    .total_available,
+                expected_cash,
+                "funding must reserve cash exactly once"
+            );
+
+            if final_state == Status::Canceled {
+                fixture.facade.cancel_funded_trade(&funded).unwrap();
+                assert_eq!(
+                    fixture
+                        .facade
+                        .search_balance(fixture.account.id, &Currency::USD)
+                        .unwrap()
+                        .total_available,
+                    dec!(10000),
+                    "cancellation returns the reservation"
+                );
+            } else if final_state != Status::Funded {
+                funded.entry.average_filled_price = Some(dec!(100));
+                let mut filled = fixture.facade.fill_trade(&funded, dec!(1)).unwrap().0;
+                if final_state == Status::ClosedTarget {
+                    filled.target.average_filled_price = Some(if side == TradeCategory::Long {
+                        dec!(120)
+                    } else {
+                        dec!(80)
+                    });
+                    fixture.facade.target_acquired(&filled, dec!(2)).unwrap();
+                    assert_eq!(
+                        fixture
+                            .facade
+                            .search_balance(fixture.account.id, &Currency::USD)
+                            .unwrap()
+                            .total_available,
+                        dec!(10197),
+                        "a 200 gain minus 3 fees"
+                    );
+                } else if final_state == Status::ClosedStopLoss {
+                    filled.safety_stop.average_filled_price =
+                        Some(if side == TradeCategory::Long {
+                            dec!(90)
+                        } else {
+                            dec!(110)
+                        });
+                    fixture.facade.stop_trade(&filled, dec!(2)).unwrap();
+                    assert_eq!(
+                        fixture
+                            .facade
+                            .search_balance(fixture.account.id, &Currency::USD)
+                            .unwrap()
+                            .total_available,
+                        dec!(9897),
+                        "a 100 loss plus 3 fees"
+                    );
+                }
+            }
+            let current = fixture.facade.read_trade(draft.id).unwrap();
+            assert_eq!(current.status, final_state);
+            let before = view(&mut fixture, draft.id);
+            let mut forged = current.clone();
+            forged.status = Status::New;
+            // Fresh reads, stale agent snapshots and a fabricated lifecycle all
+            // refer to the same already-consumed reservation.
+            for input in [&draft, &current, &forged] {
+                assert!(
+                    fixture.facade.fund_trade(input).is_err(),
+                    "refunded {side} {final_state}"
+                );
+                assert_eq!(view(&mut fixture, draft.id), before);
+            }
+            assert_eq!(
+                fixture
+                    .broker_calls
+                    .load(std::sync::atomic::Ordering::SeqCst),
+                0
+            );
+        }
+    }
+}
+
+#[test]
 fn funding_and_cash_writes_roll_back_at_each_persistence_boundary() {
     for (event, table) in [
         ("UPDATE", "trades"),

@@ -302,3 +302,146 @@ fn missing_control_storage_cannot_be_silently_reinitialized() {
     f.db.execute_batch("DROP TABLE operations").unwrap();
     assert!(Journal::open(&f.directory.path().join("control.db")).is_err());
 }
+
+#[test]
+fn batch_resolution_checks_validate_every_record_and_reverify_the_next_read() {
+    let mut f = Fixture::new();
+    let mut operations = Vec::new();
+    for index in 0..5 {
+        let id = f.pending(&format!("resolved-{index}"));
+        f.finish(id, true);
+        f.journal
+            .resolve_operation(&f.identity, Uuid::new_v4(), f.account, id, "Verified.")
+            .unwrap();
+        operations.push(id);
+    }
+    assert!(f
+        .journal
+        .unresolved_for(&[f.account].into())
+        .unwrap()
+        .is_empty());
+    let last = operations.last().unwrap();
+    f.db.execute(
+        "UPDATE operation_resolutions SET evidence='{}' WHERE operation_id=?1",
+        [last.to_string()],
+    )
+    .unwrap();
+    assert_eq!(
+        f.journal
+            .unresolved_for(&[f.account].into())
+            .unwrap_err()
+            .code,
+        "audit_integrity_failed"
+    );
+    f.db.execute(
+        "DELETE FROM operation_resolutions WHERE operation_id=?1",
+        [last.to_string()],
+    )
+    .unwrap();
+    assert_eq!(
+        f.journal.unresolved_for(&[f.account].into()).unwrap(),
+        [*last].into()
+    );
+    f.db.execute_batch(
+        "DROP TRIGGER audit_no_update; UPDATE audit SET event='{}' WHERE sequence=1;",
+    )
+    .unwrap();
+    assert_eq!(
+        f.journal
+            .unresolved_for(&[f.account].into())
+            .unwrap_err()
+            .code,
+        "audit_integrity_failed"
+    );
+}
+
+#[test]
+fn control_index_migration_preserves_evidence_and_indexes_admission_queries() {
+    let mut f = Fixture::new();
+    let operation = f.pending("migration");
+    f.finish(operation, false);
+    let before = f.journal.verify().unwrap();
+    f.db.execute_batch(include_str!("../migrations/0003_control_indexes/down.sql"))
+        .unwrap();
+    drop(f.journal);
+    let journal = Journal::open(&f.directory.path().join("control.db")).unwrap();
+    assert_eq!(journal.verify().unwrap(), before);
+    assert_eq!(
+        journal
+            .operation(&f.identity, "migration")
+            .unwrap()
+            .get("state"),
+        Some(&json!("completed"))
+    );
+    assert_eq!(
+        f.db.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
+            .unwrap(),
+        3
+    );
+    let migrated = Connection::open(f.directory.path().join("control.db")).unwrap();
+    for (query, index) in [
+        ("EXPLAIN QUERY PLAN SELECT MAX(audit_sequence) FROM account_safety_history WHERE scope='scope'", "account_safety_history_scope_sequence"),
+        ("EXPLAIN QUERY PLAN SELECT id FROM operations WHERE state='outcome_unknown'", "operations_unfinished"),
+        ("EXPLAIN QUERY PLAN SELECT id FROM operations WHERE state='running'", "operations_unfinished"),
+    ] {
+        let plan = migrated.prepare(query).unwrap().query_map([], |row| row.get::<_, String>(3)).unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>().unwrap().join("\n");
+        assert!(plan.contains(index), "Admission query must use {index}: {plan}");
+    }
+}
+
+#[test]
+#[ignore = "Offline release performance gate; run via make service-perf"]
+fn large_history_resolution_verification_budget() {
+    use std::time::Instant;
+    let mut f = Fixture::new();
+    for _ in 0..10_000 {
+        f.journal
+            .record(
+                &f.identity,
+                Uuid::new_v4(),
+                "account_readiness",
+                Some(f.account),
+                "read",
+            )
+            .unwrap();
+    }
+    for index in 0..50 {
+        let id = f.pending(&format!("resolved-{index}"));
+        f.finish(id, true);
+        f.journal
+            .resolve_operation(
+                &f.identity,
+                Uuid::new_v4(),
+                f.account,
+                id,
+                "Independently reconciled fixture.",
+            )
+            .unwrap();
+    }
+    let before = f.journal.verify().unwrap();
+    let mut samples = Vec::new();
+    for _ in 0..10 {
+        let started = Instant::now();
+        assert!(f
+            .journal
+            .unresolved_for(&[f.account].into())
+            .unwrap()
+            .is_empty());
+        samples.push(started.elapsed());
+    }
+    samples.sort_unstable();
+    println!(
+        "journal_perf {}",
+        json!({"historical_reads":10000,"resolved_outcomes":50,"samples":samples.len(),"median_us":samples.get(5).unwrap().as_micros(),"max_us":samples.last().unwrap().as_micros()})
+    );
+    assert_eq!(
+        f.journal.verify().unwrap(),
+        before,
+        "Readiness must not mutate its evidence"
+    );
+    assert!(
+        samples.get(5).unwrap() < &std::time::Duration::from_millis(250),
+        "Resolved historical incidents must not multiply full-history verification cost"
+    );
+}

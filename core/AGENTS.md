@@ -26,7 +26,7 @@ Core owns risk policy, calculations, and application orchestration. CLI business
 
 ## Tests
 
-Runnable coverage is primarily inline module tests, `src/security_tests.rs`, and `tests/risk_invariants_test.rs`. `src/integration_tests.rs` is currently not declared by `lib.rs`; do not assume it runs.
+Runnable coverage is in inline module tests, `src/security_tests.rs`, and `tests/`. The historical unregistered `src/integration_tests.rs` simulation has been removed. Cash contracts now run through the public facade and real SQLite in `tests/capital_contracts.rs`; lifecycle and broker scenarios are in `tests/reliability.rs` and `tests/security_regressions.rs`.
 
 ```bash
 cargo test -p core
@@ -34,4 +34,4 @@ cargo test -p core --test risk_invariants_test -- --test-threads=1
 make trust-proof
 ```
 
-Use mocks in `src/mocks.rs`. Add property tests for general financial invariants and regression tests for every lifecycle failure mode changed.
+Use mocks in `src/mocks.rs` for external boundaries and focused unit tests. For money-moving workflows prefer the public facade with real, isolated SQLite, independent expected amounts, persisted balances/receipts, and failure/retry assertions. Add property tests for general financial invariants and regression tests for every lifecycle failure mode changed. Follow [the testing guide](../docs/reliability/testing.md); a warning printed by a test is not an assertion.

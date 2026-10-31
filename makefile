@@ -136,12 +136,12 @@ delete-db:
 
 # Build Commands
 .PHONY: build
-build: setup
+build:
 	@echo "$(BLUE)Building project (debug)...$(NC)"
 	@$(CARGO) build $(CARGO_FLAGS)
 
 .PHONY: build-release
-build-release: setup
+build-release:
 	@echo "$(BLUE)Building project (release)...$(NC)"
 	@$(CARGO) build $(CARGO_FLAGS) --release
 
@@ -152,14 +152,14 @@ run: build
 
 # Testing Commands
 .PHONY: test
-test: setup
+test:
 	@echo "$(BLUE)Running tests...$(NC)"
-	@$(CARGO) test $(TEST_FLAGS)
+	@$(CARGO) test $(TEST_FLAGS) $(CARGO_FLAGS)
 
 .PHONY: test-single
-test-single: setup
+test-single:
 	@echo "$(BLUE)Running tests (single-threaded)...$(NC)"
-	@$(CARGO) test $(TEST_FLAGS) --all-features -- --test-threads=1
+	@$(CARGO) test $(TEST_FLAGS) $(CARGO_FLAGS) -- --test-threads=1
 
 .PHONY: reliability
 reliability:
@@ -300,7 +300,7 @@ ci-fast: fmt-check lint
 	@echo "$(GREEN)✓ Quick CI checks passed!$(NC)"
 
 .PHONY: ci-test
-ci-test: setup
+ci-test:
 	@echo "$(BLUE)Running CI test suite...$(NC)"
 	@$(CARGO) test $(TEST_FLAGS) $(CARGO_FLAGS)
 	@$(CARGO) test --doc $(CARGO_FLAGS)
@@ -347,9 +347,10 @@ ci-perf:
 service-perf:
 	@echo "$(BLUE)Running real-process HTTP/MCP latency gate (offline, release profile)...$(NC)"
 	$(CARGO) test --release -p trust-service --test e2e $(CARGO_FLAGS) -- real_process_risk_preview_latency_budget --ignored --exact --nocapture
+	$(CARGO) test --release -p trust-service --test journal_reliability $(CARGO_FLAGS) -- large_history_resolution_verification_budget --ignored --exact --nocapture
 
 .PHONY: ci-build
-ci-build: setup
+ci-build:
 	@echo "$(BLUE)Running CI build checks...$(NC)"
 	@$(CARGO) check $(CARGO_FLAGS) --all-features --workspace
 	@$(CARGO) check $(CARGO_FLAGS) --no-default-features --workspace

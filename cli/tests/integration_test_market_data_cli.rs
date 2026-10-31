@@ -1,51 +1,10 @@
 #![cfg(feature = "legacy-cli")]
+mod support;
 use serde_json::Value;
-use std::path::Path;
-use std::process::Command;
-use uuid::Uuid;
-
-fn cli_bin_path() -> String {
-    if let Ok(bin) = std::env::var("CARGO_BIN_EXE_trust-legacy") {
-        return bin;
-    }
-
-    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let candidates = [
-        manifest_dir
-            .join("..")
-            .join("target")
-            .join("debug")
-            .join("trust-legacy"),
-        manifest_dir
-            .join("..")
-            .join("target")
-            .join("llvm-cov-target")
-            .join("debug")
-            .join("trust-legacy"),
-    ];
-    for candidate in &candidates {
-        if candidate.exists() {
-            return candidate.to_string_lossy().to_string();
-        }
-    }
-
-    if let Ok(current_exe) = std::env::current_exe() {
-        if let Some(debug_dir) = current_exe.parent().and_then(Path::parent) {
-            let sibling_bin = debug_dir.join("trust-legacy");
-            if sibling_bin.exists() {
-                return sibling_bin.to_string_lossy().to_string();
-            }
-        }
-    }
-
-    candidates[0].to_string_lossy().to_string()
-}
+use support::TestDatabase;
 
 fn run_cli(database_url: &str, args: &[&str]) -> std::process::Output {
-    Command::new(cli_bin_path())
-        .env("TRUST_DB_URL", database_url)
-        .env("TRUST_DISABLE_KEYCHAIN", "1")
-        .env("TRUST_PROTECTED_KEYWORD_EXPECTED", "test_keyword")
+    support::legacy_command(database_url, "test_keyword")
         .args(args)
         .output()
         .expect("run cli")
@@ -57,7 +16,8 @@ fn parse_stderr_json(output: &std::process::Output) -> Value {
 
 #[test]
 fn test_market_data_bars_invalid_start_timestamp_json_error() {
-    let database_url = format!("file:test_market_data_invalid_start_{}.db", Uuid::new_v4());
+    let fixture = TestDatabase::new();
+    let database_url = fixture.url();
     let output = run_cli(
         &database_url,
         &[
@@ -85,7 +45,8 @@ fn test_market_data_bars_invalid_start_timestamp_json_error() {
 
 #[test]
 fn test_market_data_bars_end_before_start_json_error() {
-    let database_url = format!("file:test_market_data_invalid_range_{}.db", Uuid::new_v4());
+    let fixture = TestDatabase::new();
+    let database_url = fixture.url();
     let output = run_cli(
         &database_url,
         &[
@@ -113,10 +74,8 @@ fn test_market_data_bars_end_before_start_json_error() {
 
 #[test]
 fn test_market_data_snapshot_unknown_account_json_error() {
-    let database_url = format!(
-        "file:test_market_data_unknown_account_{}.db",
-        Uuid::new_v4()
-    );
+    let fixture = TestDatabase::new();
+    let database_url = fixture.url();
     let output = run_cli(
         &database_url,
         &[
@@ -138,7 +97,8 @@ fn test_market_data_snapshot_unknown_account_json_error() {
 
 #[test]
 fn test_market_data_help_lists_subcommands() {
-    let database_url = format!("file:test_market_data_help_{}.db", Uuid::new_v4());
+    let fixture = TestDatabase::new();
+    let database_url = fixture.url();
     let output = run_cli(&database_url, &["market-data", "--help"]);
     assert!(output.status.success(), "help command should succeed");
 
@@ -150,10 +110,8 @@ fn test_market_data_help_lists_subcommands() {
 
 #[test]
 fn test_market_data_stream_invalid_channel_json_error() {
-    let database_url = format!(
-        "file:test_market_data_invalid_channel_{}.db",
-        Uuid::new_v4()
-    );
+    let fixture = TestDatabase::new();
+    let database_url = fixture.url();
     let output = run_cli(
         &database_url,
         &[

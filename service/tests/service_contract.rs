@@ -38,6 +38,218 @@ fn key() -> &'static (Vec<u8>, Value) {
     static KEY: OnceLock<(Vec<u8>, Value)> = OnceLock::new();
     KEY.get_or_init(||{let rsa=openssl::rsa::Rsa::generate(2048).unwrap();let jwk=json!({"kty":"RSA","use":"sig","alg":"RS256","kid":"test-key","n":URL_SAFE_NO_PAD.encode(rsa.n().to_vec()),"e":URL_SAFE_NO_PAD.encode(rsa.e().to_vec())});(rsa.private_key_to_pem().unwrap(),json!({"keys":[jwk]}))})
 }
+
+#[test]
+fn pinned_jwks_rejects_ambiguous_private_and_invalid_verification_material() {
+    let f = Fixture::new();
+    for (field, value) in [
+        ("kid", json!("")),
+        ("kid", json!("x".repeat(257))),
+        ("kid", json!("bad\nkey")),
+        ("d", json!("private-key-marker")),
+        ("k", json!("symmetric-key-marker")),
+        ("n", json!(URL_SAFE_NO_PAD.encode([1u8; 128]))),
+        ("n", json!(URL_SAFE_NO_PAD.encode([1u8; 1025]))),
+        ("n", json!("invalid%encoding")),
+        ("n", json!(URL_SAFE_NO_PAD.encode([0u8; 256]))),
+        ("e", json!("Ag")),
+        ("e", json!("AAEAAQ")),
+        ("e", json!(URL_SAFE_NO_PAD.encode([255u8; 9]))),
+        ("e", json!("invalid%encoding")),
+    ] {
+        let mut jwk = key().1["keys"][0].clone();
+        jwk[field] = value;
+        std::fs::write(&f.config.jwks_file, json!({"keys":[jwk]}).to_string()).unwrap();
+        let error = Authenticator::new(f.config.clone()).err().unwrap();
+        assert_eq!(error.code, "invalid_argument", "{field}");
+        assert!(!error.to_string().contains("key-marker"));
+    }
+    let jwk = key().1["keys"][0].clone();
+    std::fs::write(
+        &f.config.jwks_file,
+        json!({"keys":[jwk.clone(),jwk]}).to_string(),
+    )
+    .unwrap();
+    assert!(Authenticator::new(f.config.clone()).is_err());
+}
+
+#[test]
+fn jwt_keys_are_bound_to_signature_use_algorithm_and_verification_operation() {
+    let f = Fixture::new();
+    for (field, value) in [
+        ("use", json!("enc")),
+        ("alg", json!("RS384")),
+        ("key_ops", json!(["encrypt"])),
+        ("key_ops", json!(["verify", "verify"])),
+        ("key_ops", json!(["verify", "decrypt"])),
+        ("key_ops", json!([])),
+    ] {
+        let mut excluded = key().1["keys"][0].clone();
+        excluded["kid"] = json!("excluded");
+        excluded[field] = value;
+        std::fs::write(
+            &f.config.jwks_file,
+            json!({"keys":[key().1["keys"][0],excluded.clone()]}).to_string(),
+        )
+        .unwrap();
+        let auth = Authenticator::new(f.config.clone()).unwrap();
+        assert!(auth.authenticate(&f.token()).is_ok());
+        let mut header = Header::new(Algorithm::RS256);
+        header.kid = Some("excluded".into());
+        let token = encode(
+            &header,
+            &f.claims(),
+            &EncodingKey::from_rsa_pem(&key().0).unwrap(),
+        )
+        .unwrap();
+        assert!(auth.authenticate(&token).is_err(), "{field}");
+        std::fs::write(&f.config.jwks_file, json!({"keys":[excluded]}).to_string()).unwrap();
+        assert!(Authenticator::new(f.config.clone()).is_err());
+    }
+    let mut jwk = key().1["keys"][0].clone();
+    jwk["key_ops"] = json!(["verify"]);
+    std::fs::write(&f.config.jwks_file, json!({"keys":[jwk]}).to_string()).unwrap();
+    assert!(Authenticator::new(f.config.clone())
+        .unwrap()
+        .authenticate(&f.token())
+        .is_ok());
+}
+
+#[test]
+fn valid_signature_does_not_accept_unsupported_critical_or_encrypted_headers() {
+    let f = Fixture::new();
+    let auth = Authenticator::new(f.config.clone()).unwrap();
+    for (field, value) in [
+        ("crit", json!(["unknown-extension"])),
+        ("crit", json!([])),
+        ("zip", json!("DEF")),
+        ("enc", json!("A128GCM")),
+        ("b64", json!(false)),
+    ] {
+        let mut header = serde_json::to_value(Header::new(Algorithm::RS256)).unwrap();
+        header["kid"] = json!("test-key");
+        header[field] = value;
+        let header: Header = serde_json::from_value(header).unwrap();
+        let token = encode(
+            &header,
+            &f.claims(),
+            &EncodingKey::from_rsa_pem(&key().0).unwrap(),
+        )
+        .unwrap();
+        assert!(auth.authenticate(&token).is_err(), "{field}");
+    }
+    // Public verification material is pinned at startup; claims and MFA still
+    // pass the existing per-request validation below, without token-result caching.
+    std::fs::write(&f.config.jwks_file, "{}").unwrap();
+    assert!(auth.authenticate(&f.token()).is_ok());
+    let mut expired = f.claims();
+    expired["exp"] = json!(1);
+    assert!(auth.authenticate(&f.sign(expired)).is_err());
+}
+
+#[tokio::test]
+async fn invalid_http_bodies_are_structured_sanitized_and_never_dispatched() {
+    let f = Fixture::new();
+    let (service, worker) = f.start();
+    let app = trust_service::http::router(f.config.clone(), service.clone()).unwrap();
+    let token = f.token();
+    for (content_type, body, declared, expected) in [
+        (
+            "application/json",
+            "{\"private-marker\":".to_owned(),
+            false,
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            "text/plain",
+            "private-marker".into(),
+            false,
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+        ),
+        (
+            "application/json",
+            "x".repeat(131073),
+            false,
+            StatusCode::PAYLOAD_TOO_LARGE,
+        ),
+        (
+            "application/json",
+            "x".repeat(131073),
+            true,
+            StatusCode::PAYLOAD_TOO_LARGE,
+        ),
+    ] {
+        let mut request = Request::post("/v1/tools/capital_deposit")
+            .header("host", "localhost:8000")
+            .header("authorization", format!("Bearer {token}"))
+            .header("content-type", content_type);
+        if declared {
+            request = request.header("content-length", body.len());
+        }
+        let response = app
+            .clone()
+            .oneshot(request.body(Body::from(body)).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), expected);
+        let request_id = response.headers()["x-request-id"]
+            .to_str()
+            .unwrap()
+            .to_owned();
+        let bytes = to_bytes(response.into_body(), 10000).await.unwrap();
+        let value: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(value["request_id"], request_id);
+        assert_eq!(value["error"]["code"], "invalid_argument");
+        assert_eq!(value["error"]["retryable"], false);
+        assert!(value["operation_id"].is_null());
+        assert!(!String::from_utf8_lossy(&bytes).contains("private-marker"));
+    }
+    assert_eq!(service.metrics.completed.load(Ordering::Relaxed), 0);
+    worker.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn mcp_catalogues_reject_invalid_cursors_and_rate_limits_explain_safe_retry() {
+    let f = Fixture::new();
+    let (service, worker) = f.start();
+    let app = trust_service::http::router(f.config.clone(), service.clone()).unwrap();
+    let token = f.token();
+    for method in ["tools/list", "resources/list", "prompts/list"] {
+        let (status, _, value) = http(
+            app.clone(),
+            Some(&token),
+            "/mcp",
+            Some(json!({"jsonrpc":"2.0","id":1,"method":method,"params":{"cursor":"invalid"}})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(value["error"]["code"], -32602);
+    }
+    for _ in 3..120 {
+        let (status, _, _) = http(
+            app.clone(),
+            Some(&token),
+            "/mcp",
+            Some(json!({"jsonrpc":"2.0","id":1,"method":"ping"})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+    }
+    let (status, headers, value) = http(
+        app.clone(),
+        Some(&token),
+        "/mcp",
+        Some(json!({"jsonrpc":"2.0","id":1,"method":"ping"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(headers["retry-after"], "60");
+    assert_eq!(value["error"]["retryable"], true);
+    assert!(value["operation_id"].is_null());
+    assert_eq!(http(app, None, "/readyz", None).await.0, StatusCode::OK);
+    assert_eq!(service.metrics.completed.load(Ordering::Relaxed), 0);
+    worker.shutdown().await.unwrap();
+}
 struct Fixture {
     _directory: tempfile::TempDir,
     config: Arc<Config>,

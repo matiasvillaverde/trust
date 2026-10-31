@@ -33,6 +33,23 @@ MUTATIONS = [
     ("recorded_stop", "core/src/commands/trade.rs", 'protection.safety_stop.unit_price = recorded_stop_bound(&current_trade, database)?;',
      'protection.safety_stop.unit_price = current_trade.safety_stop.unit_price;',
      "core", "security_regressions", "broker_snapshot_cannot_erase_previous_stop_protection"),
+    ("transfer_credit", "core/src/services/fund_transfer_service.rs",
+     '&TransactionCategory::Deposit,\n                amount,',
+     '&TransactionCategory::Deposit,\n                Decimal::ONE,',
+     "core", "capital_contracts", "transfers_move_exact_cash_between_related_accounts_and_survive_restart"),
+    ("transfer_rollback", "core/src/commands/atomic.rs",
+     'let rollback_error = database.rollback_to_savepoint(name).err();',
+     'let rollback_error: Option<Box<dyn Error>> = None;',
+     "core", "capital_contracts", "failed_transfers_roll_back_both_accounts_and_can_be_retried_once"),
+    ("distribution_threshold", "model/src/distribution.rs",
+     'if profit < self.minimum_threshold {', 'if false {',
+     "core", "capital_contracts", "distribution_threshold_and_available_cash_are_enforced_without_side_effects"),
+    ("distribution_receipt", "core/src/services/profit_distribution_service.rs",
+     'tax_amount: result.tax_amount,', 'tax_amount: result.earnings_amount,',
+     "core", "capital_contracts", "distributions_conserve_cash_and_record_the_actual_allocations"),
+    ("funding_replay", "core/src/validators/trade.rs",
+     'Status::New => Ok(()),', 'Status::New | Status::Funded => Ok(()),',
+     "core", "reliability", "a_reservation_cannot_be_funded_again_after_funding_fill_cancel_or_close"),
 ]
 
 
@@ -44,6 +61,10 @@ def main():
     # Cargo releases its build lock before tests/rustdoc finish. Sharing the main
     # target could replace dependency artifacts underneath a concurrent test run.
     env.update(CARGO_TARGET_DIR=str(ROOT / "target/assurance-mutations"), CARGO_INCREMENTAL="0", TRUST_IBKR_LIVE_E2E="0")
+    # The isolated copy contains source only. Its relative .cargo/config.toml
+    # cannot locate the native library prepared in the original checkout.
+    env.setdefault("SQLCIPHER_LIB_DIR", str(ROOT / ".local/sqlcipher/lib"))
+    env.setdefault("SQLCIPHER_INCLUDE_DIR", str(ROOT / ".local/sqlcipher/include"))
     env.pop("TRUST_IBKR_ALLOW_PAPER_MUTATIONS", None)
     results = []
     with tempfile.TemporaryDirectory(prefix="trust-mutations-") as directory:
@@ -54,7 +75,8 @@ def main():
             if not name or not path.is_file() or path.is_symlink():
                 continue
             # Only build/test source; no ignored databases, tokens or local config.
-            if Path(name).suffix not in {".rs", ".toml", ".lock", ".json", ".md", ".sql", ".snap"}:
+            embedded_skill_metadata = name.startswith("skills/") and Path(name).suffix == ".yaml"
+            if Path(name).suffix not in {".rs", ".toml", ".lock", ".json", ".md", ".sql", ".snap"} and not embedded_skill_metadata:
                 continue
             if name.startswith((".local/", ".env", "deploy/")):
                 continue
