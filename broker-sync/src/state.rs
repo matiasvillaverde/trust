@@ -1,4 +1,4 @@
-//! State machine for BrokerSync actor
+//! Pure connection-state model, separate from the in-memory session tracker.
 
 use std::time::{Duration, Instant};
 use thiserror::Error;
@@ -30,6 +30,8 @@ impl Default for BackoffConfig {
 /// Errors that can occur during state transitions
 #[derive(Debug, Clone, Error, PartialEq)]
 pub enum StateError {
+    #[error("Broker retry deadline exceeds the monotonic clock range")]
+    RetryDeadlineOverflow,
     #[error("Invalid transition: {from:?} cannot transition via {transition:?}")]
     InvalidTransition {
         from: BrokerState,
@@ -111,8 +113,13 @@ impl BrokerState {
                 },
                 StateTransition::RetryConnection,
             ) => Ok(BrokerState::ErrorRecovery {
-                attempt: attempt + 1,
-                next_retry: now + Self::calculate_backoff_with_config(attempt + 1, config),
+                attempt: attempt.saturating_add(1),
+                next_retry: now
+                    .checked_add(Self::calculate_backoff_with_config(
+                        attempt.saturating_add(1),
+                        config,
+                    ))
+                    .ok_or(StateError::RetryDeadlineOverflow)?,
                 config: config.clone(),
             }),
             (BrokerState::ErrorRecovery { .. }, StateTransition::Connect) => {
@@ -124,7 +131,9 @@ impl BrokerState {
                 let config = BackoffConfig::default();
                 Ok(BrokerState::ErrorRecovery {
                     attempt: 1,
-                    next_retry: now + Self::calculate_backoff_with_config(1, &config),
+                    next_retry: now
+                        .checked_add(Self::calculate_backoff_with_config(1, &config))
+                        .ok_or(StateError::RetryDeadlineOverflow)?,
                     config,
                 })
             }
@@ -163,14 +172,14 @@ impl BrokerState {
     /// Calculate exponential backoff with configuration
     fn calculate_backoff_with_config(attempt: u32, config: &BackoffConfig) -> Duration {
         // Calculate exponential delay with cap
-        let exponent = (attempt - 1).min(config.max_exponent);
+        let exponent = attempt.saturating_sub(1).min(config.max_exponent);
         let delay_ms = config
             .base_delay_ms
-            .saturating_mul(2u64.pow(exponent))
+            .saturating_mul(2u64.checked_pow(exponent).unwrap_or(u64::MAX))
             .min(config.max_delay_ms);
 
         // Add jitter to prevent thundering herd
-        let jitter_range = (delay_ms * config.jitter_percent as u64) / 100;
+        let jitter_range = delay_ms.saturating_mul(u64::from(config.jitter_percent.min(100))) / 100;
         let final_delay = Self::apply_jitter(delay_ms, jitter_range, config.max_delay_ms);
 
         Duration::from_millis(final_delay)
@@ -189,14 +198,11 @@ impl BrokerState {
             return delay_ms.min(max_delay_ms);
         }
 
-        // Generate random jitter in range [-jitter_range, +jitter_range]
-        let jitter_i64 = rand::random_range(-(jitter_range as i64)..=(jitter_range as i64));
-
-        // Apply jitter and clamp to valid range
-        let jittered_delay = if jitter_i64 < 0 {
-            delay_ms.saturating_sub((-jitter_i64) as u64)
+        let jitter = rand::random_range(0..=jitter_range);
+        let jittered_delay = if rand::random::<bool>() {
+            delay_ms.saturating_sub(jitter)
         } else {
-            delay_ms.saturating_add(jitter_i64 as u64)
+            delay_ms.saturating_add(jitter)
         };
 
         // Ensure we don't exceed max delay and have minimum of 100ms

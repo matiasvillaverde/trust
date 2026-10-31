@@ -1,7 +1,8 @@
-//! BrokerSync actor for real-time Alpaca WebSocket integration
+//! In-memory trade session tracking for the legacy CLI.
 //!
-//! This crate will implement the actor-based system for managing
-//! WebSocket connections and synchronizing state with Alpaca.
+//! This actor does not connect to a broker or reconcile orders. The exported
+//! connection state machine is a separate, pure model. Broker reconciliation
+//! belongs to TrustFacade and the durable service operation journal.
 
 mod messages;
 mod state;
@@ -52,14 +53,14 @@ fn now_ms() -> i64 {
     i64::try_from(now.as_millis()).unwrap_or(i64::MAX)
 }
 
-/// Handle to the background broker-sync actor.
+/// Handle to the background trade session tracker.
 #[derive(Debug)]
-pub struct BrokerSyncHandle {
+pub struct TradeSessionHandle {
     sender: Sender<BrokerCommand>,
     events: Receiver<BrokerEvent>,
 }
 
-impl BrokerSyncHandle {
+impl TradeSessionHandle {
     /// Send a command to the actor.
     pub fn send(&self, command: BrokerCommand) -> Result<(), String> {
         self.sender.send(command).map_err(|e| e.to_string())
@@ -79,12 +80,12 @@ impl BrokerSyncHandle {
     }
 }
 
-/// The main BrokerSync actor runtime.
-pub struct BrokerSync;
+/// In-memory session tracker; no broker I/O is performed.
+pub struct TradeSessionTracker;
 
-impl BrokerSync {
+impl TradeSessionTracker {
     /// Spawn the actor in a background thread.
-    pub fn spawn() -> BrokerSyncHandle {
+    pub fn spawn() -> TradeSessionHandle {
         let (cmd_tx, cmd_rx): (Sender<BrokerCommand>, Receiver<BrokerCommand>) = mpsc::channel();
         let (evt_tx, evt_rx): (Sender<BrokerEvent>, Receiver<BrokerEvent>) = mpsc::channel();
 
@@ -127,17 +128,11 @@ impl BrokerSync {
                     BrokerCommand::GetStatus => {
                         let _ = evt_tx.send(BrokerEvent::GetStatus);
                     }
-                    BrokerCommand::StartSync { .. }
-                    | BrokerCommand::StopSync { .. }
-                    | BrokerCommand::ManualReconcile { .. } => {
-                        // These commands are preserved for compatibility and can be
-                        // upgraded by future runtime integrations.
-                    }
                 }
             }
         });
 
-        BrokerSyncHandle {
+        TradeSessionHandle {
             sender: cmd_tx,
             events: evt_rx,
         }

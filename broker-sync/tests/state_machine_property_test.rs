@@ -83,21 +83,40 @@ proptest! {
     }
 
     #[test]
-    fn prop_state_transitions_never_panic(
+    fn arbitrary_sequences_cannot_skip_connection_or_reconciliation(
         initial_state in arb_broker_state(),
         transitions in prop::collection::vec(arb_state_transition(), 0..100)
     ) {
-        // No sequence of transitions should cause a panic
+        let now = Instant::now();
         let mut state = initial_state;
         for transition in transitions {
-            // Allow both valid and invalid transitions, but they shouldn't panic
-            if let Ok(new_state) = state.clone().transition(transition) {
-                state = new_state;
+            // Public lifecycle contract: these are the only routes to usable connectivity.
+            let expected = match (&state, &transition) {
+                (_, StateTransition::Error) => Some("recovery"),
+                (BrokerState::Disconnected | BrokerState::ErrorRecovery { .. }, StateTransition::Connect) => Some("connecting"),
+                (BrokerState::Connecting, StateTransition::ConnectionEstablished) => Some("reconciling"),
+                (BrokerState::Reconciling { .. }, StateTransition::ReconciliationComplete) => Some("live"),
+                (BrokerState::Live { .. }, StateTransition::StartReconciliation) => Some("reconciling"),
+                (BrokerState::ErrorRecovery { .. }, StateTransition::RetryConnection) => Some("recovery"),
+                _ => None,
+            };
+            let actual = state.clone().transition_at(transition, now);
+            match actual {
+                Ok(next) => {
+                    let kind = match &next {
+                        BrokerState::Disconnected => "disconnected",
+                        BrokerState::Connecting => "connecting",
+                        BrokerState::Reconciling { .. } => "reconciling",
+                        BrokerState::Live { .. } => "live",
+                        BrokerState::ErrorRecovery { .. } => "recovery",
+                    };
+                    prop_assert_eq!(expected, Some(kind));
+                    prop_assert_eq!(next.is_connected(), kind == "live");
+                    state = next;
+                }
+                Err(_) => prop_assert!(expected.is_none(), "A permitted recovery step must succeed"),
             }
-            // Invalid transitions are fine, just ignore
         }
-        // If we got here, no panic occurred
-        prop_assert!(true);
     }
 
     #[test]
@@ -116,10 +135,8 @@ proptest! {
             },
         };
 
-        if let Ok(BrokerState::ErrorRecovery { attempt, .. }) =
-            state.clone().transition(StateTransition::RetryConnection) {
-            prop_assert!(attempt > attempt_count);
-        }
+        let recovered = state.transition(StateTransition::RetryConnection)?;
+        prop_assert!(matches!(recovered, BrokerState::ErrorRecovery { attempt, .. } if attempt > attempt_count), "Retry must increase the attempt");
     }
 
     #[test]
@@ -150,60 +167,59 @@ proptest! {
         let error_state = initial_state.transition(StateTransition::Error);
         prop_assert!(error_state.is_ok());
 
-        if let Ok(BrokerState::ErrorRecovery { .. }) = error_state {
-            prop_assert!(true);
-        } else {
-            prop_assert!(false, "Expected ErrorRecovery state");
-        }
+        prop_assert!(matches!(error_state, Ok(BrokerState::ErrorRecovery { .. })), "Errors always enter recovery");
     }
 
     #[test]
-    fn prop_backoff_increases_exponentially(
-        attempts in 1u32..10
+    fn backoff_is_bounded_even_at_integer_boundaries(
+        attempt in any::<u32>(),
+        base_delay_ms in any::<u64>(),
+        max_delay_ms in any::<u64>(),
+        max_exponent in any::<u32>(),
+        jitter_percent in any::<u32>(),
     ) {
-        // Backoff should follow exponential pattern (with cap)
-        let config = broker_sync::BackoffConfig {
-            base_delay_ms: 1000,
-            max_delay_ms: 60_000,
-            max_exponent: 6,
-            jitter_percent: 0, // Disable jitter for testing
-        };
-
         let state = BrokerState::ErrorRecovery {
-            attempt: attempts,
-            next_retry: Instant::now(),
-            config: config.clone(),
+            attempt, next_retry: Instant::now(),
+            config: broker_sync::BackoffConfig { base_delay_ms, max_delay_ms, max_exponent, jitter_percent },
         };
-
-        let backoff = state.backoff_duration();
-        let exponent = (attempts - 1).min(6);
-        let expected_ms = 1000u64.saturating_mul(2u64.pow(exponent)).min(60_000);
-        let expected = Duration::from_millis(expected_ms);
-        prop_assert_eq!(backoff, expected);
+        prop_assert!(state.backoff_duration() <= Duration::from_millis(max_delay_ms));
     }
 
     #[test]
-    fn prop_state_sequence_eventually_reaches_live(
-        transitions in prop::collection::vec(arb_state_transition(), 100..200)
+    fn successful_reconnection_after_any_valid_prefix_reaches_live(
+        transitions in prop::collection::vec(arb_state_transition(), 0..200)
     ) {
-        // Given enough transitions, we should be able to reach Live state
+        let now = Instant::now();
         let mut state = BrokerState::Disconnected;
-        let mut reached_live = false;
-
-        let transition_count = transitions.len();
         for transition in transitions {
-            if let Ok(new_state) = state.clone().transition(transition) {
-                state = new_state;
-                if matches!(state, BrokerState::Live { .. }) {
-                    reached_live = true;
-                    break;
-                }
+            if let Ok(next) = state.clone().transition_at(transition, now) {
+                state = next;
             }
         }
-
-        // This is a probabilistic test - with enough random transitions,
-        // we should hit the Live state at some point
-        // Not a hard requirement, but useful for detecting broken paths
-        prop_assume!(reached_live || transition_count < 150);
+        // A healthy connection must be usable after recovery from any prior history.
+        state = state.transition_at(StateTransition::Error, now)?;
+        prop_assert!(!state.is_connected());
+        state = state.transition_at(StateTransition::Connect, now)?;
+        prop_assert!(!state.is_connected());
+        state = state.transition_at(StateTransition::ConnectionEstablished, now)?;
+        prop_assert!(!state.is_connected(), "Orders must reconcile before becoming live");
+        state = state.transition_at(StateTransition::ReconciliationComplete, now)?;
+        prop_assert_eq!(state, BrokerState::Live { connected_since: now });
     }
+}
+
+#[test]
+fn retry_counter_saturates_without_losing_recovery_state() {
+    let state = BrokerState::ErrorRecovery {
+        attempt: u32::MAX,
+        next_retry: Instant::now(),
+        config: broker_sync::BackoffConfig::default(),
+    };
+    assert!(matches!(
+        state.transition(StateTransition::RetryConnection).unwrap(),
+        BrokerState::ErrorRecovery {
+            attempt: u32::MAX,
+            ..
+        }
+    ));
 }

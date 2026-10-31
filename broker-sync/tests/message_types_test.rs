@@ -7,24 +7,12 @@ use std::time::Duration;
 use uuid::Uuid;
 
 #[test]
-fn test_broker_command_variants_exist() {
-    // Verify all command variants exist
-    let _start_sync = BrokerCommand::StartSync {
-        account_id: Uuid::new_v4(),
-    };
-
-    let _stop_sync = BrokerCommand::StopSync {
-        account_id: Uuid::new_v4(),
-    };
-
-    let _manual_reconcile = BrokerCommand::ManualReconcile {
-        account_id: Some(Uuid::new_v4()),
-        force: false,
-    };
-
-    let _get_status = BrokerCommand::GetStatus;
-
-    let _shutdown = BrokerCommand::Shutdown;
+fn unsupported_sync_commands_are_rejected_instead_of_silently_ignored() {
+    for command in ["StartSync", "StopSync", "ManualReconcile"] {
+        let value =
+            serde_json::json!({"type": command, "account_id": Uuid::new_v4(), "force": true});
+        assert!(serde_json::from_value::<BrokerCommand>(value).is_err());
+    }
 }
 
 #[test]
@@ -110,24 +98,13 @@ fn test_broker_event_implements_clone() {
 
 #[test]
 fn test_broker_command_serialization() {
-    let cmd = BrokerCommand::ManualReconcile {
-        account_id: Some(Uuid::new_v4()),
-        force: true,
+    let cmd = BrokerCommand::StartTradeSession {
+        account_id: Uuid::new_v4(),
+        trade_id: Uuid::new_v4(),
     };
-
-    // Should serialize to JSON
-    let json = serde_json::to_string(&cmd).unwrap();
-    assert!(json.contains("ManualReconcile"));
-    assert!(json.contains("force"));
-
-    // Should deserialize back
-    let deserialized: BrokerCommand = serde_json::from_str(&json).unwrap();
-
-    if let BrokerCommand::ManualReconcile { force, .. } = deserialized {
-        assert!(force);
-    } else {
-        panic!("Expected ManualReconcile command");
-    }
+    let json = serde_json::to_value(&cmd).unwrap();
+    assert_eq!(json["type"], "StartTradeSession");
+    assert_eq!(serde_json::from_value::<BrokerCommand>(json).unwrap(), cmd);
 }
 
 #[test]

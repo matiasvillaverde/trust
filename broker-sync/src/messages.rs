@@ -1,23 +1,14 @@
-//! Message types for the BrokerSync actor
+//! Session commands and broker event data contracts
 
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use uuid::Uuid;
 
-/// Commands that can be sent to the broker actor
+/// Commands implemented by the in-memory trade session tracker
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum BrokerCommand {
-    /// Start synchronization for an account
-    StartSync { account_id: Uuid },
-    /// Stop synchronization for an account
-    StopSync { account_id: Uuid },
-    /// Trigger manual reconciliation
-    ManualReconcile {
-        account_id: Option<Uuid>,
-        force: bool,
-    },
     /// Start a managed live-trade session.
     StartTradeSession { account_id: Uuid, trade_id: Uuid },
     /// Stop a managed live-trade session.

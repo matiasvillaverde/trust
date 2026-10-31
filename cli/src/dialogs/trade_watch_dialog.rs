@@ -10,7 +10,7 @@
 
 use crate::dialogs::{dialog_helpers, AccountSearchDialog, ConsoleDialogIo};
 use crate::views::{ExecutionView, OrderView};
-use broker_sync::{BrokerCommand, BrokerEvent, BrokerSync};
+use broker_sync::{BrokerCommand, BrokerEvent, TradeSessionTracker};
 use core::TrustFacade;
 use model::{Account, Execution, Status, Trade};
 use std::collections::HashSet;
@@ -188,7 +188,7 @@ fn watch_loop(
     trade: &Trade,
     account: &Account,
 ) -> Result<(), Box<dyn Error>> {
-    let session_actor = BrokerSync::spawn();
+    let session_actor = TradeSessionTracker::spawn();
     session_actor.send(BrokerCommand::StartTradeSession {
         account_id: account.id,
         trade_id: trade.id,

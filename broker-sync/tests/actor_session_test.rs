@@ -1,10 +1,10 @@
-use broker_sync::{BrokerCommand, BrokerEvent, BrokerSync};
+use broker_sync::{BrokerCommand, BrokerEvent, TradeSessionTracker};
 use std::time::Duration;
 use uuid::Uuid;
 
 #[test]
 fn test_actor_session_start_list_stop() {
-    let handle = BrokerSync::spawn();
+    let handle = TradeSessionTracker::spawn();
     let account_id = Uuid::new_v4();
     let trade_id = Uuid::new_v4();
 
@@ -60,7 +60,7 @@ fn test_actor_session_start_list_stop() {
 
 #[test]
 fn test_actor_status_and_touch_session_paths() {
-    let handle = BrokerSync::spawn();
+    let handle = TradeSessionTracker::spawn();
     let account_id = Uuid::new_v4();
     let trade_id = Uuid::new_v4();
 
@@ -76,23 +76,6 @@ fn test_actor_status_and_touch_session_paths() {
             account_id,
             trade_id,
         }
-    );
-
-    handle
-        .send(BrokerCommand::StartSync { account_id })
-        .expect("start sync compatibility command");
-    handle
-        .send(BrokerCommand::StopSync { account_id })
-        .expect("stop sync compatibility command");
-    handle
-        .send(BrokerCommand::ManualReconcile {
-            account_id: Some(account_id),
-            force: true,
-        })
-        .expect("manual reconcile compatibility command");
-    assert!(
-        handle.recv_timeout(Duration::from_millis(25)).is_err(),
-        "compatibility-only commands should not emit actor events"
     );
 
     handle
