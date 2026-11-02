@@ -11,7 +11,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     && install -Dm755 target/release/trust-storage /out/trust-storage \
     && install -Dm755 target/release/trust /out/trust
 
-FROM cgr.dev/chainguard/wolfi-base:latest@sha256:360896efb0753a5701c48f860e17130c205eae5a264797aa3e7ea126ee2923a7 AS runtime
+FROM cgr.dev/chainguard/wolfi-base:latest@sha256:88a20e2d017bd20cdc0cb3910de603e7bea9512a6c351a8dd3c9df212ab03d73 AS runtime
 RUN apk --no-cache upgrade \
     && apk add --no-cache ca-certificates-bundle libgcc libssl3 dbus-libs curl \
     && addgroup -g 10001 trust \
