@@ -21,6 +21,7 @@ Read only the relevant reference. Installed skills use relative links. MCP clien
 | --- | --- |
 | Bind an account, register an instrument, set risk/mandates, or record ledger capital | [Setup, policy and accounting](references/setup-and-policy.md) |
 | Recover a halt, reconcile equity, investigate audit or create a backup | [Recovery, audit and backups](references/recovery-and-audit.md) |
+| Import original IBKR reports, compare cash/fills/fees/positions or resolve a statement discrepancy | [Broker statement evidence](references/broker-statements.md) |
 
 ## Preserve the product's boundaries
 

@@ -361,6 +361,10 @@ fn control_index_migration_preserves_evidence_and_indexes_admission_queries() {
     let operation = f.pending("migration");
     f.finish(operation, false);
     let before = f.journal.verify().unwrap();
+    f.db.execute_batch(include_str!(
+        "../migrations/0004_broker_statements/down.sql"
+    ))
+    .unwrap();
     f.db.execute_batch(include_str!("../migrations/0003_control_indexes/down.sql"))
         .unwrap();
     drop(f.journal);
@@ -376,7 +380,7 @@ fn control_index_migration_preserves_evidence_and_indexes_admission_queries() {
     assert_eq!(
         f.db.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
             .unwrap(),
-        3
+        4
     );
     let migrated = Connection::open(f.directory.path().join("control.db")).unwrap();
     for (query, index) in [

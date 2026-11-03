@@ -479,6 +479,16 @@ fn execute_inner(
     let result = metrics.measure(Stage::Domain, || {
         crate::safety::before(domain, journal, identity, spec.operation, args, request_id)?;
         identity.check(spec.scope, account)?;
+        if crate::statements::handles(spec.operation) {
+            return crate::statements::dispatch(
+                domain,
+                journal,
+                identity,
+                spec.operation,
+                args,
+                request_id,
+            );
+        }
         if crate::safety::handles(spec.operation) {
             return crate::safety::dispatch(
                 domain,
@@ -501,7 +511,14 @@ fn execute_inner(
         }
     });
     let result = match result {
-        Err(error) if error.code == "audit_integrity_failed" => return Err(error),
+        Err(error)
+            if matches!(
+                error.code.as_str(),
+                "audit_integrity_failed" | "audit_unavailable"
+            ) =>
+        {
+            return Err(error)
+        }
         other => other,
     };
     // A domain error can follow an external side effect. Do not claim rollback.

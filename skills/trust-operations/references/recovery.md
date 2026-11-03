@@ -43,4 +43,10 @@ When unsafe/unresolved exposure is discovered and halting is within the agent's 
 
 ## Handoff payload
 
+For `statement_reconciliation_unresolved`, the owner must inspect the retained IBKR
+report and its discrepancy in a separate MFA session. Include the readiness blocker
+and count in the handoff; statement IDs and private originals may be owner-only.
+Do not import, edit or supersede reports through an agent credential. A historical
+match never authorizes entry, and resolving a report still requires verified resumption.
+
 Give the human the account UUID and paper/live environment, trade UUID, original key and operation ID, last known status, evidenced filled quantity, protection status, broker observation times, exact blockers, and missing order/fill/position/fee/cash evidence. State which action remains unconfirmed. Request independent reconciliation and owner recovery in the human's separate authenticated session; never request an elevated token. Secrets and raw credential-bearing broker messages do not belong in the handoff.

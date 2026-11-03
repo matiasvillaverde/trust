@@ -166,6 +166,8 @@ fn readiness(generator: &mut SchemaGenerator) -> Value {
         ("snapshot_complete", boolean()),
         ("broker_connected", boolean()),
         ("unresolved_operation_count", integer()),
+        ("unreconciled_statement_count", integer()),
+        ("unreconciled_statement_ids", nullable(array(uuid()))),
         ("unresolved_operation_ids", nullable(array(uuid()))),
         (
             "snapshot",
@@ -232,6 +234,10 @@ fn data(op: Operation, generator: &mut SchemaGenerator) -> Value {
             ("balances", schema::<Vec<AccountBalance>>(generator)),
         ]),
         AccountCreate | AccountDelete => schema::<Account>(generator),
+        StatementImport | StatementGet | StatementReconcile => {
+            schema::<crate::statements::StatementView>(generator)
+        }
+        StatementList => page(schema::<crate::statements::StatementView>(generator)),
         AccountReadiness | AccountRefresh | SafetyPolicySet | AccountHalt | AccountResume
         | MandateSet | EquityCashFlow | EquityReconcile | OperationResolve => readiness(generator),
         SafetyPolicyGet => object(&[

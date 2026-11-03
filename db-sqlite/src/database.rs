@@ -1,7 +1,7 @@
 use crate::workers::{
-    AccountBalanceDB, AccountDB, AdvisoryDB, BrokerLogDB, DistributionDB, WorkerExecution,
-    WorkerLevel, WorkerMistake, WorkerOrder, WorkerRule, WorkerSessionPlan, WorkerTrade,
-    WorkerTradeEvent, WorkerTradeGrade, WorkerTradingVehicle, WorkerTransaction,
+    AccountBalanceDB, AccountDB, AdvisoryDB, BrokerLogDB, DistributionDB, WorkerLevel,
+    WorkerMistake, WorkerOrder, WorkerRule, WorkerSessionPlan, WorkerTrade, WorkerTradeEvent,
+    WorkerTradeGrade, WorkerTradingVehicle, WorkerTransaction,
 };
 use crate::{backup, backup::ImportOptions};
 use diesel::prelude::*;
@@ -12,14 +12,14 @@ use model::{
     database::TradingVehicleUpsert,
     database::{AccountWrite, WriteAccountBalanceDB},
     Account, AccountBalanceRead, AccountBalanceWrite, AccountRead, Currency, DatabaseFactory,
-    DistributionRead, DistributionWrite, Execution, Level, LevelAdjustmentRules, LevelChange,
-    Mistake, Order, OrderAction, OrderCategory, OrderRead, OrderWrite, ReadExecutionDB,
-    ReadLevelDB, ReadMistakeDB, ReadRuleDB, ReadSessionPlanDB, ReadTradeDB, ReadTradeEventDB,
-    ReadTradeGradeDB, ReadTradingVehicleDB, ReadTransactionDB, Rule, RuleName, SessionPlan,
-    SessionPlanClose, Trade, TradeBalance, TradeEvent, TradeGrade, TradingVehicle,
-    TradingVehicleCategory, Transaction, TransactionCategory, WriteExecutionDB, WriteLevelDB,
-    WriteMistakeDB, WriteRuleDB, WriteSessionPlanDB, WriteTradeDB, WriteTradeEventDB,
-    WriteTradeGradeDB, WriteTradingVehicleDB, WriteTransactionDB,
+    DistributionRead, DistributionWrite, Level, LevelAdjustmentRules, LevelChange, Mistake, Order,
+    OrderAction, OrderCategory, OrderRead, OrderWrite, ReadExecutionDB, ReadLevelDB, ReadMistakeDB,
+    ReadRuleDB, ReadSessionPlanDB, ReadTradeDB, ReadTradeEventDB, ReadTradeGradeDB,
+    ReadTradingVehicleDB, ReadTransactionDB, Rule, RuleName, SessionPlan, SessionPlanClose, Trade,
+    TradeBalance, TradeEvent, TradeGrade, TradingVehicle, TradingVehicleCategory, Transaction,
+    TransactionCategory, WriteExecutionDB, WriteLevelDB, WriteMistakeDB, WriteRuleDB,
+    WriteSessionPlanDB, WriteTradeDB, WriteTradeEventDB, WriteTradeGradeDB, WriteTradingVehicleDB,
+    WriteTransactionDB,
 };
 use rust_decimal::Decimal;
 use std::error::Error;
@@ -27,6 +27,8 @@ use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
 use uuid::Uuid;
 
+mod executions;
+mod statements;
 mod storage;
 mod transactions;
 
@@ -87,6 +89,11 @@ impl std::fmt::Debug for SqliteDatabase {
 }
 
 impl DatabaseFactory for SqliteDatabase {
+    fn statement_read(&self) -> Option<Box<dyn model::statement::ReadStatementDB>> {
+        Some(Box::new(Self {
+            connection: self.connection.clone(),
+        }))
+    }
     fn account_read(&self) -> Box<dyn AccountRead> {
         Box::new(AccountDB {
             connection: self.connection.clone(),
@@ -1033,47 +1040,12 @@ impl OrderRead for SqliteDatabase {
     }
 }
 
-impl ReadExecutionDB for SqliteDatabase {
-    fn all_trade_executions(&mut self, trade_id: Uuid) -> Result<Vec<Execution>, Box<dyn Error>> {
-        WorkerExecution::read_for_trade(&mut lock_connection_or_exit(&self.connection), trade_id)
-    }
-
-    fn all_order_executions(&mut self, order_id: Uuid) -> Result<Vec<Execution>, Box<dyn Error>> {
-        WorkerExecution::read_for_order(&mut lock_connection_or_exit(&self.connection), order_id)
-    }
-
-    fn latest_trade_execution_at(
-        &mut self,
-        trade_id: Uuid,
-    ) -> Result<Option<chrono::NaiveDateTime>, Box<dyn Error>> {
-        WorkerExecution::latest_for_trade(&mut lock_connection_or_exit(&self.connection), trade_id)
-    }
-}
-
-impl WriteExecutionDB for SqliteDatabase {
-    fn record_fee_activity(
-        &mut self,
-        fee: &model::FeeActivity,
-        trade_id: Option<Uuid>,
-    ) -> Result<bool, Box<dyn Error>> {
-        crate::workers::WorkerFee::record(
-            &mut lock_connection_or_exit(&self.connection),
-            fee,
-            trade_id,
-        )
-    }
-
-    fn upsert_execution(&mut self, execution: &Execution) -> Result<Execution, Box<dyn Error>> {
-        WorkerExecution::upsert(&mut lock_connection_or_exit(&self.connection), execution)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use chrono::{Duration, NaiveDate, Utc};
     use model::{
-        Account, Environment, ExecutionSide, ExecutionSource, Grade, LevelTrigger,
+        Account, Environment, Execution, ExecutionSide, ExecutionSource, Grade, LevelTrigger,
         MistakeErrorType, MungerTendency, RuleLevel, RuleName, SessionRegime, TradeCategory,
         TradeEventSeverity, TradeEventSource, TradeEventType,
     };

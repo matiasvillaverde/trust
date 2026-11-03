@@ -12,6 +12,8 @@ rust_decimal = { workspace = true }
 serde_json = { workspace = true, features = ["arbitrary_precision"] }
 reqwest = { workspace = true }
 trust-credentials = { workspace = true }
+roxmltree = "0.21.2"
+chrono-tz = "0.10.4"
 
 [dev-dependencies]
 core = { path = "../core", version = "0.3.2" }

@@ -96,6 +96,11 @@ When `TRUST_IBKR_LIVE_E2E=1` is set, missing required environment variables are 
 
 ## Expected Evidence
 
+For independent fills, fees, positions and cash comparisons, use the owner's
+[Activity Flex statement workflow](ibkr-statement-reconciliation.md). It retains
+originals and discrepancies, but cannot authenticate an uploaded export or replace
+supervised paper lifecycle evidence.
+
 A passing run proves the live gateway can resolve representative stock, ETF, and bond contracts, that Trust maps them to the expected IBKR security types, and that IBKR accepts Trust's stock/ETF/bond bracket order payloads through non-mutating what-if previews. The mocked IBKR integration tests still cover actual submission handling, broker request shape, and risk rejection without live broker I/O.
 
 The paper mutation target additionally proves one real gateway submit/cancel path and local audit-chain verification. Paper execution behavior remains simulated by IBKR and is not evidence of production fill quality, stop behavior, latency, or market-data fidelity.

@@ -65,6 +65,8 @@ pub mod portfolio_risk;
 pub mod rule;
 /// Session plan and review types
 pub mod session_plan;
+/// Independent broker statement reconciliation contracts.
+pub mod statement;
 /// Trading strategy definitions
 pub mod strategy;
 /// Trade lifecycle and management

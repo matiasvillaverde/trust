@@ -110,14 +110,11 @@ mod history;
 /// Prospective portfolio budgets, execution constraints and adaptive admission.
 pub mod portfolio_risk;
 mod service_api;
+/// Exact comparison of independent broker statements with persisted evidence.
+pub mod statements;
 
 /// Typed validation failures that application clients may present without provider details.
-pub mod validation_errors {
-    pub use crate::validators::funding::{FundValidationError, FundValidationErrorCode};
-    pub use crate::validators::rule::RuleValidationError;
-    pub use crate::validators::trade::{TradeValidationError, TradeValidationErrorCode};
-    pub use crate::validators::transaction::TransactionValidationError;
-}
+pub mod validation_errors;
 
 /// The main facade for interacting with the Trust financial trading system.
 ///

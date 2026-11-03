@@ -34,3 +34,5 @@ pub use worker_transaction::WorkerTransaction;
 
 mod worker_fee;
 pub use worker_fee::WorkerFee;
+
+pub(crate) mod worker_statement;

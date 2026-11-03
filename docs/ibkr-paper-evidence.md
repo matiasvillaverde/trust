@@ -29,6 +29,12 @@ Perform order actions in the human-approved MCP trading workflow with stable key
 
 ## Independently reconcile
 
+The service now also supports [original Activity Flex XML imports](ibkr-statement-reconciliation.md),
+without a normalization step. Use that owner workflow to retain originals and latch
+whole-account discrepancies. It complements the staged observations below; it does
+not replace protection/reconnect evidence or automatically promote level 4. The
+older offline checker below still requires its own explicitly reviewed JSON format.
+
 Normalize the original IBKR export into a local JSON statement. Preserve the original export unchanged and record its SHA-256. This is an operator normalization step, not a second export of Trust's ledger. The verifier cannot authenticate the export or prove the normalization was faithful; those remain reviewer responsibilities.
 
 The statement contract is:
