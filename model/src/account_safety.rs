@@ -156,6 +156,9 @@ pub struct AccountSafetyState {
     pub trade_owners: BTreeMap<Uuid, String>,
     /// Ambiguous external operations require explicit, evidenced resolution.
     pub unresolved_operations: BTreeSet<Uuid>,
+    /// Imported statement discrepancies survive refresh, policy changes and restart.
+    #[serde(default)]
+    pub unreconciled_statements: BTreeSet<Uuid>,
     pub cash_flow_references: BTreeSet<String>,
     #[serde(default)]
     pub portfolio: crate::portfolio_risk::PortfolioRiskState,

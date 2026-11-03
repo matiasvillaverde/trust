@@ -103,6 +103,11 @@ One financial worker serializes operations. Bounded queues, deadlines, readiness
 
 Structured logs correlate HTTP/MCP requests, operations, and IBKR HTTP attempts without credentials or raw broker payloads. Operational logging uses a bounded background writer with dropped-line metrics; financial audit commits remain synchronous. Authenticated Prometheus metrics separate queue wait, JWT verification, tools, execution stages, and HTTP routes. Give a collector its own monitoring-only credentials.
 
+Owners can [import original IBKR Activity Flex statements](docs/ibkr-statement-reconciliation.md)
+through MCP to compare executions, fees, positions and cash across linked profiles.
+Discrepancies persist and halt new exposure; matching evidence still requires verified
+owner recovery before resuming. Imports never rewrite financial records or move money.
+
 See [observability and operations](docs/service.md#audit-logging-and-operations) for metric names, alert queries, and recovery procedures. Release E2E benchmarks include authentication, risk calculation, and synchronous auditing. Use `TMPDIR` on the intended storage filesystem when measuring performance; a memory-backed temporary directory excludes physical-disk flush cost. [Recorded measurements](docs/reliability/verification.md#observability-and-latency-acceptance-2026-10-27) include latency tails and their limits.
 
 ## Verification levels

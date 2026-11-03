@@ -24,6 +24,8 @@ mod executions;
 mod market_data;
 mod orders;
 mod parsing;
+/// Bounded parsing of original Activity Flex XML; never contacts the broker.
+pub mod statements;
 mod support;
 
 pub use config::ConnectionConfig;

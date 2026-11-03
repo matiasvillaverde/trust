@@ -54,6 +54,7 @@ pub const SKILLS: &[Skill] = &[
             file!("trust-admin", "SKILL.md"),
             file!("trust-admin", "references/setup-and-policy.md"),
             file!("trust-admin", "references/recovery-and-audit.md"),
+            file!("trust-admin", "references/broker-statements.md"),
             file!("trust-admin", "agents/openai.yaml"),
         ],
     },

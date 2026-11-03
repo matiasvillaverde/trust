@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Synthetic contract fixture, not a real broker acceptance artifact. -->
+<FlexQueryResponse queryName="Trust synthetic fixture" type="AF">
+  <FlexStatements count="1">
+    <FlexStatement accountId="DU_TEST" fromDate="20260317" toDate="20260317" whenGenerated="20260318;060000">
+      <CashReport>
+        <CashReportCurrency accountId="DU_TEST" currency="BASE_SUMMARY" startingCash="10000" endingCash="9320.75"/>
+        <CashReportCurrency accountId="DU_TEST" currency="USD" fromDate="20260317" toDate="20260317" startingCash="10000" endingCash="9320.75" endingSettledCash="10000" commissions="-3.25" depositWithdrawals="0"/>
+      </CashReport>
+      <Trades>
+        <Trade accountId="DU_TEST" levelOfDetail="EXECUTION" assetCategory="STK" multiplier="1" transactionType="ExchTrade" ibExecID="synthetic-entry-1" conid="1234" symbol="TEST" currency="USD" buySell="BUY" quantity="4" tradePrice="100" dateTime="20260317;100000" ibCommissionCurrency="USD" ibCommission="-1" taxes="0" proceeds="-400"/>
+        <Trade accountId="DU_TEST" levelOfDetail="EXECUTION" assetCategory="STK" multiplier="1" transactionType="ExchTrade" ibExecID="synthetic-entry-2" conid="1234" symbol="TEST" currency="USD" buySell="BUY" quantity="6" tradePrice="101" dateTime="20260317;110000" ibCommissionCurrency="USD" ibCommission="-1.50" taxes="0" proceeds="-606"/>
+        <Trade accountId="DU_TEST" levelOfDetail="EXECUTION" assetCategory="STK" multiplier="1" transactionType="ExchTrade" ibExecID="synthetic-exit-1" conid="1234" symbol="TEST" currency="USD" buySell="SELL" quantity="-3" tradePrice="110" dateTime="20260317;150000" ibCommissionCurrency="USD" ibCommission="-0.75" taxes="0" proceeds="330"/>
+      </Trades>
+      <OpenPositions>
+        <OpenPosition accountId="DU_TEST" levelOfDetail="SUMMARY" reportDate="20260317" assetCategory="STK" multiplier="1" conid="1234" currency="USD" position="7"/>
+      </OpenPositions>
+      <CashTransactions/>
+    </FlexStatement>
+  </FlexStatements>
+</FlexQueryResponse>

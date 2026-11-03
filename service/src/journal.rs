@@ -82,6 +82,9 @@ impl Default for AuditContext {
     }
 }
 
+mod safety;
+mod statements;
+
 pub struct Journal {
     connection: Connection,
     pub context: AuditContext,
@@ -127,7 +130,7 @@ impl Journal {
         let version: i64 = connection
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .map_err(|_| ServiceError::internal())?;
-        if version > 3 {
+        if version > 4 {
             return Err(ServiceError::invalid(
                 "Control database schema is newer than this service.",
             ));
@@ -145,6 +148,11 @@ impl Journal {
         if version < 3 {
             connection
                 .execute_batch(include_str!("../migrations/0003_control_indexes/up.sql"))
+                .map_err(|_| ServiceError::internal())?;
+        }
+        if version < 4 {
+            connection
+                .execute_batch(include_str!("../migrations/0004_broker_statements/up.sql"))
                 .map_err(|_| ServiceError::internal())?;
         }
         let mut journal = Self {
@@ -351,63 +359,6 @@ impl Journal {
         tx.commit().map_err(|_| ServiceError::internal())
     }
 
-    pub fn safety_state(
-        &self,
-        scope: &model::account_safety::BrokerAccountScope,
-    ) -> Result<model::account_safety::AccountSafetyState> {
-        self.read(|snapshot| snapshot.safety_state(scope))
-    }
-
-    /// Load policy, reservations and unresolved outcomes from one verified snapshot.
-    pub fn account_safety(
-        &self,
-        scope: &model::account_safety::BrokerAccountScope,
-        accounts: &BTreeSet<Uuid>,
-    ) -> Result<model::account_safety::AccountSafetyState> {
-        self.read(|snapshot| {
-            let mut state = snapshot.safety_state(scope)?;
-            state.unresolved_operations = snapshot.unresolved_for(accounts)?;
-            Ok(state)
-        })
-    }
-
-    pub fn save_safety(
-        &mut self,
-        identity: &Identity,
-        request: Uuid,
-        account: Uuid,
-        scope: &model::account_safety::BrokerAccountScope,
-        state: &model::account_safety::AccountSafetyState,
-    ) -> Result<()> {
-        let key = scope.storage_key();
-        let value = serde_json::to_value(state).map_err(|_| ServiceError::internal())?;
-        let hash = digest(&json!({"scope":key,"state":value}))?;
-        let encoded = serde_json::to_string(&value).map_err(|_| ServiceError::internal())?;
-        let tx = self
-            .connection
-            .transaction()
-            .map_err(|_| ServiceError::internal())?;
-        append(
-            &tx,
-            identity,
-            request,
-            None,
-            "account_safety",
-            Some(account),
-            "safety_state",
-            Some(&hash),
-            &self.context,
-        )?;
-        let sequence = tx.last_insert_rowid();
-        tx.execute(
-            "INSERT INTO account_safety_history(audit_sequence,scope,state) VALUES(?1,?2,?3)",
-            params![sequence, key, encoded],
-        )
-        .map_err(|_| ServiceError::internal())?;
-        tx.execute("INSERT INTO account_safety(scope,state,audit_sequence) VALUES(?1,?2,?3) ON CONFLICT(scope) DO UPDATE SET state=excluded.state,audit_sequence=excluded.audit_sequence", params![key,encoded,sequence]).map_err(|_| ServiceError::internal())?;
-        tx.commit().map_err(|_| ServiceError::internal())
-    }
-
     pub fn unresolved_for(&self, accounts: &BTreeSet<Uuid>) -> Result<BTreeSet<Uuid>> {
         self.read(|snapshot| snapshot.unresolved_for(accounts))
     }
@@ -529,7 +480,12 @@ impl Journal {
     }
 
     pub fn verify(&self) -> Result<Value> {
-        verify_chain(&self.connection)
+        self.read(|snapshot| {
+            let result = verify_chain(snapshot.connection)?;
+            snapshot.audit_verified.set(true);
+            snapshot.verify_statements()?;
+            Ok(result)
+        })
     }
 
     fn read<T>(&self, query: impl FnOnce(&ReadSnapshot<'_>) -> Result<T>) -> Result<T> {

@@ -4,7 +4,7 @@ This inventory describes the implementation under test, including limits that af
 
 The service assigns exactly one human owner and any number of agents. Policy, administration and manual-accounting scopes are owner-only and require recent issuer-verified MFA. Other actions remain limited by scope, account, lifecycle and risk policy. HTTP catalogue entries expose `owner_only`; agents cannot discover or call owner tools.
 
-## Service tools (94)
+## Service tools (98)
 
 | Tool | Scope | Writes state | Account argument | Behavior |
 | --- | --- | --- | --- | --- |
@@ -35,6 +35,10 @@ The service assigns exactly one human owner and any number of agents. Policy, ad
 | `backup_restore` | `trust:admin` | yes | operation-specific | Import a server-owned backup into an empty financial database. In-place rollback is an offline operator workflow. |
 | `balances_get` | `trust:read` | no | required | Read the local ledger balances; these are not a live broker balance snapshot. |
 | `broker_preview` | `trust:preview` | no | required | Preview a persisted bracket at IBKR without submitting it; returns broker commission/margin estimates and warnings. |
+| `broker_statement_import` | `trust:policy` | yes | required | Owner imports original complete IBKR Activity Flex XML. Compare all linked profiles; persist discrepancies and halt without altering financial books. Fresh MFA required. |
+| `broker_statement_get` | `trust:policy` | no | required | Owner reads retained metadata and latest comparison; original XML requires explicit include_source. All linked profiles require authorization. |
+| `broker_statements_list` | `trust:policy` | no | required | Owner lists retained evidence for this broker account in bounded pages. |
+| `broker_statement_reconcile` | `trust:policy` | yes | required | Owner appends a comparison of the retained original against current financial evidence. Matching resolves only the specified issue; verified resume remains separate. |
 | `capital_deposit` | `trust:policy` | yes | required | Record a ledger deposit. Does not transfer money at the broker. |
 | `capital_transfer` | `trust:policy` | yes | required | Transfer ledger capital within an account hierarchy; requires access to both accounts. |
 | `capital_withdraw` | `trust:policy` | yes | required | Record a ledger withdrawal subject to available capital. |

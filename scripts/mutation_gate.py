@@ -16,6 +16,15 @@ import tempfile
 from assurance import ROOT, fingerprint
 
 MUTATIONS = [
+    ("statement_native_fill_coverage", "core/src/statements.rs",
+     '    validate_trade_fills(ledger)?;', '',
+     "trust-service", "statement_workflow", "integrity::missing_execution_rows_cannot_hide_recorded_fills_behind_an_apparently_matching_empty_report"),
+    ("statement_halt", "service/src/statements.rs",
+     'state.halt("statement_reconciliation_unresolved", Utc::now());', '',
+     "trust-service", "statement_workflow", "unresolved_statement_halts_all_profiles_until_explicit_resolution_and_verified_resume"),
+    ("statement_fee_cash", "core/src/statements.rs",
+     'add(&mut cash, currency.clone(), negative(fee.amount)?)?;', '',
+     "core", "statement_reconciliation", "independent_cash_handles_partial_fills_partial_exits_and_late_fee_booking"),
     ("submission_policy", "core/src/commands/trade.rs",
      "            crate::validators::funding::can_submit_funded(&current_trade, database)\n                .map_err(|error| error as Box<dyn Error>)?;", "",
      "core", "reliability", "submission::submission_revalidates_changed_trade_and_monthly_caps_without_broker_effects"),
@@ -177,7 +186,7 @@ def main():
                 continue
             # Only build/test source; no ignored databases, tokens or local config.
             embedded_skill_metadata = name.startswith("skills/") and Path(name).suffix == ".yaml"
-            if Path(name).suffix not in {".rs", ".toml", ".lock", ".json", ".md", ".sql", ".snap"} and not embedded_skill_metadata:
+            if Path(name).suffix not in {".rs", ".toml", ".lock", ".json", ".md", ".sql", ".snap", ".xml"} and not embedded_skill_metadata:
                 continue
             if name.startswith((".local/", ".env", "deploy/")):
                 continue

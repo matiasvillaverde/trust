@@ -30,6 +30,7 @@ pub struct BrokerState {
     pub release: Semaphore,
     pub orders: Mutex<Vec<Value>>,
     pub fail_activities: AtomicBool,
+    pub activities: Mutex<Vec<Value>>,
     pub fail_snapshot: AtomicBool,
     pub ledger: Mutex<Option<Value>>,
     pub positions: Mutex<Option<Value>>,
@@ -46,6 +47,7 @@ impl Default for BrokerState {
             release: Semaphore::new(0),
             orders: Mutex::new(Vec::new()),
             fail_activities: AtomicBool::new(false),
+            activities: Mutex::new(Vec::new()),
             fail_snapshot: AtomicBool::new(false),
             ledger: Mutex::new(None),
             positions: Mutex::new(None),
@@ -198,7 +200,7 @@ async fn gateway(
             if state.fail_activities.load(Ordering::SeqCst) {
                 return (StatusCode::BAD_GATEWAY, SENTINEL).into_response();
             }
-            json!([])
+            json!(state.activities.lock().unwrap().clone())
         }
         _ => {
             return (
@@ -248,8 +250,11 @@ impl Fixture {
         std::fs::write(self.dir.path().join("config.json"), self.config.to_string()).unwrap();
     }
     pub fn token(&self, subject: &str) -> String {
+        self.token_with_mfa(subject, true)
+    }
+    pub fn token_with_mfa(&self, subject: &str, fresh_mfa: bool) -> String {
         let now = chrono::Utc::now().timestamp();
-        let claims = json!({"iss":self.config["issuer"],"aud":"http://localhost:8000/mcp","sub":subject,"iat":now,"exp":now+900,"auth_time":now,"acr":"urn:trust:owner:mfa","scope":if subject=="owner" || subject.starts_with("agent"){SCOPES.join(" ")}else{"trust:read".into()},"client_id":"e2e-agent"});
+        let claims = json!({"iss":self.config["issuer"],"aud":"http://localhost:8000/mcp","sub":subject,"iat":now,"exp":now+900,"auth_time":now,"acr":if fresh_mfa {"urn:trust:owner:mfa"} else {"password"},"scope":if subject=="owner" || subject.starts_with("agent"){SCOPES.join(" ")}else{"trust:read".into()},"client_id":"e2e-agent"});
         let mut header = Header::new(Algorithm::RS256);
         header.kid = Some("e2e".into());
         encode(&header, &claims, &self.key).unwrap()

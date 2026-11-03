@@ -56,6 +56,31 @@ pub fn actions(
             }
         });
     let mut candidates = vec![];
+    let statement_id = args
+        .get("statement_id")
+        .and_then(Value::as_str)
+        .or_else(|| {
+            reply
+                .data
+                .as_ref()?
+                .pointer("/source/statement_id")?
+                .as_str()
+        });
+    if account.is_some()
+        && (crate::statements::handles(op)
+            || reply
+                .data
+                .as_ref()
+                .and_then(|d| d.get("unreconciled_statement_count"))
+                .and_then(Value::as_u64)
+                .is_some_and(|n| n > 0))
+    {
+        candidates.push(("broker_statements_list", vec![]));
+        if statement_id.is_some() {
+            candidates.push(("broker_statement_get", vec![]));
+            candidates.push(("broker_statement_reconcile", vec![]));
+        }
+    }
     if reply.error.is_some() {
         if args.get("idempotency_key").is_some() {
             candidates.push(("operation_get", vec![]));
@@ -163,6 +188,13 @@ pub fn actions(
             }
             if spec.input_schema.pointer("/properties/trade_id").is_some() {
                 arguments.insert("trade_id".into(), trade_id?.to_string());
+            }
+            if spec
+                .input_schema
+                .pointer("/properties/statement_id")
+                .is_some()
+            {
+                arguments.insert("statement_id".into(), statement_id?.into());
             }
             if matches!(name, "risk_check" | "trade_prepare") {
                 for key in [

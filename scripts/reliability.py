@@ -14,6 +14,17 @@ import assurance
 ROOT = Path(__file__).resolve().parents[1]
 COMMAND = ["cargo", "test", "--locked", "--workspace", "--all-features", "--no-fail-fast", "--", "--test-threads=1"]
 REQUIRED = {
+    "statement_mcp_matches_actual_fills_fees_cash_and_replays_after_encrypted_restart",
+    "unresolved_statement_halts_all_profiles_until_explicit_resolution_and_verified_resume",
+    "access::statement_tools_require_owner_mfa_and_authorization_to_every_linked_profile_even_on_replay",
+    "access::statement_cash_includes_every_linked_profile_and_excludes_other_broker_accounts",
+    "integrity::statement_failure_rolls_back_artifact_result_audit_and_halt_as_one_unit",
+    "integrity::statement_source_result_and_deletion_tampering_stop_the_worker",
+    "integrity::missing_execution_rows_cannot_hide_recorded_fills_behind_an_apparently_matching_empty_report",
+    "integrity::audit_verify_checks_older_attempts_and_restart_refuses_modified_statement_bytes",
+    "flex_parser_rejects_entities_external_resources_instructions_and_resource_exhaustion",
+    "independent_cash_handles_partial_fills_partial_exits_and_late_fee_booking",
+    "short_cash_uses_sale_proceeds_and_buy_to_cover_not_margin_reservations",
     "secret_permissions_links_special_files_and_bounds_fail_closed",
     "private_directories_and_keys_never_overwrite_or_accept_bad_formats",
     "production_accepts_ram_mounted_secrets",
@@ -112,7 +123,7 @@ REQUIRED = {
     "workers::worker_order::tests::order_sqlite_conversion_rejects_corrupt_financial_values",
     "workers::worker_order::tests::invalid_order_writes_leave_persisted_values_unchanged",
     "every_tool_enforces_scope_before_domain_or_broker_access",
-    "every_tool_rejects_missing_unknown_wrong_type_and_boundary_arguments",
+    "catalogue_support::every_tool_rejects_missing_unknown_wrong_type_and_boundary_arguments",
     "concurrent_duplicates_credit_once_and_distinct_withdrawals_cannot_overspend",
     "journal_intent_failure_stops_worker_before_financial_mutation",
     "journal_completion_failure_keeps_committed_deposit_unknown_without_replay",

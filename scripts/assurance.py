@@ -16,7 +16,9 @@ EVIDENCE = ROOT / ".local/assurance"
 CARGO = os.environ.get("CARGO", "cargo")
 TAIL = ["--", "--test-threads=1"]
 REQUIRED = {
-    1: {"new_accounts_use_points_and_reject_invalid_reserves_without_rows",
+    1: {"independent_cash_handles_partial_fills_partial_exits_and_late_fee_booking",
+        "short_cash_uses_sale_proceeds_and_buy_to_cover_not_margin_reservations",
+        "new_accounts_use_points_and_reject_invalid_reserves_without_rows",
         "legacy_upgrade_preserves_old_tax_liability_and_new_values_survive_reopen",
         "backups_roundtrip_explicit_units_and_restore_legacy_v2_without_guessing_new_values",
         "malformed_percentage_units_or_negative_legacy_values_fail_closed",
@@ -89,7 +91,11 @@ REQUIRED = {
         "arbitrary_transfer_sequences_cannot_create_money_or_overdraw",
         "broker_reconciliation_authority_cannot_record_manual_executions",
         "service_requires_explicit_trade_and_monthly_policy"},
-    2: {"history::history_pages_match_over_mcp_http_and_restart_and_account_units_are_explicit",
+    2: {"statement_mcp_matches_actual_fills_fees_cash_and_replays_after_encrypted_restart",
+        "unresolved_statement_halts_all_profiles_until_explicit_resolution_and_verified_resume",
+        "integrity::statement_failure_rolls_back_artifact_result_audit_and_halt_as_one_unit",
+        "access::statement_tools_require_owner_mfa_and_authorization_to_every_linked_profile_even_on_replay",
+        "history::history_pages_match_over_mcp_http_and_restart_and_account_units_are_explicit",
         "reports_reconcile_realized_fees_open_exposure_and_account_scope_after_restart",
         "reports_reject_missing_accounts_and_mixed_currencies_instead_of_plausible_totals",
         "non_success_http_status_cannot_be_reported_as_success_by_a_null_error_envelope",
@@ -188,7 +194,7 @@ def commands(level):
                 base + ["-p", "trust-service", "--test", "service_contract"] + TAIL]
     if level == 2:
         return [base + ["-p", "ibkr-broker", "-p", "broker-sync"] + TAIL,
-                base + ["-p", "trust-service", "--test", "e2e", "--test", "product_reports", "--test", "product_discovery"] + TAIL,
+                base + ["-p", "trust-service", "--test", "e2e", "--test", "product_reports", "--test", "product_discovery", "--test", "statement_workflow"] + TAIL,
                 base + ["-p", "trust-cli", "--test", "service_client"] + TAIL]
     return [base + ["-p", "ibkr-broker", "--test", "live_gateway_smoke_test", name,
                     "--", "--ignored", "--exact", "--test-threads=1"] for name in sorted(REQUIRED[3])]

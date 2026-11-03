@@ -20,6 +20,7 @@ This directory contains the project documentation for Trust, a risk-managed trad
 - [Encryption, secret custody, migration and server hardening](security.md)
 - [Self-hosted authentication and security keys](authentication.md)
 - [IBKR paper evidence and independent reconciliation](ibkr-paper-evidence.md)
+- [Original IBKR statement imports and durable discrepancy recovery](ibkr-statement-reconciliation.md)
 - [Actual agent behavior evaluations](reliability/agent-evaluations.md)
 - [Multi-Asset Completion Audit](multi-asset-completion-audit.md)
 - [Trust Proof](trust-proof.md)

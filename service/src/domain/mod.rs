@@ -64,6 +64,10 @@ impl Domain {
             if matches!(
                 spec.operation,
                 Operation::SafetyPolicySet
+                    | Operation::StatementImport
+                    | Operation::StatementGet
+                    | Operation::StatementList
+                    | Operation::StatementReconcile
                     | Operation::AccountHalt
                     | Operation::AccountResume
                     | Operation::MandateSet
@@ -81,7 +85,9 @@ impl Domain {
                         == Some(&scope)
                     {
                         identity.check(spec.scope, Some(related.id))?;
-                        self.check_live(identity, related.environment)?;
+                        if spec.mutation {
+                            self.check_live(identity, related.environment)?;
+                        }
                         affected.insert(related.id);
                     }
                 }
@@ -177,9 +183,11 @@ impl Domain {
                     .unwrap_or("SKILL.md"),
             )?),
             ConnectionStatus | OperationGet | AuditList | AuditVerify | AccountReadiness
-            | RiskCheck | AccountRefresh | SafetyPolicyGet | SafetyPolicySet | AccountHalt
-            | AccountResume | MandateGet | MandateSet | EquityCashFlow | EquityReconcile
-            | OperationResolve => Err(ServiceError::internal()), // handled by the journal owner
+            | StatementImport | StatementGet | StatementList | StatementReconcile | RiskCheck
+            | AccountRefresh | SafetyPolicyGet | SafetyPolicySet | AccountHalt | AccountResume
+            | MandateGet | MandateSet | EquityCashFlow | EquityReconcile | OperationResolve => {
+                Err(ServiceError::internal())
+            } // handled by the journal owner
         }
     }
     fn account(&self, args: &Value) -> Result<Account> {

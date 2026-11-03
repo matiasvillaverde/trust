@@ -12,6 +12,12 @@ Use this procedure in the separate human owner session. Owner authentication is 
 
 Each refresh, reconciliation page, resolution and resume is a separate intent with its own stable key. If one becomes uncertain, inspect that original operation before proceeding. A previous halt does not prohibit lifecycle-valid protection or exits under their existing permissions.
 
+If readiness reports `statement_reconciliation_unresolved`, follow
+[broker statement evidence](broker-statements.md). Resolve each unresolved statement
+through a matching recheck or an explicitly verified corrected export. Neither policy
+changes nor importing an unrelated matching report clears those issues. Even a matching
+recheck leaves the halt in place until `account_resume` verifies current recovery.
+
 ## Audit and manual evidence
 
 `audit_list` exposes visible service authorization/operation entries; `audit_verify` verifies the durable service chain; `trade_audit` verifies financial history. Compare retained external head hashes or archived logs to detect privileged rewriting/truncation; local hash-chain verification alone cannot establish that.

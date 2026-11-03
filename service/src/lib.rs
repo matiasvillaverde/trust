@@ -12,6 +12,7 @@ pub mod logging;
 pub mod mcp;
 pub mod metrics;
 pub mod runtime;
+mod statements;
 pub mod storage;
 
 mod guidance;
