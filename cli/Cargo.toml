@@ -62,3 +62,6 @@ rust_decimal.workspace = true
 uuid.workspace = true
 chrono.workspace = true
 tempfile = "3.27.0"
+
+tracing.workspace = true
+tracing-subscriber = { version = "0.3.23", default-features = false, features = ["registry", "std"] }

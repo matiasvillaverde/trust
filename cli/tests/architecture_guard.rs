@@ -207,6 +207,9 @@ fn production_source(path: &Path) -> String {
     }
     let source = fs::read_to_string(path)
         .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
+    if source.starts_with("#![cfg(test)]") {
+        return String::new();
+    }
     strip_cfg_test_modules(&source)
 }
 

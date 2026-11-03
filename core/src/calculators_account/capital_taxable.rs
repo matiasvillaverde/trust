@@ -91,15 +91,17 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(
-        expected = "capital_taxable: does not know how to calculate transaction with category: deposit"
-    )]
     fn test_capital_taxable_with_unknown_category() {
         let mut database = MockDatabase::new();
 
         // Transactions
         database.set_transaction(TransactionCategory::Deposit, dec!(100));
 
-        AccountCapitalTaxable::calculate(Uuid::new_v4(), &Currency::USD, &mut database).unwrap();
+        let error = AccountCapitalTaxable::calculate(Uuid::new_v4(), &Currency::USD, &mut database)
+            .expect_err("unsupported ledger category must return an error");
+        assert_eq!(
+            error.to_string(),
+            "capital_taxable: does not know how to calculate transaction with category: deposit"
+        );
     }
 }

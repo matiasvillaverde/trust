@@ -373,3 +373,113 @@ fn empty_reports_and_cash_drawdown_recovery_remain_explicit() {
         assert!(!zen.contains('$'), "{zen}");
     }
 }
+
+#[test]
+fn aggregate_reports_include_all_accounts_without_duplicating_trades() {
+    let f = Reports::new();
+    for kind in [
+        "summary",
+        "performance",
+        "drawdown",
+        "risk",
+        "concentration",
+    ] {
+        let output = support::legacy_command(&f.database.url(), "product-contract")
+            .args(["report", kind, "--format", "json"])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert!(report["scope"]["account_id"].is_null());
+        match kind {
+            "summary" => {
+                assert_eq!(money(&report["data"]["equity"]), dec!(10681.77));
+                assert_eq!(report["data"]["performance"]["total_trades"], 3);
+            }
+            "performance" => {
+                assert_eq!(report["data"]["total_trades"], 3);
+                assert_eq!(money(&report["data"]["average_loss"]), dec!(-6));
+            }
+            "drawdown" => assert_eq!(money(&report["data"]["current_equity"]), dec!(10681.77)),
+            "risk" => assert_eq!(
+                report["data"]["open_positions"].as_array().unwrap().len(),
+                1
+            ),
+            "concentration" => {
+                assert_eq!(money(&report["data"]["sector"]["total_risk"]), dec!(100))
+            }
+            _ => unreachable!(),
+        }
+        let text = support::legacy_command(&f.database.url(), "product-contract")
+            .args(["report", kind])
+            .output()
+            .unwrap();
+        assert!(text.status.success());
+        let text = String::from_utf8(text.stdout).unwrap();
+        let expected = match kind {
+            "summary" => "Equity: $10681.77",
+            "performance" => "Total Trades: 3",
+            "drawdown" => "Current Account Equity: $10681.77",
+            "risk" => "Capital at Risk: $100.00",
+            _ => "Technology",
+        };
+        assert!(text.replace(',', "").contains(expected), "{kind}: {text}");
+    }
+}
+
+#[test]
+fn timeline_reconciles_available_cash_after_fills_fees_and_external_movements() {
+    let f = Reports::new();
+    let mut trust = core::TrustFacade::new_with_brokers(
+        Box::new(SqliteDatabase::new(&f.database.url())),
+        vec![],
+    );
+    // Realized +$4 after fees, with $100 still deployed: $9,904 available cash.
+    // Then an external $12.37 withdrawal and $3.19 deposit leave $9,894.82.
+    trust
+        .create_transaction(
+            &f.account,
+            &TransactionCategory::Withdrawal,
+            dec!(12.37),
+            &Currency::USD,
+        )
+        .unwrap();
+    trust
+        .create_transaction(
+            &f.account,
+            &TransactionCategory::Deposit,
+            dec!(3.19),
+            &Currency::USD,
+        )
+        .unwrap();
+    assert_eq!(
+        trust
+            .search_balance(f.account.id, &Currency::USD)
+            .unwrap()
+            .total_available,
+        dec!(9894.82)
+    );
+    let today = chrono::Utc::now().date_naive();
+    let start = today.pred_opt().unwrap().to_string();
+    let end = today.succ_opt().unwrap().to_string();
+    for granularity in ["day", "week", "month"] {
+        let report = f.json(
+            "timeline",
+            &f.account,
+            &["--granularity", granularity, "--from", &start, "--to", &end],
+        );
+        assert_eq!(money(&report["data"]["net_cash_flow"]), dec!(9894.82));
+        let sum: Decimal = report["data"]["buckets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|bucket| money(&bucket["net_cash_flow"]))
+            .sum();
+        assert_eq!(sum, dec!(9894.82));
+        assert_eq!(report["scope"]["account_id"], f.account.id.to_string());
+    }
+}

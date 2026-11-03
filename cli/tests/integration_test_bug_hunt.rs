@@ -390,24 +390,6 @@ fn contract_006_negative_tax_percentage() {
 }
 
 #[test]
-fn bug_007_duplicate_account_name() {
-    let mut trust = create_trust();
-    trust
-        .create_account("test", "first", Environment::Paper, dec!(20), dec!(10))
-        .unwrap();
-    let result = trust.create_account("test", "second", Environment::Paper, dec!(20), dec!(10));
-    // Should either fail or handle duplicate names gracefully
-    if result.is_ok() {
-        // Verify search still works correctly
-        let account = trust.search_account("test").unwrap();
-        assert!(
-            account.description == "first" || account.description == "second",
-            "BUG: Duplicate account names create ambiguity in search"
-        );
-    }
-}
-
-#[test]
 fn bug_008_deposit_without_prior_balance_for_currency() {
     let mut trust = create_trust();
     let account = trust
@@ -483,222 +465,6 @@ fn bug_010_search_balance_nonexistent_currency() {
 // ─────────────────────────────────────────────────────────────────
 // BUG CATEGORY 2: Trade Creation Edge Cases
 // ─────────────────────────────────────────────────────────────────
-
-#[test]
-fn contract_011_trade_with_zero_quantity() {
-    let mut trust = create_trust();
-    let account = setup_account(&mut trust, dec!(50000));
-    let tv = create_trading_vehicle(&mut trust, "AAPL");
-
-    let draft = create_long_draft(&account, &tv, 0);
-    let result = trust.create_trade(draft, dec!(38), dec!(40), dec!(50));
-    let before = trust.search_balance(account.id, &Currency::USD).unwrap();
-    if let Ok(trade) = result {
-        let before_transactions = trust.get_account_transactions(account.id).unwrap();
-        assert!(
-            trust.fund_trade(&trade).is_err(),
-            "Invalid or unaffordable draft must not commit capital"
-        );
-        assert_eq!(
-            trust.get_account_transactions(account.id).unwrap(),
-            before_transactions
-        );
-        assert_eq!(trust.read_trade(trade.id).unwrap().status, Status::New);
-    }
-    assert_eq!(
-        trust.search_balance(account.id, &Currency::USD).unwrap(),
-        before
-    );
-}
-
-#[test]
-fn contract_012_trade_with_stop_above_entry_for_long() {
-    let mut trust = create_trust();
-    let account = setup_account(&mut trust, dec!(50000));
-    let tv = create_trading_vehicle(&mut trust, "AAPL");
-
-    let draft = create_long_draft(&account, &tv, 100);
-    let result = trust.create_trade(draft, dec!(45), dec!(40), dec!(50));
-    let before = trust.search_balance(account.id, &Currency::USD).unwrap();
-    if let Ok(trade) = result {
-        let before_transactions = trust.get_account_transactions(account.id).unwrap();
-        assert!(
-            trust.fund_trade(&trade).is_err(),
-            "Invalid or unaffordable draft must not commit capital"
-        );
-        assert_eq!(
-            trust.get_account_transactions(account.id).unwrap(),
-            before_transactions
-        );
-        assert_eq!(trust.read_trade(trade.id).unwrap().status, Status::New);
-    }
-    assert_eq!(
-        trust.search_balance(account.id, &Currency::USD).unwrap(),
-        before
-    );
-}
-
-#[test]
-fn contract_013_trade_with_target_below_entry_for_long() {
-    let mut trust = create_trust();
-    let account = setup_account(&mut trust, dec!(50000));
-    let tv = create_trading_vehicle(&mut trust, "AAPL");
-
-    let draft = create_long_draft(&account, &tv, 100);
-    let result = trust.create_trade(draft, dec!(38), dec!(40), dec!(35));
-    let before = trust.search_balance(account.id, &Currency::USD).unwrap();
-    if let Ok(trade) = result {
-        let before_transactions = trust.get_account_transactions(account.id).unwrap();
-        assert!(
-            trust.fund_trade(&trade).is_err(),
-            "Invalid or unaffordable draft must not commit capital"
-        );
-        assert_eq!(
-            trust.get_account_transactions(account.id).unwrap(),
-            before_transactions
-        );
-        assert_eq!(trust.read_trade(trade.id).unwrap().status, Status::New);
-    }
-    assert_eq!(
-        trust.search_balance(account.id, &Currency::USD).unwrap(),
-        before
-    );
-}
-
-#[test]
-fn contract_014_trade_with_entry_equals_stop() {
-    let mut trust = create_trust();
-    let account = setup_account(&mut trust, dec!(50000));
-    let tv = create_trading_vehicle(&mut trust, "AAPL");
-
-    let draft = create_long_draft(&account, &tv, 100);
-    let result = trust.create_trade(draft, dec!(40), dec!(40), dec!(50));
-    let before = trust.search_balance(account.id, &Currency::USD).unwrap();
-    if let Ok(trade) = result {
-        let before_transactions = trust.get_account_transactions(account.id).unwrap();
-        assert!(
-            trust.fund_trade(&trade).is_err(),
-            "Invalid or unaffordable draft must not commit capital"
-        );
-        assert_eq!(
-            trust.get_account_transactions(account.id).unwrap(),
-            before_transactions
-        );
-        assert_eq!(trust.read_trade(trade.id).unwrap().status, Status::New);
-    }
-    assert_eq!(
-        trust.search_balance(account.id, &Currency::USD).unwrap(),
-        before
-    );
-}
-
-#[test]
-fn contract_015_trade_with_entry_equals_target() {
-    let mut trust = create_trust();
-    let account = setup_account(&mut trust, dec!(50000));
-    let tv = create_trading_vehicle(&mut trust, "AAPL");
-
-    let draft = create_long_draft(&account, &tv, 100);
-    let result = trust.create_trade(draft, dec!(38), dec!(40), dec!(40));
-    let before = trust.search_balance(account.id, &Currency::USD).unwrap();
-    if let Ok(trade) = result {
-        let before_transactions = trust.get_account_transactions(account.id).unwrap();
-        assert!(
-            trust.fund_trade(&trade).is_err(),
-            "Invalid or unaffordable draft must not commit capital"
-        );
-        assert_eq!(
-            trust.get_account_transactions(account.id).unwrap(),
-            before_transactions
-        );
-        assert_eq!(trust.read_trade(trade.id).unwrap().status, Status::New);
-    }
-    assert_eq!(
-        trust.search_balance(account.id, &Currency::USD).unwrap(),
-        before
-    );
-}
-
-#[test]
-fn contract_016_trade_with_zero_prices() {
-    let mut trust = create_trust();
-    let account = setup_account(&mut trust, dec!(50000));
-    let tv = create_trading_vehicle(&mut trust, "AAPL");
-
-    let draft = create_long_draft(&account, &tv, 100);
-    let result = trust.create_trade(draft, dec!(0), dec!(0), dec!(0));
-    let before = trust.search_balance(account.id, &Currency::USD).unwrap();
-    if let Ok(trade) = result {
-        let before_transactions = trust.get_account_transactions(account.id).unwrap();
-        assert!(
-            trust.fund_trade(&trade).is_err(),
-            "Invalid or unaffordable draft must not commit capital"
-        );
-        assert_eq!(
-            trust.get_account_transactions(account.id).unwrap(),
-            before_transactions
-        );
-        assert_eq!(trust.read_trade(trade.id).unwrap().status, Status::New);
-    }
-    assert_eq!(
-        trust.search_balance(account.id, &Currency::USD).unwrap(),
-        before
-    );
-}
-
-#[test]
-fn contract_017_trade_with_negative_prices() {
-    let mut trust = create_trust();
-    let account = setup_account(&mut trust, dec!(50000));
-    let tv = create_trading_vehicle(&mut trust, "AAPL");
-
-    let draft = create_long_draft(&account, &tv, 100);
-    let result = trust.create_trade(draft, dec!(-5), dec!(-3), dec!(-1));
-    let before = trust.search_balance(account.id, &Currency::USD).unwrap();
-    if let Ok(trade) = result {
-        let before_transactions = trust.get_account_transactions(account.id).unwrap();
-        assert!(
-            trust.fund_trade(&trade).is_err(),
-            "Invalid or unaffordable draft must not commit capital"
-        );
-        assert_eq!(
-            trust.get_account_transactions(account.id).unwrap(),
-            before_transactions
-        );
-        assert_eq!(trust.read_trade(trade.id).unwrap().status, Status::New);
-    }
-    assert_eq!(
-        trust.search_balance(account.id, &Currency::USD).unwrap(),
-        before
-    );
-}
-
-#[test]
-fn contract_018_short_trade_with_stop_below_entry() {
-    let mut trust = create_trust();
-    let account = setup_account(&mut trust, dec!(50000));
-    let tv = create_trading_vehicle(&mut trust, "AAPL");
-
-    let draft = create_short_draft(&account, &tv, 100);
-    let result = trust.create_trade(draft, dec!(45), dec!(50), dec!(40));
-    let before = trust.search_balance(account.id, &Currency::USD).unwrap();
-    if let Ok(trade) = result {
-        let before_transactions = trust.get_account_transactions(account.id).unwrap();
-        assert!(
-            trust.fund_trade(&trade).is_err(),
-            "Invalid or unaffordable draft must not commit capital"
-        );
-        assert_eq!(
-            trust.get_account_transactions(account.id).unwrap(),
-            before_transactions
-        );
-        assert_eq!(trust.read_trade(trade.id).unwrap().status, Status::New);
-    }
-    assert_eq!(
-        trust.search_balance(account.id, &Currency::USD).unwrap(),
-        before
-    );
-}
 
 // ─────────────────────────────────────────────────────────────────
 // BUG CATEGORY 3: Funding Validation Edge Cases
@@ -1154,33 +920,6 @@ fn contract_031_fill_trade_with_negative_fee() {
     );
 }
 
-#[test]
-fn contract_032_trade_with_entry_equals_target_breakeven() {
-    let mut trust = create_trust();
-    let account = setup_account(&mut trust, dec!(50000));
-    let tv = create_trading_vehicle(&mut trust, "AAPL");
-
-    let draft = create_long_draft(&account, &tv, 100);
-    let result = trust.create_trade(draft, dec!(38), dec!(40), dec!(40));
-    let before = trust.search_balance(account.id, &Currency::USD).unwrap();
-    if let Ok(trade) = result {
-        let before_transactions = trust.get_account_transactions(account.id).unwrap();
-        assert!(
-            trust.fund_trade(&trade).is_err(),
-            "Invalid or unaffordable draft must not commit capital"
-        );
-        assert_eq!(
-            trust.get_account_transactions(account.id).unwrap(),
-            before_transactions
-        );
-        assert_eq!(trust.read_trade(trade.id).unwrap().status, Status::New);
-    }
-    assert_eq!(
-        trust.search_balance(account.id, &Currency::USD).unwrap(),
-        before
-    );
-}
-
 // ─────────────────────────────────────────────────────────────────
 // BUG CATEGORY 6: Risk & Quantity Calculator Edge Cases
 // ─────────────────────────────────────────────────────────────────
@@ -1413,34 +1152,6 @@ fn contract_043_empty_symbol_trading_vehicle() {
     let result = trust.create_trading_vehicle("", None, &TradingVehicleCategory::Stock, "TEST");
     assert!(result.is_err(), "Invalid input must be rejected");
     assert!(trust.search_trading_vehicles().unwrap().is_empty());
-}
-
-#[test]
-fn bug_044_duplicate_trading_vehicle() {
-    let mut trust = create_trust();
-    trust
-        .create_trading_vehicle(
-            "AAPL",
-            Some("US0378331005"),
-            &TradingVehicleCategory::Stock,
-            "NASDAQ",
-        )
-        .unwrap();
-    let result = trust.create_trading_vehicle(
-        "AAPL",
-        Some("US0378331005"),
-        &TradingVehicleCategory::Stock,
-        "NASDAQ",
-    );
-    // Duplicate should either be rejected or handled via upsert
-    if result.is_ok() {
-        let vehicles = trust.search_trading_vehicles().unwrap();
-        let aapl_count = vehicles.iter().filter(|tv| tv.symbol == "AAPL").count();
-        assert!(
-            aapl_count <= 1,
-            "BUG: Duplicate trading vehicles should not exist"
-        );
-    }
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -3151,171 +2862,9 @@ fn contract_127_trading_vehicle_with_empty_exchange() {
 // BUG CATEGORY 35: Trade Quantity Edge Cases (DraftTrade.quantity is i64)
 // ─────────────────────────────────────────────────────────────────
 
-#[test]
-fn contract_128_trade_with_negative_quantity() {
-    let mut trust = create_trust();
-    let account = setup_account(&mut trust, dec!(50000));
-    let tv = create_trading_vehicle(&mut trust, "AAPL");
-
-    let draft = create_long_draft(&account, &tv, -100);
-    let result = trust.create_trade(draft, dec!(38), dec!(40), dec!(50));
-    let before = trust.search_balance(account.id, &Currency::USD).unwrap();
-    if let Ok(trade) = result {
-        let before_transactions = trust.get_account_transactions(account.id).unwrap();
-        assert!(
-            trust.fund_trade(&trade).is_err(),
-            "Invalid or unaffordable draft must not commit capital"
-        );
-        assert_eq!(
-            trust.get_account_transactions(account.id).unwrap(),
-            before_transactions
-        );
-        assert_eq!(trust.read_trade(trade.id).unwrap().status, Status::New);
-    }
-    assert_eq!(
-        trust.search_balance(account.id, &Currency::USD).unwrap(),
-        before
-    );
-}
-
-#[test]
-fn contract_129_trade_with_max_i64_quantity() {
-    let mut trust = create_trust();
-    let account = setup_account(&mut trust, dec!(50000));
-    let tv = create_trading_vehicle(&mut trust, "AAPL");
-
-    let draft = create_long_draft(&account, &tv, i64::MAX);
-    let result = trust.create_trade(draft, dec!(38), dec!(40), dec!(50));
-    let before = trust.search_balance(account.id, &Currency::USD).unwrap();
-    if let Ok(trade) = result {
-        let before_transactions = trust.get_account_transactions(account.id).unwrap();
-        assert!(
-            trust.fund_trade(&trade).is_err(),
-            "Invalid or unaffordable draft must not commit capital"
-        );
-        assert_eq!(
-            trust.get_account_transactions(account.id).unwrap(),
-            before_transactions
-        );
-        assert_eq!(trust.read_trade(trade.id).unwrap().status, Status::New);
-    }
-    assert_eq!(
-        trust.search_balance(account.id, &Currency::USD).unwrap(),
-        before
-    );
-}
-
-#[test]
-fn contract_130_trade_with_i64_min_quantity() {
-    let mut trust = create_trust();
-    let account = setup_account(&mut trust, dec!(50000));
-    let tv = create_trading_vehicle(&mut trust, "AAPL");
-
-    let draft = create_long_draft(&account, &tv, i64::MIN);
-    let result = trust.create_trade(draft, dec!(38), dec!(40), dec!(50));
-    let before = trust.search_balance(account.id, &Currency::USD).unwrap();
-    if let Ok(trade) = result {
-        let before_transactions = trust.get_account_transactions(account.id).unwrap();
-        assert!(
-            trust.fund_trade(&trade).is_err(),
-            "Invalid or unaffordable draft must not commit capital"
-        );
-        assert_eq!(
-            trust.get_account_transactions(account.id).unwrap(),
-            before_transactions
-        );
-        assert_eq!(trust.read_trade(trade.id).unwrap().status, Status::New);
-    }
-    assert_eq!(
-        trust.search_balance(account.id, &Currency::USD).unwrap(),
-        before
-    );
-}
-
 // ─────────────────────────────────────────────────────────────────
 // BUG CATEGORY 36: Price Ordering Consistency
 // ─────────────────────────────────────────────────────────────────
-
-#[test]
-fn contract_131_long_trade_stop_equals_target() {
-    let mut trust = create_trust();
-    let account = setup_account(&mut trust, dec!(50000));
-    let tv = create_trading_vehicle(&mut trust, "AAPL");
-
-    let draft = create_long_draft(&account, &tv, 100);
-    let result = trust.create_trade(draft, dec!(40), dec!(40), dec!(40));
-    let before = trust.search_balance(account.id, &Currency::USD).unwrap();
-    if let Ok(trade) = result {
-        let before_transactions = trust.get_account_transactions(account.id).unwrap();
-        assert!(
-            trust.fund_trade(&trade).is_err(),
-            "Invalid or unaffordable draft must not commit capital"
-        );
-        assert_eq!(
-            trust.get_account_transactions(account.id).unwrap(),
-            before_transactions
-        );
-        assert_eq!(trust.read_trade(trade.id).unwrap().status, Status::New);
-    }
-    assert_eq!(
-        trust.search_balance(account.id, &Currency::USD).unwrap(),
-        before
-    );
-}
-
-#[test]
-fn contract_132_short_trade_stop_above_entry() {
-    let mut trust = create_trust();
-    let account = setup_account(&mut trust, dec!(50000));
-    let tv = create_trading_vehicle(&mut trust, "AAPL");
-
-    let draft = create_short_draft(&account, &tv, 100);
-    let result = trust.create_trade(draft, dec!(45), dec!(50), dec!(40));
-    let before = trust.search_balance(account.id, &Currency::USD).unwrap();
-    if let Ok(trade) = result {
-        let before_transactions = trust.get_account_transactions(account.id).unwrap();
-        assert!(
-            trust.fund_trade(&trade).is_err(),
-            "Invalid or unaffordable draft must not commit capital"
-        );
-        assert_eq!(
-            trust.get_account_transactions(account.id).unwrap(),
-            before_transactions
-        );
-        assert_eq!(trust.read_trade(trade.id).unwrap().status, Status::New);
-    }
-    assert_eq!(
-        trust.search_balance(account.id, &Currency::USD).unwrap(),
-        before
-    );
-}
-
-#[test]
-fn contract_133_long_trade_all_prices_identical() {
-    let mut trust = create_trust();
-    let account = setup_account(&mut trust, dec!(50000));
-    let tv = create_trading_vehicle(&mut trust, "AAPL");
-
-    let draft = create_long_draft(&account, &tv, 100);
-    let result = trust.create_trade(draft, dec!(100), dec!(100), dec!(100));
-    let before = trust.search_balance(account.id, &Currency::USD).unwrap();
-    if let Ok(trade) = result {
-        let before_transactions = trust.get_account_transactions(account.id).unwrap();
-        assert!(
-            trust.fund_trade(&trade).is_err(),
-            "Invalid or unaffordable draft must not commit capital"
-        );
-        assert_eq!(
-            trust.get_account_transactions(account.id).unwrap(),
-            before_transactions
-        );
-        assert_eq!(trust.read_trade(trade.id).unwrap().status, Status::New);
-    }
-    assert_eq!(
-        trust.search_balance(account.id, &Currency::USD).unwrap(),
-        before
-    );
-}
 
 // ─────────────────────────────────────────────────────────────────
 // BUG CATEGORY 37: Grading Weights Saturation Bug
@@ -3949,60 +3498,6 @@ fn bug_164_short_trade_capital_calculation() {
     assert!(
         result.is_ok(),
         "Short trade should be fundable with exactly stop*qty capital"
-    );
-}
-
-#[test]
-fn contract_165_short_trade_with_stop_equal_entry() {
-    let mut trust = create_trust();
-    let account = setup_account(&mut trust, dec!(50000));
-    let tv = create_trading_vehicle(&mut trust, "AAPL");
-
-    let draft = create_short_draft(&account, &tv, 100);
-    let result = trust.create_trade(draft, dec!(50), dec!(50), dec!(40));
-    let before = trust.search_balance(account.id, &Currency::USD).unwrap();
-    if let Ok(trade) = result {
-        let before_transactions = trust.get_account_transactions(account.id).unwrap();
-        assert!(
-            trust.fund_trade(&trade).is_err(),
-            "Invalid or unaffordable draft must not commit capital"
-        );
-        assert_eq!(
-            trust.get_account_transactions(account.id).unwrap(),
-            before_transactions
-        );
-        assert_eq!(trust.read_trade(trade.id).unwrap().status, Status::New);
-    }
-    assert_eq!(
-        trust.search_balance(account.id, &Currency::USD).unwrap(),
-        before
-    );
-}
-
-#[test]
-fn contract_166_short_trade_with_target_above_entry() {
-    let mut trust = create_trust();
-    let account = setup_account(&mut trust, dec!(50000));
-    let tv = create_trading_vehicle(&mut trust, "AAPL");
-
-    let draft = create_short_draft(&account, &tv, 100);
-    let result = trust.create_trade(draft, dec!(60), dec!(50), dec!(55));
-    let before = trust.search_balance(account.id, &Currency::USD).unwrap();
-    if let Ok(trade) = result {
-        let before_transactions = trust.get_account_transactions(account.id).unwrap();
-        assert!(
-            trust.fund_trade(&trade).is_err(),
-            "Invalid or unaffordable draft must not commit capital"
-        );
-        assert_eq!(
-            trust.get_account_transactions(account.id).unwrap(),
-            before_transactions
-        );
-        assert_eq!(trust.read_trade(trade.id).unwrap().status, Status::New);
-    }
-    assert_eq!(
-        trust.search_balance(account.id, &Currency::USD).unwrap(),
-        before
     );
 }
 
@@ -4850,3 +4345,11 @@ fn bug_200_double_deposit_same_amount() {
         "Two $1000 deposits should give $2000 balance"
     );
 }
+
+#[path = "integration_test_bug_hunt/identity.rs"]
+mod identity_contracts;
+
+#[path = "integration_test_bug_hunt/admission.rs"]
+mod admission;
+#[path = "support/funding.rs"]
+mod funding_fixture;

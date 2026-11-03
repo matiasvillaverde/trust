@@ -141,10 +141,44 @@ mod tests {
     }
 
     #[test]
-    fn display_functions_run_for_smoke_coverage() {
-        crate::zen::set_enabled(false);
-        AccountView::display_account(Account::default());
-        AccountView::display_accounts(vec![Account::default()]);
-        AccountBalanceView::display_balances(vec![AccountBalance::default()], "primary");
+    fn display_includes_broker_identity_and_cash_breakdown() {
+        crate::test_support::capture::assert_stdout(
+            module_path!(),
+            "display_includes_broker_identity_and_cash_breakdown",
+            || {
+                crate::zen::set_enabled(false);
+                let account = Account {
+                    name: "risk-desk".into(),
+                    description: "shared paper".into(),
+                    broker_kind: model::BrokerKind::Ibkr,
+                    broker_account_id: Some("DU_TEST".into()),
+                    ..Account::default()
+                };
+                AccountView::display_account(account.clone());
+                AccountView::display_accounts(vec![account]);
+                AccountBalanceView::display_balances(
+                    vec![AccountBalance {
+                        total_balance: dec!(1000.5),
+                        total_available: dec!(750.25),
+                        total_in_trade: dec!(250.25),
+                        taxed: dec!(10.5),
+                        ..AccountBalance::default()
+                    }],
+                    "primary",
+                );
+            },
+            |output| {
+                assert!(output.contains("risk-desk"), "{output}");
+                assert!(output.contains("shared paper"), "{output}");
+                assert!(output.contains("ibkr"), "{output}");
+                assert!(output.contains("DU_TEST"), "{output}");
+                assert!(output.contains("Primary"), "{output}");
+                assert!(output.contains("1000.5"), "{output}");
+                assert!(output.contains("750.25"), "{output}");
+                assert!(output.contains("250.25"), "{output}");
+                assert!(output.contains("10.5"), "{output}");
+                assert!(output.contains("USD"), "{output}");
+            },
+        );
     }
 }

@@ -112,6 +112,9 @@ help:
 	@echo "  make clean          - Clean build artifacts"
 	@echo "  make install-tools  - Install required development tools"
 	@echo "  make perf-gate      - Run sync-lifecycle performance gate"
+	@echo "  make perf-profile   - Profile financial stages and decoded rows"
+	@echo "  make service-profile - Profile authenticated HTTP/MCP latency and stages"
+	@echo "  make ledger-profile - Compare cash query plans on a disposable ledger"
 	@echo "  make act            - Run GitHub Actions locally"
 
 # Database Management
@@ -337,11 +340,7 @@ snapshots-update:
 .PHONY: ci-perf
 ci-perf:
 	@echo "$(BLUE)Running CI performance gate (production release profile)...$(NC)"
-	@TRUST_PERF_GATE_ITERATIONS=$${TRUST_PERF_GATE_ITERATIONS:-3} \
-	TRUST_PERF_GATE_WARMUP_ITERATIONS=$${TRUST_PERF_GATE_WARMUP_ITERATIONS:-1} \
-	TRUST_PERF_GATE_MAX_CASE_200_MS=$${TRUST_PERF_GATE_MAX_CASE_200_MS:-26000} \
-	TRUST_PERF_GATE_MAX_CASE_211_MS=$${TRUST_PERF_GATE_MAX_CASE_211_MS:-6000} \
-	$(CARGO) test --release -p trust-cli --test integration_test_use_cases $(CARGO_FLAGS) -- test_case_212_perf_gate_sync_lifecycle_regression_guard --ignored --nocapture
+	@$(MAKE) perf-gate
 	@$(MAKE) service-perf
 
 .PHONY: service-perf
@@ -380,9 +379,31 @@ perf-gate:
 	@echo "$(BLUE)Running performance regression gate (production release profile)...$(NC)"
 	@TRUST_PERF_GATE_ITERATIONS=$${TRUST_PERF_GATE_ITERATIONS:-3} \
 	TRUST_PERF_GATE_WARMUP_ITERATIONS=$${TRUST_PERF_GATE_WARMUP_ITERATIONS:-1} \
-	TRUST_PERF_GATE_MAX_CASE_200_MS=$${TRUST_PERF_GATE_MAX_CASE_200_MS:-26000} \
-	TRUST_PERF_GATE_MAX_CASE_211_MS=$${TRUST_PERF_GATE_MAX_CASE_211_MS:-6000} \
-	$(CARGO) test --release -p trust-cli --test integration_test_use_cases $(CARGO_FLAGS) -- test_case_212_perf_gate_sync_lifecycle_regression_guard --ignored --nocapture
+	TRUST_PERF_GATE_MAX_ANALYTICS_MS=$${TRUST_PERF_GATE_MAX_ANALYTICS_MS:-1000} \
+	TRUST_PERF_GATE_MAX_SYNC_MS=$${TRUST_PERF_GATE_MAX_SYNC_MS:-6000} \
+	$(CARGO) test --release -p trust-cli --test integration_test_use_cases $(CARGO_FLAGS) -- performance::analytics_and_1200_persisted_lifecycles_meet_performance_budgets --ignored --nocapture
+	$(CARGO) test --release -p trust-cli --test integration_test_use_cases $(CARGO_FLAGS) -- performance::verified_admission_for_4800_persisted_lifecycles_meets_performance_budget --exact --ignored --nocapture --test-threads=1
+
+PROFILE_TRADES ?= 1200
+PROFILE_OUTPUT ?= .local/performance-profile.json
+.PHONY: perf-profile
+perf-profile:
+	@mkdir -p "$(dir $(abspath $(PROFILE_OUTPUT)))"
+	@TRUST_PROFILE_TRADES="$(PROFILE_TRADES)" TRUST_PROFILE_OUTPUT="$(abspath $(PROFILE_OUTPUT))" \
+	$(CARGO) test --release -p trust-cli --test integration_test_use_cases $(CARGO_FLAGS) -- performance::profile_risk_enabled_lifecycles --exact --ignored --nocapture --test-threads=1
+
+SERVICE_PROFILE_OUTPUT ?= .local/service-profile.json
+LEDGER_PROFILE_OUTPUT ?= .local/ledger-profile.json
+.PHONY: service-profile ledger-profile
+service-profile:
+	@mkdir -p "$(dir $(abspath $(SERVICE_PROFILE_OUTPUT)))"
+	@TRUST_PROFILE_SERVICE_OUTPUT="$(abspath $(SERVICE_PROFILE_OUTPUT))" \
+	$(CARGO) test --release -p trust-service --test e2e $(CARGO_FLAGS) -- real_process_risk_preview_latency_budget --exact --ignored --nocapture --test-threads=1
+
+ledger-profile:
+	@mkdir -p "$(dir $(abspath $(LEDGER_PROFILE_OUTPUT)))"
+	@TRUST_PROFILE_LEDGER_OUTPUT="$(abspath $(LEDGER_PROFILE_OUTPUT))" \
+	$(CARGO) test --release -p db-sqlite --lib $(CARGO_FLAGS) -- workers::worker_transaction::tests::ledger::profiling::profile_cash_ledger_access --exact --ignored --nocapture --test-threads=1
 
 .PHONY: install-tools
 install-tools:

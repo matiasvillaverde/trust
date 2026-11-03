@@ -119,49 +119,86 @@ fn test_level_evaluation_payload_includes_decision_and_apply_state() {
 }
 
 #[test]
-fn test_print_level_progress_text_handles_empty_and_non_empty_paths() {
-    let empty_progress = LevelProgressReport {
-        current_level: 1,
-        status: LevelStatus::Normal,
-        upgrade_paths: vec![],
-        downgrade_paths: vec![],
-    };
-    crate::dispatcher::level_output::print_level_progress_text(&empty_progress);
+fn level_progress_explains_the_unmet_requirement() {
+    crate::test_support::capture::assert_stdout(
+        module_path!(),
+        "level_progress_explains_the_unmet_requirement",
+        || {
+            let empty_progress = LevelProgressReport {
+                current_level: 1,
+                status: LevelStatus::Normal,
+                upgrade_paths: vec![],
+                downgrade_paths: vec![],
+            };
+            crate::dispatcher::level_output::print_level_progress_text(&empty_progress);
 
-    let path = LevelPathProgress {
-        path: "policy",
-        trigger_type: LevelTrigger::PerformanceUpgrade,
-        direction: LevelDirection::Upgrade,
-        target_level: Some(2),
-        all_met: false,
-        criteria: vec![LevelCriterionProgress {
-            key: "win_rate",
-            comparator: ">=",
-            actual: dec!(55),
-            threshold: dec!(60),
-            missing: dec!(5),
-            met: false,
-        }],
-    };
-    let non_empty_progress = LevelProgressReport {
-        current_level: 1,
-        status: LevelStatus::Normal,
-        upgrade_paths: vec![path.clone()],
-        downgrade_paths: vec![path],
-    };
-    crate::dispatcher::level_output::print_level_progress_text(&non_empty_progress);
+            let path = LevelPathProgress {
+                path: "policy",
+                trigger_type: LevelTrigger::PerformanceUpgrade,
+                direction: LevelDirection::Upgrade,
+                target_level: Some(2),
+                all_met: false,
+                criteria: vec![LevelCriterionProgress {
+                    key: "win_rate",
+                    comparator: ">=",
+                    actual: dec!(55),
+                    threshold: dec!(60),
+                    missing: dec!(5),
+                    met: false,
+                }],
+            };
+            let non_empty_progress = LevelProgressReport {
+                current_level: 1,
+                status: LevelStatus::Normal,
+                upgrade_paths: vec![path.clone()],
+                downgrade_paths: vec![path],
+            };
+            crate::dispatcher::level_output::print_level_progress_text(&non_empty_progress);
+        },
+        |output| {
+            assert!(
+                output.contains("- Upgrade: unavailable at current bounds"),
+                "{output}"
+            );
+            assert!(
+                output.contains("- Downgrade: unavailable at current bounds"),
+                "{output}"
+            );
+            assert!(
+                output.contains("- Upgrade via policy -> L2 [not ready]"),
+                "{output}"
+            );
+            assert!(
+                output.contains("win_rate >= 60 (actual 55, missing 5)"),
+                "{output}"
+            );
+            assert!(
+                output.contains("- Downgrade via policy -> L2 [not ready]"),
+                "{output}"
+            );
+        },
+    );
 }
 
 #[test]
-fn test_print_level_path_text_handles_missing_target_level() {
-    let path = LevelPathProgress {
-        path: "upper-bound",
-        trigger_type: LevelTrigger::PerformanceUpgrade,
-        direction: LevelDirection::Upgrade,
-        target_level: None,
-        all_met: true,
-        criteria: vec![],
-    };
+fn level_boundary_is_reported_without_an_invented_target() {
+    crate::test_support::capture::assert_stdout(
+        module_path!(),
+        "level_boundary_is_reported_without_an_invented_target",
+        || {
+            let path = LevelPathProgress {
+                path: "upper-bound",
+                trigger_type: LevelTrigger::PerformanceUpgrade,
+                direction: LevelDirection::Upgrade,
+                target_level: None,
+                all_met: true,
+                criteria: vec![],
+            };
 
-    crate::dispatcher::level_output::print_level_path_text("Upgrade", &path);
+            crate::dispatcher::level_output::print_level_path_text("Upgrade", &path);
+        },
+        |output| {
+            assert_eq!(output.trim(), "- Upgrade via upper-bound -> n/a [ready]");
+        },
+    );
 }

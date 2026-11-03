@@ -535,47 +535,6 @@ impl Broker for StatusMismatchBroker {
 }
 
 /// Broker that submits OK but always fails on cancel
-struct CancelFailsBroker;
-
-impl Broker for CancelFailsBroker {
-    fn kind(&self) -> model::BrokerKind {
-        model::BrokerKind::Alpaca
-    }
-    fn submit_trade(
-        &self,
-        _: &Trade,
-        _: &Account,
-    ) -> Result<(BrokerLog, OrderIds), Box<dyn Error>> {
-        Ok((
-            BrokerLog::default(),
-            OrderIds {
-                entry: Uuid::new_v4().to_string(),
-                target: Uuid::new_v4().to_string(),
-                stop: Uuid::new_v4().to_string(),
-            },
-        ))
-    }
-    fn sync_trade(
-        &self,
-        _: &Trade,
-        _: &Account,
-    ) -> Result<(Status, Vec<Order>, BrokerLog), Box<dyn Error>> {
-        unimplemented!()
-    }
-    fn close_trade(&self, _: &Trade, _: &Account) -> Result<(Order, BrokerLog), Box<dyn Error>> {
-        unimplemented!()
-    }
-    fn cancel_trade(&self, _: &Trade, _: &Account) -> Result<(), Box<dyn Error>> {
-        Err("Broker cancel failed: order in transition state".into())
-    }
-    fn modify_stop(&self, _: &Trade, _: &Account, _: Decimal) -> Result<String, Box<dyn Error>> {
-        unimplemented!()
-    }
-    fn modify_target(&self, _: &Trade, _: &Account, _: Decimal) -> Result<String, Box<dyn Error>> {
-        unimplemented!()
-    }
-}
-
 /// Broker that fails on submit_trade
 struct SubmitFailsBroker;
 
@@ -1060,52 +1019,6 @@ fn test_many_sync_failures_no_balance_drift() {
 //     Verify: trade stays Funded in DB
 // ===========================================================================
 
-#[test]
-fn test_broker_cancel_fails_trade_stays_funded() {
-    let mut trust = new_facade(CancelFailsBroker);
-    let account = setup_account(&mut trust, dec!(50000));
-    let tv = create_vehicle(&mut trust, "TSLA");
-    let draft = DraftTrade {
-        account: account.clone(),
-        trading_vehicle: tv,
-        quantity: 500.into(),
-        currency: Currency::USD,
-        category: TradeCategory::Long,
-        thesis: None,
-        sector: None,
-        asset_class: None,
-        context: None,
-    };
-    trust
-        .create_trade(draft, dec!(38), dec!(40), dec!(50))
-        .unwrap();
-    let trade = trust
-        .search_trades(account.id, Status::New)
-        .unwrap()
-        .pop()
-        .unwrap();
-    trust.fund_trade(&trade).unwrap();
-    let funded = trust
-        .search_trades(account.id, Status::Funded)
-        .unwrap()
-        .pop()
-        .unwrap();
-
-    // Cancel attempt should propagate the broker error
-    // Note: cancel_funded_trade calls broker.cancel_trade for submitted trades
-    // For funded trades, it may not call the broker at all (depends on implementation)
-    let result = trust.cancel_funded_trade(&funded);
-    // cancel_funded_trade on a Funded trade shouldn't need broker cancel
-    // It should succeed since the trade was never submitted
-    if result.is_ok() {
-        let balance = trust.search_balance(account.id, &Currency::USD).unwrap();
-        assert_eq!(balance.total_available, dec!(50000));
-    }
-    // Either way, balance must be consistent
-    let balance = trust.search_balance(account.id, &Currency::USD).unwrap();
-    assert_eq!(balance.total_balance, dec!(50000));
-}
-
 // ===========================================================================
 // 11. MULTIPLE TRADES — One fails sync, others unaffected
 // ===========================================================================
@@ -1342,3 +1255,6 @@ fn test_total_available_is_exact_gatekeeper_for_funding() {
         "should NOT be able to fund 20000 when only 18000 is available"
     );
 }
+
+#[path = "integration_test_broker_failures/cancellation.rs"]
+mod cancellation;

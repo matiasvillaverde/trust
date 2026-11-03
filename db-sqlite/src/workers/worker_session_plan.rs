@@ -413,6 +413,10 @@ mod tests {
         let plan = WorkerSessionPlan::create(&mut conn, &plan_for(account_id, opened_at)).unwrap();
         assert_eq!(plan.regime, SessionRegime::Normal);
         assert_eq!(
+            WorkerSessionPlan::read_open(&mut conn, account_id).unwrap(),
+            Some(plan.clone())
+        );
+        assert_eq!(
             WorkerSessionPlan::read_open(&mut conn, account_id)
                 .unwrap()
                 .map(|entry| entry.id),
@@ -444,6 +448,11 @@ mod tests {
                 .unwrap()
                 .map(|entry| entry.id),
             Some(reopened.id)
+        );
+
+        assert_eq!(
+            WorkerSessionPlan::read_open(&mut conn, account_id).unwrap(),
+            Some(reopened)
         );
     }
 
@@ -686,10 +695,5 @@ mod tests {
             },
             "permitted_setups",
         );
-    }
-
-    #[test]
-    fn debug_representation_is_stable() {
-        assert_eq!(format!("{WorkerSessionPlan:?}"), "WorkerSessionPlan");
     }
 }

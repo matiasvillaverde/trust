@@ -62,8 +62,10 @@ jobs:
         python3 scripts/check_architecture.py --base HEAD^1
         python3 -m unittest discover -s scripts -p 'test_check_architecture.py'
 
-    - name: Test release version validation
-      run: bash .github/test_version_parsing.sh
+    - name: Test release version and workflow contracts
+      run: |
+        python3 -m pip install --require-hashes -r .github/tests/requirements.txt
+        bash .github/test_version_parsing.sh
 
     - name: Quick compilation check
       run: cargo check --locked --workspace --all-features
@@ -368,6 +370,13 @@ jobs:
       run: |
         # Build all at once for better parallelism
         cargo build --locked --release --workspace
+
+    - name: Verify release archive and installed CLI
+      env:
+        TRUST_RELEASE_TEST_BINARY: target/release/trust
+      run: |
+        python3 -m pip install --require-hashes -r .github/tests/requirements.txt
+        python3 tests/test_release_artifact.py
 
     - name: Check HTTP and MCP latency with durable auditing
       run: make service-perf CARGO_FLAGS=--locked

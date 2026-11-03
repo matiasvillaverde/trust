@@ -60,16 +60,15 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(
-        expected = "TradeCapitalTaxable: does not know how to calculate transaction with category: withdrawal_tax"
-    )]
     fn test_calculate_with_unknown_category() {
         let mut database = MockDatabase::new();
 
         // Transactions
         database.set_transaction(TransactionCategory::WithdrawalTax, dec!(100));
 
-        TradeCapitalTaxable::calculate(Uuid::new_v4(), &mut database).unwrap();
+        let error = TradeCapitalTaxable::calculate(Uuid::new_v4(), &mut database)
+            .expect_err("unsupported ledger category must return an error");
+        assert_eq!(error.to_string(), "TradeCapitalTaxable: does not know how to calculate transaction with category: withdrawal_tax");
     }
 
     #[test]

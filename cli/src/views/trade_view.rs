@@ -179,11 +179,28 @@ mod tests {
     }
 
     #[test]
-    fn display_helpers_run_for_smoke_coverage() {
-        crate::zen::set_enabled(false);
-        let trade = Trade::default();
-        TradeView::display_trades(vec![trade.clone()], "main");
-        TradeView::display(&trade, "main");
-        TradeBalanceView::display(&TradeBalance::default());
+    fn trade_table_and_balance_show_the_selected_trade_values() {
+        crate::test_support::capture::assert_stdout(
+            module_path!(),
+            "trade_table_and_balance_show_the_selected_trade_values",
+            || {
+                crate::zen::set_enabled(false);
+                let mut trade = Trade::default();
+                trade.trading_vehicle.symbol = "OUTPUT".into();
+                TradeView::display_trades(vec![trade.clone()], "main");
+                TradeView::display(&trade, "main");
+                TradeBalanceView::display(&TradeBalance {
+                    capital_in_market: dec!(123.45),
+                    ..TradeBalance::default()
+                });
+            },
+            |output| {
+                assert!(output.contains("Main"), "{output}");
+                assert!(output.contains("long"), "{output}");
+                assert!(output.contains("new"), "{output}");
+                assert!(output.contains("capital_in_market"), "{output}");
+                assert!(output.contains("123.45"), "{output}");
+            },
+        );
     }
 }

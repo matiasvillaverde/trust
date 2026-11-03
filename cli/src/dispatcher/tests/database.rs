@@ -7,64 +7,7 @@
 )]
 use super::fixtures::*;
 use crate::commands::DbCommandBuilder;
-use crate::dispatcher::error::CliError;
-use clap::Command;
 use uuid::Uuid;
-
-#[test]
-fn test_dispatchers_require_nested_subcommands() {
-    let mut dispatcher = test_dispatcher();
-    use std::panic::{catch_unwind, AssertUnwindSafe};
-
-    let mut check_panics_without_subcommand =
-        |f: fn(&mut core::TrustFacade, &clap::ArgMatches) -> Result<(), CliError>,
-         name: &'static str| {
-            let matches = Command::new(name).get_matches_from([name]);
-            let result = catch_unwind(AssertUnwindSafe(|| f(&mut dispatcher.trust, &matches)));
-            assert!(
-                result.is_err(),
-                "{name} dispatcher should panic when subcommand is absent"
-            );
-        };
-
-    check_panics_without_subcommand(crate::dispatcher::database::dispatch_db, "db");
-    check_panics_without_subcommand(crate::dispatcher::keys::dispatch_keys, "keys");
-    check_panics_without_subcommand(crate::dispatcher::accounts::dispatch_accounts, "accounts");
-    check_panics_without_subcommand(
-        crate::dispatcher::capital::dispatch_transactions,
-        "transaction",
-    );
-    check_panics_without_subcommand(crate::dispatcher::rules::dispatch_rules, "rule");
-    check_panics_without_subcommand(
-        crate::dispatcher::instruments::dispatch_trading_vehicle,
-        "trading-vehicle",
-    );
-    check_panics_without_subcommand(crate::dispatcher::trade_commands::dispatch_trade, "trade");
-    check_panics_without_subcommand(
-        crate::dispatcher::distribution::dispatch_distribution,
-        "distribution",
-    );
-    check_panics_without_subcommand(crate::dispatcher::reports::dispatch_report, "report");
-    check_panics_without_subcommand(
-        crate::dispatcher::market_data::dispatch_market_data,
-        "market-data",
-    );
-    check_panics_without_subcommand(crate::dispatcher::grades::dispatch_grade, "grade");
-    check_panics_without_subcommand(crate::dispatcher::levels::dispatch_level, "level");
-    check_panics_without_subcommand(
-        crate::dispatcher::onboarding::dispatch_onboarding,
-        "onboarding",
-    );
-    check_panics_without_subcommand(
-        crate::dispatcher::advanced_metrics::dispatch_metrics,
-        "metrics",
-    );
-    check_panics_without_subcommand(
-        crate::dispatcher::advisor_config::dispatch_advisor,
-        "advisor",
-    );
-    check_panics_without_subcommand(crate::dispatcher::sessions::dispatch_session, "session");
-}
 
 #[test]
 fn test_db_export_import_success_and_export_error_paths() {

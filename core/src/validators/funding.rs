@@ -21,8 +21,8 @@ pub fn can_fund(trade: &Trade, database: &mut dyn DatabaseFactory) -> FundingVal
     {
         Ok(balance) => {
             validate_enough_capital(trade, &balance)?;
-            validate_rules(trade, &balance, database)?;
-            validate_level_adjusted_quantity(trade, database)
+            let base_quantity = validate_rules(trade, &balance, database)?;
+            validate_level_adjusted_quantity(trade, base_quantity, database)
         }
         Err(error) => Err(Box::new(FundValidationError {
             code: FundValidationErrorCode::NotEnoughFunds,
@@ -51,7 +51,7 @@ fn validate_geometry(trade: &Trade) -> FundingValidationResult {
         }));
     }
 
-    Ok(())
+    calculate_price_diff(trade).map(|_| ())
 }
 
 fn submission_error(error: impl std::fmt::Display) -> Box<FundValidationError> {
@@ -118,6 +118,7 @@ pub fn can_submit_funded(
         &rules,
         database,
         Some(trade),
+        available,
     )
     .map_err(submission_error)?;
     let risk = per_trade.unwrap_or(per_month);
@@ -128,12 +129,9 @@ pub fn can_submit_funded(
         trade.entry.unit_price.min(trade.safety_stop.unit_price),
         risk,
     );
-    let level = database
-        .level_read()
-        .level_for_account(trade.account_id)
-        .map_err(submission_error)?;
-    let allowed =
-        QuantityCalculator::apply_multiplier_to_quantity(base, level.risk_multiplier).min(base);
+    let allowed = QuantityCalculator::apply_level(trade.account_id, base, database)
+        .map_err(submission_error)?
+        .final_quantity;
     if trade.entry.quantity > allowed {
         return Err(Box::new(FundValidationError {
             code: FundValidationErrorCode::LevelAdjustedQuantityExceeded,
@@ -196,50 +194,36 @@ fn validate_rules(
     trade: &Trade,
     account_balance: &AccountBalance,
     database: &mut dyn DatabaseFactory,
-) -> FundingValidationResult {
-    // Get rules by priority
-    let rules = sorted_rules(trade.account_id, database)?;
-    let (per_trade, per_month) =
-        RiskCalculator::effective_rules(trade.account_id, &trade.currency, &rules, database)
-            .map_err(|error| {
-                Box::new(FundValidationError {
-                    code: FundValidationErrorCode::NotEnoughFunds,
-                    message: format!("Error calculating risk per month or per trade: {error}"),
-                })
-            })?;
-    validate_risk_per_trade(
-        trade,
-        account_balance,
-        per_trade.unwrap_or(per_month),
-        per_month,
-    )
-}
-
-fn validate_level_adjusted_quantity(
-    trade: &Trade,
-    database: &mut dyn DatabaseFactory,
-) -> FundingValidationResult {
-    let sizing = QuantityCalculator::maximum_quantity_with_level(
+) -> Result<Decimal, Box<FundValidationError>> {
+    let limits = QuantityCalculator::limits(
         trade.account_id,
-        if trade.category == TradeCategory::Short {
-            trade.safety_stop.unit_price
-        } else {
-            trade.entry.unit_price
-        },
-        if trade.category == TradeCategory::Short {
-            trade.entry.unit_price
-        } else {
-            trade.safety_stop.unit_price
-        },
+        trade.entry.unit_price,
+        trade.safety_stop.unit_price,
         &trade.currency,
         database,
     )
     .map_err(|error| {
         Box::new(FundValidationError {
             code: FundValidationErrorCode::NotEnoughFunds,
-            message: format!("Error calculating level-adjusted quantity: {error}"),
+            message: format!("Error calculating risk per month or per trade: {error}"),
         })
     })?;
+    validate_risk_per_trade(trade, account_balance, limits.per_trade, limits.per_month)?;
+    Ok(limits.base_quantity)
+}
+
+fn validate_level_adjusted_quantity(
+    trade: &Trade,
+    base_quantity: Decimal,
+    database: &mut dyn DatabaseFactory,
+) -> FundingValidationResult {
+    let sizing = QuantityCalculator::apply_level(trade.account_id, base_quantity, database)
+        .map_err(|error| {
+            Box::new(FundValidationError {
+                code: FundValidationErrorCode::NotEnoughFunds,
+                message: format!("Error calculating level-adjusted quantity: {error}"),
+            })
+        })?;
 
     let allowed_quantity = sizing.final_quantity;
 
@@ -293,16 +277,6 @@ fn validate_risk_per_trade(
     // Calculate the total amount that will be risked in this trade.
     let price_diff = calculate_price_diff(trade)?;
 
-    if price_diff <= Decimal::ZERO {
-        return Err(Box::new(FundValidationError {
-            code: FundValidationErrorCode::InvalidPriceDifference,
-            message: format!(
-                "Invalid risk setup for {} trade: entry={}, stop={}",
-                trade.category, trade.entry.unit_price, trade.safety_stop.unit_price
-            ),
-        }));
-    }
-
     let total_risk = price_diff
         .checked_mul(trade.entry.quantity)
         .ok_or_else(|| {
@@ -348,7 +322,7 @@ fn calculate_maximum_risk(
 }
 
 fn calculate_price_diff(trade: &Trade) -> Result<Decimal, Box<FundValidationError>> {
-    match trade.category {
+    let price_diff = match trade.category {
         TradeCategory::Long => trade
             .entry
             .unit_price
@@ -369,7 +343,17 @@ fn calculate_price_diff(trade: &Trade) -> Result<Decimal, Box<FundValidationErro
                     message: "Subtraction overflow calculating price difference".to_string(),
                 })
             }),
+    }?;
+    if price_diff <= Decimal::ZERO {
+        return Err(Box::new(FundValidationError {
+            code: FundValidationErrorCode::InvalidPriceDifference,
+            message: format!(
+                "Invalid risk setup for {} trade: entry={}, stop={}",
+                trade.category, trade.entry.unit_price, trade.safety_stop.unit_price
+            ),
+        }));
     }
+    Ok(price_diff)
 }
 
 #[derive(Debug, PartialEq)]
@@ -413,6 +397,7 @@ pub enum FundValidationErrorCode {
 
 #[cfg(test)]
 mod tests {
+    mod admission;
     use super::*;
     use db_sqlite::SqliteDatabase;
     use model::{
@@ -685,59 +670,6 @@ mod tests {
 
         assert_eq!(error.code, FundValidationErrorCode::RiskPerTradeExceeded);
         assert!(error.message.contains("maximum that can be at risk is 0"));
-    }
-
-    #[test]
-    fn test_validate_level_adjusted_quantity_does_not_skip_short_trades() {
-        let mut database = SqliteDatabase::new_in_memory();
-        let trade = Trade {
-            category: TradeCategory::Short,
-            entry: Order {
-                unit_price: dec!(100),
-                quantity: Decimal::from(u64::MAX),
-                ..Default::default()
-            },
-            safety_stop: Order {
-                unit_price: dec!(110),
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-
-        assert!(validate_level_adjusted_quantity(&trade, &mut database).is_err());
-    }
-
-    #[test]
-    fn test_validate_level_adjusted_quantity_wraps_calculator_errors() {
-        let mut database = SqliteDatabase::new_in_memory();
-        let account = create_test_account(&database, "funding-level-calculator-error");
-        let trade = long_trade(account.id, 1, Decimal::ZERO, dec!(90));
-
-        let error = validate_level_adjusted_quantity(&trade, &mut database).unwrap_err();
-
-        assert_eq!(error.code, FundValidationErrorCode::NotEnoughFunds);
-        assert!(error
-            .message
-            .contains("Error calculating level-adjusted quantity"));
-        assert!(error.message.contains("Invalid entry price"));
-    }
-
-    #[test]
-    fn test_validate_level_adjusted_quantity_rejects_quantity_above_adjusted_cap() {
-        let mut database = SqliteDatabase::new_in_memory();
-        let account = create_test_account(&database, "funding-level-cap");
-        create_test_deposit(&database, &account, dec!(1_000));
-        create_default_level(&database, &account);
-        let trade = long_trade(account.id, 5, dec!(250), dec!(200));
-
-        let error = validate_level_adjusted_quantity(&trade, &mut database).unwrap_err();
-
-        assert_eq!(
-            error.code,
-            FundValidationErrorCode::LevelAdjustedQuantityExceeded
-        );
-        assert!(error.message.contains("exceeds level-adjusted maximum 4"));
-        assert!(error.message.contains("base 4"));
     }
 
     #[test]

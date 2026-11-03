@@ -958,77 +958,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
-    fn parse_top_level_command_panics_without_subcommand() {
-        let app = Command::new("trust");
-        let m = app.get_matches_from(["trust"]);
-        let _ = parse_top_level_command(&m);
-    }
-
-    #[test]
-    #[should_panic(expected = "No subcommand provided")]
-    fn parse_grade_subcommand_panics_without_nested_subcommand() {
-        let app = Command::new("trust").subcommand(Command::new("grade"));
-        let m = app.get_matches_from(["trust", "grade"]);
-        let (_, sm) = m.subcommand().expect("expected grade");
-        let _ = parse_grade_subcommand(sm);
-    }
-
-    #[test]
-    #[should_panic(expected = "No subcommand provided")]
-    fn parse_onboarding_subcommand_panics_without_nested_subcommand() {
-        let app = Command::new("trust").subcommand(Command::new("onboarding"));
-        let m = app.get_matches_from(["trust", "onboarding"]);
-        let (_, sm) = m.subcommand().expect("expected onboarding");
-        let _ = parse_onboarding_subcommand(sm);
-    }
-
-    #[test]
-    #[should_panic(expected = "No subcommand provided")]
-    fn parse_rules_subcommand_panics_without_nested_subcommand() {
-        let app = Command::new("trust").subcommand(Command::new("rule"));
-        let m = app.get_matches_from(["trust", "rule"]);
-        let (_, sm) = m.subcommand().expect("expected rule");
-        let _ = parse_rules_subcommand(sm);
-    }
-
-    #[test]
-    #[should_panic(expected = "No subcommand provided")]
-    fn parse_report_subcommand_panics_without_nested_subcommand() {
-        let app = Command::new("trust").subcommand(Command::new("report"));
-        let m = app.get_matches_from(["trust", "report"]);
-        let (_, sm) = m.subcommand().expect("expected report");
-        let _ = parse_report_subcommand(sm);
-    }
-
-    #[test]
-    #[should_panic(expected = "No subcommand provided")]
-    fn parse_market_data_subcommand_panics_without_nested_subcommand() {
-        let app = Command::new("trust").subcommand(Command::new("market-data"));
-        let m = app.get_matches_from(["trust", "market-data"]);
-        let (_, sm) = m.subcommand().expect("expected market-data");
-        let _ = parse_market_data_subcommand(sm);
-    }
-
-    #[test]
-    #[should_panic(expected = "No subcommand provided")]
-    fn parse_session_subcommand_panics_without_nested_subcommand() {
-        let app = Command::new("trust").subcommand(Command::new("session"));
-        let m = app.get_matches_from(["trust", "session"]);
-        let (_, sm) = m.subcommand().expect("expected session");
-        let _ = parse_session_subcommand(sm);
-    }
-
-    #[test]
-    #[should_panic(expected = "No subcommand provided")]
-    fn parse_level_subcommand_panics_without_nested_subcommand() {
-        let app = Command::new("trust").subcommand(Command::new("level"));
-        let m = app.get_matches_from(["trust", "level"]);
-        let (_, sm) = m.subcommand().expect("expected level");
-        let _ = parse_level_subcommand(sm);
-    }
-
-    #[test]
     fn parse_market_data_subcommand_covers_stream_variant() {
         let app = Command::new("trust").subcommand(
             Command::new("market-data")
@@ -1042,15 +971,5 @@ mod tests {
             parse_market_data_subcommand(sm),
             MarketDataSubcommand::Stream(_)
         ));
-    }
-
-    #[test]
-    #[should_panic(expected = "No subcommand provided")]
-    fn parse_level_rules_panics_without_rules_nested_subcommand() {
-        let app = Command::new("trust")
-            .subcommand(Command::new("level").subcommand(Command::new("rules")));
-        let m = app.get_matches_from(["trust", "level", "rules"]);
-        let (_, sm) = m.subcommand().expect("expected level");
-        let _ = parse_level_subcommand(sm);
     }
 }

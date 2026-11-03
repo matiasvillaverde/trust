@@ -220,10 +220,10 @@ fn fill_trade_internal(
         commands::order::record_timestamp_filled(trade, database.order_write().as_mut())?;
     }
 
-    // Record timestamp when the trade was opened
     let trade = update_trade_status_and_projection(trade, Status::Filled, database)?;
 
-    Ok((trade, tx))
+    // Return the persisted execution evidence, including filled quantity and timestamp.
+    Ok((database.trade_read().read_trade(trade.id)?, tx))
 }
 
 pub fn fill_trade(

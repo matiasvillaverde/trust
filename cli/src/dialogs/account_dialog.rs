@@ -42,13 +42,27 @@ impl AccountDialogBuilder {
     }
 
     pub fn build(mut self, trust: &mut TrustFacade) -> AccountDialogBuilder {
-        self.result = Some(trust.create_account(
-            &self.name,
-            &self.description,
-            self.environment.unwrap(),
-            self.tax_percentage.unwrap(),
-            self.earnings_percentage.unwrap(),
-        ));
+        self.result = Some((|| {
+            trust.create_account(
+                &self.name,
+                &self.description,
+                crate::dialogs::dialog_helpers::require(
+                    self.environment,
+                    std::io::ErrorKind::InvalidInput,
+                    "Select an environment",
+                )?,
+                crate::dialogs::dialog_helpers::require(
+                    self.tax_percentage,
+                    std::io::ErrorKind::InvalidInput,
+                    "Enter a tax percentage",
+                )?,
+                crate::dialogs::dialog_helpers::require(
+                    self.earnings_percentage,
+                    std::io::ErrorKind::InvalidInput,
+                    "Enter an earnings percentage",
+                )?,
+            )
+        })());
         self
     }
 
@@ -244,10 +258,6 @@ mod tests {
             self.selections.pop_front().unwrap_or(Ok(None))
         }
 
-        fn confirm(&mut self, _prompt: &str, _default: bool) -> Result<bool, IoError> {
-            Ok(false)
-        }
-
         fn input_text(&mut self, _prompt: &str, _allow_empty: bool) -> Result<String, IoError> {
             self.inputs.pop_front().unwrap_or_else(|| Ok(String::new()))
         }
@@ -277,16 +287,26 @@ mod tests {
     }
 
     #[test]
-    fn account_dialog_display_handles_error_result() {
-        let dialog = AccountDialogBuilder {
-            name: "x".to_string(),
-            description: "y".to_string(),
-            environment: None,
-            tax_percentage: None,
-            earnings_percentage: None,
-            result: Some(Err("synthetic failure".into())),
-        };
-        dialog.display();
+    fn account_dialog_display_reports_error_result() {
+        crate::test_support::capture::assert_stdout(
+            module_path!(),
+            "account_dialog_display_reports_error_result",
+            || {
+                let dialog = AccountDialogBuilder {
+                    name: "x".to_string(),
+                    description: "y".to_string(),
+                    environment: None,
+                    tax_percentage: None,
+                    earnings_percentage: None,
+                    result: Some(Err("synthetic failure".into())),
+                };
+                dialog.display();
+            },
+            |output| {
+                assert!(output.contains("Error creating account:"), "{output}");
+                assert!(output.contains("synthetic failure"), "{output}");
+            },
+        );
     }
 
     #[test]
@@ -310,23 +330,34 @@ mod tests {
     }
 
     #[test]
-    fn account_dialog_display_handles_success_result() {
-        AccountDialogBuilder {
-            name: "display-a".to_string(),
-            description: "desc".to_string(),
-            environment: Some(Environment::Paper),
-            tax_percentage: Some(dec!(20)),
-            earnings_percentage: Some(dec!(10)),
-            result: Some(Ok(model::Account {
-                name: "display-a".to_string(),
-                description: "desc".to_string(),
-                environment: Environment::Paper,
-                taxes_percentage: dec!(20),
-                earnings_percentage: dec!(10),
-                ..model::Account::default()
-            })),
-        }
-        .display();
+    fn account_dialog_display_reports_account_values_result() {
+        crate::test_support::capture::assert_stdout(
+            module_path!(),
+            "account_dialog_display_reports_account_values_result",
+            || {
+                AccountDialogBuilder {
+                    name: "display-a".to_string(),
+                    description: "desc".to_string(),
+                    environment: Some(Environment::Paper),
+                    tax_percentage: Some(dec!(20)),
+                    earnings_percentage: Some(dec!(10)),
+                    result: Some(Ok(model::Account {
+                        name: "display-a".to_string(),
+                        description: "desc".to_string(),
+                        environment: Environment::Paper,
+                        taxes_percentage: dec!(20),
+                        earnings_percentage: dec!(10),
+                        ..model::Account::default()
+                    })),
+                }
+                .display();
+            },
+            |output| {
+                assert!(output.contains("display-a"), "{output}");
+                assert!(output.contains("desc"), "{output}");
+                assert!(output.contains("paper"), "{output}");
+            },
+        );
     }
 
     #[test]
@@ -491,53 +522,78 @@ mod tests {
     }
 
     #[test]
-    fn account_search_display_handles_success_with_and_without_balances() {
-        let mut trust = test_trust();
-        let empty = trust
-            .create_account(
-                "display-empty",
-                "desc",
-                Environment::Paper,
-                dec!(20),
-                dec!(10),
-            )
-            .expect("empty account");
-        AccountSearchDialog {
-            result: Some(Ok(empty)),
-        }
-        .display(&mut trust);
+    fn account_search_display_reports_account_values_with_and_without_balances() {
+        crate::test_support::capture::assert_stdout(
+            module_path!(),
+            "account_search_display_reports_account_values_with_and_without_balances",
+            || {
+                let mut trust = test_trust();
+                let empty = trust
+                    .create_account(
+                        "display-empty",
+                        "desc",
+                        Environment::Paper,
+                        dec!(20),
+                        dec!(10),
+                    )
+                    .expect("empty account");
+                AccountSearchDialog {
+                    result: Some(Ok(empty)),
+                }
+                .display(&mut trust);
 
-        let funded = trust
-            .create_account(
-                "display-funded",
-                "desc",
-                Environment::Paper,
-                dec!(20),
-                dec!(10),
-            )
-            .expect("funded account");
-        trust
-            .create_transaction(
-                &funded,
-                &TransactionCategory::Deposit,
-                dec!(100),
-                &Currency::USD,
-            )
-            .expect("deposit should create a balance overview");
+                let funded = trust
+                    .create_account(
+                        "display-funded",
+                        "desc",
+                        Environment::Paper,
+                        dec!(20),
+                        dec!(10),
+                    )
+                    .expect("funded account");
+                trust
+                    .create_transaction(
+                        &funded,
+                        &TransactionCategory::Deposit,
+                        dec!(100),
+                        &Currency::USD,
+                    )
+                    .expect("deposit should create a balance overview");
 
-        AccountSearchDialog {
-            result: Some(Ok(funded)),
-        }
-        .display(&mut trust);
+                AccountSearchDialog {
+                    result: Some(Ok(funded)),
+                }
+                .display(&mut trust);
+            },
+            |output| {
+                assert!(output.contains("display-empty"), "{output}");
+                assert!(output.contains("No transactions found"), "{output}");
+                assert!(output.contains("display-funded"), "{output}");
+                assert!(output.contains("Overviews:"), "{output}");
+                assert!(output.contains("100"), "{output}");
+                assert!(output.contains("USD"), "{output}");
+                assert!(output.contains("Rules:"), "{output}");
+            },
+        );
     }
 
     #[test]
-    fn account_search_display_handles_error_result() {
-        let mut trust = test_trust();
+    fn account_search_display_reports_error_result() {
+        crate::test_support::capture::assert_stdout(
+            module_path!(),
+            "account_search_display_reports_error_result",
+            || {
+                let mut trust = test_trust();
 
-        AccountSearchDialog {
-            result: Some(Err("synthetic search failure".into())),
-        }
-        .display(&mut trust);
+                AccountSearchDialog {
+                    result: Some(Err("synthetic search failure".into())),
+                }
+                .display(&mut trust);
+            },
+            |output| {
+                assert!(output.contains("Error searching account:"), "{output}");
+                assert!(output.contains("synthetic search failure"), "{output}");
+            },
+        );
     }
 }

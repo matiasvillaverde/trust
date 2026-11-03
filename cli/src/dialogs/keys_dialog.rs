@@ -54,30 +54,35 @@ impl KeysWriteDialogBuilder {
     }
 
     pub fn build(mut self) -> KeysWriteDialogBuilder {
-        let environment = self
-            .environment
-            .expect("Did you forget to select an environment?");
-        let account = self
-            .account
-            .clone()
-            .expect("Did you forget to select an account?");
-        self.result = Some(match account.broker_kind {
-            BrokerKind::Alpaca => AlpacaBroker::setup_keys(
-                &self.key_id,
-                &self.key_secret,
-                &self.url,
-                &environment,
-                &account,
-            )
-            .map(|keys| keys.to_string()),
-            BrokerKind::Ibkr => IbkrBroker::setup_connection(
-                &self.url,
-                self.allow_insecure_tls,
-                &environment,
-                &account,
-            )
-            .map(|config| config.to_string()),
-        });
+        self.result = Some((|| {
+            let environment = crate::dialogs::dialog_helpers::require(
+                self.environment,
+                std::io::ErrorKind::InvalidInput,
+                "Select an environment",
+            )?;
+            let account = crate::dialogs::dialog_helpers::require(
+                self.account.as_ref(),
+                std::io::ErrorKind::InvalidInput,
+                "Select an account",
+            )?;
+            match account.broker_kind {
+                BrokerKind::Alpaca => AlpacaBroker::setup_keys(
+                    &self.key_id,
+                    &self.key_secret,
+                    &self.url,
+                    &environment,
+                    account,
+                )
+                .map(|keys| keys.to_string()),
+                BrokerKind::Ibkr => IbkrBroker::setup_connection(
+                    &self.url,
+                    self.allow_insecure_tls,
+                    &environment,
+                    account,
+                )
+                .map(|config| config.to_string()),
+            }
+        })());
         self
     }
 
@@ -186,21 +191,25 @@ impl KeysReadDialogBuilder {
     }
 
     pub fn build(mut self) -> KeysReadDialogBuilder {
-        let environment = self
-            .environment
-            .expect("Did you forget to select an environment?");
-        let account = self
-            .account
-            .clone()
-            .expect("Did you forget to select an account?");
-        self.result = Some(match account.broker_kind {
-            BrokerKind::Alpaca => {
-                AlpacaBroker::read_keys(&environment, &account).map(|keys| keys.to_string())
+        self.result = Some((|| {
+            let environment = crate::dialogs::dialog_helpers::require(
+                self.environment,
+                std::io::ErrorKind::InvalidInput,
+                "Select an environment",
+            )?;
+            let account = crate::dialogs::dialog_helpers::require(
+                self.account.as_ref(),
+                std::io::ErrorKind::InvalidInput,
+                "Select an account",
+            )?;
+            match account.broker_kind {
+                BrokerKind::Alpaca => {
+                    AlpacaBroker::read_keys(&environment, account).map(|keys| keys.to_string())
+                }
+                BrokerKind::Ibkr => IbkrBroker::read_connection(&environment, account)
+                    .map(|config| config.to_string()),
             }
-            BrokerKind::Ibkr => {
-                IbkrBroker::read_connection(&environment, &account).map(|config| config.to_string())
-            }
-        });
+        })());
         self
     }
 
@@ -257,17 +266,22 @@ impl KeysDeleteDialogBuilder {
     }
 
     pub fn build(mut self) -> KeysDeleteDialogBuilder {
-        let environment = self
-            .environment
-            .expect("Did you forget to select an environment?");
-        let account = self
-            .account
-            .clone()
-            .expect("Did you forget to select an account?");
-        self.result = Some(match account.broker_kind {
-            BrokerKind::Alpaca => AlpacaBroker::delete_keys(&environment, &account),
-            BrokerKind::Ibkr => IbkrBroker::delete_connection(&environment, &account),
-        });
+        self.result = Some((|| {
+            let environment = crate::dialogs::dialog_helpers::require(
+                self.environment,
+                std::io::ErrorKind::InvalidInput,
+                "Select an environment",
+            )?;
+            let account = crate::dialogs::dialog_helpers::require(
+                self.account.as_ref(),
+                std::io::ErrorKind::InvalidInput,
+                "Select an account",
+            )?;
+            match account.broker_kind {
+                BrokerKind::Alpaca => AlpacaBroker::delete_keys(&environment, account),
+                BrokerKind::Ibkr => IbkrBroker::delete_connection(&environment, account),
+            }
+        })());
         self
     }
 
@@ -337,70 +351,82 @@ mod tests {
             self.selections.pop_front().unwrap_or(Ok(None))
         }
 
-        fn confirm(&mut self, _prompt: &str, _default: bool) -> Result<bool, IoError> {
-            Ok(false)
-        }
-
         fn input_text(&mut self, _prompt: &str, _allow_empty: bool) -> Result<String, IoError> {
             self.inputs.pop_front().unwrap_or_else(|| Ok(String::new()))
         }
     }
 
     #[test]
-    fn keys_builders_display_handle_success_and_error_results() {
-        KeysWriteDialogBuilder {
-            url: String::new(),
-            key_id: String::new(),
-            key_secret: String::new(),
-            allow_insecure_tls: true,
-            environment: None,
-            account: None,
-            result: Some(Err("synthetic failure".into())),
-        }
-        .display();
+    fn settings_output_distinguishes_outcomes_and_does_not_print_builder_secrets() {
+        crate::test_support::capture::assert_stdout(
+            module_path!(),
+            "settings_output_distinguishes_outcomes_and_does_not_print_builder_secrets",
+            || {
+                KeysWriteDialogBuilder {
+                    url: String::new(),
+                    key_id: String::new(),
+                    key_secret: "never-print-this-secret".into(),
+                    allow_insecure_tls: true,
+                    environment: None,
+                    account: None,
+                    result: Some(Err("synthetic failure".into())),
+                }
+                .display();
 
-        KeysReadDialogBuilder {
-            environment: None,
-            account: None,
-            result: Some(Err("synthetic failure".into())),
-        }
-        .display();
+                KeysReadDialogBuilder {
+                    environment: None,
+                    account: None,
+                    result: Some(Err("synthetic failure".into())),
+                }
+                .display();
 
-        KeysDeleteDialogBuilder {
-            environment: None,
-            account: None,
-            result: Some(Err("synthetic failure".into())),
-        }
-        .display();
+                KeysDeleteDialogBuilder {
+                    environment: None,
+                    account: None,
+                    result: Some(Err("synthetic failure".into())),
+                }
+                .display();
 
-        KeysWriteDialogBuilder {
-            url: String::new(),
-            key_id: String::new(),
-            key_secret: String::new(),
-            allow_insecure_tls: true,
-            environment: None,
-            account: None,
-            result: Some(Ok(
-                "https://paper-api.alpaca.markets id [REDACTED]".to_string()
-            )),
-        }
-        .display();
+                KeysWriteDialogBuilder {
+                    url: String::new(),
+                    key_id: String::new(),
+                    key_secret: "never-print-this-secret".into(),
+                    allow_insecure_tls: true,
+                    environment: None,
+                    account: None,
+                    result: Some(Ok(
+                        "https://paper-api.alpaca.markets id [REDACTED]".to_string()
+                    )),
+                }
+                .display();
 
-        KeysReadDialogBuilder {
-            environment: None,
-            account: None,
-            result: Some(Ok(
-                "https://localhost:5000/v1/api (allow_insecure_tls=true)".to_string(),
-            )),
-        }
-        .display();
+                KeysReadDialogBuilder {
+                    environment: None,
+                    account: None,
+                    result: Some(Ok(
+                        "https://localhost:5000/v1/api (allow_insecure_tls=true)".to_string(),
+                    )),
+                }
+                .display();
 
-        KeysDeleteDialogBuilder {
-            environment: None,
-            account: None,
-            result: Some(Ok(())),
-        }
-        .display();
+                KeysDeleteDialogBuilder {
+                    environment: None,
+                    account: None,
+                    result: Some(Ok(())),
+                }
+                .display();
+            },
+            |output| {
+                assert!(output.contains("Error creating keys:"), "{output}");
+                assert!(output.contains("Error reading keys:"), "{output}");
+                assert!(output.contains("Error deleting keys:"), "{output}");
+                assert!(output.contains("Broker settings created:"), "{output}");
+                assert!(output.contains("[REDACTED]"), "{output}");
+                assert!(output.contains("Broker settings stored:"), "{output}");
+                assert!(output.contains("Keys deleted"), "{output}");
+                assert!(!output.contains("never-print-this-secret"), "{output}");
+            },
+        );
     }
 
     #[test]
@@ -569,32 +595,46 @@ mod tests {
     }
 
     #[test]
-    fn keys_write_and_delete_build_reach_ibkr_connection_branches() {
+    fn unsafe_settings_and_unscoped_deletion_are_rejected_before_keychain_access() {
         let account = Account {
-            name: format!("ibkr-dialog-{}", uuid::Uuid::new_v4()),
+            name: "ibkr-dialog-contract".into(),
             broker_kind: BrokerKind::Ibkr,
             ..Account::default()
         };
-
-        let write = KeysWriteDialogBuilder {
-            url: "https://localhost:5000/v1/api".to_string(),
-            key_id: String::new(),
-            key_secret: String::new(),
-            allow_insecure_tls: true,
-            environment: Some(Environment::Paper),
-            account: Some(account.clone()),
-            result: None,
+        for url in [
+            "http://remote.example.test",
+            "https://invalid-user@localhost:5000",
+        ] {
+            let write = KeysWriteDialogBuilder {
+                url: url.into(),
+                environment: Some(Environment::Paper),
+                account: Some(account.clone()),
+                ..KeysWriteDialogBuilder::new()
+            }
+            .build();
+            let error = write
+                .result
+                .unwrap()
+                .expect_err("unsafe configuration must be rejected before accessing credentials");
+            assert!(error
+                .to_string()
+                .contains("invalid IBKR connection configuration"));
+            assert!(!error.to_string().contains("secret"));
         }
-        .build();
-        assert!(write.result.is_some());
-
         let delete = KeysDeleteDialogBuilder {
             environment: Some(Environment::Paper),
-            account: Some(account),
-            result: None,
+            ..KeysDeleteDialogBuilder::new()
         }
         .build();
-        assert!(delete.result.is_some());
+        assert_eq!(
+            delete
+                .result
+                .unwrap()
+                .unwrap_err()
+                .downcast_ref::<std::io::Error>()
+                .map(std::io::Error::kind),
+            Some(std::io::ErrorKind::InvalidInput)
+        );
     }
 
     #[test]
@@ -612,20 +652,50 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Did you forget to select an environment?")]
-    fn keys_write_build_panics_when_environment_missing() {
-        let _ = KeysWriteDialogBuilder::new().build();
+    fn keys_write_build_rejects_when_environment_missing() {
+        let rejected = KeysWriteDialogBuilder::new().build();
+
+        let error = rejected
+            .result
+            .unwrap()
+            .expect_err("incomplete input must be rejected");
+        assert_eq!(
+            error
+                .downcast_ref::<std::io::Error>()
+                .map(std::io::Error::kind),
+            Some(std::io::ErrorKind::InvalidInput)
+        );
     }
 
     #[test]
-    #[should_panic(expected = "Did you forget to select an environment?")]
-    fn keys_read_build_panics_when_environment_missing() {
-        let _ = KeysReadDialogBuilder::new().build();
+    fn keys_read_build_rejects_when_environment_missing() {
+        let rejected = KeysReadDialogBuilder::new().build();
+
+        let error = rejected
+            .result
+            .unwrap()
+            .expect_err("incomplete input must be rejected");
+        assert_eq!(
+            error
+                .downcast_ref::<std::io::Error>()
+                .map(std::io::Error::kind),
+            Some(std::io::ErrorKind::InvalidInput)
+        );
     }
 
     #[test]
-    #[should_panic(expected = "Did you forget to select an environment?")]
-    fn keys_delete_build_panics_when_environment_missing() {
-        let _ = KeysDeleteDialogBuilder::new().build();
+    fn keys_delete_build_rejects_when_environment_missing() {
+        let rejected = KeysDeleteDialogBuilder::new().build();
+
+        let error = rejected
+            .result
+            .unwrap()
+            .expect_err("incomplete input must be rejected");
+        assert_eq!(
+            error
+                .downcast_ref::<std::io::Error>()
+                .map(std::io::Error::kind),
+            Some(std::io::ErrorKind::InvalidInput)
+        );
     }
 }

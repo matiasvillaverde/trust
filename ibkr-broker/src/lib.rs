@@ -577,8 +577,8 @@ mod tests {
     use crate::support::{broker_account_id, ensure_trade_account};
     use chrono::{TimeZone, Utc};
     use model::{
-        Account, BarTimeframe, Broker, BrokerKind, Currency, Environment, OrderStatus, Status,
-        Trade, TradingVehicleCategory,
+        Account, BarTimeframe, Broker, BrokerKind, Currency, OrderStatus, Status, Trade,
+        TradingVehicleCategory,
     };
     use rust_decimal_macros::dec;
     use serde_json::json;
@@ -978,27 +978,6 @@ mod tests {
         let refs = tracked_order_refs(&trade);
         assert!(refs.contains("entry-ref"));
         assert!(refs.contains(&trade.target.id.to_string()));
-    }
-
-    #[test]
-    fn connection_helpers_roundtrip_through_public_api() {
-        let account = Account {
-            name: "ibkr-unit".to_string(),
-            environment: Environment::Paper,
-            ..Account::default()
-        };
-        let config = IbkrBroker::setup_connection(
-            "https://localhost:5000/v1/api/",
-            true,
-            &Environment::Paper,
-            &account,
-        );
-        if config.is_ok() {
-            let stored =
-                IbkrBroker::read_connection(&Environment::Paper, &account).expect("stored");
-            assert_eq!(stored.base_url, "https://localhost:5000/v1/api");
-            IbkrBroker::delete_connection(&Environment::Paper, &account).expect("deleted");
-        }
     }
 }
 

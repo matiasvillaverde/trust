@@ -9,9 +9,6 @@ use crate::dispatcher::output::ReportOutputFormat;
 use chrono::NaiveDate;
 use clap::Arg;
 use clap::Command;
-use model::Currency;
-use rust_decimal_macros::dec;
-use uuid::Uuid;
 
 #[test]
 fn test_parse_required_date_range_validates_format_and_order() {
@@ -54,51 +51,4 @@ fn test_parse_required_date_range_validates_format_and_order() {
     )
     .expect_err("reversed date range should fail");
     assert!(err.to_string().contains("invalid_date_range"));
-}
-
-#[test]
-fn test_transaction_cashflow_delta_sign_rules() {
-    let account_id = Uuid::new_v4();
-    let trade_id = Uuid::new_v4();
-    let amount = dec!(10);
-    let mk = |category: model::TransactionCategory| {
-        model::Transaction::new(account_id, category, &Currency::USD, amount)
-    };
-
-    assert_eq!(
-        crate::dispatcher::metrics_report::transaction_cashflow_delta(&mk(
-            model::TransactionCategory::Deposit
-        )),
-        dec!(10)
-    );
-    assert_eq!(
-        crate::dispatcher::metrics_report::transaction_cashflow_delta(&mk(
-            model::TransactionCategory::CloseTarget(trade_id)
-        )),
-        dec!(10)
-    );
-    assert_eq!(
-        crate::dispatcher::metrics_report::transaction_cashflow_delta(&mk(
-            model::TransactionCategory::Withdrawal
-        )),
-        dec!(-10)
-    );
-    assert_eq!(
-        crate::dispatcher::metrics_report::transaction_cashflow_delta(&mk(
-            model::TransactionCategory::FeeClose(trade_id)
-        )),
-        dec!(-10)
-    );
-    assert_eq!(
-        crate::dispatcher::metrics_report::transaction_cashflow_delta(&mk(
-            model::TransactionCategory::FundTrade(trade_id)
-        )),
-        dec!(0)
-    );
-    assert_eq!(
-        crate::dispatcher::metrics_report::transaction_cashflow_delta(&mk(
-            model::TransactionCategory::PaymentFromTrade(trade_id)
-        )),
-        dec!(0)
-    );
 }

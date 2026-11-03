@@ -2,6 +2,8 @@
 
 A financial test should explain what money or authority it protects, exercise the production entry point, and fail when that behavior breaks. A high test count or coverage percentage does not establish this on its own.
 
+For measured performance work, use the [financial admission profiling workflow](performance-instrumentation.md). It separates diagnostic stage timings from unchanged performance budgets and financial correctness gates.
+
 ## Choose the boundary
 
 - Use `TrustFacade` with real, isolated SQLite for cash movement and trade accounting. Let the production validators, transactions, and projections run together. Use a broker double only when external observations or acknowledgements are needed.
@@ -49,13 +51,17 @@ Run the curated mutation experiments after preparing the native dependency with 
 make assurance-mutations
 ```
 
-The runner uses an isolated source copy and separate Cargo target directory. Each experiment must first pass its unmodified test, then compile and fail that exact test with the fault introduced. Compilation failures, missing tests and surviving mutations fail the gate. Results and log hashes are saved under `.local/assurance/mutations/`; the source fingerprint must remain unchanged. This is a curated set of 19 experiments, not an exhaustive mutation score. It also reintroduces the false-success HTTP response and URL-fragment leak, and turns realized report losses into gains.
+The runner uses an isolated source copy and separate Cargo target directory. Each experiment must first pass its unmodified test, then compile and fail that exact test with the fault introduced. Compilation failures, missing tests and surviving mutations fail the gate. Results and log hashes are saved under `.local/assurance/mutations/`; the source fingerprint must remain unchanged. This is a curated set of 33 experiments, not an exhaustive mutation score. It also reintroduces false-success HTTP responses, URL-fragment leaks, incorrect report amounts, stale fill evidence and account-setting collisions.
 
 `make assurance-unit` requires these cash and reservation scenarios in level 1 evidence. Use the workspace formatting, Clippy, all-feature, no-default-feature and coverage gates for wider changes. Preserve meaningful regression cases when consolidating tests; remove vacuous constructors and print-only probes only after their intended behavior has executable coverage.
 
 These cash contracts exercise local accounting, not broker deposits or withdrawals. They do not establish real IBKR fills, stop execution, network recovery or power-loss durability; those require their corresponding broker and operational acceptance levels.
 
 ## Review tests by behavior
+
+The [complete test usefulness catalog](test-usefulness.md) lists every registered test with a source link, estimated usefulness, review confidence and a recommended action. It also separates inactive source, supporting scripts and external acceptance/evaluation cases. Use it to prioritize contract improvements, not as an automatic deletion list.
+
+The [2026-11-01 follow-up](test-usefulness-improvements.md) maps all 112 low-value candidates and six orphan functions to their replacement contracts, including actual captured output and exact financial outcomes.
 
 The [2026-10-31 audit](test-quality-audit.md) records the inventory, replacements, demonstrated defects and remaining weak areas. A filename or an assertion count is only a triage signal: shared assertion helpers and expected failures can provide strong contracts without a direct `assert!` in the test body.
 
@@ -74,3 +80,5 @@ cargo test --locked -p broker-sync --test session_contracts
 ```
 
 `make assurance-protocol` requires the service report, client failure/recovery and broker-event contracts. Coverage thresholds remain unchanged; executed lines alone do not establish product correctness.
+
+The [second contract iteration](test-contracts-iteration.md) strengthens risk boundaries, draft rollback, lifecycle and portfolio cash expectations, settlement persistence, workload separation, and real release-artifact acceptance.

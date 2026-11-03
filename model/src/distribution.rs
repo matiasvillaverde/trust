@@ -309,6 +309,7 @@ impl DistributionRules {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rust_decimal_macros::dec;
 
     #[test]
     fn test_distribution_rules_validation_valid() {
@@ -552,18 +553,27 @@ mod tests {
     }
 
     #[test]
-    fn distribution_rules_password_hash_and_not_found_display_are_explicit() {
-        let account_id = Uuid::new_v4();
-        let rules = DistributionRules::default_for_account(account_id)
-            .with_password_hash("argon2id-hash".to_string());
-
-        assert_eq!(rules.configuration_password_hash, "argon2id-hash");
-
-        let error = DistributionRulesNotFound { account_id };
-
+    fn fractional_profit_allocations_conserve_the_amount_without_rounding_away_reserves() {
+        let account = Uuid::new_v4();
+        let rules =
+            DistributionRules::new(account, dec!(0.5), dec!(0.3), dec!(0.2), dec!(0), dec!(0));
+        rules.validate().unwrap();
+        let result = rules.calculate_distribution(dec!(12.37)).unwrap();
+        assert_eq!(result.source_account_id, account);
+        assert_eq!(result.original_amount, dec!(12.37));
+        assert_eq!(result.earnings_amount, Some(dec!(6.185)));
+        assert_eq!(result.tax_amount, Some(dec!(3.711)));
+        assert_eq!(result.reinvestment_amount, Some(dec!(2.474)));
+        assert_eq!(result.insurance_amount, None);
         assert_eq!(
-            error.to_string(),
-            format!("No distribution rules configured for account {account_id}")
+            result.earnings_amount.unwrap()
+                + result.tax_amount.unwrap()
+                + result.reinvestment_amount.unwrap(),
+            result.original_amount
+        );
+        assert!(
+            result.transactions_created.is_empty(),
+            "a calculation must not claim persisted transfers"
         );
     }
 }

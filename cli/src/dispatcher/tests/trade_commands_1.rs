@@ -438,21 +438,45 @@ fn test_trade_non_interactive_handlers_surface_core_and_broker_failures() {
 }
 
 #[test]
-fn test_trade_non_interactive_sync_reports_empty_order_updates() {
-    let mut dispatcher =
-        test_dispatcher_with_broker(Box::new(StubBroker::submitted_empty_sync_fixture()));
-    let (_account, trade) = seed_new_trade(&mut dispatcher);
-    let (funded, _, _, _) = dispatcher.trust.fund_trade(&trade).expect("fund trade");
-    let (submitted, _) = dispatcher
-        .trust
-        .submit_trade(&funded)
-        .expect("submit trade");
-    let matches = Command::new("test")
-        .arg(Arg::new("trade-id").long("trade-id"))
-        .get_matches_from(["test", "--trade-id", &submitted.id.to_string()]);
+fn empty_broker_sync_reports_no_updates_and_preserves_financial_state() {
+    crate::test_support::capture::assert_stdout(
+        module_path!(),
+        "empty_broker_sync_reports_no_updates_and_preserves_financial_state",
+        || {
+            let mut dispatcher =
+                test_dispatcher_with_broker(Box::new(StubBroker::submitted_empty_sync_fixture()));
+            let (_account, trade) = seed_new_trade(&mut dispatcher);
+            let (funded, _, _, _) = dispatcher.trust.fund_trade(&trade).expect("fund trade");
+            let (submitted, _) = dispatcher
+                .trust
+                .submit_trade(&funded)
+                .expect("submit trade");
+            let before = dispatcher.trust.read_trade(submitted.id).unwrap();
+            let receipts = dispatcher.trust.get_all_transactions().unwrap();
+            let matches = Command::new("test")
+                .arg(Arg::new("trade-id").long("trade-id"))
+                .get_matches_from(["test", "--trade-id", &submitted.id.to_string()]);
 
-    crate::dispatcher::trade_commands::create_sync(&mut dispatcher.trust, &matches)
-        .expect("empty broker order update sync should still succeed");
+            crate::dispatcher::trade_commands::create_sync(&mut dispatcher.trust, &matches)
+                .expect("empty broker order update sync should still succeed");
+
+            let mut after = dispatcher.trust.read_trade(submitted.id).unwrap();
+            after.updated_at = before.updated_at;
+            after.balance.updated_at = before.balance.updated_at;
+            after.entry.updated_at = before.entry.updated_at;
+            after.safety_stop.updated_at = before.safety_stop.updated_at;
+            after.target.updated_at = before.target.updated_at;
+            assert_eq!(after, before);
+            assert_eq!(dispatcher.trust.get_all_transactions().unwrap(), receipts);
+        },
+        |output| {
+            assert!(
+                output.contains("No order updates returned from broker."),
+                "{output}"
+            );
+            assert!(!output.contains("Updated orders:"), "{output}");
+        },
+    );
 }
 
 #[test]

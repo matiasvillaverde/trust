@@ -110,8 +110,30 @@ mod tests {
     }
 
     #[test]
-    fn display_orders_runs_for_smoke_coverage() {
-        crate::zen::set_enabled(false);
-        OrderView::display_orders(vec![Order::default()]);
+    fn order_table_distinguishes_limit_and_actual_fill_prices() {
+        crate::test_support::capture::assert_stdout(
+            module_path!(),
+            "order_table_distinguishes_limit_and_actual_fill_prices",
+            || {
+                crate::zen::set_enabled(false);
+                OrderView::display_orders(vec![Order {
+                    unit_price: dec!(101.25),
+                    average_filled_price: Some(dec!(100.75)),
+                    quantity: dec!(12),
+                    category: OrderCategory::Limit,
+                    action: OrderAction::Buy,
+                    time_in_force: TimeInForce::UntilCanceled,
+                    ..Order::default()
+                }]);
+            },
+            |output| {
+                assert!(output.contains("101.25"), "{output}");
+                assert!(output.contains("100.75"), "{output}");
+                assert!(output.contains("12"), "{output}");
+                assert!(output.contains("limit"), "{output}");
+                assert!(output.contains("buy"), "{output}");
+                assert!(output.contains("until_canceled"), "{output}");
+            },
+        );
     }
 }

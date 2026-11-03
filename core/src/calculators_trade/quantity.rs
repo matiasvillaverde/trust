@@ -23,6 +23,14 @@ pub struct LevelAdjustedQuantity {
     pub final_quantity: Decimal,
 }
 
+/// One policy resolution for both the funding risk gate and level-adjusted sizing.
+#[derive(Debug)]
+pub(crate) struct SizingLimits {
+    pub base_quantity: Decimal,
+    pub per_trade: Decimal,
+    pub per_month: Decimal,
+}
+
 impl QuantityCalculator {
     pub fn maximum_quantity(
         account_id: Uuid,
@@ -31,6 +39,22 @@ impl QuantityCalculator {
         currency: &Currency,
         database: &mut dyn DatabaseFactory,
     ) -> Result<Decimal, Box<dyn std::error::Error>> {
+        Ok(Self::limits(account_id, entry_price, stop_price, currency, database)?.base_quantity)
+    }
+
+    #[tracing::instrument(
+        level = "trace",
+        target = "trust::perf",
+        name = "risk.quantity",
+        skip_all
+    )]
+    pub(crate) fn limits(
+        account_id: Uuid,
+        entry_price: Decimal,
+        stop_price: Decimal,
+        currency: &Currency,
+        database: &mut dyn DatabaseFactory,
+    ) -> Result<SizingLimits, Box<dyn std::error::Error>> {
         let total_available = AccountCapitalAvailable::calculate(
             account_id,
             currency,
@@ -44,25 +68,37 @@ impl QuantityCalculator {
             return Err("Stop price must be positive and different from entry".into());
         }
         let rules = database.rule_read().read_all_rules(account_id)?;
-        let (per_trade, per_month) =
-            RiskCalculator::effective_rules(account_id, currency, &rules, database)?;
-        if total_available <= Decimal::ZERO || per_trade.is_some_and(|risk| risk > per_month) {
-            return Ok(Decimal::ZERO);
-        }
+        let (per_trade, per_month) = RiskCalculator::effective_rules_for_reservation(
+            account_id,
+            currency,
+            &rules,
+            database,
+            None,
+            total_available,
+        )?;
         // A short reserves stop notional; the preview must match the funding gate.
         let funding_price = entry_price.max(stop_price);
-        if rules.is_empty() {
-            let maximum = total_available.checked_div(funding_price).ok_or_else(|| {
-                format!("Division by zero or overflow: {total_available} / {funding_price}")
-            })?;
-            return Ok(Self::conservative_quantity(maximum));
-        }
-        Ok(Self::quantity_for_risk(
-            total_available,
-            funding_price,
-            entry_price.min(stop_price),
-            per_trade.unwrap_or(per_month),
-        ))
+        let base_quantity =
+            if total_available <= Decimal::ZERO || per_trade.is_some_and(|risk| risk > per_month) {
+                Decimal::ZERO
+            } else if rules.is_empty() {
+                let maximum = total_available.checked_div(funding_price).ok_or_else(|| {
+                    format!("Division by zero or overflow: {total_available} / {funding_price}")
+                })?;
+                Self::conservative_quantity(maximum)
+            } else {
+                Self::quantity_for_risk(
+                    total_available,
+                    funding_price,
+                    entry_price.min(stop_price),
+                    per_trade.unwrap_or(per_month),
+                )
+            };
+        Ok(SizingLimits {
+            base_quantity,
+            per_trade: per_trade.unwrap_or(per_month),
+            per_month,
+        })
     }
 
     pub fn maximum_quantity_with_level(
@@ -74,6 +110,14 @@ impl QuantityCalculator {
     ) -> Result<LevelAdjustedQuantity, Box<dyn std::error::Error>> {
         let base_quantity =
             Self::maximum_quantity(account_id, entry_price, stop_price, currency, database)?;
+        Self::apply_level(account_id, base_quantity, database)
+    }
+
+    pub(crate) fn apply_level(
+        account_id: Uuid,
+        base_quantity: Decimal,
+        database: &mut dyn DatabaseFactory,
+    ) -> Result<LevelAdjustedQuantity, Box<dyn std::error::Error>> {
         let level = database.level_read().level_for_account(account_id)?;
         let final_quantity =
             Self::apply_multiplier_to_quantity(base_quantity, level.risk_multiplier)

@@ -115,15 +115,27 @@ mod tests {
     }
 
     #[test]
-    fn display_transactions_runs_for_smoke_coverage() {
-        crate::zen::set_enabled(false);
-        let tx = Transaction::new(
-            Uuid::new_v4(),
-            TransactionCategory::Deposit,
-            &Currency::USD,
-            dec!(1),
+    fn transaction_table_preserves_fractional_amount_and_currency() {
+        crate::test_support::capture::assert_stdout(
+            module_path!(),
+            "transaction_table_preserves_fractional_amount_and_currency",
+            || {
+                crate::zen::set_enabled(false);
+                let tx = Transaction::new(
+                    Uuid::new_v4(),
+                    TransactionCategory::Deposit,
+                    &Currency::USD,
+                    dec!(12.37),
+                );
+                TransactionView::display_transactions(vec![&tx], "paper");
+                TransactionView::display_transactions_with_basis(vec![&tx], "paper", dec!(100));
+            },
+            |output| {
+                assert!(output.contains("Paper"), "{output}");
+                assert!(output.contains("deposit"), "{output}");
+                assert!(output.contains("USD"), "{output}");
+                assert!(output.contains("12.37"), "{output}");
+            },
         );
-        TransactionView::display_transactions(vec![&tx], "paper");
-        TransactionView::display_transactions_with_basis(vec![&tx], "paper", dec!(10));
     }
 }

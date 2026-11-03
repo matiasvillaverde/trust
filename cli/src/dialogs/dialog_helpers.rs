@@ -27,9 +27,8 @@ where
         .map(std::string::ToString::to_string)
         .collect::<Vec<_>>();
     let selected = io
-        .select_index(prompt, &labels, 0)
-        .ok()
-        .and_then(|selection| selection.and_then(|index| items.get(index)))
+        .select_index(prompt, &labels, 0)?
+        .and_then(|index| items.get(index))
         .cloned();
 
     selected.ok_or_else(|| {
@@ -57,10 +56,6 @@ mod tests {
             _default: usize,
         ) -> Result<Option<usize>, IoError> {
             self.selections.pop_front().unwrap_or(Ok(None))
-        }
-
-        fn confirm(&mut self, _prompt: &str, _default: bool) -> Result<bool, IoError> {
-            Ok(false)
         }
     }
 
@@ -113,7 +108,9 @@ mod tests {
             .expect_err("io failure should error");
         assert_eq!(
             error.downcast_ref::<IoError>().map(IoError::kind),
-            Some(ErrorKind::InvalidInput)
+            Some(ErrorKind::Other)
         );
+
+        assert_eq!(error.to_string(), "terminal unavailable");
     }
 }

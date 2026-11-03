@@ -168,54 +168,76 @@ fn test_trading_vehicle_inventory_stats_report_overflow_edges() {
 }
 
 #[test]
-fn test_trading_vehicle_stats_dispatch_supports_text_and_json() {
-    let mut dispatcher = test_dispatcher();
-    dispatcher
-        .trust
-        .create_trading_vehicle("AAPL", None, &TradingVehicleCategory::Stock, "alpaca")
-        .expect("seed stock vehicle");
-    dispatcher
-        .trust
-        .upsert_trading_vehicle(TradingVehicleUpsert {
-            symbol: "912810TL2".to_string(),
-            isin: Some("US912810TL26".to_string()),
-            category: TradingVehicleCategory::Bond,
-            broker: "ibkr".to_string(),
-            broker_asset_id: Some("123456".to_string()),
-            exchange: Some("SMART".to_string()),
-            broker_asset_class: Some("bond".to_string()),
-            broker_asset_status: Some("active".to_string()),
-            tradable: Some(true),
-            marginable: None,
-            shortable: None,
-            easy_to_borrow: None,
-            fractionable: None,
-            fixed_income: Some(FixedIncomeTerms {
-                face_value: Some(dec!(1000)),
-                annual_coupon_rate_pct: Some(dec!(4.25)),
-                maturity_date: Some(NaiveDate::from_ymd_opt(2031, 2, 15).unwrap()),
-                coupon_frequency_per_year: Some(2),
-            }),
-        })
-        .expect("seed bond vehicle");
+fn instrument_inventory_reports_exact_broker_counts_and_bond_terms() {
+    crate::test_support::capture::assert_stdout(
+        module_path!(),
+        "instrument_inventory_reports_exact_broker_counts_and_bond_terms",
+        || {
+            let mut dispatcher = test_dispatcher();
+            dispatcher
+                .trust
+                .create_trading_vehicle("AAPL", None, &TradingVehicleCategory::Stock, "alpaca")
+                .expect("seed stock vehicle");
+            dispatcher
+                .trust
+                .upsert_trading_vehicle(TradingVehicleUpsert {
+                    symbol: "912810TL2".to_string(),
+                    isin: Some("US912810TL26".to_string()),
+                    category: TradingVehicleCategory::Bond,
+                    broker: "ibkr".to_string(),
+                    broker_asset_id: Some("123456".to_string()),
+                    exchange: Some("SMART".to_string()),
+                    broker_asset_class: Some("bond".to_string()),
+                    broker_asset_status: Some("active".to_string()),
+                    tradable: Some(true),
+                    marginable: None,
+                    shortable: None,
+                    easy_to_borrow: None,
+                    fractionable: None,
+                    fixed_income: Some(FixedIncomeTerms {
+                        face_value: Some(dec!(1000)),
+                        annual_coupon_rate_pct: Some(dec!(4.25)),
+                        maturity_date: Some(NaiveDate::from_ymd_opt(2031, 2, 15).unwrap()),
+                        coupon_frequency_per_year: Some(2),
+                    }),
+                })
+                .expect("seed bond vehicle");
 
-    let text = TradingVehicleCommandBuilder::new()
-        .stats()
-        .build()
-        .get_matches_from(["trading-vehicle", "stats"]);
-    crate::dispatcher::instrument_stats::trading_vehicle_stats(
-        &mut dispatcher.trust,
-        text.subcommand_matches("stats").unwrap(),
-    )
-    .expect("text stats should render");
+            let text = TradingVehicleCommandBuilder::new()
+                .stats()
+                .build()
+                .get_matches_from(["trading-vehicle", "stats"]);
+            crate::dispatcher::instrument_stats::trading_vehicle_stats(
+                &mut dispatcher.trust,
+                text.subcommand_matches("stats").unwrap(),
+            )
+            .expect("text stats should render");
 
-    let json = TradingVehicleCommandBuilder::new()
-        .stats()
-        .build()
-        .get_matches_from(["trading-vehicle", "stats", "--format", "json"]);
-    crate::dispatcher::instrument_stats::trading_vehicle_stats(
-        &mut dispatcher.trust,
-        json.subcommand_matches("stats").unwrap(),
-    )
-    .expect("json stats should render");
+            let json = TradingVehicleCommandBuilder::new()
+                .stats()
+                .build()
+                .get_matches_from(["trading-vehicle", "stats", "--format", "json"]);
+
+            println!("BEGIN:inventory");
+            crate::dispatcher::instrument_stats::trading_vehicle_stats(
+                &mut dispatcher.trust,
+                json.subcommand_matches("stats").unwrap(),
+            )
+            .expect("json stats should render");
+            println!("END:inventory");
+        },
+        |output| {
+            assert!(output.contains("Trading Vehicle Stats"), "{output}");
+            assert!(output.contains("total: 2"), "{output}");
+            assert!(output.contains("average_coupon_rate: 4.25%"), "{output}");
+            let json = crate::test_support::capture::json_section(output, "inventory");
+            assert_eq!(json["total"], 2);
+            assert_eq!(json["by_category"], serde_json::json!({"stock":1,"bond":1}));
+            assert_eq!(json["by_broker"], serde_json::json!({"alpaca":1,"ibkr":1}));
+            assert_eq!(
+                json["bonds"],
+                serde_json::json!({"total":1,"complete_terms":1,"missing_terms":0,"coupon_rate_count":1,"average_coupon_rate_pct":"4.25","earliest_maturity":"2031-02-15","latest_maturity":"2031-02-15"})
+            );
+        },
+    );
 }

@@ -1,4 +1,6 @@
 use std::{path::PathBuf, sync::Arc};
+use tracing_subscriber::prelude::*;
+use trust_service::financial_telemetry::FinancialTimings;
 use trust_service::{
     config::Config,
     error::{Result, ServiceError},
@@ -10,13 +12,26 @@ async fn main() -> std::process::ExitCode {
     let dropped = writer.error_counter();
     // Provider/core messages may contain third-party response text. Only structured service
     // events are enabled in production; request bodies, tokens, and URLs are never logged.
-    tracing_subscriber::fmt()
-        .json()
-        .with_env_filter("off,trust_service=info,trust::operational=info")
-        .with_current_span(false)
-        .with_writer(writer)
+    let timings = FinancialTimings::default();
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::fmt::layer()
+                .json()
+                .with_current_span(false)
+                .with_writer(writer)
+                .with_filter(tracing_subscriber::EnvFilter::new(
+                    "off,trust_service=info,trust::operational=info",
+                )),
+        )
+        .with(
+            timings
+                .clone()
+                .with_filter(tracing_subscriber::filter::filter_fn(
+                    FinancialTimings::filter,
+                )),
+        )
         .init();
-    match run(dropped).await {
+    match run(dropped, timings).await {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(error) => {
             tracing::error!(code=%error.code,message=%error.message,"Trust service stopped");
@@ -24,7 +39,10 @@ async fn main() -> std::process::ExitCode {
         }
     }
 }
-async fn run(dropped: tracing_appender::non_blocking::ErrorCounter) -> Result<()> {
+async fn run(
+    dropped: tracing_appender::non_blocking::ErrorCounter,
+    timings: FinancialTimings,
+) -> Result<()> {
     trust_security::disable_process_dumps().map_err(|_| {
         ServiceError::invalid("Cannot disable process dumps; refusing to load trading secrets.")
     })?;
@@ -43,6 +61,7 @@ async fn run(dropped: tracing_appender::non_blocking::ErrorCounter) -> Result<()
             ],
         ))
     })?;
+    timings.bind(service.metrics.clone())?;
     let _ = service.metrics.log_drops.set(dropped);
     let app = trust_service::http::router(config.clone(), service.clone())?;
     let listener = tokio::net::TcpListener::bind(config.listen)
