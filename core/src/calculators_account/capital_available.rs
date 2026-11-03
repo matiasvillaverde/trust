@@ -1,42 +1,22 @@
-use model::{Currency, ReadTransactionDB, TransactionCategory};
+use model::{Currency, ReadTransactionDB};
 use rust_decimal::Decimal;
 use uuid::Uuid;
 
 pub struct AccountCapitalAvailable;
 
 impl AccountCapitalAvailable {
+    #[tracing::instrument(
+        level = "trace",
+        target = "trust::perf",
+        name = "risk.available_cash",
+        skip_all
+    )]
     pub fn calculate(
         account_id: Uuid,
         currency: &Currency,
         database: &mut dyn ReadTransactionDB,
     ) -> Result<Decimal, Box<dyn std::error::Error>> {
-        // Get all transactions for the account and currency
-        let transactions = database.account_cash_movements_excluding_taxes(account_id, currency)?;
-
-        // Sum all transactions based on their category
-        let total: Result<Decimal, Box<dyn std::error::Error>> = transactions.iter().try_fold(
-            Decimal::ZERO,
-            |acc, (category, amount)| {
-                match category {
-                    TransactionCategory::FundTrade(_) |
-                    TransactionCategory::Withdrawal |
-                    TransactionCategory::WithdrawalEarnings |
-                    TransactionCategory::FeeOpen(_) |
-                    TransactionCategory::FeeClose(_) => acc.checked_sub(*amount)
-                        .ok_or_else(|| format!("Arithmetic overflow in subtraction: {} - {}", acc, amount).into()),
-                    TransactionCategory::PaymentFromTrade(_) |
-                    TransactionCategory::PaymentEarnings(_) |
-                    TransactionCategory::Deposit => acc.checked_add(*amount)
-                        .ok_or_else(|| format!("Arithmetic overflow in addition: {} + {}", acc, amount).into()),
-                    _ => Err(format!(
-                        "capital_available: does not know how to calculate transaction with category: {}",
-                        category
-                    ).into()),
-                }
-            }
-        );
-
-        let total = total?;
+        let total = database.verified_cash_balance(account_id, currency)?;
 
         // Check if the total is negative, if it is then return an error
         if total.is_sign_negative() {
@@ -52,6 +32,7 @@ impl AccountCapitalAvailable {
 mod tests {
     use super::*;
     use crate::mocks::read_transaction_db_mocks::MockDatabase;
+    use model::TransactionCategory;
     use rust_decimal_macros::dec;
 
     #[test]
@@ -155,16 +136,16 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(
-        expected = "capital_available: does not know how to calculate transaction with category: withdrawal_tax"
-    )]
     fn test_capital_available_with_unknown_category() {
         let mut database = MockDatabase::new();
 
         // Transactions
         database.set_transaction(TransactionCategory::WithdrawalTax, dec!(100));
 
-        AccountCapitalAvailable::calculate(Uuid::new_v4(), &Currency::USD, &mut database).unwrap();
+        let error =
+            AccountCapitalAvailable::calculate(Uuid::new_v4(), &Currency::USD, &mut database)
+                .expect_err("unsupported ledger category must return an error");
+        assert_eq!(error.to_string(), "capital_available: does not know how to calculate transaction with category: withdrawal_tax");
     }
 
     #[test]

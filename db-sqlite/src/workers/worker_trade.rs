@@ -25,9 +25,25 @@ impl WorkerTrade {
         entry: &Order,
         target: &Order,
     ) -> Result<Trade, Box<dyn Error>> {
-        let id = Uuid::new_v4().to_string();
-        let now = Utc::now().naive_utc();
+        Self::create_at(
+            connection,
+            draft,
+            safety_stop,
+            entry,
+            target,
+            Utc::now().naive_utc(),
+        )
+    }
 
+    fn create_at(
+        connection: &mut SqliteConnection,
+        draft: DraftTrade,
+        safety_stop: &Order,
+        entry: &Order,
+        target: &Order,
+        now: NaiveDateTime,
+    ) -> Result<Trade, Box<dyn Error>> {
+        let id = Uuid::new_v4().to_string();
         let balance = WorkerTrade::create_balance(connection, &draft.currency, now)?;
         let settlement_date = Some(Trade::default_settlement_date_for_category(
             draft.trading_vehicle.category,
@@ -681,35 +697,7 @@ mod tests {
             .expect("trade should be created")
     }
 
-    #[test]
-    fn create_sets_default_settlement_date_by_asset_category() {
-        let (database, connection) = create_database_with_connection();
-        let account = create_account(&database, "trade-settlement-account");
-        let mut connection = connection
-            .lock()
-            .expect("connection lock should be acquired");
-
-        for (category, symbol) in [
-            (TradingVehicleCategory::Stock, "SETTLESTK"),
-            (TradingVehicleCategory::Crypto, "SETTLEBTC"),
-            (TradingVehicleCategory::Bond, "SETTLEBND"),
-        ] {
-            let trade = create_trade_with_category(
-                &mut connection,
-                &account,
-                symbol,
-                Currency::USD,
-                category,
-            );
-            assert_eq!(
-                trade.settlement_date,
-                Some(Trade::default_settlement_date_for_category(
-                    category,
-                    trade.created_at.date()
-                ))
-            );
-        }
-    }
+    mod settlement;
 
     fn set_trade_state(
         connection: &mut SqliteConnection,
@@ -995,13 +983,10 @@ mod tests {
             .lock()
             .expect("connection lock should be acquired");
         let trade = create_trade(&mut connection, &account, "TRADEROUND", Currency::USD);
-        assert_eq!(trade.status, Status::New);
         assert_eq!(trade.account_id, account.id);
-        assert_eq!(trade.thesis.as_deref(), Some("breakout continuation"));
 
         let read = WorkerTrade::read_trade(&mut connection, trade.id).expect("trade should read");
-        assert_eq!(read.id, trade.id);
-        assert_eq!(read.trading_vehicle.symbol, "TRADEROUND");
+        assert_eq!(read, trade);
         assert_eq!(
             WorkerTrade::read_trade_status(&mut connection, trade.id).expect("status should read"),
             Status::New
@@ -1036,25 +1021,28 @@ mod tests {
         let balance = WorkerTrade::update_trade_balance(
             &mut connection,
             &funded,
-            dec!(1000),
-            dec!(900),
-            dec!(100),
-            dec!(30),
-            dec!(75),
+            dec!(1000.125),
+            dec!(900.075),
+            dec!(100.05),
+            dec!(30.005),
+            dec!(75.005),
         )
         .expect("trade balance should update");
         let persisted =
             WorkerTrade::read_balance(&mut connection, balance.id).expect("balance should read");
-        assert_eq!(persisted.funding, dec!(1000));
-        assert_eq!(persisted.capital_in_market, dec!(900));
-        assert_eq!(persisted.capital_out_market, dec!(100));
-        assert_eq!(persisted.taxed, dec!(30));
-        assert_eq!(persisted.total_performance, dec!(75));
-    }
+        assert_eq!(persisted.funding, dec!(1000.125));
+        assert_eq!(persisted.capital_in_market, dec!(900.075));
+        assert_eq!(persisted.capital_out_market, dec!(100.05));
+        assert_eq!(persisted.taxed, dec!(30.005));
+        assert_eq!(persisted.total_performance, dec!(75.005));
 
-    #[test]
-    fn debug_representation_is_stable() {
-        assert_eq!(format!("{WorkerTrade:?}"), "WorkerTrade");
+        assert_eq!(persisted, balance);
+        assert_eq!(
+            WorkerTrade::read_trade(&mut connection, trade.id)
+                .unwrap()
+                .balance,
+            balance
+        );
     }
 
     #[test]

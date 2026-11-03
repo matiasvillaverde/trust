@@ -81,7 +81,7 @@ impl CloseDialogBuilder {
                     );
                 }
             }
-            Err(error) => println!("Error approving trade: {error:?}"),
+            Err(error) => println!("Error closing trade: {error:?}"),
         }
     }
 
@@ -140,16 +140,15 @@ impl CloseDialogBuilder {
 mod tests {
     use super::CloseDialogBuilder;
     use crate::dialogs::io::{scripted_push_select, scripted_reset};
+    use crate::test_support::broker::{DialogBroker, SyncBehavior};
     use alpaca_broker::AlpacaBroker;
     use chrono::Utc;
     use core::TrustFacade;
     use db_sqlite::SqliteDatabase;
     use model::{
-        Account, Broker, BrokerKind, BrokerLog, Currency, DistributionResult, DraftTrade, Order,
-        OrderIds, OrderStatus, Status, Trade, TradeBalance, TradeCategory, TradingVehicleCategory,
-        TransactionCategory,
+        Account, BrokerLog, Currency, DistributionResult, DraftTrade, Status, Trade, TradeBalance,
+        TradeCategory, TradingVehicleCategory, TransactionCategory,
     };
-    use rust_decimal::Decimal;
     use rust_decimal_macros::dec;
     use std::io::{Error as IoError, ErrorKind};
     use uuid::Uuid;
@@ -160,122 +159,14 @@ mod tests {
         TrustFacade::new(Box::new(db), Box::<AlpacaBroker>::default())
     }
 
-    struct CloseOkBroker;
-
-    impl Broker for CloseOkBroker {
-        fn kind(&self) -> BrokerKind {
-            BrokerKind::Alpaca
-        }
-
-        fn submit_trade(
-            &self,
-            trade: &Trade,
-            _account: &Account,
-        ) -> Result<(BrokerLog, OrderIds), Box<dyn std::error::Error>> {
-            Ok((
-                BrokerLog {
-                    trade_id: trade.id,
-                    log: "submitted".to_string(),
-                    ..BrokerLog::default()
-                },
-                OrderIds {
-                    entry: Uuid::new_v4().to_string(),
-                    stop: Uuid::new_v4().to_string(),
-                    target: Uuid::new_v4().to_string(),
-                },
-            ))
-        }
-
-        fn sync_trade(
-            &self,
-            trade: &Trade,
-            _account: &Account,
-        ) -> Result<(Status, Vec<Order>, BrokerLog), Box<dyn std::error::Error>> {
-            Ok((
-                Status::Filled,
-                vec![
-                    Order {
-                        id: trade.entry.id,
-                        broker_order_id: trade.entry.broker_order_id.clone(),
-                        filled_quantity: trade.entry.quantity,
-                        average_filled_price: Some(dec!(100)),
-                        status: OrderStatus::Filled,
-                        filled_at: Some(Utc::now().naive_utc()),
-                        ..trade.entry.clone()
-                    },
-                    Order {
-                        id: trade.target.id,
-                        broker_order_id: trade.target.broker_order_id.clone(),
-                        status: OrderStatus::Accepted,
-                        ..trade.target.clone()
-                    },
-                    Order {
-                        id: trade.safety_stop.id,
-                        broker_order_id: trade.safety_stop.broker_order_id.clone(),
-                        status: OrderStatus::Held,
-                        ..trade.safety_stop.clone()
-                    },
-                ],
-                BrokerLog {
-                    trade_id: trade.id,
-                    log: "filled".to_string(),
-                    ..BrokerLog::default()
-                },
-            ))
-        }
-
-        fn close_trade(
-            &self,
-            trade: &Trade,
-            _account: &Account,
-        ) -> Result<(Order, BrokerLog), Box<dyn std::error::Error>> {
-            let mut target = trade.target.clone();
-            target.broker_order_id = Some("manual-close-target".to_string());
-            target.status = OrderStatus::Filled;
-            target.filled_quantity = target.quantity;
-            target.average_filled_price = Some(target.unit_price);
-            target.filled_at = Some(Utc::now().naive_utc());
-            Ok((
-                target,
-                BrokerLog {
-                    trade_id: trade.id,
-                    log: "closed".to_string(),
-                    ..BrokerLog::default()
-                },
-            ))
-        }
-
-        fn cancel_trade(
-            &self,
-            _trade: &Trade,
-            _account: &Account,
-        ) -> Result<(), Box<dyn std::error::Error>> {
-            Err("cancel not supported".into())
-        }
-
-        fn modify_stop(
-            &self,
-            _trade: &Trade,
-            _account: &Account,
-            _new_stop_price: Decimal,
-        ) -> Result<String, Box<dyn std::error::Error>> {
-            Err("modify stop not supported".into())
-        }
-
-        fn modify_target(
-            &self,
-            _trade: &Trade,
-            _account: &Account,
-            _new_price: Decimal,
-        ) -> Result<String, Box<dyn std::error::Error>> {
-            Err("modify target not supported".into())
-        }
-    }
-
     fn test_trust_with_close_broker() -> TrustFacade {
         TrustFacade::new(
             Box::new(SqliteDatabase::new_in_memory()),
-            Box::new(CloseOkBroker),
+            Box::new(DialogBroker {
+                sync: SyncBehavior::Filled,
+                allow_close: true,
+                ..DialogBroker::default()
+            }),
         )
     }
 
@@ -338,10 +229,6 @@ mod tests {
         ) -> Result<Option<usize>, IoError> {
             std::mem::replace(&mut self.select_result, Ok(None))
         }
-
-        fn confirm(&mut self, _prompt: &str, _default: bool) -> Result<bool, IoError> {
-            Ok(false)
-        }
     }
 
     #[test]
@@ -362,14 +249,25 @@ mod tests {
     }
 
     #[test]
-    fn display_handles_error_result() {
-        CloseDialogBuilder {
-            account: None,
-            trade: None,
-            auto_distribute: false,
-            result: Some(Err("synthetic failure".into())),
-        }
-        .display();
+    fn display_identifies_the_failed_action_and_its_cause() {
+        crate::test_support::capture::assert_stdout(
+            module_path!(),
+            "display_identifies_the_failed_action_and_its_cause",
+            || {
+                CloseDialogBuilder {
+                    account: None,
+                    trade: None,
+                    auto_distribute: false,
+                    result: Some(Err("synthetic failure".into())),
+                }
+                .display();
+            },
+            |output| {
+                assert!(output.contains("Error closing trade:"), "{output}");
+                assert!(output.contains("synthetic failure"), "{output}");
+                assert!(!output.contains("executed:"), "{output}");
+            },
+        );
     }
 
     #[test]
@@ -523,114 +421,120 @@ mod tests {
     }
 
     #[test]
-    fn close_ok_broker_aux_methods_have_expected_contracts() {
-        let broker = CloseOkBroker;
-        let trade = Trade::default();
-        let account = Account::default();
-
-        assert_eq!(broker.kind(), BrokerKind::Alpaca);
-        let (log, ids) = broker
-            .submit_trade(&trade, &account)
-            .expect("submit should succeed");
-        assert_eq!(log.trade_id, trade.id);
-        assert!(!ids.entry.is_empty());
-        assert!(!ids.stop.is_empty());
-        assert!(!ids.target.is_empty());
-        let (status, orders, log) = broker.sync_trade(&trade, &account).expect("sync");
-        assert_eq!(status, Status::Filled);
-        assert_eq!(orders.len(), 3);
-        assert_eq!(log.trade_id, trade.id);
-        let (order, log) = broker
-            .close_trade(&trade, &account)
-            .expect("close should succeed");
-        assert_eq!(order.id, trade.target.id);
-        assert_eq!(log.trade_id, trade.id);
-
-        let cancel = broker
-            .cancel_trade(&trade, &account)
-            .expect_err("cancel should be unsupported");
-        assert!(cancel.to_string().contains("cancel not supported"));
-        let stop = broker
-            .modify_stop(&trade, &account, dec!(1))
-            .expect_err("stop modify should be unsupported");
-        assert!(stop.to_string().contains("modify stop not supported"));
-        let target = broker
-            .modify_target(&trade, &account, dec!(1))
-            .expect_err("target modify should be unsupported");
-        assert!(target.to_string().contains("modify target not supported"));
+    fn close_requests_preserve_capital_and_defer_distribution_until_reconciliation() {
+        for auto_distribute in [false, true] {
+            let mut trust = test_trust_with_close_broker();
+            let (account, filled) = seed_filled_trade(&mut trust, "pending-close");
+            let balance = trust.search_balance(account.id, &Currency::USD).unwrap();
+            let receipts = trust.get_account_transactions(account.id).unwrap();
+            let closed = CloseDialogBuilder {
+                account: Some(account.clone()),
+                trade: Some(filled.clone()),
+                auto_distribute,
+                result: None,
+            }
+            .build(&mut trust);
+            let (pending, log, distribution) = closed.result.unwrap().unwrap();
+            assert_eq!(pending, filled.balance);
+            assert_eq!(log.trade_id, filled.id);
+            assert!(distribution.is_none());
+            let persisted = trust.read_trade(filled.id).unwrap();
+            assert_eq!(persisted.status, Status::Filled);
+            assert_eq!(persisted.target.category, model::OrderCategory::Market);
+            assert_eq!(persisted.safety_stop, filled.safety_stop);
+            assert_eq!(
+                trust.search_balance(account.id, &Currency::USD).unwrap(),
+                balance
+            );
+            assert_eq!(
+                trust.get_account_transactions(account.id).unwrap(),
+                receipts
+            );
+            let replay = CloseDialogBuilder {
+                account: Some(account.clone()),
+                trade: Some(filled),
+                auto_distribute,
+                result: None,
+            }
+            .build(&mut trust);
+            assert!(replay.result.unwrap().is_err());
+            assert_eq!(trust.read_trade(persisted.id).unwrap(), persisted);
+            assert_eq!(
+                trust.get_account_transactions(account.id).unwrap(),
+                receipts
+            );
+        }
     }
 
     #[test]
-    fn build_calls_close_paths_for_selected_trade() {
-        let mut trust = test_trust();
-        let filled = Trade {
-            status: Status::Filled,
-            ..Trade::default()
-        };
-
-        let manual = CloseDialogBuilder {
-            account: None,
-            trade: Some(filled.clone()),
-            auto_distribute: false,
-            result: None,
-        }
-        .build(&mut trust);
-        assert!(manual.result.is_some());
-
-        let distributed = CloseDialogBuilder {
-            account: None,
-            trade: Some(filled),
-            auto_distribute: true,
-            result: None,
-        }
-        .build(&mut trust);
-        assert!(distributed.result.is_some());
+    fn close_receipt_reports_confirmed_distribution_record_count() {
+        crate::test_support::capture::assert_stdout(
+            module_path!(),
+            "close_receipt_reports_confirmed_distribution_record_count",
+            || {
+                CloseDialogBuilder {
+                    account: Some(Account {
+                        name: "paper".to_string(),
+                        ..Account::default()
+                    }),
+                    trade: Some(Trade {
+                        status: Status::Filled,
+                        ..Trade::default()
+                    }),
+                    auto_distribute: true,
+                    result: Some(Ok((
+                        TradeBalance::default(),
+                        BrokerLog::default(),
+                        Some(DistributionResult {
+                            source_account_id: Uuid::new_v4(),
+                            original_amount: dec!(10),
+                            earnings_amount: Some(dec!(3)),
+                            tax_amount: Some(dec!(2)),
+                            reinvestment_amount: Some(dec!(5)),
+                            insurance_amount: None,
+                            distribution_date: Utc::now().naive_utc(),
+                            transactions_created: vec![Uuid::new_v4()],
+                        }),
+                    ))),
+                }
+                .display();
+            },
+            |output| {
+                assert!(output.contains("Trade close executed:"), "{output}");
+                assert!(output.contains("Paper"), "{output}");
+                assert!(
+                    output.contains("Auto distribution executed: 1 transfer records"),
+                    "{output}"
+                );
+            },
+        );
     }
 
     #[test]
-    fn display_handles_success_result_with_distribution() {
-        CloseDialogBuilder {
-            account: Some(Account {
-                name: "paper".to_string(),
-                ..Account::default()
-            }),
-            trade: Some(Trade {
-                status: Status::Filled,
-                ..Trade::default()
-            }),
-            auto_distribute: true,
-            result: Some(Ok((
-                TradeBalance::default(),
-                BrokerLog::default(),
-                Some(DistributionResult {
-                    source_account_id: Uuid::new_v4(),
-                    original_amount: dec!(10),
-                    earnings_amount: Some(dec!(3)),
-                    tax_amount: Some(dec!(2)),
-                    reinvestment_amount: Some(dec!(5)),
-                    insurance_amount: None,
-                    distribution_date: Utc::now().naive_utc(),
-                    transactions_created: vec![Uuid::new_v4()],
-                }),
-            ))),
-        }
-        .display();
-    }
-
-    #[test]
-    fn display_handles_success_result_without_distribution() {
-        CloseDialogBuilder {
-            account: Some(Account {
-                name: "paper".to_string(),
-                ..Account::default()
-            }),
-            trade: Some(Trade {
-                status: Status::Filled,
-                ..Trade::default()
-            }),
-            auto_distribute: false,
-            result: Some(Ok((TradeBalance::default(), BrokerLog::default(), None))),
-        }
-        .display();
+    fn close_without_distribution_does_not_claim_transfers() {
+        crate::test_support::capture::assert_stdout(
+            module_path!(),
+            "close_without_distribution_does_not_claim_transfers",
+            || {
+                CloseDialogBuilder {
+                    account: Some(Account {
+                        name: "paper".to_string(),
+                        ..Account::default()
+                    }),
+                    trade: Some(Trade {
+                        status: Status::Filled,
+                        ..Trade::default()
+                    }),
+                    auto_distribute: false,
+                    result: Some(Ok((TradeBalance::default(), BrokerLog::default(), None))),
+                }
+                .display();
+            },
+            |output| {
+                assert!(output.contains("Trade close executed:"), "{output}");
+                assert!(output.contains("Paper"), "{output}");
+                assert!(!output.contains("Auto distribution executed"), "{output}");
+            },
+        );
     }
 }

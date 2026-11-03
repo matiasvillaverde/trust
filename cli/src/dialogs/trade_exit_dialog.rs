@@ -39,26 +39,36 @@ impl ExitDialogBuilder {
     }
 
     pub fn build_stop(mut self, trust: &mut TrustFacade) -> ExitDialogBuilder {
-        let trade: Trade = self
-            .trade
-            .clone()
-            .expect("No trade found, did you forget to select one?");
-        let fee = self
-            .fee
-            .expect("No fee found, did you forget to specify a fee?");
-        self.result = Some(trust.stop_trade(&trade, fee));
+        self.result = Some((|| {
+            let trade = crate::dialogs::dialog_helpers::require(
+                self.trade.as_ref(),
+                std::io::ErrorKind::InvalidInput,
+                "Select a trade",
+            )?;
+            let fee = crate::dialogs::dialog_helpers::require(
+                self.fee,
+                std::io::ErrorKind::InvalidInput,
+                "Enter a fee",
+            )?;
+            trust.stop_trade(trade, fee)
+        })());
         self
     }
 
     pub fn build_target(mut self, trust: &mut TrustFacade) -> ExitDialogBuilder {
-        let trade: Trade = self
-            .trade
-            .clone()
-            .expect("No trade found, did you forget to select one?");
-        let fee = self
-            .fee
-            .expect("No fee found, did you forget to specify a fee?");
-        self.result = Some(trust.target_acquired(&trade, fee));
+        self.result = Some((|| {
+            let trade = crate::dialogs::dialog_helpers::require(
+                self.trade.as_ref(),
+                std::io::ErrorKind::InvalidInput,
+                "Select a trade",
+            )?;
+            let fee = crate::dialogs::dialog_helpers::require(
+                self.fee,
+                std::io::ErrorKind::InvalidInput,
+                "Enter a fee",
+            )?;
+            trust.target_acquired(trade, fee)
+        })());
         self
     }
 
@@ -83,7 +93,7 @@ impl ExitDialogBuilder {
 
                 AccountBalanceView::display(account_balance, account_name.as_str());
             }
-            Err(error) => println!("Error approving trade: {error:?}"),
+            Err(error) => println!("Error exiting trade: {error:?}"),
         }
     }
 
@@ -103,22 +113,25 @@ impl ExitDialogBuilder {
     }
 
     fn search_with_io(mut self, trust: &mut TrustFacade, io: &mut dyn DialogIo) -> Self {
-        let trades = trust.search_trades(self.account.clone().unwrap().id, Status::Filled);
-        match trades {
-            Ok(trades) => {
-                if trades.is_empty() {
-                    panic!("No trade found, did you forget to create one?")
-                }
-                let labels: Vec<String> = trades.iter().map(ToString::to_string).collect();
-                match io.select_index("Trade:", &labels, 0) {
-                    Ok(Some(index)) => self.trade = trades.get(index).cloned(),
-                    Ok(None) => {}
-                    Err(error) => self.result = Some(Err(Box::new(error))),
-                }
-            }
+        let selected = (|| {
+            let account = crate::dialogs::dialog_helpers::require(
+                self.account.as_ref(),
+                std::io::ErrorKind::InvalidInput,
+                "Select an account",
+            )?;
+            let trades = trust.search_trades(account.id, Status::Filled)?;
+            crate::dialogs::dialog_helpers::select_from_list(
+                io,
+                "Trade:",
+                &trades,
+                "No eligible trades found",
+                "Trade selection cancelled",
+            )
+        })();
+        match selected {
+            Ok(trade) => self.trade = Some(trade),
             Err(error) => self.result = Some(Err(error)),
         }
-
         self
     }
 
@@ -148,15 +161,14 @@ mod tests {
     use super::ExitDialogBuilder;
     use crate::dialogs::io::DialogIo;
     use crate::dialogs::io::{scripted_push_input, scripted_push_select, scripted_reset};
+    use crate::test_support::broker::{DialogBroker, SyncBehavior};
     use alpaca_broker::AlpacaBroker;
     use core::TrustFacade;
     use db_sqlite::SqliteDatabase;
     use model::{
-        Account, Broker, BrokerKind, BrokerLog, Currency, DraftTrade, Environment, Order, OrderIds,
-        OrderStatus, Status, Trade, TradeCategory, TradingVehicleCategory, Transaction,
-        TransactionCategory,
+        Account, Currency, DraftTrade, Environment, Status, Trade, TradeCategory,
+        TradingVehicleCategory, TransactionCategory,
     };
-    use rust_decimal::Decimal;
     use rust_decimal_macros::dec;
     use std::collections::VecDeque;
     use std::io::{Error as IoError, ErrorKind};
@@ -186,10 +198,6 @@ mod tests {
             self.selects.pop_front().unwrap_or(Ok(None))
         }
 
-        fn confirm(&mut self, _prompt: &str, _default: bool) -> Result<bool, IoError> {
-            Ok(false)
-        }
-
         fn input_text(&mut self, _prompt: &str, _allow_empty: bool) -> Result<String, IoError> {
             self.inputs.pop_front().unwrap_or_else(|| Ok(String::new()))
         }
@@ -201,109 +209,13 @@ mod tests {
         TrustFacade::new(Box::new(db), Box::<AlpacaBroker>::default())
     }
 
-    struct SubmitOkBroker;
-
-    impl Broker for SubmitOkBroker {
-        fn kind(&self) -> BrokerKind {
-            BrokerKind::Alpaca
-        }
-
-        fn submit_trade(
-            &self,
-            trade: &Trade,
-            _account: &Account,
-        ) -> Result<(BrokerLog, OrderIds), Box<dyn std::error::Error>> {
-            Ok((
-                BrokerLog {
-                    trade_id: trade.id,
-                    log: "submitted".to_string(),
-                    ..BrokerLog::default()
-                },
-                OrderIds {
-                    entry: Uuid::new_v4().to_string(),
-                    stop: Uuid::new_v4().to_string(),
-                    target: Uuid::new_v4().to_string(),
-                },
-            ))
-        }
-
-        fn sync_trade(
-            &self,
-            trade: &Trade,
-            _account: &Account,
-        ) -> Result<(Status, Vec<Order>, BrokerLog), Box<dyn std::error::Error>> {
-            Ok((
-                Status::Filled,
-                vec![
-                    Order {
-                        id: trade.entry.id,
-                        broker_order_id: trade.entry.broker_order_id.clone(),
-                        filled_quantity: trade.entry.quantity,
-                        average_filled_price: Some(dec!(100)),
-                        status: OrderStatus::Filled,
-                        filled_at: Some(chrono::Utc::now().naive_utc()),
-                        ..trade.entry.clone()
-                    },
-                    Order {
-                        id: trade.target.id,
-                        broker_order_id: trade.target.broker_order_id.clone(),
-                        status: OrderStatus::Accepted,
-                        ..trade.target.clone()
-                    },
-                    Order {
-                        id: trade.safety_stop.id,
-                        broker_order_id: trade.safety_stop.broker_order_id.clone(),
-                        status: OrderStatus::Held,
-                        ..trade.safety_stop.clone()
-                    },
-                ],
-                BrokerLog {
-                    trade_id: trade.id,
-                    log: "filled".to_string(),
-                    ..BrokerLog::default()
-                },
-            ))
-        }
-
-        fn close_trade(
-            &self,
-            _trade: &Trade,
-            _account: &Account,
-        ) -> Result<(Order, BrokerLog), Box<dyn std::error::Error>> {
-            Err("close not supported".into())
-        }
-
-        fn cancel_trade(
-            &self,
-            _trade: &Trade,
-            _account: &Account,
-        ) -> Result<(), Box<dyn std::error::Error>> {
-            Err("cancel not supported".into())
-        }
-
-        fn modify_stop(
-            &self,
-            _trade: &Trade,
-            _account: &Account,
-            _new_stop_price: Decimal,
-        ) -> Result<String, Box<dyn std::error::Error>> {
-            Err("modify stop not supported".into())
-        }
-
-        fn modify_target(
-            &self,
-            _trade: &Trade,
-            _account: &Account,
-            _new_price: Decimal,
-        ) -> Result<String, Box<dyn std::error::Error>> {
-            Err("modify target not supported".into())
-        }
-    }
-
     fn test_trust_with_submit_broker() -> TrustFacade {
         TrustFacade::new(
             Box::new(SqliteDatabase::new_in_memory()),
-            Box::new(SubmitOkBroker),
+            Box::new(DialogBroker {
+                sync: SyncBehavior::Filled,
+                ..DialogBroker::default()
+            }),
         )
     }
 
@@ -348,70 +260,88 @@ mod tests {
     }
 
     #[test]
-    fn display_handles_error_result() {
-        ExitDialogBuilder {
-            account: None,
-            trade: None,
-            fee: None,
-            result: Some(Err("synthetic failure".into())),
-        }
-        .display();
+    fn display_identifies_the_failed_action_and_its_cause() {
+        crate::test_support::capture::assert_stdout(
+            module_path!(),
+            "display_identifies_the_failed_action_and_its_cause",
+            || {
+                ExitDialogBuilder {
+                    account: None,
+                    trade: None,
+                    fee: None,
+                    result: Some(Err("synthetic failure".into())),
+                }
+                .display();
+            },
+            |output| {
+                assert!(output.contains("Error exiting trade:"), "{output}");
+                assert!(output.contains("synthetic failure"), "{output}");
+                assert!(!output.contains("executed:"), "{output}");
+            },
+        );
     }
 
     #[test]
-    #[should_panic(expected = "No trade found, did you forget to select one?")]
-    fn build_stop_panics_without_trade() {
+    fn build_stop_rejects_without_trade() {
         let mut trust = test_trust();
-        let _ = ExitDialogBuilder::new().build_stop(&mut trust);
+        let before = trust.search_all_accounts().unwrap();
+        let rejected = ExitDialogBuilder::new().build_stop(&mut trust);
+
+        let error = rejected
+            .result
+            .unwrap()
+            .expect_err("incomplete input must be rejected");
+        assert_eq!(
+            error
+                .downcast_ref::<std::io::Error>()
+                .map(std::io::Error::kind),
+            Some(std::io::ErrorKind::InvalidInput)
+        );
+        assert_eq!(trust.search_all_accounts().unwrap(), before);
     }
 
     #[test]
-    #[should_panic(expected = "No trade found, did you forget to select one?")]
-    fn build_target_panics_without_trade() {
+    fn build_target_rejects_without_trade() {
         let mut trust = test_trust();
-        let _ = ExitDialogBuilder::new().build_target(&mut trust);
+        let before = trust.search_all_accounts().unwrap();
+        let rejected = ExitDialogBuilder::new().build_target(&mut trust);
+
+        let error = rejected
+            .result
+            .unwrap()
+            .expect_err("incomplete input must be rejected");
+        assert_eq!(
+            error
+                .downcast_ref::<std::io::Error>()
+                .map(std::io::Error::kind),
+            Some(std::io::ErrorKind::InvalidInput)
+        );
+        assert_eq!(trust.search_all_accounts().unwrap(), before);
     }
 
     #[test]
-    #[should_panic(expected = "No fee found, did you forget to specify a fee?")]
-    fn build_stop_panics_without_fee() {
+    fn build_stop_rejects_without_fee() {
         let mut trust = test_trust();
-        let _ = ExitDialogBuilder {
+        let before = trust.search_all_accounts().unwrap();
+        let rejected = ExitDialogBuilder {
             account: Some(Account::default()),
             trade: Some(Trade::default()),
             fee: None,
             result: None,
         }
         .build_stop(&mut trust);
-    }
 
-    #[test]
-    fn display_handles_success_result() {
-        ExitDialogBuilder {
-            account: Some(Account {
-                name: "paper".to_string(),
-                ..Account::default()
-            }),
-            trade: Some(Trade::default()),
-            fee: Some(dec!(0)),
-            result: Some(Ok((
-                Transaction::new(
-                    Uuid::new_v4(),
-                    TransactionCategory::Deposit,
-                    &Currency::USD,
-                    dec!(10),
-                ),
-                Transaction::new(
-                    Uuid::new_v4(),
-                    TransactionCategory::Withdrawal,
-                    &Currency::USD,
-                    dec!(5),
-                ),
-                model::TradeBalance::default(),
-                model::AccountBalance::default(),
-            ))),
-        }
-        .display();
+        let error = rejected
+            .result
+            .unwrap()
+            .expect_err("incomplete input must be rejected");
+        assert_eq!(
+            error
+                .downcast_ref::<std::io::Error>()
+                .map(std::io::Error::kind),
+            Some(std::io::ErrorKind::InvalidInput)
+        );
+        assert_eq!(trust.search_all_accounts().unwrap(), before);
     }
 
     #[test]
@@ -448,26 +378,27 @@ mod tests {
     }
 
     #[test]
-    fn search_with_io_panics_when_no_filled_trades_exist() {
+    fn empty_selection_is_reported_without_financial_writes_search_with_io() {
         let mut trust = test_trust();
         let account = trust
-            .create_account(
-                "exit-search",
-                "desc",
-                Environment::Paper,
-                dec!(20),
-                dec!(10),
-            )
-            .expect("account");
+            .create_account("empty-selection", "", Environment::Paper, dec!(0), dec!(0))
+            .unwrap();
+        let before = trust.get_account_transactions(account.id).unwrap();
         let mut io = ScriptedIo::new();
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let _ = ExitDialogBuilder {
-                account: Some(account),
-                ..ExitDialogBuilder::new()
-            }
-            .search_with_io(&mut trust, &mut io);
-        }));
-        assert!(result.is_err());
+        let rejected = ExitDialogBuilder {
+            account: Some(account.clone()),
+            ..ExitDialogBuilder::new()
+        }
+        .search_with_io(&mut trust, &mut io);
+        assert!(rejected.trade.is_none());
+        let error = rejected.result.unwrap().unwrap_err();
+        assert_eq!(
+            error
+                .downcast_ref::<std::io::Error>()
+                .map(std::io::Error::kind),
+            Some(std::io::ErrorKind::NotFound)
+        );
+        assert_eq!(trust.get_account_transactions(account.id).unwrap(), before);
     }
 
     #[test]
@@ -506,29 +437,27 @@ mod tests {
     }
 
     #[test]
-    fn search_wrapper_uses_default_console_io_and_propagates_empty_trade_panic() {
+    fn empty_selection_is_reported_without_financial_writes_search() {
         let mut trust = test_trust();
         let account = trust
-            .create_account(
-                "exit-search-wrapper",
-                "desc",
-                Environment::Paper,
-                dec!(20),
-                dec!(10),
-            )
-            .expect("account");
+            .create_account("empty-selection", "", Environment::Paper, dec!(0), dec!(0))
+            .unwrap();
+        let before = trust.get_account_transactions(account.id).unwrap();
         scripted_reset();
-
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let _ = ExitDialogBuilder {
-                account: Some(account),
-                ..ExitDialogBuilder::new()
-            }
-            .search(&mut trust);
-        }));
-
-        assert!(result.is_err());
-        scripted_reset();
+        let rejected = ExitDialogBuilder {
+            account: Some(account.clone()),
+            ..ExitDialogBuilder::new()
+        }
+        .search(&mut trust);
+        assert!(rejected.trade.is_none());
+        let error = rejected.result.unwrap().unwrap_err();
+        assert_eq!(
+            error
+                .downcast_ref::<std::io::Error>()
+                .map(std::io::Error::kind),
+            Some(std::io::ErrorKind::NotFound)
+        );
+        assert_eq!(trust.get_account_transactions(account.id).unwrap(), before);
     }
 
     #[test]
@@ -553,7 +482,15 @@ mod tests {
         }
         .search_with_io(&mut trust, &mut canceled_io);
         assert!(canceled.trade.is_none());
-        assert!(canceled.result.is_none());
+        assert_eq!(
+            canceled
+                .result
+                .unwrap()
+                .unwrap_err()
+                .downcast_ref::<IoError>()
+                .map(IoError::kind),
+            Some(ErrorKind::InvalidInput)
+        );
 
         let mut error_io = ScriptedIo::new();
         error_io
@@ -584,40 +521,78 @@ mod tests {
     }
 
     #[test]
-    fn submit_ok_broker_aux_methods_have_expected_contracts() {
-        let broker = SubmitOkBroker;
-        let trade = Trade::default();
-        let account = Account::default();
-
-        assert_eq!(broker.kind(), BrokerKind::Alpaca);
-        let (log, ids) = broker
-            .submit_trade(&trade, &account)
-            .expect("submit should succeed");
-        assert_eq!(log.trade_id, trade.id);
-        assert!(!ids.entry.is_empty());
-        assert!(!ids.stop.is_empty());
-        assert!(!ids.target.is_empty());
-        let (status, orders, log) = broker.sync_trade(&trade, &account).expect("sync");
-        assert_eq!(status, Status::Filled);
-        assert_eq!(orders.len(), 3);
-        assert_eq!(log.trade_id, trade.id);
-
-        let close = broker
-            .close_trade(&trade, &account)
-            .expect_err("close should be unsupported");
-        assert!(close.to_string().contains("close not supported"));
-        let cancel = broker
-            .cancel_trade(&trade, &account)
-            .expect_err("cancel should be unsupported");
-        assert!(cancel.to_string().contains("cancel not supported"));
-        let stop = broker
-            .modify_stop(&trade, &account, dec!(1))
-            .expect_err("stop modify should be unsupported");
-        assert!(stop.to_string().contains("modify stop not supported"));
-        let target = broker
-            .modify_target(&trade, &account, dec!(1))
-            .expect_err("target modify should be unsupported");
-        assert!(target.to_string().contains("modify target not supported"));
+    fn manual_exits_account_for_adverse_prices_fees_and_reject_replays() {
+        crate::test_support::capture::assert_stdout(
+            module_path!(),
+            "manual_exits_account_for_adverse_prices_fees_and_reject_replays",
+            || {
+                for stopped in [true, false] {
+                    let mut trust = test_trust_with_submit_broker();
+                    let (account, mut filled) = seed_filled_trade(&mut trust, "fractional-exit");
+                    filled.safety_stop.average_filled_price = Some(dec!(94.5));
+                    filled.target.average_filled_price = Some(dec!(110.25));
+                    let builder = ExitDialogBuilder {
+                        account: Some(account.clone()),
+                        trade: Some(filled.clone()),
+                        fee: Some(dec!(1.25)),
+                        result: None,
+                    };
+                    let result = if stopped {
+                        builder.build_stop(&mut trust)
+                    } else {
+                        builder.build_target(&mut trust)
+                    };
+                    let (exit, _, balance, _) = result.result.as_ref().unwrap().as_ref().unwrap();
+                    assert_eq!(exit.amount, if stopped { dec!(945) } else { dec!(1102.5) });
+                    assert_eq!(balance.capital_in_market, dec!(0));
+                    assert_eq!(
+                        balance.total_performance,
+                        if stopped { dec!(-56.25) } else { dec!(101.25) }
+                    );
+                    result.display();
+                    let persisted = trust.read_trade(filled.id).unwrap();
+                    assert_eq!(
+                        persisted.status,
+                        if stopped {
+                            Status::ClosedStopLoss
+                        } else {
+                            Status::ClosedTarget
+                        }
+                    );
+                    let receipts = trust.get_account_transactions(account.id).unwrap();
+                    let replay = ExitDialogBuilder {
+                        account: Some(account.clone()),
+                        trade: Some(filled),
+                        fee: Some(dec!(1.25)),
+                        result: None,
+                    };
+                    assert!(if stopped {
+                        replay.build_stop(&mut trust)
+                    } else {
+                        replay.build_target(&mut trust)
+                    }
+                    .result
+                    .unwrap()
+                    .is_err());
+                    assert_eq!(trust.read_trade(persisted.id).unwrap(), persisted);
+                    assert_eq!(
+                        trust.get_account_transactions(account.id).unwrap(),
+                        receipts
+                    );
+                }
+            },
+            |output| {
+                assert!(output.contains("Trade exit executed:"), "{output}");
+                assert!(output.contains("Fractional-exit"), "{output}");
+                assert!(output.contains("945"), "{output}");
+                assert!(output.contains("1102.5"), "{output}");
+                assert!(output.contains("-56.25"), "{output}");
+                assert!(output.contains("101.25"), "{output}");
+                assert!(output.contains("close_safety_stop"), "{output}");
+                assert!(output.contains("close_target"), "{output}");
+                assert!(output.contains("payment_from_trade"), "{output}");
+            },
+        );
     }
 
     #[test]

@@ -45,7 +45,22 @@ mod tests {
     }
 
     #[test]
-    fn display_runs_for_smoke_coverage() {
-        LogView::display(&sample_log());
+    fn display_associates_broker_evidence_with_its_log_id() {
+        crate::test_support::capture::assert_stdout(
+            module_path!(),
+            "display_associates_broker_evidence_with_its_log_id",
+            || {
+                let mut log = sample_log();
+                log.id = Uuid::nil();
+                LogView::display(&log);
+            },
+            |output| {
+                assert!(
+                    output.contains("Log: 00000000-0000-0000-0000-000000000000"),
+                    "{output}"
+                );
+                assert!(output.contains("broker event"), "{output}");
+            },
+        );
     }
 }

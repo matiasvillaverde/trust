@@ -227,119 +227,198 @@ fn test_distribution_dispatch_paths_cover_parse_and_service_edges() {
 }
 
 #[test]
-fn test_distribution_success_paths_execute_history_and_rules_output() {
-    let mut dispatcher = test_dispatcher();
-    let source = dispatcher
-        .trust
-        .create_account(
-            "dist-source",
-            "source",
-            Environment::Paper,
-            dec!(10),
-            dec!(5),
-        )
-        .expect("create source account");
-    dispatcher
-        .trust
-        .create_account_with_hierarchy(
-            "dist-earnings",
-            "earnings",
-            Environment::Paper,
-            dec!(10),
-            dec!(5),
-            AccountType::Earnings,
-            Some(source.id),
-        )
-        .expect("create earnings account");
-    dispatcher
-        .trust
-        .create_account_with_hierarchy(
-            "dist-tax",
-            "tax",
-            Environment::Paper,
-            dec!(10),
-            dec!(5),
-            AccountType::TaxReserve,
-            Some(source.id),
-        )
-        .expect("create tax account");
-    dispatcher
-        .trust
-        .create_account_with_hierarchy(
-            "dist-reinvestment",
-            "reinvestment",
-            Environment::Paper,
-            dec!(10),
-            dec!(5),
-            AccountType::Reinvestment,
-            Some(source.id),
-        )
-        .expect("create reinvestment account");
-    dispatcher
-        .trust
-        .create_account_with_hierarchy(
-            "dist-insurance",
-            "insurance",
-            Environment::Paper,
-            dec!(10),
-            dec!(5),
-            AccountType::Insurance,
-            Some(source.id),
-        )
-        .expect("create insurance account");
-    dispatcher
-        .trust
-        .create_transaction(
-            &source,
-            &TransactionCategory::Deposit,
-            dec!(1000),
-            &Currency::USD,
-        )
-        .expect("seed distributable balance");
+fn distribution_output_and_persisted_transfers_agree() {
+    crate::test_support::capture::assert_stdout(
+        module_path!(),
+        "distribution_output_and_persisted_transfers_agree",
+        || {
+            let mut dispatcher = test_dispatcher();
+            let source = dispatcher
+                .trust
+                .create_account(
+                    "dist-source",
+                    "source",
+                    Environment::Paper,
+                    dec!(10),
+                    dec!(5),
+                )
+                .expect("create source account");
+            dispatcher
+                .trust
+                .create_account_with_hierarchy(
+                    "dist-earnings",
+                    "earnings",
+                    Environment::Paper,
+                    dec!(10),
+                    dec!(5),
+                    AccountType::Earnings,
+                    Some(source.id),
+                )
+                .expect("create earnings account");
+            dispatcher
+                .trust
+                .create_account_with_hierarchy(
+                    "dist-tax",
+                    "tax",
+                    Environment::Paper,
+                    dec!(10),
+                    dec!(5),
+                    AccountType::TaxReserve,
+                    Some(source.id),
+                )
+                .expect("create tax account");
+            dispatcher
+                .trust
+                .create_account_with_hierarchy(
+                    "dist-reinvestment",
+                    "reinvestment",
+                    Environment::Paper,
+                    dec!(10),
+                    dec!(5),
+                    AccountType::Reinvestment,
+                    Some(source.id),
+                )
+                .expect("create reinvestment account");
+            dispatcher
+                .trust
+                .create_account_with_hierarchy(
+                    "dist-insurance",
+                    "insurance",
+                    Environment::Paper,
+                    dec!(10),
+                    dec!(5),
+                    AccountType::Insurance,
+                    Some(source.id),
+                )
+                .expect("create insurance account");
+            dispatcher
+                .trust
+                .create_transaction(
+                    &source,
+                    &TransactionCategory::Deposit,
+                    dec!(1000),
+                    &Currency::USD,
+                )
+                .expect("seed distributable balance");
 
-    let configure = distribution_config_matches(&[
-        "--account-id",
-        &source.id.to_string(),
-        "--earnings",
-        "40",
-        "--tax",
-        "30",
-        "--reinvestment",
-        "20",
-        "--insurance",
-        "10",
-        "--threshold",
-        "0",
-        "--password",
-        "strong-password",
-    ]);
-    crate::dispatcher::distribution::configure_distribution(&mut dispatcher.trust, &configure)
-        .expect("distribution configuration should succeed");
+            let configure = distribution_config_matches(&[
+                "--account-id",
+                &source.id.to_string(),
+                "--earnings",
+                "40",
+                "--tax",
+                "30",
+                "--reinvestment",
+                "20",
+                "--insurance",
+                "10",
+                "--threshold",
+                "0",
+                "--password",
+                "strong-password",
+            ]);
+            crate::dispatcher::distribution::configure_distribution(
+                &mut dispatcher.trust,
+                &configure,
+            )
+            .expect("distribution configuration should succeed");
 
-    for amount in ["100", "50"] {
-        let execute = distribution_execute_matches(&[
-            "--account-id",
-            &source.id.to_string(),
-            "--amount",
-            amount,
-        ]);
-        crate::dispatcher::distribution::execute_distribution(&mut dispatcher.trust, &execute)
-            .expect("distribution execution should succeed");
-    }
+            for amount in ["100", "50"] {
+                let execute = distribution_execute_matches(&[
+                    "--account-id",
+                    &source.id.to_string(),
+                    "--amount",
+                    amount,
+                ]);
+                crate::dispatcher::distribution::execute_distribution(
+                    &mut dispatcher.trust,
+                    &execute,
+                )
+                .expect("distribution execution should succeed");
+            }
 
-    let history =
-        distribution_history_matches(&["--account-id", &source.id.to_string(), "--limit", "1"]);
-    crate::dispatcher::distribution::distribution_history(&mut dispatcher.trust, &history)
-        .expect("distribution history should render the truncated latest entry");
+            let history = distribution_history_matches(&[
+                "--account-id",
+                &source.id.to_string(),
+                "--limit",
+                "1",
+            ]);
 
-    let insurance = distribution_rules_matches(&["--account-id", &source.id.to_string()]);
-    crate::dispatcher::distribution::distribution_insurance_status(
-        &mut dispatcher.trust,
-        &insurance,
-    )
-    .expect("insurance reserve status should render configured account");
+            println!("BEGIN:history");
+            crate::dispatcher::distribution::distribution_history(&mut dispatcher.trust, &history)
+                .expect("distribution history should render the truncated latest entry");
+            println!("END:history");
 
-    let rules = distribution_rules_matches(&["--account-id", &source.id.to_string()]);
-    crate::dispatcher::distribution::distribution_rules(&mut dispatcher.trust, &rules)
-        .expect("distribution rules should render configured values");
+            let insurance = distribution_rules_matches(&["--account-id", &source.id.to_string()]);
+            crate::dispatcher::distribution::distribution_insurance_status(
+                &mut dispatcher.trust,
+                &insurance,
+            )
+            .expect("insurance reserve status should render configured account");
+
+            let rules = distribution_rules_matches(&["--account-id", &source.id.to_string()]);
+            crate::dispatcher::distribution::distribution_rules(&mut dispatcher.trust, &rules)
+                .expect("distribution rules should render configured values");
+
+            assert_eq!(
+                dispatcher
+                    .trust
+                    .search_balance(source.id, &Currency::USD)
+                    .unwrap()
+                    .total_available,
+                dec!(850)
+            );
+            for (name, amount) in [
+                ("dist-earnings", dec!(60)),
+                ("dist-tax", dec!(45)),
+                ("dist-reinvestment", dec!(30)),
+                ("dist-insurance", dec!(15)),
+            ] {
+                let account = dispatcher.trust.search_account(name).unwrap();
+                assert_eq!(
+                    dispatcher
+                        .trust
+                        .search_balance(account.id, &Currency::USD)
+                        .unwrap()
+                        .total_available,
+                    amount
+                );
+            }
+            let entries = dispatcher.trust.distribution_history(source.id).unwrap();
+            assert_eq!(entries.len(), 2);
+            assert_eq!(
+                entries
+                    .iter()
+                    .map(|e| e.original_amount)
+                    .sum::<rust_decimal::Decimal>(),
+                dec!(150)
+            );
+        },
+        |output| {
+            assert!(output.contains("earnings_percent: 0.4"), "{output}");
+            assert!(output.contains("tax_percent: 0.3"), "{output}");
+            assert!(output.contains("reinvestment_percent: 0.2"), "{output}");
+            assert!(output.contains("insurance_percent: 0.1"), "{output}");
+            assert!(output.contains("balance: 15"), "{output}");
+            assert!(output.contains("distribution_count: 2"), "{output}");
+            let history = crate::test_support::capture::section(output, "history");
+            assert_eq!(
+                history
+                    .lines()
+                    .filter(|line| line.starts_with("- at="))
+                    .count(),
+                1,
+                "{history}"
+            );
+            assert!(
+                history.contains("amount=50 earnings=20 tax=15 reinvestment=10 insurance=5"),
+                "{history}"
+            );
+            assert!(!history.contains("amount=100"), "{history}");
+            assert!(
+                !output.contains("strong-password"),
+                "configuration output must not expose authentication material"
+            );
+        },
+    );
 }

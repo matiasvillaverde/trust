@@ -8,6 +8,12 @@ impl TradeCapitalNotAtRisk {
     /// Cash retained inside active trades plus proceeds at the planned stop,
     /// allowing for entry orders that can still fill. This is a planned liquidation
     /// value, not a guarantee against gaps, fees or failed protective orders.
+    #[tracing::instrument(
+        level = "trace",
+        target = "trust::perf",
+        name = "risk.protected_capital",
+        skip_all
+    )]
     pub fn calculate(
         account_id: Uuid,
         currency: &Currency,

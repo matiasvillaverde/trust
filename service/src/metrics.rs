@@ -8,6 +8,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+pub(crate) mod financial;
+
 pub fn microseconds(duration: Duration) -> u64 {
     u64::try_from(duration.as_micros()).unwrap_or(u64::MAX)
 }
@@ -209,6 +211,7 @@ pub struct Metrics {
     pub execution: Histogram,
     pub http_duration: Histogram,
     pub authentication: Histogram,
+    pub(crate) financial: financial::FinancialMetrics,
     pub log_drops: OnceLock<tracing_appender::non_blocking::ErrorCounter>,
     operations: BTreeMap<&'static str, OperationMetrics>,
     stages: BTreeMap<Stage, Histogram>,
@@ -233,6 +236,7 @@ impl Default for Metrics {
             http_duration: Histogram::default(),
             authentication: Histogram::default(),
             log_drops: OnceLock::new(),
+            financial: financial::FinancialMetrics::default(),
             operations: crate::catalog::tools()
                 .iter()
                 .map(|tool| tool.name)
@@ -331,6 +335,7 @@ impl Metrics {
                 metric.errors.load(Ordering::Relaxed)
             ));
         }
+        self.financial.render(&mut text);
         text.push_str("# TYPE trust_stage_duration_seconds histogram\n");
         for (stage, metric) in &self.stages {
             metric.seconds(

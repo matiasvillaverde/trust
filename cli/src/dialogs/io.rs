@@ -11,7 +11,12 @@ pub trait DialogIo {
         default: usize,
     ) -> Result<Option<usize>, IoError>;
 
-    fn confirm(&mut self, prompt: &str, default: bool) -> Result<bool, IoError>;
+    fn confirm(&mut self, _prompt: &str, _default: bool) -> Result<bool, IoError> {
+        Err(IoError::new(
+            ErrorKind::Unsupported,
+            "confirmation not supported by this input provider",
+        ))
+    }
 
     fn multi_select_indices(
         &mut self,
@@ -302,11 +307,7 @@ pub(crate) fn scripted_reset() {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        scripted_push_confirm, scripted_push_input, scripted_push_multi_select,
-        scripted_push_select, scripted_reset, ConsoleDialogIo, DialogBackend, DialogIo,
-        DialoguerBackend,
-    };
+    use super::{ConsoleDialogIo, DialogBackend, DialogIo};
     use std::io::ErrorKind;
 
     struct StubBackend {
@@ -357,21 +358,6 @@ mod tests {
 
         let result = io.select_index("Pick one", &labels, 1).unwrap();
         assert_eq!(result, Some(2));
-    }
-
-    #[test]
-    fn multi_select_uses_scripted_test_backend() {
-        scripted_reset();
-        scripted_push_multi_select(Ok(vec![0, 2]));
-        let mut io = ConsoleDialogIo::<DialoguerBackend>::default();
-        let labels = vec!["a".to_string(), "b".to_string(), "c".to_string()];
-
-        let result = io
-            .multi_select_indices("Pick many", &labels)
-            .expect("scripted multi-select should succeed");
-
-        assert_eq!(result, vec![0, 2]);
-        scripted_reset();
     }
 
     #[test]
@@ -494,57 +480,5 @@ mod tests {
             .expect_err("default input_text should be unsupported");
         assert_eq!(error.kind(), std::io::ErrorKind::Unsupported);
         assert!(error.to_string().contains("not implemented"));
-    }
-
-    #[test]
-    fn scripted_dialoguer_backend_returns_scripted_values() {
-        scripted_reset();
-        scripted_push_select(Ok(Some(1)));
-        scripted_push_confirm(Ok(true));
-        scripted_push_input(Ok("typed".to_string()));
-
-        let mut io = ConsoleDialogIo::default();
-        let labels = vec!["a".to_string(), "b".to_string()];
-
-        assert_eq!(
-            io.select_index("pick", &labels, 0)
-                .expect("select should use scripted response"),
-            Some(1)
-        );
-        assert!(io
-            .confirm("confirm", false)
-            .expect("confirm should use scripted response"));
-        assert_eq!(
-            io.input_text("prompt", true)
-                .expect("input should use scripted response"),
-            "typed"
-        );
-    }
-
-    #[test]
-    fn scripted_dialoguer_backend_errors_without_scripted_values() {
-        scripted_reset();
-        let mut backend = DialoguerBackend;
-
-        let select_error = backend
-            .select_index("pick", &[], 0)
-            .expect_err("missing selection should error");
-        assert!(select_error
-            .to_string()
-            .contains("no scripted selection response"));
-
-        let confirm_error = backend
-            .confirm("confirm", false)
-            .expect_err("missing confirm should error");
-        assert!(confirm_error
-            .to_string()
-            .contains("no scripted confirm response"));
-
-        let input_error = backend
-            .input_text("prompt", false)
-            .expect_err("missing input should error");
-        assert!(input_error
-            .to_string()
-            .contains("no scripted input response"));
     }
 }

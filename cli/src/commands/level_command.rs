@@ -248,6 +248,8 @@ impl LevelCommandBuilder {
         self.subcommands.push(
             Command::new("rules")
                 .about("Manage level-adjustment policy rules")
+                .subcommand_required(true)
+                .arg_required_else_help(true)
                 .subcommand(
                     Command::new("show")
                         .about("Show policy rules for an account")

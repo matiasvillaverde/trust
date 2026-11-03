@@ -78,8 +78,19 @@ impl TradeSearchDialogBuilder {
     }
 
     pub fn search(mut self, trust: &mut TrustFacade) -> Self {
-        self.result =
-            Some(trust.search_trades(self.account.clone().unwrap().id, self.status.unwrap()));
+        self.result = Some((|| {
+            let account = crate::dialogs::dialog_helpers::require(
+                self.account.as_ref(),
+                std::io::ErrorKind::InvalidInput,
+                "Select an account",
+            )?;
+            let status = crate::dialogs::dialog_helpers::require(
+                self.status,
+                std::io::ErrorKind::InvalidInput,
+                "Select a trade status",
+            )?;
+            trust.search_trades(account.id, status)
+        })());
         self
     }
 
@@ -188,35 +199,49 @@ mod tests {
     }
 
     #[test]
-    fn display_handles_empty_and_success_paths() {
-        let account = Account {
-            name: "paper".to_string(),
-            ..Account::default()
-        };
+    fn search_distinguishes_no_matches_from_trade_details() {
+        crate::test_support::capture::assert_stdout(
+            module_path!(),
+            "search_distinguishes_no_matches_from_trade_details",
+            || {
+                let account = Account {
+                    name: "paper".to_string(),
+                    ..Account::default()
+                };
 
-        TradeSearchDialogBuilder {
-            account: Some(account.clone()),
-            status: Some(Status::New),
-            balance: true,
-            result: Some(Ok(vec![])),
-        }
-        .display();
+                TradeSearchDialogBuilder {
+                    account: Some(account.clone()),
+                    status: Some(Status::New),
+                    balance: true,
+                    result: Some(Ok(vec![])),
+                }
+                .display();
 
-        TradeSearchDialogBuilder {
-            account: Some(account.clone()),
-            status: Some(Status::New),
-            balance: true,
-            result: Some(Ok(vec![Trade::default()])),
-        }
-        .display();
+                TradeSearchDialogBuilder {
+                    account: Some(account.clone()),
+                    status: Some(Status::New),
+                    balance: true,
+                    result: Some(Ok(vec![Trade::default()])),
+                }
+                .display();
 
-        TradeSearchDialogBuilder {
-            account: Some(account),
-            status: Some(Status::New),
-            balance: false,
-            result: Some(Ok(vec![Trade::default()])),
-        }
-        .display();
+                TradeSearchDialogBuilder {
+                    account: Some(account),
+                    status: Some(Status::New),
+                    balance: false,
+                    result: Some(Ok(vec![Trade::default()])),
+                }
+                .display();
+            },
+            |output| {
+                assert!(output.contains("No trades found"), "{output}");
+                assert!(output.contains("Trades found:"), "{output}");
+                assert!(output.contains("Paper"), "{output}");
+                assert!(output.contains("Entry:"), "{output}");
+                assert!(output.contains("Target:"), "{output}");
+                assert!(output.contains("Stop:"), "{output}");
+            },
+        );
     }
 
     #[test]
@@ -284,9 +309,21 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
-    fn search_panics_when_account_or_status_missing() {
+    fn search_rejects_when_account_or_status_missing() {
         let mut trust = test_trust();
-        let _ = TradeSearchDialogBuilder::new().search(&mut trust);
+        let before = trust.search_all_accounts().unwrap();
+        let rejected = TradeSearchDialogBuilder::new().search(&mut trust);
+
+        let error = rejected
+            .result
+            .unwrap()
+            .expect_err("incomplete input must be rejected");
+        assert_eq!(
+            error
+                .downcast_ref::<std::io::Error>()
+                .map(std::io::Error::kind),
+            Some(std::io::ErrorKind::InvalidInput)
+        );
+        assert_eq!(trust.search_all_accounts().unwrap(), before);
     }
 }

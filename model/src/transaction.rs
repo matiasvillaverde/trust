@@ -4,6 +4,9 @@ use chrono::Utc;
 use rust_decimal::Decimal;
 use uuid::Uuid;
 
+mod cash;
+pub use cash::CashLedgerError;
+
 /// Transaction entity - represents a single transaction
 #[derive(PartialEq, Debug, Clone, serde::Serialize, schemars::JsonSchema)]
 pub struct Transaction {

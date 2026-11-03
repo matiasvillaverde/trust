@@ -18,7 +18,7 @@ from assurance import ROOT, fingerprint
 MUTATIONS = [
     ("submission_policy", "core/src/commands/trade.rs",
      "            crate::validators::funding::can_submit_funded(&current_trade, database)\n                .map_err(|error| error as Box<dyn Error>)?;", "",
-     "core", "reliability", "submission_revalidates_changed_trade_and_monthly_caps_without_broker_effects"),
+     "core", "reliability", "submission::submission_revalidates_changed_trade_and_monthly_caps_without_broker_effects"),
     ("order_snapshot", "ibkr-broker/src/client.rs", '("force", "false".to_string())', '("force", "true".to_string())',
      "ibkr-broker", "http_integration", "submit_trade_recovers_complete_existing_bracket_without_duplicate_post"),
     ("manual_authority", "service/src/catalog.rs", '"trust:manual"', '"trust:reconcile"',
@@ -74,6 +74,83 @@ MUTATIONS = [
      'pub fn calculate_net_profit(closed_trades: &[Trade]) -> Decimal {\n        closed_trades\n            .iter()\n            .map(|trade| trade.balance.total_performance)',
      'pub fn calculate_net_profit(closed_trades: &[Trade]) -> Decimal {\n        closed_trades\n            .iter()\n            .map(|trade| trade.balance.total_performance.abs())',
      "trust-service", "product_reports", "reports_reconcile_realized_fees_open_exposure_and_account_scope_after_restart"),
+    ("tail_loss_average", "core/src/calculators_advanced_metrics.rs",
+     '.checked_div(Decimal::from(tail_values.len()))', '.checked_div(Decimal::ONE)',
+     "core", "tail_risk_contracts", "shortfall_averages_the_loss_tail_in_risk_units_for_both_directions"),
+    ("manual_fill_evidence", "core/src/commands/trade.rs",
+     'Ok((database.trade_read().read_trade(trade.id)?, tx))', 'Ok((trade, tx))',
+     "trust-cli", "bin:trust-legacy", "dialogs::trade_fill_dialog::tests::manual_fill_records_exact_quantity_and_fee_once"),
+    ("timeline_funding", "cli/src/dispatcher/metrics_report.rs",
+     'Decimal::ZERO.checked_sub(tx.amount).unwrap_or(dec!(0))',
+     'if matches!(tx.category, TransactionCategory::FundTrade(_)) { Decimal::ZERO } else { Decimal::ZERO.checked_sub(tx.amount).unwrap_or(dec!(0)) }',
+     "trust-cli", "integration_test_product_reports", "timeline_reconciles_available_cash_after_fills_fees_and_external_movements"),
+    ("displayed_cash", "cli/src/views/account_view.rs",
+     'total_available: crate::zen::amount_share(balance.total_available, basis),',
+     'total_available: crate::zen::amount_share(balance.total_balance, basis),',
+     "trust-cli", "bin:trust-legacy", "views::account_view::tests::display_includes_broker_identity_and_cash_breakdown"),
+    ("connection_account_isolation", "ibkr-broker/src/config.rs",
+     '&format!("trust-ibkr:{}", account.name)', '&format!("trust-ibkr:{}", "shared")',
+     "ibkr-broker", None, "config::store::tests::connection_settings_persist_with_account_and_environment_isolation"),
+    ("funding_risk_boundary", "core/src/validators/funding.rs",
+     'if total_risk > maximum_risk {', 'if total_risk >= maximum_risk {',
+     "trust-cli", "integration_test_sync_edge_cases", "admission::loss_budget_accepts_exact_limit_with_exact_reservation"),
+    ("funding_risk_guard", "core/src/validators/funding.rs",
+     'if total_risk > maximum_risk {', 'if false {',
+     "trust-cli", "integration_test_sync_edge_cases", "admission::loss_budget_rejects_two_cents_over_limit_without_writes_or_broker_calls"),
+    ("draft_partial_order_rollback", "core/src/commands/atomic.rs",
+     'let rollback_error = database.rollback_to_savepoint(name).err();',
+     'let rollback_error: Option<Box<dyn Error>> = None;',
+     "trust-cli", "integration_test_bug_hunt", "admission::a_negative_price_at_each_order_boundary_rolls_back_the_entire_draft"),
+    ("settlement_weekday_offset", "model/src/trade.rs",
+     'Self::add_business_days(trade_date, 1)', 'Self::add_business_days(trade_date, 2)',
+     "db-sqlite", None, "workers::worker_trade::tests::settlement::settlement_dates_round_trip_across_weekends_months_years_and_leap_days"),
+    ("lifecycle_closing_fee", "core/src/commands/trade.rs",
+     'commands::transaction::transfer_closing_fee(fee.amount, trade, database)?;', '',
+     "trust-cli", "integration_test_use_cases", "financial_scenarios::long_whole_at_entry_with_fees::target_fill"),
+    ("portfolio_drawdown_amount", "core/src/calculators_drawdown.rs",
+     'max_drawdown: peak_data.max_drawdown,', 'max_drawdown: Decimal::ZERO,',
+     "trust-cli", "integration_test_use_cases", "portfolio::a_loss_streak_accumulates_losses_and_execution_costs"),
+
+    ("carried_monthly_capital", "core/src/calculators_account/capital_beginning_of_month.rs",
+     'if has_carried_movements {', 'if !has_carried_movements {',
+     "core", "reliability", "monthly_budget_does_not_reset_after_current_month_deposit_or_carried_reservation"),
+
+    ("monthly_reference_account_scope", "db-sqlite/src/workers/worker_transaction/ledger/monthly.rs",
+     '.filter(transactions::account_id.eq(account_id.to_string()))',
+     '.filter(transactions::account_id.is_not_null())',
+     "db-sqlite", None, "workers::worker_transaction::tests::ledger::monthly_reference_preserves_flows_and_carry_receipts_without_crossing_scopes"),
+    ("submission_verified_cash", "core/src/validators/funding.rs",
+     '        Some(trade),\n        available,', '        Some(trade),\n        balance.total_available,',
+     "core", "reliability", "submission::realized_loss_after_funding_cannot_be_hidden_by_its_reservation"),
+
+    ("cash_checkpoint_external_version", "db-sqlite/src/workers/worker_transaction/cash_checkpoint.rs",
+     'AND data_version = ?3', 'AND ?3 IS NOT NULL',
+     "db-sqlite", None, "workers::worker_transaction::tests::ledger::checkpoints::external_commits_and_reader_snapshots_never_publish_stale_cash"),
+    ("cash_checkpoint_historical_edit", "db-sqlite/src/workers/worker_transaction/cash_checkpoint/schema.rs",
+     'BEFORE UPDATE ON main.transactions\nBEGIN DELETE FROM trust_verified_cash; END',
+     'BEFORE UPDATE ON main.transactions\nBEGIN SELECT 1; END',
+     "db-sqlite", None, "workers::worker_transaction::tests::ledger::checkpoints::historical_edits_deletion_scope_moves_and_corrupt_receipts_invalidate_cash"),
+    ("cash_checkpoint_backdated_insert", "db-sqlite/src/workers/worker_transaction/cash_checkpoint/schema.rs",
+     '(NEW.created_at, NEW.id) <= (last_created_at, last_id)', '0',
+     "db-sqlite", None, "workers::worker_transaction::tests::ledger::checkpoints::backdated_cash_preserves_ordered_overflow_rejection"),
+    ("cash_checkpoint_replace_conflict", "db-sqlite/src/workers/worker_transaction/cash_checkpoint/schema.rs",
+     'EXISTS (SELECT 1 FROM main.transactions WHERE id = NEW.id OR rowid = NEW.rowid)', '0',
+     "db-sqlite", None, "workers::worker_transaction::tests::ledger::checkpoints::replace_by_identity_or_rowid_cannot_double_count_prior_cash"),
+
+    ("cash_projection_append_sign", "db-sqlite/src/workers/worker_transaction/cash_checkpoint/append.rs",
+     '    category\n        .apply_to_available_cash(total, amount)',
+     '    TransactionCategory::Deposit\n        .apply_to_available_cash(total, amount)',
+     "db-sqlite", None, "workers::worker_transaction::tests::ledger::checkpoints::write_through::appended_cash_uses_one_balance_lookup_and_one_schema_guard"),
+    ("cash_projection_invalid_amount", "db-sqlite/src/workers/worker_transaction/cash_checkpoint/append.rs",
+     'Decimal::from_str_exact(&amount).ok()?', 'Decimal::from_str_exact(&amount).unwrap_or(Decimal::ZERO)',
+     "core", "reliability", "cash_projection::a_poisoned_cash_append_blocks_submission_without_broker_effects"),
+    ("cash_projection_schema_epoch", "db-sqlite/src/workers/worker_transaction/cash_checkpoint/lookup.rs",
+     'AND cash.schema_version = ', 'AND 1 <= ',
+     "db-sqlite", None, "workers::worker_transaction::tests::ledger::checkpoints::write_through::restored_edit_monitors_cannot_hide_a_missed_update_or_deletion"),
+    ("cash_projection_pending_write", "db-sqlite/src/workers/worker_transaction/cash_checkpoint/lookup.rs",
+     'AND cash.pending_id IS NULL', '',
+     "db-sqlite", None, "workers::worker_transaction::tests::ledger::checkpoints::write_through::an_ignored_projection_completion_cannot_authorize_old_cash"),
+
 ]
 
 
@@ -112,9 +189,17 @@ def main():
             original = path.read_text()
             if old not in original:
                 raise ValueError(f"Mutation {name} no longer matches its guard; update the experiment")
-            target = ["--test", suite] if suite is not None else ["--lib"]
+            if suite is None:
+                target = ["--lib"]
+            elif suite.startswith("bin:"):
+                target = ["--bin", suite.removeprefix("bin:")]
+            else:
+                target = ["--test", suite]
+            # Legacy behavior is deliberately feature-gated; a zero-test run is
+            # never evidence that a mutation was detected.
+            features = ["--features", "legacy-cli"] if package == "trust-cli" else []
             command = [os.environ.get("CARGO", "cargo"), "test", "--locked", "--offline", "-p", package,
-                       *target, test, "--", "--exact", "--test-threads=1"]
+                       *features, *target, test, "--", "--exact", "--test-threads=1"]
             outcomes = {}
             try:
                 for variant in ("baseline", "mutant"):

@@ -369,6 +369,9 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![created_later.id]
         );
+
+        assert_eq!(events, vec![earlier, later.clone()]);
+        assert_eq!(events_after_delete, vec![later]);
     }
 
     #[test]
@@ -492,10 +495,5 @@ mod tests {
             },
             "source",
         );
-    }
-
-    #[test]
-    fn debug_representation_is_stable() {
-        assert_eq!(format!("{WorkerTradeEvent:?}"), "WorkerTradeEvent");
     }
 }

@@ -200,10 +200,6 @@ mod tests {
         ) -> Result<Option<usize>, IoError> {
             std::mem::replace(&mut self.select_result, Ok(None))
         }
-
-        fn confirm(&mut self, _prompt: &str, _default: bool) -> Result<bool, IoError> {
-            Ok(false)
-        }
     }
 
     #[test]
@@ -218,26 +214,56 @@ mod tests {
     }
 
     #[test]
-    fn build_calls_facade_when_trade_is_present() {
+    fn stale_funded_trade_cannot_be_submitted_after_cancellation() {
         let mut trust = test_trust();
-        let builder = SubmitDialogBuilder {
-            account: None,
-            trade: Some(Trade::default()),
+        let account = seed_funded_trade(&mut trust);
+        let trade = trust
+            .search_trades(account.id, model::Status::Funded)
+            .unwrap()
+            .pop()
+            .unwrap();
+        trust.cancel_funded_trade(&trade).unwrap();
+        let persisted = trust.read_trade(trade.id).unwrap();
+        let balance = trust.search_balance(account.id, &Currency::USD).unwrap();
+        let receipts = trust.get_account_transactions(account.id).unwrap();
+        let rejected = SubmitDialogBuilder {
+            account: Some(account.clone()),
+            trade: Some(trade),
             result: None,
         }
         .build(&mut trust);
-
-        assert!(builder.result.is_some());
+        let error = rejected.result.unwrap().unwrap_err();
+        assert!(error.to_string().contains("not funded"), "{error}");
+        assert_eq!(trust.read_trade(persisted.id).unwrap(), persisted);
+        assert_eq!(
+            trust.search_balance(account.id, &Currency::USD).unwrap(),
+            balance
+        );
+        assert_eq!(
+            trust.get_account_transactions(account.id).unwrap(),
+            receipts
+        );
     }
 
     #[test]
-    fn display_handles_error_result() {
-        let builder = SubmitDialogBuilder {
-            account: None,
-            trade: None,
-            result: Some(Err("synthetic failure".into())),
-        };
-        builder.display();
+    fn display_identifies_the_failed_action_and_its_cause() {
+        crate::test_support::capture::assert_stdout(
+            module_path!(),
+            "display_identifies_the_failed_action_and_its_cause",
+            || {
+                let builder = SubmitDialogBuilder {
+                    account: None,
+                    trade: None,
+                    result: Some(Err("synthetic failure".into())),
+                };
+                builder.display();
+            },
+            |output| {
+                assert!(output.contains("Error submitting trade:"), "{output}");
+                assert!(output.contains("synthetic failure"), "{output}");
+                assert!(!output.contains("executed:"), "{output}");
+            },
+        );
     }
 
     #[test]
@@ -297,7 +323,7 @@ mod tests {
             .result
             .expect("result should be set")
             .expect_err("io should fail");
-        assert!(err.to_string().contains("Trade selection was canceled"));
+        assert!(err.to_string().contains("io failed"));
     }
 
     #[test]
@@ -379,15 +405,44 @@ mod tests {
     }
 
     #[test]
-    fn display_handles_success_result() {
-        let builder = SubmitDialogBuilder {
-            account: Some(Account {
-                name: "paper".to_string(),
-                ..Account::default()
-            }),
-            trade: Some(Trade::default()),
-            result: Some(Ok((Trade::default(), BrokerLog::default()))),
-        };
-        builder.display();
+    fn successful_action_displays_its_trade_and_account_details() {
+        crate::test_support::capture::assert_stdout(
+            module_path!(),
+            "successful_action_displays_its_trade_and_account_details",
+            || {
+                crate::zen::set_enabled(false);
+                let mut submitted = Trade {
+                    status: model::Status::Submitted,
+                    ..Trade::default()
+                };
+                submitted.trading_vehicle.symbol = "SUBMITTED".into();
+                submitted.entry.unit_price = dec!(100.25);
+                submitted.entry.quantity = dec!(2.5);
+                submitted.safety_stop.unit_price = dec!(95.125);
+                submitted.target.unit_price = dec!(110.5);
+                let builder = SubmitDialogBuilder {
+                    account: Some(Account {
+                        name: "paper".to_string(),
+                        ..Account::default()
+                    }),
+                    trade: Some(submitted.clone()),
+                    result: Some(Ok((submitted, BrokerLog::default()))),
+                };
+                builder.display();
+            },
+            |output| {
+                assert!(output.contains("Trade submitted:"), "{output}");
+                assert!(output.contains("Stop:"), "{output}");
+                assert!(output.contains("Entry:"), "{output}");
+                assert!(output.contains("Target:"), "{output}");
+                assert!(output.contains("Paper"), "{output}");
+                assert!(output.contains("submitted"), "{output}");
+                assert!(output.contains("SUBMITTED"), "{output}");
+                assert!(output.contains("100.25"), "{output}");
+                assert!(output.contains("95.13"), "{output}");
+                assert!(output.contains("110.5"), "{output}");
+                assert!(output.contains("2.5"), "{output}");
+            },
+        );
     }
 }

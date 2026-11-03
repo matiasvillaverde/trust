@@ -83,7 +83,21 @@ mod tests {
     }
 
     #[test]
-    fn display_rules_runs_for_smoke_coverage() {
-        RuleView::display_rules(vec![sample_rule()], "main");
+    fn rule_table_shows_the_actual_risk_limit_and_enforcement_level() {
+        crate::test_support::capture::assert_stdout(
+            module_path!(),
+            "rule_table_shows_the_actual_risk_limit_and_enforcement_level",
+            || {
+                RuleView::display_rules(vec![sample_rule()], "main");
+            },
+            |output| {
+                assert!(output.contains("Main"), "{output}");
+                assert!(output.contains("risk_per_trade"), "{output}");
+                assert!(output.contains("2.5 %"), "{output}");
+                assert!(output.contains("Max risk"), "{output}");
+                assert!(output.contains("warning"), "{output}");
+                assert!(output.contains("true"), "{output}");
+            },
+        );
     }
 }

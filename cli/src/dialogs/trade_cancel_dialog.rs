@@ -80,7 +80,7 @@ impl CancelDialogBuilder {
                 AccountBalanceView::display(account_o, account_name.as_str());
                 TransactionView::display(&tx, account_name.as_str());
             }
-            Err(error) => println!("Error approving trade: {error:?}"),
+            Err(error) => println!("Error canceling trade: {error:?}"),
         }
     }
 
@@ -171,10 +171,6 @@ mod tests {
             _default: usize,
         ) -> Result<Option<usize>, IoError> {
             std::mem::replace(&mut self.select_result, Ok(None))
-        }
-
-        fn confirm(&mut self, _prompt: &str, _default: bool) -> Result<bool, IoError> {
-            Ok(false)
         }
     }
 
@@ -330,7 +326,7 @@ mod tests {
             .result
             .expect("result should be set")
             .expect_err("io error should fail");
-        assert!(err.to_string().contains("Trade selection was canceled"));
+        assert!(err.to_string().contains("broken dialog"));
     }
 
     #[test]
@@ -358,29 +354,51 @@ mod tests {
     }
 
     #[test]
-    fn build_calls_submitted_cancel_path() {
+    fn claimed_submitted_status_cannot_cancel_a_funded_trade() {
         let mut trust = test_trust();
-        let builder = CancelDialogBuilder {
-            account: None,
-            trade: Some(Trade {
-                status: Status::Submitted,
-                ..Trade::default()
-            }),
+        let (account, mut trade) = seed_funded_trade(&mut trust);
+        let persisted = trade.clone();
+        trade.status = Status::Submitted;
+        let balance = trust.search_balance(account.id, &Currency::USD).unwrap();
+        let receipts = trust.get_account_transactions(account.id).unwrap();
+        let rejected = CancelDialogBuilder {
+            account: Some(account.clone()),
+            trade: Some(trade),
             result: None,
         }
         .build(&mut trust);
-
-        assert!(builder.result.is_some());
+        let error = rejected.result.unwrap().unwrap_err();
+        assert!(error.to_string().contains("not submitted"), "{error}");
+        assert_eq!(trust.read_trade(persisted.id).unwrap(), persisted);
+        assert_eq!(
+            trust.search_balance(account.id, &Currency::USD).unwrap(),
+            balance
+        );
+        assert_eq!(
+            trust.get_account_transactions(account.id).unwrap(),
+            receipts
+        );
     }
 
     #[test]
-    fn display_handles_error_result() {
-        CancelDialogBuilder {
-            account: None,
-            trade: None,
-            result: Some(Err("synthetic failure".into())),
-        }
-        .display();
+    fn display_identifies_the_failed_action_and_its_cause() {
+        crate::test_support::capture::assert_stdout(
+            module_path!(),
+            "display_identifies_the_failed_action_and_its_cause",
+            || {
+                CancelDialogBuilder {
+                    account: None,
+                    trade: None,
+                    result: Some(Err("synthetic failure".into())),
+                }
+                .display();
+            },
+            |output| {
+                assert!(output.contains("Error canceling trade:"), "{output}");
+                assert!(output.contains("synthetic failure"), "{output}");
+                assert!(!output.contains("executed:"), "{output}");
+            },
+        );
     }
 
     #[test]

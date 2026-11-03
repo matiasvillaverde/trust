@@ -42,20 +42,26 @@ impl TransactionDialogBuilder {
     }
 
     pub fn build(mut self, trust: &mut TrustFacade) -> TransactionDialogBuilder {
-        self.result = Some(
+        self.result = Some((|| {
             trust.create_transaction(
-                &self
-                    .account
-                    .clone()
-                    .expect("No account found, did you forget to call account?"),
+                crate::dialogs::dialog_helpers::require(
+                    self.account.as_ref(),
+                    std::io::ErrorKind::InvalidInput,
+                    "Select an account",
+                )?,
                 &self.category,
-                self.amount
-                    .expect("No amount found, did you forget to call amount?"),
-                &self
-                    .currency
-                    .expect("No currency found, did you forget to call currency?"),
-            ),
-        );
+                crate::dialogs::dialog_helpers::require(
+                    self.amount,
+                    std::io::ErrorKind::InvalidInput,
+                    "Enter an amount",
+                )?,
+                &crate::dialogs::dialog_helpers::require(
+                    self.currency,
+                    std::io::ErrorKind::InvalidInput,
+                    "Select a currency",
+                )?,
+            )
+        })());
         self
     }
 
@@ -71,7 +77,7 @@ impl TransactionDialogBuilder {
                 println!("Now the account {name} balance is:");
                 AccountBalanceView::display(balance, &name);
             }
-            Err(error) => println!("Error creating account: {error:?}"),
+            Err(error) => println!("Error creating transaction: {error:?}"),
         }
     }
 
@@ -214,10 +220,6 @@ mod tests {
             self.selects.pop_front().unwrap_or(Ok(None))
         }
 
-        fn confirm(&mut self, _prompt: &str, _default: bool) -> Result<bool, IoError> {
-            Ok(false)
-        }
-
         fn input_text(&mut self, _prompt: &str, _allow_empty: bool) -> Result<String, IoError> {
             self.inputs.pop_front().unwrap_or_else(|| Ok(String::new()))
         }
@@ -230,29 +232,53 @@ mod tests {
     }
 
     #[test]
-    fn display_handles_error_result() {
-        TransactionDialogBuilder {
-            amount: None,
-            currency: None,
-            account: None,
-            category: TransactionCategory::Deposit,
-            result: Some(Err("synthetic failure".into())),
-        }
-        .display();
+    fn display_identifies_the_failed_action_and_its_cause() {
+        crate::test_support::capture::assert_stdout(
+            module_path!(),
+            "display_identifies_the_failed_action_and_its_cause",
+            || {
+                TransactionDialogBuilder {
+                    amount: None,
+                    currency: None,
+                    account: None,
+                    category: TransactionCategory::Deposit,
+                    result: Some(Err("synthetic failure".into())),
+                }
+                .display();
+            },
+            |output| {
+                assert!(output.contains("Error creating transaction:"), "{output}");
+                assert!(output.contains("synthetic failure"), "{output}");
+                assert!(!output.contains("executed:"), "{output}");
+            },
+        );
     }
 
     #[test]
-    #[should_panic(expected = "No account found, did you forget to call account?")]
-    fn build_panics_when_required_inputs_are_missing() {
+    fn build_rejects_when_required_inputs_are_missing() {
         let mut trust = test_trust();
-        let _ = TransactionDialogBuilder::new(TransactionCategory::Deposit).build(&mut trust);
+        let before = trust.search_all_accounts().unwrap();
+        let rejected =
+            TransactionDialogBuilder::new(TransactionCategory::Deposit).build(&mut trust);
+
+        let error = rejected
+            .result
+            .unwrap()
+            .expect_err("incomplete input must be rejected");
+        assert_eq!(
+            error
+                .downcast_ref::<std::io::Error>()
+                .map(std::io::Error::kind),
+            Some(std::io::ErrorKind::InvalidInput)
+        );
+        assert_eq!(trust.search_all_accounts().unwrap(), before);
     }
 
     #[test]
-    #[should_panic(expected = "No amount found, did you forget to call amount?")]
-    fn build_panics_when_amount_is_missing() {
+    fn build_rejects_when_amount_is_missing() {
         let mut trust = test_trust();
-        let _ = TransactionDialogBuilder {
+        let before = trust.search_all_accounts().unwrap();
+        let rejected = TransactionDialogBuilder {
             amount: None,
             currency: Some(Currency::USD),
             account: Some(Account::default()),
@@ -260,13 +286,25 @@ mod tests {
             result: None,
         }
         .build(&mut trust);
+
+        let error = rejected
+            .result
+            .unwrap()
+            .expect_err("incomplete input must be rejected");
+        assert_eq!(
+            error
+                .downcast_ref::<std::io::Error>()
+                .map(std::io::Error::kind),
+            Some(std::io::ErrorKind::InvalidInput)
+        );
+        assert_eq!(trust.search_all_accounts().unwrap(), before);
     }
 
     #[test]
-    #[should_panic(expected = "No currency found, did you forget to call currency?")]
-    fn build_panics_when_currency_is_missing() {
+    fn build_rejects_when_currency_is_missing() {
         let mut trust = test_trust();
-        let _ = TransactionDialogBuilder {
+        let before = trust.search_all_accounts().unwrap();
+        let rejected = TransactionDialogBuilder {
             amount: Some(dec!(10)),
             currency: None,
             account: Some(Account::default()),
@@ -274,29 +312,66 @@ mod tests {
             result: None,
         }
         .build(&mut trust);
+
+        let error = rejected
+            .result
+            .unwrap()
+            .expect_err("incomplete input must be rejected");
+        assert_eq!(
+            error
+                .downcast_ref::<std::io::Error>()
+                .map(std::io::Error::kind),
+            Some(std::io::ErrorKind::InvalidInput)
+        );
+        assert_eq!(trust.search_all_accounts().unwrap(), before);
     }
 
     #[test]
-    fn display_handles_success_result() {
-        TransactionDialogBuilder {
-            amount: Some(dec!(10)),
-            currency: Some(Currency::USD),
-            account: Some(Account {
-                name: "paper".to_string(),
-                ..Account::default()
-            }),
-            category: TransactionCategory::Deposit,
-            result: Some(Ok((
-                Transaction::new(
-                    Uuid::new_v4(),
-                    TransactionCategory::Deposit,
-                    &Currency::USD,
-                    dec!(10),
-                ),
-                model::AccountBalance::default(),
-            ))),
-        }
-        .display();
+    fn deposit_receipt_matches_the_committed_fractional_cash() {
+        crate::test_support::capture::assert_stdout(
+            module_path!(),
+            "deposit_receipt_matches_the_committed_fractional_cash",
+            || {
+                let mut trust = test_trust();
+                let account = trust
+                    .create_account("paper", "receipt", Environment::Paper, dec!(20), dec!(10))
+                    .unwrap();
+                let builder = TransactionDialogBuilder {
+                    amount: Some(dec!(12.37)),
+                    currency: Some(Currency::USD),
+                    account: Some(account.clone()),
+                    category: TransactionCategory::Deposit,
+                    result: None,
+                }
+                .build(&mut trust);
+                let (transaction, balance) = builder.result.as_ref().unwrap().as_ref().unwrap();
+                assert_eq!(transaction.amount, dec!(12.37));
+                assert_eq!(balance.total_balance, dec!(12.37));
+                assert_eq!(balance.total_available, dec!(12.37));
+                assert_eq!(
+                    trust.search_balance(account.id, &Currency::USD).unwrap(),
+                    *balance
+                );
+                assert_eq!(
+                    trust.get_account_transactions(account.id).unwrap(),
+                    vec![transaction.clone()]
+                );
+                builder.display();
+            },
+            |output| {
+                assert!(
+                    output.contains("Transaction created in account:  paper"),
+                    "{output}"
+                );
+                assert!(output.contains("12.37"), "{output}");
+                assert!(output.contains("USD"), "{output}");
+                assert!(output.contains("deposit"), "{output}");
+                assert!(
+                    output.contains("Now the account paper balance is:"),
+                    "{output}"
+                );
+            },
+        );
     }
 
     #[test]
@@ -570,34 +645,48 @@ mod tests {
     }
 
     #[test]
-    fn display_success_covers_non_default_balance_values() {
-        TransactionDialogBuilder {
-            amount: Some(dec!(10)),
-            currency: Some(Currency::USD),
-            account: Some(Account {
-                name: "paper".to_string(),
-                ..Account::default()
-            }),
-            category: TransactionCategory::Deposit,
-            result: Some(Ok((
-                Transaction::new(
-                    Uuid::new_v4(),
-                    TransactionCategory::Deposit,
-                    &Currency::USD,
-                    dec!(10),
-                ),
-                AccountBalance {
-                    total_balance: dec!(110),
-                    total_available: dec!(90),
-                    total_in_trade: dec!(20),
-                    taxed: dec!(5),
-                    total_earnings: dec!(15),
-                    currency: Currency::USD,
-                    ..AccountBalance::default()
-                },
-            ))),
-        }
-        .display();
+    fn cash_receipt_distinguishes_total_available_reserved_and_taxed_amounts() {
+        crate::test_support::capture::assert_stdout(
+            module_path!(),
+            "cash_receipt_distinguishes_total_available_reserved_and_taxed_amounts",
+            || {
+                TransactionDialogBuilder {
+                    amount: Some(dec!(10)),
+                    currency: Some(Currency::USD),
+                    account: Some(Account {
+                        name: "paper".to_string(),
+                        ..Account::default()
+                    }),
+                    category: TransactionCategory::Deposit,
+                    result: Some(Ok((
+                        Transaction::new(
+                            Uuid::new_v4(),
+                            TransactionCategory::Deposit,
+                            &Currency::USD,
+                            dec!(10),
+                        ),
+                        AccountBalance {
+                            total_balance: dec!(110),
+                            total_available: dec!(90),
+                            total_in_trade: dec!(20),
+                            taxed: dec!(5),
+                            total_earnings: dec!(15),
+                            currency: Currency::USD,
+                            ..AccountBalance::default()
+                        },
+                    ))),
+                }
+                .display();
+            },
+            |output| {
+                assert!(output.contains("paper"), "{output}");
+                assert!(output.contains("110"), "{output}");
+                assert!(output.contains("90"), "{output}");
+                assert!(output.contains("20"), "{output}");
+                assert!(output.contains("5"), "{output}");
+                assert!(output.contains("USD"), "{output}");
+            },
+        );
     }
 
     #[test]

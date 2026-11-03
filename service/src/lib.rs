@@ -5,6 +5,7 @@ pub mod catalog;
 pub mod config;
 pub mod domain;
 pub mod error;
+pub mod financial_telemetry;
 pub mod http;
 pub mod journal;
 pub mod logging;

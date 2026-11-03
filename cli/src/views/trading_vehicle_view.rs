@@ -102,7 +102,23 @@ mod tests {
     }
 
     #[test]
-    fn display_table_runs_for_smoke_coverage() {
-        TradingVehicleView::display_table(vec![TradingVehicle::default()]);
+    fn instrument_table_keeps_symbol_broker_and_security_identity() {
+        crate::test_support::capture::assert_stdout(
+            module_path!(),
+            "instrument_table_keeps_symbol_broker_and_security_identity",
+            || {
+                TradingVehicleView::display_table(vec![TradingVehicle {
+                    symbol: "OUTPUT".into(),
+                    broker: "ibkr".into(),
+                    isin: Some("BOND-IDENTITY".into()),
+                    ..TradingVehicle::default()
+                }]);
+            },
+            |output| {
+                assert!(output.contains("OUTPUT"), "{output}");
+                assert!(output.contains("IBKR"), "{output}");
+                assert!(output.contains("BOND-IDENTITY"), "{output}");
+            },
+        );
     }
 }

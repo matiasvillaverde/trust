@@ -1,7 +1,8 @@
 use model::{Account, Environment};
 use std::fmt::{self, Display, Formatter};
 use std::str::FromStr;
-use trust_credentials::Entry;
+mod store;
+use store::{ConnectionStore, NativeStore};
 
 const DEFAULT_GATEWAY_URL: &str = "https://localhost:5000/v1/api";
 const ENV_URL: &str = "TRUST_IBKR_URL";
@@ -46,8 +47,18 @@ impl ConnectionConfig {
             return Ok(config);
         }
 
-        let entry = entry(environment, &account.name)?;
-        match entry.get_password() {
+        Self::read_from(&NativeStore, environment, account)
+    }
+
+    fn read_from(
+        store: &dyn ConnectionStore,
+        environment: &Environment,
+        account: &Account,
+    ) -> trust_credentials::Result<Self> {
+        match store.read(
+            &format!("trust-ibkr:{}", account.name),
+            &environment.to_string(),
+        ) {
             Ok(raw) => ConnectionConfig::from_str(&raw).map_err(|_| {
                 trust_credentials::Error::PlatformFailure(
                     "Failed to parse IBKR connection config from keychain"
@@ -66,20 +77,42 @@ impl ConnectionConfig {
         environment: &Environment,
         account: &Account,
     ) -> trust_credentials::Result<Self> {
+        self.store_in(&NativeStore, environment, account)
+    }
+
+    fn store_in(
+        self,
+        store: &dyn ConnectionStore,
+        environment: &Environment,
+        account: &Account,
+    ) -> trust_credentials::Result<Self> {
         Self::from_parts(&self.base_url, self.allow_insecure_tls).map_err(|_| {
             trust_credentials::Error::PlatformFailure(
                 "Invalid IBKR connection config".to_string().into(),
             )
         })?;
-        let entry = entry(environment, &account.name)?;
-        entry.set_password(&self.to_keychain_string())?;
+        store.write(
+            &format!("trust-ibkr:{}", account.name),
+            &environment.to_string(),
+            &self.to_keychain_string(),
+        )?;
         Ok(self)
     }
 
     /// Remove persisted settings for an account.
     pub fn delete(environment: &Environment, account: &Account) -> trust_credentials::Result<()> {
-        let entry = entry(environment, &account.name)?;
-        match entry.delete_credential() {
+        Self::delete_from(&NativeStore, environment, account)
+    }
+
+    fn delete_from(
+        store: &dyn ConnectionStore,
+        environment: &Environment,
+        account: &Account,
+    ) -> trust_credentials::Result<()> {
+        match store.delete(
+            &format!("trust-ibkr:{}", account.name),
+            &environment.to_string(),
+        ) {
             Ok(()) | Err(trust_credentials::Error::NoEntry) => Ok(()),
             Err(error) => Err(error),
         }
@@ -157,13 +190,6 @@ impl FromStr for ConnectionConfig {
         }
         Self::from_parts(base_url, allow_insecure_tls)
     }
-}
-
-fn entry(environment: &Environment, account_name: &str) -> trust_credentials::Result<Entry> {
-    trust_credentials::entry(
-        &format!("trust-ibkr:{account_name}"),
-        environment.to_string().as_str(),
-    )
 }
 
 fn normalize_base_url(base_url: &str) -> String {

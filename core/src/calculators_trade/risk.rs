@@ -3,7 +3,7 @@ use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use uuid::Uuid;
 
-use crate::calculators_account::{AccountCapitalAvailable, AccountCapitalBeginningOfMonth};
+use crate::calculators_account::AccountCapitalBeginningOfMonth;
 use crate::calculators_trade::TradeCapitalNotAtRisk;
 
 pub struct RiskCalculator;
@@ -11,21 +11,13 @@ pub struct RiskCalculator;
 impl RiskCalculator {
     /// Resolve caps by rule type, independent of persisted ordering. Duplicate rules
     /// can only tighten a cap. A monthly-only policy remains an enforced limit.
-    pub fn effective_rules(
-        account_id: Uuid,
-        currency: &Currency,
-        rules: &[Rule],
-        database: &mut dyn DatabaseFactory,
-    ) -> Result<(Option<Decimal>, Decimal), Box<dyn std::error::Error>> {
-        Self::effective_rules_for_reservation(account_id, currency, rules, database, None)
-    }
-
     pub(crate) fn effective_rules_for_reservation(
         account_id: Uuid,
         currency: &Currency,
         rules: &[Rule],
         database: &mut dyn DatabaseFactory,
         reservation: Option<&Trade>,
+        verified_available: Decimal,
     ) -> Result<(Option<Decimal>, Decimal), Box<dyn std::error::Error>> {
         let mut per_trade: Option<Decimal> = None;
         let mut per_month = dec!(100);
@@ -36,19 +28,14 @@ impl RiskCalculator {
                     per_trade = Some(per_trade.map_or(risk, |previous| previous.min(risk)))
                 }
                 RuleName::RiskPerMonth(value) => {
-                    let monthly = if reservation.is_some() {
-                        Self::monthly_percentage(
-                            value,
-                            account_id,
-                            currency,
-                            database,
-                            reservation,
-                        )?
-                    } else {
-                        Self::calculate_max_percentage_to_risk_current_month(
-                            value, account_id, currency, database,
-                        )?
-                    };
+                    let monthly = Self::monthly_percentage(
+                        value,
+                        account_id,
+                        currency,
+                        database,
+                        reservation,
+                        verified_available,
+                    )?;
                     per_month = per_month.min(monthly);
                 }
             }
@@ -56,28 +43,24 @@ impl RiskCalculator {
         Ok((per_trade, per_month))
     }
 
-    pub fn calculate_max_percentage_to_risk_current_month(
-        risk: f32,
-        account_id: Uuid,
-        currency: &Currency,
-        database: &mut dyn DatabaseFactory,
-    ) -> Result<Decimal, Box<dyn std::error::Error>> {
-        Self::monthly_percentage(risk, account_id, currency, database, None)
-    }
-
+    #[tracing::instrument(
+        level = "trace",
+        target = "trust::perf",
+        name = "risk.monthly_percentage",
+        skip_all
+    )]
     fn monthly_percentage(
         risk: f32,
         account_id: Uuid,
         currency: &Currency,
         database: &mut dyn DatabaseFactory,
         reservation: Option<&Trade>,
+        verified_available: Decimal,
     ) -> Result<Decimal, Box<dyn std::error::Error>> {
         // Calculate the total available this month.
-        let mut total_available = AccountCapitalAvailable::calculate(
-            account_id,
-            currency,
-            database.transaction_read().as_mut(),
-        )?;
+        // Reuse a ledger read only within this admission/preview operation. The
+        // submission caller supplies raw verified cash, before restoring its reservation.
+        let mut total_available = verified_available;
 
         // Calculate the capital of the open trades that is not at risk.
         let mut total_capital_not_at_risk =

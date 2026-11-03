@@ -1,0 +1,90 @@
+{
+  "baseline_commit": "3e8718f31bf0627e51c26123c06e4f0fc6224abe",
+  "baseline_tree": "fc84384cf06b808e44d0eee03e61136d58348a69",
+  "date": "2026-10-31",
+  "scope": "Tracked test source and Linux all-features Cargo registration; not a new execution report.",
+  "registration_command": "cargo test --locked --workspace --all-features -- --list",
+  "registration_log_sha256": "9b07aaadd43d38a199f49db0d2a84f98807406551f1337b103abd0fb8523d1c9",
+  "rust_registered": 2500,
+  "rust_ignored": 9,
+  "rust_macro_generated": 149,
+  "rust_proptest_generated": 9,
+  "rust_unmapped": 0,
+  "orphan_test_functions": 6,
+  "kind_counts": {
+    "Rust test": 2500,
+    "Orphan Rust test": 6,
+    "Python unittest": 46,
+    "Shell check": 15,
+    "Acceptance checkpoint": 12,
+    "Acceptance subcheck": 1,
+    "Acceptance prerequisite": 2,
+    "Acceptance workflow": 1,
+    "Broker acceptance workflow": 1,
+    "Evidence acceptance workflow": 1,
+    "Agent evaluation scenario": 9,
+    "Skill routing evaluation": 24,
+    "Mutation experiment": 19
+  },
+  "page_counts": {
+    "acceptance": 18,
+    "advisor": 24,
+    "agent-evaluations": 33,
+    "alpaca-broker": 119,
+    "automation": 61,
+    "broker-sync": 38,
+    "cli-bug-contracts": 188,
+    "cli-commands-dialogs": 342,
+    "cli-dispatcher": 180,
+    "cli-integration": 240,
+    "cli-lifecycle-matrices": 212,
+    "cli-views": 44,
+    "core-calculators": 249,
+    "core-contracts": 102,
+    "core-workflows": 237,
+    "db-sqlite": 209,
+    "ibkr-broker": 115,
+    "inactive": 6,
+    "model": 113,
+    "mutations": 19,
+    "security": 4,
+    "service": 84
+  },
+  "rust_band_counts": {
+    "Useful": 2026,
+    "Mixed": 227,
+    "Strong": 135,
+    "Limited": 47,
+    "Minimal": 65
+  },
+  "rust_confidence_counts": {
+    "Low": 1955,
+    "High": 119,
+    "Medium": 426
+  },
+  "review_basis_counts": {
+    "Indexed": 1955,
+    "Mutation evidence": 38,
+    "Prior contract review": 21,
+    "Family review": 447,
+    "Body review": 138,
+    "Lane review": 7,
+    "Reachability review": 6,
+    "Helper review": 1,
+    "Case review": 24
+  },
+  "catalog_rows": 2637,
+  "catalog_sha256": "3c1a3b4198403264544733fc8b942dcaccc4d77fc017b168d1d95b4403201375",
+  "previous_validation": {
+    "pull_request": 156,
+    "ci_run": 41215645711,
+    "rust_all_features": {
+      "passed": 2491,
+      "failed": 0,
+      "ignored": 9
+    },
+    "curated_mutants_caught": 19,
+    "mutation_evidence_sha256": "888ff6ee748357ea914c9a276e9046eb1ea33681ac95a3770deda22a90f59836",
+    "note": "Previous validation of the same code tree; these are historical results, not reruns during the documentation audit."
+  }
+}

@@ -8,6 +8,9 @@
 #[path = "e2e/history.rs"]
 mod history;
 mod support;
+#[path = "e2e/telemetry.rs"]
+mod telemetry;
+
 use serde_json::{json, Value};
 use std::{sync::atomic::Ordering, time::Duration};
 use support::{Fixture, Gateway, SENTINEL};
@@ -346,88 +349,13 @@ async fn external_positions_unrealized_losses_and_snapshot_failures_block_new_ex
     p.stop().await;
 }
 
-// Offline, real-process benchmark: JWT verification, HTTP/MCP, queueing, risk
-// calculation and FULL-synchronous durable read auditing all stay enabled.
+#[path = "e2e/performance.rs"]
+mod performance;
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "Release performance gate; run via make service-perf"]
 async fn real_process_risk_preview_latency_budget() {
-    use std::time::Instant;
-    for mcp in [false, true] {
-        let gateway = Gateway::start().await;
-        let mut f = Fixture::new(5000, 32);
-        f.enable_encryption();
-        let mut p = f.start(&gateway).await;
-        let (account, _) = f.seed(&p, "long", "10", "performance").await;
-        // Sign outside the timed region, as a real agent reuses its access token.
-        let token = f.token("agent");
-        let args = json!({"account_id":account,"entry":"100","stop":"95"});
-        let request = if mcp {
-            f.client.post(format!("{}/mcp", p.url)).json(&json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"risk_preview","arguments":args}}))
-        } else {
-            f.client.post(format!("{}/v1/tools/risk_preview", p.url)).json(&args)
-        }.header("host", "localhost:8000")
-            .header("accept", "application/json, text/event-stream")
-            .header("mcp-protocol-version", "2025-11-25")
-            .bearer_auth(token);
-        let measure = move |request: reqwest::RequestBuilder| async move {
-            let start = Instant::now();
-            let response = request.send().await.unwrap();
-            assert_eq!(response.status(), 200);
-            let value: Value = response.json().await.unwrap();
-            let reply = if mcp {
-                &value["result"]["structuredContent"]
-            } else {
-                &value
-            };
-            assert!(reply["error"].is_null(), "{reply}");
-            assert!(reply["data"].is_object(), "{reply}");
-            start.elapsed()
-        };
-        for _ in 0..6 {
-            measure(request.try_clone().unwrap()).await;
-        }
-        for concurrency in [1, 4] {
-            let mut samples = Vec::new();
-            let started = Instant::now();
-            for _ in 0..(if concurrency == 1 { 32 } else { 16 }) {
-                let mut pending = tokio::task::JoinSet::new();
-                for _ in 0..concurrency {
-                    pending.spawn(measure(request.try_clone().unwrap()));
-                }
-                while let Some(sample) = pending.join_next().await {
-                    samples.push(sample.unwrap());
-                }
-            }
-            let elapsed = started.elapsed();
-            samples.sort_unstable();
-            let percentile = |percent: usize| samples[(samples.len() * percent).div_ceil(100) - 1];
-            println!(
-                "service_perf {}",
-                json!({"encrypted_storage":true,"transport":if mcp{"mcp"}else{"http"},"concurrency":concurrency,"samples":samples.len(),"elapsed_us":elapsed.as_micros(),"p50_us":percentile(50).as_micros(),"p95_us":percentile(95).as_micros(),"p99_us":percentile(99).as_micros(),"max_us":samples.last().unwrap().as_micros()})
-            );
-            let budget = if concurrency == 1 { 50 } else { 200 };
-            assert!(
-                percentile(95) < Duration::from_millis(budget),
-                "p95 exceeded {budget}ms at concurrency {concurrency}: {samples:?}"
-            );
-        }
-        let verified = f.ok(&p, "audit_verify", json!({})).await;
-        assert!(verified["events"].as_u64().unwrap() >= 102);
-        assert_eq!(gateway.state.submissions.load(Ordering::SeqCst), 0);
-        let journal = f.journal();
-        let audited: i64 = journal
-            .query_row(
-                "SELECT COUNT(*) FROM audit WHERE json_extract(event, '$.tool') = 'risk_preview'",
-                [],
-                |row| row.get(0),
-            )
-            .unwrap();
-        assert_eq!(
-            audited, 102,
-            "every measured and warm-up read must be audited"
-        );
-        p.stop().await;
-    }
+    performance::risk_preview_latency_budget().await;
 }
 
 fn pending(
@@ -561,14 +489,7 @@ async fn real_process_mcp_ibkr_lifecycles_replay_audit_metrics_and_redaction() {
             .text()
             .await
             .unwrap();
-        assert!(metrics.contains("trust_worker_ready 1\n"));
-        assert!(metrics.contains("trust_replays_total 1\n"));
-        assert!(metrics.contains("trust_execution_milliseconds_bucket"));
-        assert!(metrics.contains("trust_tool_duration_seconds_count{tool=\"trade_submit\"} 3\n"));
-        assert!(metrics.contains("trust_stage_duration_seconds_count{stage=\"journal_finish\"}"));
-        assert!(metrics.contains("trust_http_responses_total{route=\"mcp\",outcome=\"success\"}"));
-        assert!(metrics.contains("trust_log_dropped_lines_total 0\n"));
-        assert!(!metrics.contains(account.as_str().unwrap()));
+        telemetry::assert_metrics(&metrics, account.as_str().unwrap());
         // Probes do not consume the ordinary global request budget.
         for _ in 0..610 {
             assert_eq!(

@@ -838,42 +838,6 @@ fn test_closing_fee_matched_to_target_order() {
 // ===========================================================================
 
 #[test]
-fn test_short_trade_entry_equals_stop_rejected() {
-    // entry == stop means zero risk → should be rejected
-    let mut trust = setup_facade(NoOpBroker);
-    let account = setup_account_with_rules(&mut trust, dec!(50000), 2.0);
-    let tv = create_vehicle(&mut trust, "AAPL");
-
-    let draft = DraftTrade {
-        account: account.clone(),
-        trading_vehicle: tv,
-        quantity: 100.into(),
-        currency: Currency::USD,
-        category: TradeCategory::Short,
-        thesis: None,
-        sector: None,
-        asset_class: None,
-        context: None,
-    };
-
-    // entry=50, stop=50 → price_diff = 0 → rejected
-    let result = trust.create_trade(draft, dec!(50), dec!(50), dec!(40));
-    // Trade creation might succeed but funding should fail
-    if result.is_ok() {
-        let trade = trust
-            .search_trades(account.id, Status::New)
-            .unwrap()
-            .pop()
-            .unwrap();
-        let fund_result = trust.fund_trade(&trade);
-        assert!(
-            fund_result.is_err(),
-            "funding short trade with entry==stop should fail"
-        );
-    }
-}
-
-#[test]
 fn test_short_trade_level_adjustment_skipped() {
     // Short trades skip level-adjusted quantity validation
     // This test verifies that a short trade with quantity exceeding level max still funds
@@ -1095,109 +1059,6 @@ fn test_two_trades_same_symbol_independent_lifecycles() {
 // ===========================================================================
 // 9. RISK VALIDATION EDGE CASES
 // ===========================================================================
-
-#[test]
-fn test_trade_exceeding_risk_per_trade_rejected() {
-    let mut trust = setup_facade(NoOpBroker);
-    // 2% risk per trade on 10000 = 200 max risk
-    let account = setup_account_with_rules(&mut trust, dec!(10000), 2.0);
-    let tv = create_vehicle(&mut trust, "AAPL");
-
-    let draft = DraftTrade {
-        account: account.clone(),
-        trading_vehicle: tv,
-        quantity: 500.into(), // Risk = (40-38)*500 = 1000, way above 200 limit
-        currency: Currency::USD,
-        category: TradeCategory::Long,
-        thesis: None,
-        sector: None,
-        asset_class: None,
-        context: None,
-    };
-    trust
-        .create_trade(draft, dec!(38), dec!(40), dec!(50))
-        .unwrap();
-    let trade = trust
-        .search_trades(account.id, Status::New)
-        .unwrap()
-        .pop()
-        .unwrap();
-
-    let result = trust.fund_trade(&trade);
-    assert!(
-        result.is_err(),
-        "trade exceeding risk limit should be rejected"
-    );
-}
-
-#[test]
-fn test_trade_at_exact_risk_limit_accepted() {
-    let mut trust = setup_facade(NoOpBroker);
-    // 2% risk on 50000 = 1000 max risk
-    // price_diff = 40-38 = 2, quantity = 500, total_risk = 1000
-    let account = setup_account_with_rules(&mut trust, dec!(50000), 2.0);
-    let tv = create_vehicle(&mut trust, "AAPL");
-
-    let draft = DraftTrade {
-        account: account.clone(),
-        trading_vehicle: tv,
-        quantity: 500.into(),
-        currency: Currency::USD,
-        category: TradeCategory::Long,
-        thesis: None,
-        sector: None,
-        asset_class: None,
-        context: None,
-    };
-    trust
-        .create_trade(draft, dec!(38), dec!(40), dec!(50))
-        .unwrap();
-    let trade = trust
-        .search_trades(account.id, Status::New)
-        .unwrap()
-        .pop()
-        .unwrap();
-
-    let result = trust.fund_trade(&trade);
-    assert!(
-        result.is_ok(),
-        "trade at exact risk limit should be accepted"
-    );
-}
-
-#[test]
-fn test_trade_with_zero_quantity_rejected() {
-    let mut trust = setup_facade(NoOpBroker);
-    let account = setup_account_with_rules(&mut trust, dec!(50000), 2.0);
-    let tv = create_vehicle(&mut trust, "AAPL");
-
-    let draft = DraftTrade {
-        account: account.clone(),
-        trading_vehicle: tv,
-        quantity: 0.into(),
-        currency: Currency::USD,
-        category: TradeCategory::Long,
-        thesis: None,
-        sector: None,
-        asset_class: None,
-        context: None,
-    };
-
-    let result = trust.create_trade(draft, dec!(38), dec!(40), dec!(50));
-    // Zero quantity should be rejected either at trade creation or funding
-    if result.is_ok() {
-        let trade = trust
-            .search_trades(account.id, Status::New)
-            .unwrap()
-            .pop()
-            .unwrap();
-        let fund_result = trust.fund_trade(&trade);
-        assert!(
-            fund_result.is_err(),
-            "zero quantity trade should be rejected at funding"
-        );
-    }
-}
 
 // ===========================================================================
 // 10. ENTRY PRICE WORSE THAN EXPECTED — Fill costs more than planned
@@ -1492,3 +1353,8 @@ fn test_fee_exceeding_available_balance_fails() {
         "fee exceeding available balance should fail"
     );
 }
+
+#[path = "integration_test_sync_edge_cases/admission.rs"]
+mod admission;
+#[path = "support/funding.rs"]
+mod funding_fixture;

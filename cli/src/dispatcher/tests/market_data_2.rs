@@ -13,140 +13,245 @@ use model::MarketBar;
 use rust_decimal_macros::dec;
 
 #[test]
-fn test_market_data_dispatch_paths_succeed_with_stub_broker() {
-    let mut dispatcher = test_dispatcher_with_broker(Box::new(StubBroker::quote_trade_fixture()));
-    let (account, _) = seed_account_and_vehicle(&mut dispatcher);
-    let account_id = account.id.to_string();
+fn market_commands_preserve_prices_sizes_sources_and_timestamps() {
+    crate::test_support::capture::assert_stdout(
+        module_path!(),
+        "market_commands_preserve_prices_sizes_sources_and_timestamps",
+        || {
+            let mut dispatcher =
+                test_dispatcher_with_broker(Box::new(StubBroker::quote_trade_fixture()));
+            let (account, _) = seed_account_and_vehicle(&mut dispatcher);
+            let account_id = account.id.to_string();
 
-    let snapshot = market_data_command_matches(&[
-        "snapshot",
-        "--account",
-        &account_id,
-        "--symbol",
-        "aapl",
-        "--format",
-        "json",
-    ]);
-    crate::dispatcher::market_data::dispatch_market_data(&mut dispatcher.trust, &snapshot)
-        .expect("snapshot dispatch should succeed");
-    let snapshot_text =
-        market_data_command_matches(&["snapshot", "--account", &account_id, "--symbol", "aapl"]);
-    crate::dispatcher::market_data::dispatch_market_data(&mut dispatcher.trust, &snapshot_text)
-        .expect("text snapshot dispatch should succeed");
+            let snapshot = market_data_command_matches(&[
+                "snapshot",
+                "--account",
+                &account_id,
+                "--symbol",
+                "aapl",
+                "--format",
+                "json",
+            ]);
 
-    let quote = market_data_command_matches(&[
-        "quote",
-        "--account",
-        &account_id,
-        "--symbol",
-        "AAPL",
-        "--format",
-        "json",
-    ]);
-    crate::dispatcher::market_data::dispatch_market_data(&mut dispatcher.trust, &quote)
-        .expect("quote dispatch should succeed");
-    let quote_text =
-        market_data_command_matches(&["quote", "--account", &account_id, "--symbol", "AAPL"]);
-    crate::dispatcher::market_data::dispatch_market_data(&mut dispatcher.trust, &quote_text)
-        .expect("text quote dispatch should succeed");
+            println!("BEGIN:snapshot");
+            crate::dispatcher::market_data::dispatch_market_data(&mut dispatcher.trust, &snapshot)
+                .expect("snapshot dispatch should succeed");
+            println!("END:snapshot");
 
-    let trade = market_data_command_matches(&[
-        "trade",
-        "--account",
-        &account_id,
-        "--symbol",
-        "AAPL",
-        "--format",
-        "json",
-    ]);
-    crate::dispatcher::market_data::dispatch_market_data(&mut dispatcher.trust, &trade)
-        .expect("trade dispatch should succeed");
-    let trade_text =
-        market_data_command_matches(&["trade", "--account", &account_id, "--symbol", "AAPL"]);
-    crate::dispatcher::market_data::dispatch_market_data(&mut dispatcher.trust, &trade_text)
-        .expect("text trade dispatch should succeed");
+            let snapshot_text = market_data_command_matches(&[
+                "snapshot",
+                "--account",
+                &account_id,
+                "--symbol",
+                "aapl",
+            ]);
+            crate::dispatcher::market_data::dispatch_market_data(
+                &mut dispatcher.trust,
+                &snapshot_text,
+            )
+            .expect("text snapshot dispatch should succeed");
 
-    let session = market_data_command_matches(&[
-        "session",
-        "--account",
-        &account_id,
-        "--symbol",
-        "AAPL",
-        "--format",
-        "json",
-    ]);
-    crate::dispatcher::market_data::dispatch_market_data(&mut dispatcher.trust, &session)
-        .expect("session dispatch should succeed");
-    let session_text =
-        market_data_command_matches(&["session", "--account", &account_id, "--symbol", "AAPL"]);
-    crate::dispatcher::market_data::dispatch_market_data(&mut dispatcher.trust, &session_text)
-        .expect("text session dispatch should succeed");
+            let quote = market_data_command_matches(&[
+                "quote",
+                "--account",
+                &account_id,
+                "--symbol",
+                "AAPL",
+                "--format",
+                "json",
+            ]);
 
-    let stream = market_data_command_matches(&[
-        "stream",
-        "--account",
-        &account_id,
-        "--symbols",
-        "AAPL,MSFT",
-        "--channels",
-        "quotes,trades",
-        "--max-events",
-        "5",
-        "--timeout-seconds",
-        "2",
-        "--format",
-        "json",
-    ]);
-    crate::dispatcher::market_data::dispatch_market_data(&mut dispatcher.trust, &stream)
-        .expect("stream dispatch should succeed");
-    let stream_text = market_data_command_matches(&[
-        "stream",
-        "--account",
-        &account_id,
-        "--symbols",
-        "AAPL,MSFT",
-        "--channels",
-        "quotes,trades",
-        "--max-events",
-        "5",
-        "--timeout-seconds",
-        "2",
-    ]);
-    crate::dispatcher::market_data::dispatch_market_data(&mut dispatcher.trust, &stream_text)
-        .expect("text stream dispatch should succeed");
+            println!("BEGIN:quote");
+            crate::dispatcher::market_data::dispatch_market_data(&mut dispatcher.trust, &quote)
+                .expect("quote dispatch should succeed");
+            println!("END:quote");
 
-    let bars = market_data_command_matches(&[
-        "bars",
-        "--account",
-        &account_id,
-        "--symbol",
-        "AAPL",
-        "--timeframe",
-        "1m",
-        "--start",
-        "2026-02-24T09:00:00Z",
-        "--end",
-        "2026-02-24T11:00:00Z",
-        "--format",
-        "json",
-    ]);
-    crate::dispatcher::market_data::dispatch_market_data(&mut dispatcher.trust, &bars)
-        .expect("bars dispatch should succeed");
-    let bars_text = market_data_command_matches(&[
-        "bars",
-        "--account",
-        &account_id,
-        "--symbol",
-        "AAPL",
-        "--timeframe",
-        "1m",
-        "--start",
-        "2026-02-24T09:00:00Z",
-        "--end",
-        "2026-02-24T11:00:00Z",
-    ]);
-    crate::dispatcher::market_data::dispatch_market_data(&mut dispatcher.trust, &bars_text)
-        .expect("text bars dispatch should succeed");
+            let quote_text = market_data_command_matches(&[
+                "quote",
+                "--account",
+                &account_id,
+                "--symbol",
+                "AAPL",
+            ]);
+            crate::dispatcher::market_data::dispatch_market_data(
+                &mut dispatcher.trust,
+                &quote_text,
+            )
+            .expect("text quote dispatch should succeed");
+
+            let trade = market_data_command_matches(&[
+                "trade",
+                "--account",
+                &account_id,
+                "--symbol",
+                "AAPL",
+                "--format",
+                "json",
+            ]);
+
+            println!("BEGIN:trade");
+            crate::dispatcher::market_data::dispatch_market_data(&mut dispatcher.trust, &trade)
+                .expect("trade dispatch should succeed");
+            println!("END:trade");
+
+            let trade_text = market_data_command_matches(&[
+                "trade",
+                "--account",
+                &account_id,
+                "--symbol",
+                "AAPL",
+            ]);
+            crate::dispatcher::market_data::dispatch_market_data(
+                &mut dispatcher.trust,
+                &trade_text,
+            )
+            .expect("text trade dispatch should succeed");
+
+            let session = market_data_command_matches(&[
+                "session",
+                "--account",
+                &account_id,
+                "--symbol",
+                "AAPL",
+                "--format",
+                "json",
+            ]);
+
+            println!("BEGIN:session");
+            crate::dispatcher::market_data::dispatch_market_data(&mut dispatcher.trust, &session)
+                .expect("session dispatch should succeed");
+            println!("END:session");
+
+            let session_text = market_data_command_matches(&[
+                "session",
+                "--account",
+                &account_id,
+                "--symbol",
+                "AAPL",
+            ]);
+            crate::dispatcher::market_data::dispatch_market_data(
+                &mut dispatcher.trust,
+                &session_text,
+            )
+            .expect("text session dispatch should succeed");
+
+            let stream = market_data_command_matches(&[
+                "stream",
+                "--account",
+                &account_id,
+                "--symbols",
+                "AAPL,MSFT",
+                "--channels",
+                "quotes,trades",
+                "--max-events",
+                "5",
+                "--timeout-seconds",
+                "2",
+                "--format",
+                "json",
+            ]);
+
+            println!("BEGIN:stream");
+            crate::dispatcher::market_data::dispatch_market_data(&mut dispatcher.trust, &stream)
+                .expect("stream dispatch should succeed");
+            println!("END:stream");
+
+            let stream_text = market_data_command_matches(&[
+                "stream",
+                "--account",
+                &account_id,
+                "--symbols",
+                "AAPL,MSFT",
+                "--channels",
+                "quotes,trades",
+                "--max-events",
+                "5",
+                "--timeout-seconds",
+                "2",
+            ]);
+            crate::dispatcher::market_data::dispatch_market_data(
+                &mut dispatcher.trust,
+                &stream_text,
+            )
+            .expect("text stream dispatch should succeed");
+
+            let bars = market_data_command_matches(&[
+                "bars",
+                "--account",
+                &account_id,
+                "--symbol",
+                "AAPL",
+                "--timeframe",
+                "1m",
+                "--start",
+                "2026-02-24T09:00:00Z",
+                "--end",
+                "2026-02-24T11:00:00Z",
+                "--format",
+                "json",
+            ]);
+
+            println!("BEGIN:bars");
+            crate::dispatcher::market_data::dispatch_market_data(&mut dispatcher.trust, &bars)
+                .expect("bars dispatch should succeed");
+            println!("END:bars");
+
+            let bars_text = market_data_command_matches(&[
+                "bars",
+                "--account",
+                &account_id,
+                "--symbol",
+                "AAPL",
+                "--timeframe",
+                "1m",
+                "--start",
+                "2026-02-24T09:00:00Z",
+                "--end",
+                "2026-02-24T11:00:00Z",
+            ]);
+            crate::dispatcher::market_data::dispatch_market_data(&mut dispatcher.trust, &bars_text)
+                .expect("text bars dispatch should succeed");
+        },
+        |output| {
+            assert!(output.contains("AAPL"), "{output}");
+            assert!(output.contains("200.95"), "{output}");
+            assert!(output.contains("201.05"), "{output}");
+            assert!(output.contains("201.1"), "{output}");
+            assert!(output.contains("12345"), "{output}");
+            use crate::test_support::capture::json_section;
+            let snapshot = json_section(output, "snapshot");
+            assert_eq!(snapshot["scope"]["symbol"], "AAPL");
+            assert_eq!(
+                snapshot["provenance"],
+                serde_json::json!({"source_kind":"quote_trade","fallback_used":false})
+            );
+            assert_eq!(snapshot["data"]["last_price"], "201");
+            assert_eq!(snapshot["data"]["quote"]["bid_price"], "200.95");
+            assert_eq!(snapshot["freshness"]["as_of"], "2026-02-24T10:00:00+00:00");
+            assert_eq!(
+                json_section(output, "quote")["data"],
+                serde_json::json!({"bid_price":"200.95","bid_size":100,"ask_price":"201.05","ask_size":120})
+            );
+            assert_eq!(
+                json_section(output, "trade")["data"],
+                serde_json::json!({"price":"201","size":50})
+            );
+            let session = json_section(output, "session");
+            assert_eq!(session["data"]["session_state"], "unknown");
+            assert_eq!(session["data"]["source_kind"], "quote_trade");
+            let stream = json_section(output, "stream");
+            assert_eq!(stream["data"]["count"], 2);
+            assert_eq!(stream["data"]["events"][0]["channel"], "quotes");
+            assert_eq!(stream["data"]["events"][1]["channel"], "trades");
+            assert_eq!(stream["data"]["events"][1]["price"], "201.1");
+            let bars = json_section(output, "bars");
+            assert_eq!(bars["data"]["count"], 1);
+            assert_eq!(
+                bars["data"]["bars"],
+                serde_json::json!([{"time":"2026-02-24T10:00:00+00:00","open":"198","high":"205","low":"197","close":"201","volume":12345}])
+            );
+        },
+    );
 }
 
 #[test]

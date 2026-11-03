@@ -364,375 +364,425 @@ fn test_trade_non_interactive_lifecycle_handlers_persist_expected_statuses() {
 
 #[test]
 fn test_dispatchers_cover_non_interactive_routes_with_safe_error_paths() {
-    let _guard = env_guard();
-    std::env::set_var("TRUST_DISABLE_KEYCHAIN", "1");
-    std::env::set_var("TRUST_PROTECTED_KEYWORD_EXPECTED", "secret");
+    crate::test_support::capture::assert_stdout(
+        module_path!(),
+        "test_dispatchers_cover_non_interactive_routes_with_safe_error_paths",
+        || {
+            let _guard = env_guard();
+            std::env::set_var("TRUST_DISABLE_KEYCHAIN", "1");
+            std::env::set_var("TRUST_PROTECTED_KEYWORD_EXPECTED", "secret");
 
-    // db
-    let mut dispatcher = test_dispatcher();
-    let db = DbCommandBuilder::new().import().build().get_matches_from([
-        "db",
-        "import",
-        "--input",
-        "/tmp/does-not-exist.json",
-    ]);
-    assert!(crate::dispatcher::database::dispatch_db(&mut dispatcher.trust, &db).is_err());
+            // db
+            let mut dispatcher = test_dispatcher();
+            let db = DbCommandBuilder::new().import().build().get_matches_from([
+                "db",
+                "import",
+                "--input",
+                "/tmp/does-not-exist.json",
+            ]);
+            assert!(crate::dispatcher::database::dispatch_db(&mut dispatcher.trust, &db).is_err());
 
-    // keys (protected-set + protected-delete)
-    let mut dispatcher = test_dispatcher();
-    let keys_set = KeysCommandBuilder::new()
-        .protected_set()
-        .build()
-        .get_matches_from([
-            "keys",
-            "protected-set",
-            "--value",
-            "next-secret",
-            "--confirm-protected",
-            "wrong",
-        ]);
-    let _ = crate::dispatcher::keys::dispatch_keys(&mut dispatcher.trust, &keys_set);
-    let keys_delete = KeysCommandBuilder::new()
-        .protected_delete()
-        .build()
-        .get_matches_from(["keys", "protected-delete", "--confirm-protected", "wrong"]);
-    assert!(crate::dispatcher::keys::dispatch_keys(&mut dispatcher.trust, &keys_delete).is_err());
+            // keys (protected-set + protected-delete)
+            let mut dispatcher = test_dispatcher();
+            let keys_set = KeysCommandBuilder::new()
+                .protected_set()
+                .build()
+                .get_matches_from([
+                    "keys",
+                    "protected-set",
+                    "--value",
+                    "next-secret",
+                    "--confirm-protected",
+                    "wrong",
+                ]);
+            let _ = crate::dispatcher::keys::dispatch_keys(&mut dispatcher.trust, &keys_set);
+            let keys_delete = KeysCommandBuilder::new()
+                .protected_delete()
+                .build()
+                .get_matches_from(["keys", "protected-delete", "--confirm-protected", "wrong"]);
+            assert!(
+                crate::dispatcher::keys::dispatch_keys(&mut dispatcher.trust, &keys_delete)
+                    .is_err()
+            );
 
-    // account create (non-interactive args), list and balance arms
-    let mut dispatcher = test_dispatcher();
-    let create_account = AccountCommandBuilder::new()
-        .create_account()
-        .build()
-        .get_matches_from([
-            "accounts",
-            "create",
-            "--confirm-protected",
-            "secret",
-            "--name",
-            "acc",
-            "--description",
-            "desc",
-            "--environment",
-            "invalid",
-            "--taxes",
-            "20",
-            "--earnings",
-            "10",
-        ]);
-    assert!(
-        crate::dispatcher::accounts::dispatch_accounts(&mut dispatcher.trust, &create_account)
-            .is_err()
-    );
-    let list = AccountCommandBuilder::new()
-        .list_accounts()
-        .build()
-        .get_matches_from(["accounts", "list"]);
-    assert!(crate::dispatcher::accounts::dispatch_accounts(&mut dispatcher.trust, &list).is_ok());
-    let balance = AccountCommandBuilder::new()
-        .balance_accounts()
-        .build()
-        .get_matches_from(["accounts", "balance"]);
-    assert!(
-        crate::dispatcher::accounts::dispatch_accounts(&mut dispatcher.trust, &balance).is_ok()
-    );
+            // account create (non-interactive args), list and balance arms
+            let mut dispatcher = test_dispatcher();
+            let create_account = AccountCommandBuilder::new()
+                .create_account()
+                .build()
+                .get_matches_from([
+                    "accounts",
+                    "create",
+                    "--confirm-protected",
+                    "secret",
+                    "--name",
+                    "acc",
+                    "--description",
+                    "desc",
+                    "--environment",
+                    "invalid",
+                    "--taxes",
+                    "20",
+                    "--earnings",
+                    "10",
+                ]);
+            assert!(crate::dispatcher::accounts::dispatch_accounts(
+                &mut dispatcher.trust,
+                &create_account
+            )
+            .is_err());
+            let list = AccountCommandBuilder::new()
+                .list_accounts()
+                .build()
+                .get_matches_from(["accounts", "list"]);
+            assert!(
+                crate::dispatcher::accounts::dispatch_accounts(&mut dispatcher.trust, &list)
+                    .is_ok()
+            );
+            let balance = AccountCommandBuilder::new()
+                .balance_accounts()
+                .build()
+                .get_matches_from(["accounts", "balance"]);
+            assert!(crate::dispatcher::accounts::dispatch_accounts(
+                &mut dispatcher.trust,
+                &balance
+            )
+            .is_ok());
 
-    // transaction/rule guarded before interactive dialogs
-    let mut dispatcher = test_dispatcher();
-    let deposit = TransactionCommandBuilder::new()
-        .deposit()
-        .build()
-        .get_matches_from(["transaction", "deposit"]);
-    assert!(
-        crate::dispatcher::capital::dispatch_transactions(&mut dispatcher.trust, &deposit).is_err()
-    );
-    let create_rule = RuleCommandBuilder::new()
-        .create_rule()
-        .build()
-        .get_matches_from(["rule", "create"]);
-    let rule_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let _ = crate::dispatcher::rules::dispatch_rules(&mut dispatcher.trust, &create_rule);
-    }));
-    assert!(rule_result.is_err());
+            // transaction/rule guarded before interactive dialogs
+            let mut dispatcher = test_dispatcher();
+            let deposit = TransactionCommandBuilder::new()
+                .deposit()
+                .build()
+                .get_matches_from(["transaction", "deposit"]);
+            assert!(crate::dispatcher::capital::dispatch_transactions(
+                &mut dispatcher.trust,
+                &deposit
+            )
+            .is_err());
+            let create_rule = RuleCommandBuilder::new()
+                .create_rule()
+                .build()
+                .get_matches_from(["rule", "create"]);
+            assert_eq!(
+                crate::dispatcher::rules::dispatch_rules(&mut dispatcher.trust, &create_rule)
+                    .unwrap_err()
+                    .code,
+                "protected_keyword_required"
+            );
+            assert!(dispatcher.trust.search_all_accounts().unwrap().is_empty());
 
-    // trading vehicle create (from-alpaca path)
-    let mut dispatcher = test_dispatcher();
-    let vehicle = TradingVehicleCommandBuilder::new()
-        .create_trading_vehicle()
-        .build()
-        .get_matches_from([
-            "trading-vehicle",
-            "create",
-            "--from-alpaca",
-            "--symbol",
-            "AAPL",
-        ]);
-    assert!(crate::dispatcher::instruments::dispatch_trading_vehicle(
-        &mut dispatcher.trust,
-        &vehicle
-    )
-    .is_err());
+            // trading vehicle create (from-alpaca path)
+            let mut dispatcher = test_dispatcher();
+            let vehicle = TradingVehicleCommandBuilder::new()
+                .create_trading_vehicle()
+                .build()
+                .get_matches_from([
+                    "trading-vehicle",
+                    "create",
+                    "--from-alpaca",
+                    "--symbol",
+                    "AAPL",
+                ]);
+            assert!(crate::dispatcher::instruments::dispatch_trading_vehicle(
+                &mut dispatcher.trust,
+                &vehicle
+            )
+            .is_err());
 
-    // trade non-interactive branches with invalid IDs
-    let mut dispatcher = test_dispatcher();
-    let fund = TradeCommandBuilder::new()
-        .fund_trade()
-        .build()
-        .get_matches_from(["trade", "fund", "--trade-id", "not-a-uuid"]);
-    assert!(
-        crate::dispatcher::trade_commands::dispatch_trade(&mut dispatcher.trust, &fund).is_err()
-    );
-    let submit = TradeCommandBuilder::new()
-        .submit_trade()
-        .build()
-        .get_matches_from(["trade", "submit", "--trade-id", "not-a-uuid"]);
-    assert!(
-        crate::dispatcher::trade_commands::dispatch_trade(&mut dispatcher.trust, &submit).is_err()
-    );
-    let cancel = TradeCommandBuilder::new()
-        .cancel_trade()
-        .build()
-        .get_matches_from(["trade", "cancel", "--trade-id", "not-a-uuid"]);
-    assert!(
-        crate::dispatcher::trade_commands::dispatch_trade(&mut dispatcher.trust, &cancel).is_err()
-    );
-    let sync = TradeCommandBuilder::new()
-        .sync_trade()
-        .build()
-        .get_matches_from(["trade", "sync", "--trade-id", "not-a-uuid"]);
-    assert!(
-        crate::dispatcher::trade_commands::dispatch_trade(&mut dispatcher.trust, &sync).is_err()
-    );
-    let search = TradeCommandBuilder::new()
-        .search_trade()
-        .build()
-        .get_matches_from(["trade", "search", "--status", "nope", "--format", "json"]);
-    assert!(
-        crate::dispatcher::trade_commands::dispatch_trade(&mut dispatcher.trust, &search).is_err()
-    );
-    let list_open = TradeCommandBuilder::new()
-        .list_open()
-        .build()
-        .get_matches_from([
-            "trade",
-            "list-open",
-            "--account",
-            "not-a-uuid",
-            "--format",
-            "json",
-        ]);
-    assert!(
-        crate::dispatcher::trade_commands::dispatch_trade(&mut dispatcher.trust, &list_open)
-            .is_err()
-    );
-    let reconcile = TradeCommandBuilder::new()
-        .reconcile()
-        .build()
-        .get_matches_from([
-            "trade",
-            "reconcile",
-            "--trade-id",
-            "not-a-uuid",
-            "--format",
-            "json",
-        ]);
-    assert!(
-        crate::dispatcher::trade_commands::dispatch_trade(&mut dispatcher.trust, &reconcile)
-            .is_err()
-    );
+            // trade non-interactive branches with invalid IDs
+            let mut dispatcher = test_dispatcher();
+            let fund = TradeCommandBuilder::new()
+                .fund_trade()
+                .build()
+                .get_matches_from(["trade", "fund", "--trade-id", "not-a-uuid"]);
+            assert!(crate::dispatcher::trade_commands::dispatch_trade(
+                &mut dispatcher.trust,
+                &fund
+            )
+            .is_err());
+            let submit = TradeCommandBuilder::new()
+                .submit_trade()
+                .build()
+                .get_matches_from(["trade", "submit", "--trade-id", "not-a-uuid"]);
+            assert!(crate::dispatcher::trade_commands::dispatch_trade(
+                &mut dispatcher.trust,
+                &submit
+            )
+            .is_err());
+            let cancel = TradeCommandBuilder::new()
+                .cancel_trade()
+                .build()
+                .get_matches_from(["trade", "cancel", "--trade-id", "not-a-uuid"]);
+            assert!(crate::dispatcher::trade_commands::dispatch_trade(
+                &mut dispatcher.trust,
+                &cancel
+            )
+            .is_err());
+            let sync = TradeCommandBuilder::new()
+                .sync_trade()
+                .build()
+                .get_matches_from(["trade", "sync", "--trade-id", "not-a-uuid"]);
+            assert!(crate::dispatcher::trade_commands::dispatch_trade(
+                &mut dispatcher.trust,
+                &sync
+            )
+            .is_err());
+            let search = TradeCommandBuilder::new()
+                .search_trade()
+                .build()
+                .get_matches_from(["trade", "search", "--status", "nope", "--format", "json"]);
+            assert!(crate::dispatcher::trade_commands::dispatch_trade(
+                &mut dispatcher.trust,
+                &search
+            )
+            .is_err());
+            let list_open = TradeCommandBuilder::new()
+                .list_open()
+                .build()
+                .get_matches_from([
+                    "trade",
+                    "list-open",
+                    "--account",
+                    "not-a-uuid",
+                    "--format",
+                    "json",
+                ]);
+            assert!(crate::dispatcher::trade_commands::dispatch_trade(
+                &mut dispatcher.trust,
+                &list_open
+            )
+            .is_err());
+            let reconcile = TradeCommandBuilder::new()
+                .reconcile()
+                .build()
+                .get_matches_from([
+                    "trade",
+                    "reconcile",
+                    "--trade-id",
+                    "not-a-uuid",
+                    "--format",
+                    "json",
+                ]);
+            assert!(crate::dispatcher::trade_commands::dispatch_trade(
+                &mut dispatcher.trust,
+                &reconcile
+            )
+            .is_err());
 
-    // distribution/report/market-data/grade/level
-    let mut dispatcher = test_dispatcher();
-    let dist = DistributionCommandBuilder::new()
-        .history()
-        .build()
-        .get_matches_from(["distribution", "history", "--account-id", "not-a-uuid"]);
-    assert!(
-        crate::dispatcher::distribution::dispatch_distribution(&mut dispatcher.trust, &dist)
-            .is_err()
-    );
-    let report = ReportCommandBuilder::new()
-        .performance()
-        .build()
-        .get_matches_from([
-            "report",
-            "--format",
-            "json",
-            "performance",
-            "--account",
-            "bad",
-        ]);
-    assert!(crate::dispatcher::reports::dispatch_report(&mut dispatcher.trust, &report).is_err());
-    let market = MarketDataCommandBuilder::new()
-        .bars()
-        .build()
-        .get_matches_from([
-            "market-data",
-            "bars",
-            "--account",
-            "bad",
-            "--symbol",
-            "AAPL",
-            "--timeframe",
-            "1d",
-            "--start",
-            "not-a-date",
-            "--end",
-            "2026-01-02T00:00:00Z",
-        ]);
-    assert!(
-        crate::dispatcher::market_data::dispatch_market_data(&mut dispatcher.trust, &market)
-            .is_err()
-    );
-    let market_quote = MarketDataCommandBuilder::new()
-        .quote()
-        .build()
-        .get_matches_from([
-            "market-data",
-            "quote",
-            "--account",
-            "bad",
-            "--symbol",
-            "AAPL",
-            "--format",
-            "json",
-        ]);
-    assert!(crate::dispatcher::market_data::dispatch_market_data(
-        &mut dispatcher.trust,
-        &market_quote
-    )
-    .is_err());
-    let market_trade = MarketDataCommandBuilder::new()
-        .trade()
-        .build()
-        .get_matches_from([
-            "market-data",
-            "trade",
-            "--account",
-            "bad",
-            "--symbol",
-            "AAPL",
-            "--format",
-            "json",
-        ]);
-    assert!(crate::dispatcher::market_data::dispatch_market_data(
-        &mut dispatcher.trust,
-        &market_trade
-    )
-    .is_err());
-    let market_session = MarketDataCommandBuilder::new()
-        .session()
-        .build()
-        .get_matches_from([
-            "market-data",
-            "session",
-            "--account",
-            "bad",
-            "--symbol",
-            "AAPL",
-            "--format",
-            "json",
-        ]);
-    assert!(crate::dispatcher::market_data::dispatch_market_data(
-        &mut dispatcher.trust,
-        &market_session
-    )
-    .is_err());
-    let grade =
-        GradeCommandBuilder::new()
-            .show()
-            .build()
-            .get_matches_from(["grade", "show", "not-a-uuid"]);
-    assert!(crate::dispatcher::grades::dispatch_grade(&mut dispatcher.trust, &grade).is_err());
-    let level = LevelCommandBuilder::new()
-        .status()
-        .build()
-        .get_matches_from(["level", "status", "--account", "bad"]);
-    assert!(crate::dispatcher::levels::dispatch_level(&mut dispatcher.trust, &level).is_err());
+            // distribution/report/market-data/grade/level
+            let mut dispatcher = test_dispatcher();
+            let dist = DistributionCommandBuilder::new()
+                .history()
+                .build()
+                .get_matches_from(["distribution", "history", "--account-id", "not-a-uuid"]);
+            assert!(crate::dispatcher::distribution::dispatch_distribution(
+                &mut dispatcher.trust,
+                &dist
+            )
+            .is_err());
+            let report = ReportCommandBuilder::new()
+                .performance()
+                .build()
+                .get_matches_from([
+                    "report",
+                    "--format",
+                    "json",
+                    "performance",
+                    "--account",
+                    "bad",
+                ]);
+            assert!(
+                crate::dispatcher::reports::dispatch_report(&mut dispatcher.trust, &report)
+                    .is_err()
+            );
+            let market = MarketDataCommandBuilder::new()
+                .bars()
+                .build()
+                .get_matches_from([
+                    "market-data",
+                    "bars",
+                    "--account",
+                    "bad",
+                    "--symbol",
+                    "AAPL",
+                    "--timeframe",
+                    "1d",
+                    "--start",
+                    "not-a-date",
+                    "--end",
+                    "2026-01-02T00:00:00Z",
+                ]);
+            assert!(crate::dispatcher::market_data::dispatch_market_data(
+                &mut dispatcher.trust,
+                &market
+            )
+            .is_err());
+            let market_quote = MarketDataCommandBuilder::new()
+                .quote()
+                .build()
+                .get_matches_from([
+                    "market-data",
+                    "quote",
+                    "--account",
+                    "bad",
+                    "--symbol",
+                    "AAPL",
+                    "--format",
+                    "json",
+                ]);
+            assert!(crate::dispatcher::market_data::dispatch_market_data(
+                &mut dispatcher.trust,
+                &market_quote
+            )
+            .is_err());
+            let market_trade = MarketDataCommandBuilder::new()
+                .trade()
+                .build()
+                .get_matches_from([
+                    "market-data",
+                    "trade",
+                    "--account",
+                    "bad",
+                    "--symbol",
+                    "AAPL",
+                    "--format",
+                    "json",
+                ]);
+            assert!(crate::dispatcher::market_data::dispatch_market_data(
+                &mut dispatcher.trust,
+                &market_trade
+            )
+            .is_err());
+            let market_session = MarketDataCommandBuilder::new()
+                .session()
+                .build()
+                .get_matches_from([
+                    "market-data",
+                    "session",
+                    "--account",
+                    "bad",
+                    "--symbol",
+                    "AAPL",
+                    "--format",
+                    "json",
+                ]);
+            assert!(crate::dispatcher::market_data::dispatch_market_data(
+                &mut dispatcher.trust,
+                &market_session
+            )
+            .is_err());
+            let grade = GradeCommandBuilder::new().show().build().get_matches_from([
+                "grade",
+                "show",
+                "not-a-uuid",
+            ]);
+            assert!(
+                crate::dispatcher::grades::dispatch_grade(&mut dispatcher.trust, &grade).is_err()
+            );
+            let level = LevelCommandBuilder::new()
+                .status()
+                .build()
+                .get_matches_from(["level", "status", "--account", "bad"]);
+            assert!(
+                crate::dispatcher::levels::dispatch_level(&mut dispatcher.trust, &level).is_err()
+            );
 
-    // onboarding/policy/metrics/advisor
-    let mut dispatcher = test_dispatcher();
-    let onboarding = OnboardingCommandBuilder::new()
-        .init()
-        .build()
-        .get_matches_from([
-            "onboarding",
-            "--format",
-            "json",
-            "init",
-            "--protected-keyword",
-            "secret2",
-        ]);
-    assert!(
-        crate::dispatcher::onboarding::dispatch_onboarding(&mut dispatcher.trust, &onboarding)
-            .is_err()
-    );
-    let policy = PolicyCommandBuilder::new()
-        .build()
-        .get_matches_from(["policy", "--format", "json"]);
-    assert!(crate::dispatcher::policy::dispatch_policy(&mut dispatcher.trust, &policy).is_ok());
-    let metrics = MetricsCommandBuilder::new()
-        .compare()
-        .build()
-        .get_matches_from([
-            "metrics",
-            "compare",
-            "--period1",
-            "invalid",
-            "--period2",
-            "last-7-days",
-            "--format",
-            "json",
-        ]);
-    assert!(
-        crate::dispatcher::advanced_metrics::dispatch_metrics(&mut dispatcher.trust, &metrics)
-            .is_ok()
-    );
-    let metrics_bond = MetricsCommandBuilder::new()
-        .bond()
-        .build()
-        .get_matches_from([
-            "metrics",
-            "bond",
-            "--face-value",
-            "1000",
-            "--market-price",
-            "950",
-            "--coupon-rate",
-            "4",
-            "--quantity",
-            "3",
-            "--years-to-maturity",
-            "5",
-            "--format",
-            "json",
-        ]);
-    assert!(crate::dispatcher::advanced_metrics::dispatch_metrics(
-        &mut dispatcher.trust,
-        &metrics_bond
-    )
-    .is_ok());
-    let advisor = AdvisorCommandBuilder::new()
-        .configure()
-        .build()
-        .get_matches_from([
-            "advisor",
-            "configure",
-            "--account",
-            "bad",
-            "--sector-limit",
-            "30",
-            "--asset-class-limit",
-            "40",
-            "--single-position-limit",
-            "20",
-            "--confirm-protected",
-            "secret",
-        ]);
-    assert!(
-        crate::dispatcher::advisor_config::dispatch_advisor(&mut dispatcher.trust, &advisor)
-            .is_err()
-    );
+            // onboarding/policy/metrics/advisor
+            let mut dispatcher = test_dispatcher();
+            let onboarding = OnboardingCommandBuilder::new()
+                .init()
+                .build()
+                .get_matches_from([
+                    "onboarding",
+                    "--format",
+                    "json",
+                    "init",
+                    "--protected-keyword",
+                    "secret2",
+                ]);
+            assert!(crate::dispatcher::onboarding::dispatch_onboarding(
+                &mut dispatcher.trust,
+                &onboarding
+            )
+            .is_err());
+            let policy = PolicyCommandBuilder::new()
+                .build()
+                .get_matches_from(["policy", "--format", "json"]);
+            assert!(
+                crate::dispatcher::policy::dispatch_policy(&mut dispatcher.trust, &policy).is_ok()
+            );
+            let metrics = MetricsCommandBuilder::new()
+                .compare()
+                .build()
+                .get_matches_from([
+                    "metrics",
+                    "compare",
+                    "--period1",
+                    "invalid",
+                    "--period2",
+                    "last-7-days",
+                    "--format",
+                    "json",
+                ]);
+            assert!(crate::dispatcher::advanced_metrics::dispatch_metrics(
+                &mut dispatcher.trust,
+                &metrics
+            )
+            .is_ok());
+            let metrics_bond = MetricsCommandBuilder::new()
+                .bond()
+                .build()
+                .get_matches_from([
+                    "metrics",
+                    "bond",
+                    "--face-value",
+                    "1000",
+                    "--market-price",
+                    "950",
+                    "--coupon-rate",
+                    "4",
+                    "--quantity",
+                    "3",
+                    "--years-to-maturity",
+                    "5",
+                    "--format",
+                    "json",
+                ]);
+            assert!(crate::dispatcher::advanced_metrics::dispatch_metrics(
+                &mut dispatcher.trust,
+                &metrics_bond
+            )
+            .is_ok());
+            let advisor = AdvisorCommandBuilder::new()
+                .configure()
+                .build()
+                .get_matches_from([
+                    "advisor",
+                    "configure",
+                    "--account",
+                    "bad",
+                    "--sector-limit",
+                    "30",
+                    "--asset-class-limit",
+                    "40",
+                    "--single-position-limit",
+                    "20",
+                    "--confirm-protected",
+                    "secret",
+                ]);
+            assert!(crate::dispatcher::advisor_config::dispatch_advisor(
+                &mut dispatcher.trust,
+                &advisor
+            )
+            .is_err());
 
-    std::env::remove_var("TRUST_PROTECTED_KEYWORD_EXPECTED");
-    std::env::remove_var("TRUST_DISABLE_KEYCHAIN");
+            std::env::remove_var("TRUST_PROTECTED_KEYWORD_EXPECTED");
+            std::env::remove_var("TRUST_DISABLE_KEYCHAIN");
+        },
+        |output| {
+            assert!(output.contains("No accounts found"), "{output}");
+            assert!(!output.contains("panicked"), "{output}");
+        },
+    );
 }

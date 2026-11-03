@@ -26,6 +26,9 @@ This directory contains the project documentation for Trust, a risk-managed trad
 - [Reliability: feature inventory](reliability/features.md)
 - [Reliability: extensive edge-case register](reliability/edge-cases.md)
 - [Reliability: test evidence and limits](reliability/verification.md)
+- [Verified ledger checkpoints and performance evidence](reliability/verified-ledger-checkpoints.md)
+- [Atomic reuse of verified cash](reliability/atomic-cash-projection.md)
+- [Reliability: complete test usefulness catalog](reliability/test-usefulness.md)
 
 - [Command boundaries and module size](command-boundaries.md)
 - [Account units, close events, and bounded histories](reliability/contracts-and-pagination.md)

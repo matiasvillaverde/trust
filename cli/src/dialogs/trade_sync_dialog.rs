@@ -83,7 +83,7 @@ impl SyncTradeDialogBuilder {
                 println!("Logs:");
                 LogView::display(&log);
             }
-            Err(error) => println!("Error approving trade: {error:?}"),
+            Err(error) => println!("Error syncing trade: {error:?}"),
         }
     }
 
@@ -216,10 +216,6 @@ mod tests {
         ) -> Result<Option<usize>, IoError> {
             std::mem::replace(&mut self.select_result, Ok(None))
         }
-
-        fn confirm(&mut self, _prompt: &str, _default: bool) -> Result<bool, IoError> {
-            Ok(false)
-        }
     }
 
     #[test]
@@ -234,13 +230,24 @@ mod tests {
     }
 
     #[test]
-    fn display_handles_error_result() {
-        let builder = SyncTradeDialogBuilder {
-            account: None,
-            trade: None,
-            result: Some(Err("synthetic failure".into())),
-        };
-        builder.display();
+    fn display_identifies_the_failed_action_and_its_cause() {
+        crate::test_support::capture::assert_stdout(
+            module_path!(),
+            "display_identifies_the_failed_action_and_its_cause",
+            || {
+                let builder = SyncTradeDialogBuilder {
+                    account: None,
+                    trade: None,
+                    result: Some(Err("synthetic failure".into())),
+                };
+                builder.display();
+            },
+            |output| {
+                assert!(output.contains("Error syncing trade:"), "{output}");
+                assert!(output.contains("synthetic failure"), "{output}");
+                assert!(!output.contains("executed:"), "{output}");
+            },
+        );
     }
 
     #[test]
@@ -261,16 +268,36 @@ mod tests {
     }
 
     #[test]
-    fn build_calls_facade_when_required_fields_are_present() {
+    fn sync_cannot_import_state_using_another_account() {
         let mut trust = test_trust();
-        let builder = SyncTradeDialogBuilder {
+        let account = seed_canceled_trade(&mut trust);
+        let persisted = trust
+            .search_trades(account.id, Status::Canceled)
+            .unwrap()
+            .pop()
+            .unwrap();
+        let balance = trust.search_balance(account.id, &Currency::USD).unwrap();
+        let receipts = trust.get_account_transactions(account.id).unwrap();
+        let rejected = SyncTradeDialogBuilder {
             account: Some(Account::default()),
-            trade: Some(Trade::default()),
+            trade: Some(persisted.clone()),
             result: None,
         }
         .build(&mut trust);
-
-        assert!(builder.result.is_some());
+        let error = rejected.result.unwrap().unwrap_err();
+        assert!(
+            error.to_string().contains("account identity mismatch"),
+            "{error}"
+        );
+        assert_eq!(trust.read_trade(persisted.id).unwrap(), persisted);
+        assert_eq!(
+            trust.search_balance(account.id, &Currency::USD).unwrap(),
+            balance
+        );
+        assert_eq!(
+            trust.get_account_transactions(account.id).unwrap(),
+            receipts
+        );
     }
 
     #[test]
@@ -330,7 +357,7 @@ mod tests {
             .result
             .expect("result should be set")
             .expect_err("io error should fail");
-        assert!(err.to_string().contains("Trade selection was canceled"));
+        assert!(err.to_string().contains("pipe broken"));
     }
 
     #[test]
@@ -385,23 +412,38 @@ mod tests {
     }
 
     #[test]
-    fn display_handles_success_result_with_and_without_orders() {
-        SyncTradeDialogBuilder {
-            account: Some(Account::default()),
-            trade: Some(Trade::default()),
-            result: Some(Ok((Status::Submitted, vec![], BrokerLog::default()))),
-        }
-        .display();
+    fn sync_receipt_distinguishes_unchanged_state_from_updated_orders() {
+        crate::test_support::capture::assert_stdout(
+            module_path!(),
+            "sync_receipt_distinguishes_unchanged_state_from_updated_orders",
+            || {
+                SyncTradeDialogBuilder {
+                    account: Some(Account::default()),
+                    trade: Some(Trade::default()),
+                    result: Some(Ok((Status::Submitted, vec![], BrokerLog::default()))),
+                }
+                .display();
 
-        SyncTradeDialogBuilder {
-            account: Some(Account::default()),
-            trade: Some(Trade::default()),
-            result: Some(Ok((
-                Status::Filled,
-                vec![Order::default()],
-                BrokerLog::default(),
-            ))),
-        }
-        .display();
+                SyncTradeDialogBuilder {
+                    account: Some(Account::default()),
+                    trade: Some(Trade::default()),
+                    result: Some(Ok((
+                        Status::Filled,
+                        vec![Order::default()],
+                        BrokerLog::default(),
+                    ))),
+                }
+                .display();
+            },
+            |output| {
+                assert!(output.contains("are up to date"), "{output}");
+                assert!(
+                    output.contains("Trade synced, the status is: Filled"),
+                    "{output}"
+                );
+                assert!(output.contains("Updated orders:"), "{output}");
+                assert!(output.contains("Logs:"), "{output}");
+            },
+        );
     }
 }

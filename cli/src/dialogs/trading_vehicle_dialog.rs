@@ -143,10 +143,6 @@ mod tests {
             self.selections.pop_front().unwrap_or(Ok(None))
         }
 
-        fn confirm(&mut self, _prompt: &str, _default: bool) -> Result<bool, IoError> {
-            Ok(false)
-        }
-
         fn input_text(&mut self, _prompt: &str, _allow_empty: bool) -> Result<String, IoError> {
             self.text_inputs
                 .pop_front()
@@ -296,25 +292,40 @@ mod tests {
     }
 
     #[test]
-    fn display_handles_success_and_error_result_paths() {
-        let mut trust = test_trust();
-        let builder = TradingVehicleDialogBuilder {
-            symbol: Some("NVDA".to_string()),
-            isin: None,
-            category: Some(TradingVehicleCategory::Stock),
-            broker: Some("alpaca".to_string()),
-            result: None,
-        };
-        builder.build(&mut trust).display();
+    fn instrument_creation_reports_the_persisted_identity_or_failure() {
+        crate::test_support::capture::assert_stdout(
+            module_path!(),
+            "instrument_creation_reports_the_persisted_identity_or_failure",
+            || {
+                let mut trust = test_trust();
+                let builder = TradingVehicleDialogBuilder {
+                    symbol: Some("NVDA".to_string()),
+                    isin: None,
+                    category: Some(TradingVehicleCategory::Stock),
+                    broker: Some("alpaca".to_string()),
+                    result: None,
+                };
+                builder.build(&mut trust).display();
 
-        TradingVehicleDialogBuilder {
-            symbol: None,
-            isin: None,
-            category: None,
-            broker: None,
-            result: Some(Err("forced error".into())),
-        }
-        .display();
+                TradingVehicleDialogBuilder {
+                    symbol: None,
+                    isin: None,
+                    category: None,
+                    broker: None,
+                    result: Some(Err("forced error".into())),
+                }
+                .display();
+            },
+            |output| {
+                assert!(output.contains("NVDA"), "{output}");
+                assert!(output.contains("ALPACA"), "{output}");
+                assert!(
+                    output.contains("Error creating trading vehicle:"),
+                    "{output}"
+                );
+                assert!(output.contains("forced error"), "{output}");
+            },
+        );
     }
 
     #[test]
@@ -360,14 +371,26 @@ mod tests {
     }
 
     #[test]
-    fn search_builder_display_and_search_error_path_do_not_panic() {
-        let mut trust = test_trust();
-        let mut io = ScriptedIo::default();
-        io.selections
-            .push_back(Err(IoError::other("selection failed")));
-        TradingVehicleSearchDialogBuilder::new()
-            .search_with_io(&mut trust, &mut io)
-            .display();
+    fn instrument_search_reports_failure_instead_of_empty_success() {
+        crate::test_support::capture::assert_stdout(
+            module_path!(),
+            "instrument_search_reports_failure_instead_of_empty_success",
+            || {
+                let mut trust = test_trust();
+                let mut io = ScriptedIo::default();
+                io.selections
+                    .push_back(Err(IoError::other("selection failed")));
+                TradingVehicleSearchDialogBuilder::new()
+                    .search_with_io(&mut trust, &mut io)
+                    .display();
+            },
+            |output| {
+                assert!(
+                    output.contains("Error searching Trading Vehicles:"),
+                    "{output}"
+                );
+            },
+        );
     }
 
     #[test]
@@ -387,16 +410,27 @@ mod tests {
     }
 
     #[test]
-    fn search_builder_display_handles_success_result() {
-        let mut trust = test_trust();
-        let created = trust
-            .create_trading_vehicle("IEF", None, &TradingVehicleCategory::Etf, "ibkr")
-            .expect("vehicle should be created");
+    fn instrument_search_displays_broker_and_asset_identity() {
+        crate::test_support::capture::assert_stdout(
+            module_path!(),
+            "instrument_search_displays_broker_and_asset_identity",
+            || {
+                let mut trust = test_trust();
+                let created = trust
+                    .create_trading_vehicle("IEF", None, &TradingVehicleCategory::Etf, "ibkr")
+                    .expect("vehicle should be created");
 
-        TradingVehicleSearchDialogBuilder {
-            result: Some(Ok(created)),
-        }
-        .display();
+                TradingVehicleSearchDialogBuilder {
+                    result: Some(Ok(created)),
+                }
+                .display();
+            },
+            |output| {
+                assert!(output.contains("IEF"), "{output}");
+                assert!(output.contains("IBKR"), "{output}");
+                assert!(output.contains("etf"), "{output}");
+            },
+        );
     }
 }
 

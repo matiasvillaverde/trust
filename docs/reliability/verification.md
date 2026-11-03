@@ -99,13 +99,18 @@ Both performance runs used three measured iterations after one warm-up, with the
 
 A temporary, single-run stage measurement of the release lifecycle workload observed approximately **0.226 s creating**, **2.542 s funding**, **0.509 s submitting**, and **8.029 s synchronizing** 1,200 trades. Synchronization is the first profiling target, followed by funding/history scaling. That measurement identifies stages, not a proven inner-function cause. The temporary instrumentation was removed; financial validations and timing thresholds remain intact. Performance remains open work.
 
+The subsequent [verified ledger checkpoint record](verified-ledger-checkpoints.md)
+documents permanent instrumentation, the measured cash-replay bottleneck and the
+2026-11-03 optimization. Release medians now pass at **2.339 s for 1,200** lifecycles
+and **9.707 s for 4,800**; the existing 1,200-lifecycle budget remains 6 seconds.
+
 The six ignored all-feature tests comprise five external IBKR/gateway checks and the separately executed local performance gate. No ignored broker test was enabled. The minimal configuration omits the feature-gated legacy CLI gateway test.
 
 Repeat the optimized timing measurement with:
 
 ```bash
 cargo test --locked --release -p trust-cli --test integration_test_use_cases \
-  -- test_case_212_perf_gate_sync_lifecycle_regression_guard --ignored --nocapture
+  -- performance::analytics_and_1200_persisted_lifecycles_meet_performance_budgets --ignored --nocapture
 ```
 
 The table above preserves the previous baseline. Current evidence and results are recorded below; baseline timing failures are not the result of the current release gate. Generated reports are ignored by Git and can be regenerated; the feature register, edge-case register and tests are repository files.

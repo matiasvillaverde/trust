@@ -142,7 +142,7 @@ impl ModifyDialogBuilder {
                 println!("Target:");
                 OrderView::display(trade.target);
             }
-            Err(error) => println!("Error submitting trade: {error:?}"),
+            Err(error) => println!("Error modifying trade: {error:?}"),
         }
     }
 
@@ -213,14 +213,14 @@ mod tests {
     use super::ModifyDialogBuilder;
     use crate::dialogs::io::{scripted_push_input, scripted_push_select, scripted_reset};
     use crate::dialogs::DialogIo;
+    use crate::test_support::broker::{DialogBroker, SyncBehavior};
     use alpaca_broker::AlpacaBroker;
     use core::TrustFacade;
     use db_sqlite::SqliteDatabase;
     use model::{
-        Account, Broker, BrokerKind, BrokerLog, Currency, DraftTrade, Environment, Order, OrderIds,
-        OrderStatus, Status, Trade, TradeCategory, TradingVehicleCategory, TransactionCategory,
+        Account, Currency, DraftTrade, Environment, Status, Trade, TradeCategory,
+        TradingVehicleCategory, TransactionCategory,
     };
-    use rust_decimal::Decimal;
     use rust_decimal_macros::dec;
     use std::io::{Error as IoError, ErrorKind};
     use uuid::Uuid;
@@ -231,109 +231,14 @@ mod tests {
         TrustFacade::new(Box::new(db), Box::<AlpacaBroker>::default())
     }
 
-    struct ModifyOkBroker;
-
-    impl Broker for ModifyOkBroker {
-        fn kind(&self) -> BrokerKind {
-            BrokerKind::Alpaca
-        }
-
-        fn submit_trade(
-            &self,
-            trade: &Trade,
-            _account: &Account,
-        ) -> Result<(BrokerLog, OrderIds), Box<dyn std::error::Error>> {
-            Ok((
-                BrokerLog {
-                    trade_id: trade.id,
-                    log: "submitted".to_string(),
-                    ..BrokerLog::default()
-                },
-                OrderIds {
-                    entry: Uuid::new_v4().to_string(),
-                    stop: Uuid::new_v4().to_string(),
-                    target: Uuid::new_v4().to_string(),
-                },
-            ))
-        }
-
-        fn sync_trade(
-            &self,
-            trade: &Trade,
-            _account: &Account,
-        ) -> Result<(Status, Vec<Order>, BrokerLog), Box<dyn std::error::Error>> {
-            Ok((
-                Status::Filled,
-                vec![
-                    Order {
-                        id: trade.entry.id,
-                        broker_order_id: trade.entry.broker_order_id.clone(),
-                        filled_quantity: trade.entry.quantity,
-                        average_filled_price: Some(dec!(100)),
-                        status: OrderStatus::Filled,
-                        filled_at: Some(chrono::Utc::now().naive_utc()),
-                        ..trade.entry.clone()
-                    },
-                    Order {
-                        id: trade.target.id,
-                        broker_order_id: trade.target.broker_order_id.clone(),
-                        status: OrderStatus::Accepted,
-                        ..trade.target.clone()
-                    },
-                    Order {
-                        id: trade.safety_stop.id,
-                        broker_order_id: trade.safety_stop.broker_order_id.clone(),
-                        status: OrderStatus::Held,
-                        ..trade.safety_stop.clone()
-                    },
-                ],
-                BrokerLog {
-                    trade_id: trade.id,
-                    log: "filled".to_string(),
-                    ..BrokerLog::default()
-                },
-            ))
-        }
-
-        fn close_trade(
-            &self,
-            _trade: &Trade,
-            _account: &Account,
-        ) -> Result<(Order, BrokerLog), Box<dyn std::error::Error>> {
-            Err("close not supported".into())
-        }
-
-        fn cancel_trade(
-            &self,
-            _trade: &Trade,
-            _account: &Account,
-        ) -> Result<(), Box<dyn std::error::Error>> {
-            Err("cancel not supported".into())
-        }
-
-        fn modify_stop(
-            &self,
-            _trade: &Trade,
-            _account: &Account,
-            _new_stop_price: Decimal,
-        ) -> Result<String, Box<dyn std::error::Error>> {
-            Ok("modified-stop".to_string())
-        }
-
-        fn modify_target(
-            &self,
-            _trade: &Trade,
-            _account: &Account,
-            _new_price: Decimal,
-        ) -> Result<String, Box<dyn std::error::Error>> {
-            Ok("modified-target".to_string())
-        }
-    }
-
     fn test_trust_with_modify_broker() -> TrustFacade {
         TrustFacade::new(
             Box::new(SqliteDatabase::new_in_memory()),
-            Box::new(ModifyOkBroker),
+            Box::new(DialogBroker {
+                sync: SyncBehavior::Filled,
+                allow_modify: true,
+                ..DialogBroker::default()
+            }),
         )
     }
 
@@ -505,67 +410,58 @@ mod tests {
     }
 
     #[test]
-    fn build_stop_and_target_call_facade_when_required_fields_are_present() {
-        let mut trust = test_trust();
-        let account = Account::default();
-        let trade = Trade::default();
-
-        let stop = ModifyDialogBuilder {
-            account: Some(account.clone()),
-            trade: Some(trade.clone()),
-            new_price: Some(dec!(9)),
-            result: None,
-        }
-        .build_stop(&mut trust);
-        assert!(stop.result.is_some());
-
-        let target = ModifyDialogBuilder {
-            account: Some(account),
-            trade: Some(trade),
-            new_price: Some(dec!(11)),
-            result: None,
-        }
-        .build_target(&mut trust);
-        assert!(target.result.is_some());
-    }
-
-    #[test]
     fn build_stop_and_target_modify_persisted_filled_trade() {
-        let mut trust = test_trust_with_modify_broker();
-        let (account, filled) = seed_filled_trade(&mut trust, "modify-build-success");
+        crate::test_support::capture::assert_stdout(
+            module_path!(),
+            "build_stop_and_target_modify_persisted_filled_trade",
+            || {
+                let mut trust = test_trust_with_modify_broker();
+                let (account, filled) = seed_filled_trade(&mut trust, "modify-build-success");
 
-        let stop = ModifyDialogBuilder {
-            account: Some(account.clone()),
-            trade: Some(filled),
-            new_price: Some(dec!(96)),
-            result: None,
-        }
-        .build_stop(&mut trust);
-        let stop_trade = stop
-            .result
-            .expect("stop result should be set")
-            .expect("stop modify should succeed");
-        assert_eq!(stop_trade.safety_stop.unit_price, dec!(96));
-        assert_eq!(
-            stop_trade.safety_stop.broker_order_id.as_deref(),
-            Some("modified-stop")
-        );
+                let receipts = trust.get_account_transactions(account.id).unwrap();
+                let stop = ModifyDialogBuilder {
+                    account: Some(account.clone()),
+                    trade: Some(filled),
+                    new_price: Some(dec!(96)),
+                    result: None,
+                }
+                .build_stop(&mut trust);
+                let stop_trade = stop.result.as_ref().unwrap().as_ref().unwrap().clone();
+                stop.display();
+                assert_eq!(stop_trade.safety_stop.unit_price, dec!(96));
+                assert_eq!(
+                    stop_trade.safety_stop.broker_order_id.as_deref(),
+                    Some("modified-stop")
+                );
 
-        let target = ModifyDialogBuilder {
-            account: Some(account),
-            trade: Some(stop_trade),
-            new_price: Some(dec!(111)),
-            result: None,
-        }
-        .build_target(&mut trust);
-        let target_trade = target
-            .result
-            .expect("target result should be set")
-            .expect("target modify should succeed");
-        assert_eq!(target_trade.target.unit_price, dec!(111));
-        assert_eq!(
-            target_trade.target.broker_order_id.as_deref(),
-            Some("modified-target")
+                let target = ModifyDialogBuilder {
+                    account: Some(account.clone()),
+                    trade: Some(stop_trade),
+                    new_price: Some(dec!(111)),
+                    result: None,
+                }
+                .build_target(&mut trust);
+                let target_trade = target.result.as_ref().unwrap().as_ref().unwrap().clone();
+                target.display();
+                assert_eq!(target_trade.target.unit_price, dec!(111));
+                assert_eq!(
+                    target_trade.target.broker_order_id.as_deref(),
+                    Some("modified-target")
+                );
+
+                assert_eq!(trust.read_trade(target_trade.id).unwrap(), target_trade);
+                assert_eq!(
+                    trust.get_account_transactions(account.id).unwrap(),
+                    receipts
+                );
+            },
+            |output| {
+                assert!(output.contains("Trade updated:"), "{output}");
+                assert!(output.contains("Modify-build-success"), "{output}");
+                assert!(output.contains("96"), "{output}");
+                assert!(output.contains("111"), "{output}");
+                assert!(output.contains("filled"), "{output}");
+            },
         );
     }
 
@@ -682,74 +578,50 @@ mod tests {
             .result
             .expect("failed selection should set result")
             .expect_err("failed selection should fail");
-        assert!(err.to_string().contains("Trade selection was canceled"));
+        assert!(err.to_string().contains("select failed"));
         scripted_reset();
     }
 
     #[test]
-    fn modify_ok_broker_aux_methods_have_expected_contracts() {
-        let broker = ModifyOkBroker;
-        let trade = Trade::default();
-        let account = Account::default();
-
-        assert_eq!(broker.kind(), BrokerKind::Alpaca);
-        let (log, ids) = broker
-            .submit_trade(&trade, &account)
-            .expect("submit should succeed");
-        assert_eq!(log.trade_id, trade.id);
-        assert!(!ids.entry.is_empty());
-        assert!(!ids.stop.is_empty());
-        assert!(!ids.target.is_empty());
-        let (status, orders, log) = broker.sync_trade(&trade, &account).expect("sync");
-        assert_eq!(status, Status::Filled);
-        assert_eq!(orders.len(), 3);
-        assert_eq!(log.trade_id, trade.id);
-
-        let close = broker
-            .close_trade(&trade, &account)
-            .expect_err("close should be unsupported");
-        assert!(close.to_string().contains("close not supported"));
-        let cancel = broker
-            .cancel_trade(&trade, &account)
-            .expect_err("cancel should be unsupported");
-        assert!(cancel.to_string().contains("cancel not supported"));
+    fn dialog_cannot_widen_a_filled_long_stop() {
+        let mut trust = test_trust_with_modify_broker();
+        let (account, filled) = seed_filled_trade(&mut trust, "never-widen-stop");
+        let receipts = trust.get_account_transactions(account.id).unwrap();
+        let rejected = ModifyDialogBuilder {
+            account: Some(account.clone()),
+            trade: Some(filled.clone()),
+            new_price: Some(dec!(94.99)),
+            result: None,
+        }
+        .build_stop(&mut trust);
+        assert!(rejected.result.unwrap().is_err());
+        assert_eq!(trust.read_trade(filled.id).unwrap(), filled);
         assert_eq!(
-            broker
-                .modify_stop(&trade, &account, dec!(1))
-                .expect("stop modify"),
-            "modified-stop"
-        );
-        assert_eq!(
-            broker
-                .modify_target(&trade, &account, dec!(1))
-                .expect("target modify"),
-            "modified-target"
+            trust.get_account_transactions(account.id).unwrap(),
+            receipts
         );
     }
 
     #[test]
-    fn display_handles_error_result() {
-        let builder = ModifyDialogBuilder {
-            account: None,
-            trade: None,
-            new_price: None,
-            result: Some(Err("synthetic failure".into())),
-        };
-        builder.display();
-    }
-
-    #[test]
-    fn display_handles_success_result() {
-        let builder = ModifyDialogBuilder {
-            account: Some(Account {
-                name: "paper".to_string(),
-                ..Account::default()
-            }),
-            trade: Some(Trade::default()),
-            new_price: Some(dec!(99)),
-            result: Some(Ok(Trade::default())),
-        };
-        builder.display();
+    fn display_identifies_the_failed_action_and_its_cause() {
+        crate::test_support::capture::assert_stdout(
+            module_path!(),
+            "display_identifies_the_failed_action_and_its_cause",
+            || {
+                let builder = ModifyDialogBuilder {
+                    account: None,
+                    trade: None,
+                    new_price: None,
+                    result: Some(Err("synthetic failure".into())),
+                };
+                builder.display();
+            },
+            |output| {
+                assert!(output.contains("Error modifying trade:"), "{output}");
+                assert!(output.contains("synthetic failure"), "{output}");
+                assert!(!output.contains("executed:"), "{output}");
+            },
+        );
     }
 
     #[test]

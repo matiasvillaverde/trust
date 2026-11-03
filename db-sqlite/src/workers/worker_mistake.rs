@@ -360,6 +360,8 @@ mod tests {
             mistakes.first().map(|mistake| mistake.error_type),
             Some(MistakeErrorType::Omission)
         );
+
+        assert_eq!(mistakes, vec![earlier, later]);
     }
 
     #[test]
@@ -515,10 +517,5 @@ mod tests {
             },
             "counterfactual_r",
         );
-    }
-
-    #[test]
-    fn debug_representation_is_stable() {
-        assert_eq!(format!("{WorkerMistake:?}"), "WorkerMistake");
     }
 }

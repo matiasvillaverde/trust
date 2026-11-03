@@ -3416,6 +3416,8 @@ dependencies = [
  "shellexpand",
  "tabled",
  "tempfile",
+ "tracing",
+ "tracing-subscriber",
  "trust-credentials",
  "trust-model",
  "uuid",

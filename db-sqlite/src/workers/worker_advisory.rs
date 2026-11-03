@@ -232,14 +232,14 @@ mod tests {
 
         let account_id = account.id;
         db.advisory_write()
-            .upsert_advisory_thresholds(account_id, dec!(30), dec!(40), dec!(15))
+            .upsert_advisory_thresholds(account_id, dec!(30.125), dec!(40.625), dec!(15.875))
             .expect("threshold upsert");
 
         let thresholds = db
             .advisory_read()
             .advisory_thresholds_for_account(account_id)
             .expect("threshold read");
-        assert_eq!(thresholds, Some((dec!(30), dec!(40), dec!(15))));
+        assert_eq!(thresholds, Some((dec!(30.125), dec!(40.625), dec!(15.875))));
         drop(shared_connection);
     }
 
@@ -272,20 +272,6 @@ mod tests {
         assert_eq!(thresholds, Some((dec!(35), dec!(45), dec!(20))));
         assert_eq!(advisory_row_count(&shared_connection, account_id), 1);
         drop(shared_connection);
-    }
-
-    #[test]
-    fn advisory_threshold_row_debug_includes_decimal_fields() {
-        let row = AdvisoryThresholdRow {
-            sector_limit_pct: "30".to_string(),
-            asset_class_limit_pct: "40".to_string(),
-            single_position_limit_pct: "15".to_string(),
-        };
-
-        assert_eq!(
-            format!("{row:?}"),
-            "AdvisoryThresholdRow { sector_limit_pct: \"30\", asset_class_limit_pct: \"40\", single_position_limit_pct: \"15\" }"
-        );
     }
 
     #[test]

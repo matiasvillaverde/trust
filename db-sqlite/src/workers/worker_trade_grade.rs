@@ -375,21 +375,24 @@ mod tests {
         let grade = grade_for(trade.id, now);
 
         let created = WorkerTradeGrade::create(&mut conn, &grade).unwrap();
-        assert_eq!(created.trade_id, trade.id);
-        assert_eq!(created.overall_score, 87);
-        assert_eq!(created.overall_grade, Grade::BPlus);
-        assert_eq!(created.recommendations.len(), 2);
-
         let latest = WorkerTradeGrade::read_latest_for_trade(&mut conn, trade.id)
             .unwrap()
             .expect("latest must exist");
-        assert_eq!(latest.id, created.id);
-        assert_eq!(latest.recommendations, created.recommendations);
-
         let by_account =
             WorkerTradeGrade::read_for_account_days(&mut conn, account_id, 30).unwrap();
-        assert_eq!(by_account.len(), 1);
-        assert_eq!(by_account[0].id, created.id);
+
+        // Persistence owns creation/update timestamps; grading values and graded_at
+        // must round-trip exactly, and all reads must return the same stored record.
+        assert!((now..=Utc::now().naive_utc()).contains(&created.created_at));
+        assert_eq!(created.updated_at, created.created_at);
+        let expected = TradeGrade {
+            created_at: created.created_at,
+            updated_at: created.updated_at,
+            ..grade
+        };
+        assert_eq!(created, expected);
+        assert_eq!(latest, expected);
+        assert_eq!(by_account, vec![expected]);
     }
 
     #[test]
@@ -453,11 +456,6 @@ mod tests {
             .expect_err("oversized day window should fail before querying");
 
         assert!(error.to_string().contains("Invalid days window"));
-    }
-
-    #[test]
-    fn debug_representation_is_stable() {
-        assert_eq!(format!("{WorkerTradeGrade:?}"), "WorkerTradeGrade");
     }
 
     #[test]

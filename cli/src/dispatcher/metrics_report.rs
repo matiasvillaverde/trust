@@ -294,23 +294,25 @@ pub(in crate::dispatcher) fn parse_required_date_range(
     Ok((from, to))
 }
 
+// get_account_transactions supplies available-cash movements. Funding debits cash;
+// repayments credit it. Order fills are separate and must not be counted twice.
 pub(in crate::dispatcher) fn transaction_cashflow_delta(tx: &model::Transaction) -> Decimal {
     match tx.category {
         TransactionCategory::Deposit
-        | TransactionCategory::CloseTarget(_)
-        | TransactionCategory::CloseSafetyStop(_)
-        | TransactionCategory::CloseSafetyStopSlippage(_) => tx.amount,
+        | TransactionCategory::PaymentFromTrade(_)
+        | TransactionCategory::PaymentEarnings(_) => tx.amount,
         TransactionCategory::Withdrawal
-        | TransactionCategory::OpenTrade(_)
+        | TransactionCategory::FundTrade(_)
         | TransactionCategory::FeeOpen(_)
         | TransactionCategory::FeeClose(_)
         | TransactionCategory::WithdrawalTax
         | TransactionCategory::WithdrawalEarnings => {
             Decimal::ZERO.checked_sub(tx.amount).unwrap_or(dec!(0))
         }
-        TransactionCategory::FundTrade(_)
-        | TransactionCategory::PaymentFromTrade(_)
-        | TransactionCategory::PaymentTax(_)
-        | TransactionCategory::PaymentEarnings(_) => Decimal::ZERO,
+        TransactionCategory::OpenTrade(_)
+        | TransactionCategory::CloseTarget(_)
+        | TransactionCategory::CloseSafetyStop(_)
+        | TransactionCategory::CloseSafetyStopSlippage(_)
+        | TransactionCategory::PaymentTax(_) => Decimal::ZERO,
     }
 }

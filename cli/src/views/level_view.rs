@@ -80,47 +80,67 @@ mod tests {
     }
 
     #[test]
-    fn status_and_history_render_without_panics() {
-        let level = Level {
-            account_id: Uuid::new_v4(),
-            current_level: 3,
-            risk_multiplier: dec!(1.0),
-            status: LevelStatus::Normal,
-            trades_at_level: 5,
-            level_start_date: Utc::now().date_naive(),
-            ..Level::default_for_account(Uuid::new_v4())
-        };
-        LevelView::status(&level);
+    fn status_and_history_show_sizing_and_transition_reasons() {
+        crate::test_support::capture::assert_stdout(
+            module_path!(),
+            "status_and_history_show_sizing_and_transition_reasons",
+            || {
+                let level = Level {
+                    account_id: Uuid::new_v4(),
+                    current_level: 3,
+                    risk_multiplier: dec!(1.0),
+                    status: LevelStatus::Normal,
+                    trades_at_level: 5,
+                    level_start_date: Utc::now().date_naive(),
+                    ..Level::default_for_account(Uuid::new_v4())
+                };
+                LevelView::status(&level);
 
-        let now = Utc::now().naive_utc();
-        let changes = vec![
-            LevelChange {
-                id: Uuid::new_v4(),
-                created_at: now,
-                updated_at: now,
-                deleted_at: None,
-                account_id: Uuid::new_v4(),
-                old_level: 2,
-                new_level: 3,
-                change_reason: "upgrade".to_string(),
-                trigger_type: LevelTrigger::ManualOverride,
-                changed_at: now,
-            },
-            LevelChange {
-                id: Uuid::new_v4(),
-                created_at: now,
-                updated_at: now,
-                deleted_at: None,
-                account_id: Uuid::new_v4(),
-                old_level: 3,
-                new_level: 2,
-                change_reason: "downgrade".to_string(),
-                trigger_type: LevelTrigger::MonthlyLoss,
-                changed_at: now,
-            },
-        ];
+                let now = Utc::now().naive_utc();
+                let changes = vec![
+                    LevelChange {
+                        id: Uuid::new_v4(),
+                        created_at: now,
+                        updated_at: now,
+                        deleted_at: None,
+                        account_id: Uuid::new_v4(),
+                        old_level: 2,
+                        new_level: 3,
+                        change_reason: "upgrade".to_string(),
+                        trigger_type: LevelTrigger::ManualOverride,
+                        changed_at: now,
+                    },
+                    LevelChange {
+                        id: Uuid::new_v4(),
+                        created_at: now,
+                        updated_at: now,
+                        deleted_at: None,
+                        account_id: Uuid::new_v4(),
+                        old_level: 3,
+                        new_level: 2,
+                        change_reason: "downgrade".to_string(),
+                        trigger_type: LevelTrigger::MonthlyLoss,
+                        changed_at: now,
+                    },
+                ];
 
-        LevelView::history(&changes);
-        LevelView::history(&[]);
+                LevelView::history(&changes);
+                LevelView::history(&[]);
+            },
+            |output| {
+                assert!(output.contains("Current Level: 3"), "{output}");
+                assert!(
+                    output.contains("Risk Multiplier: 1.0x (100.0% position sizing)"),
+                    "{output}"
+                );
+                assert!(output.contains("Trades at Current Level: 5"), "{output}");
+                assert!(output.contains("Level 2->3 (+) upgrade"), "{output}");
+                assert!(output.contains("Level 3->2 (-) downgrade"), "{output}");
+                assert!(
+                    output.contains("No level changes recorded yet."),
+                    "{output}"
+                );
+            },
+        );
     }
 }

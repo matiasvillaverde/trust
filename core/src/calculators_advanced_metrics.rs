@@ -2387,18 +2387,6 @@ mod tests {
     }
 
     #[test]
-    fn test_calculate_expected_shortfall_returns_tail_average() {
-        let trades = vec![
-            create_test_trade(dec!(-200)),
-            create_test_trade(dec!(-100)),
-            create_test_trade(dec!(50)),
-            create_test_trade(dec!(150)),
-        ];
-        let es = AdvancedMetricsCalculator::calculate_expected_shortfall(&trades, dec!(0.95));
-        assert!(es.is_some());
-    }
-
-    #[test]
     fn test_tail_risk_metrics_handle_boundary_inputs() {
         let repeated_losses = vec![create_test_trade(dec!(-50)), create_test_trade(dec!(-50))];
         assert_eq!(
