@@ -89,7 +89,7 @@ fn snapshot(f: &Fixture) -> Vec<Vec<Vec<rusqlite::types::Value>>> {
 }
 async fn setup() -> (Gateway, Fixture, Process, Value, Value) {
     let gateway = Gateway::start().await;
-    let mut f = Fixture::new(10000, 32);
+    let mut f = Fixture::new(45000, 32);
     f.enable_encryption();
     let p = f.start(&gateway).await;
     let (account, trade) = f.seed(&p, "long", "10", "statement").await;

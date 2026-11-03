@@ -9,6 +9,15 @@ use rust_decimal::Decimal;
 use std::error::Error;
 use uuid::Uuid;
 
+/// Executions and fees observed together during one reconciliation attempt.
+#[derive(Debug, Default)]
+pub struct TradeActivities {
+    /// Native execution evidence; persisted by broker execution identity.
+    pub executions: Vec<Execution>,
+    /// Broker commissions and other trading costs.
+    pub fees: Vec<FeeActivity>,
+}
+
 /// Broker-level errors that callers can inspect instead of parsing strings.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BrokerError {
@@ -270,6 +279,19 @@ pub trait Broker {
         _account: &Account,
     ) -> Result<Vec<MarketDataStreamEvent>, Box<dyn Error>> {
         Err("Realtime market data streaming not supported by this broker".into())
+    }
+
+    /// Read executions and fees for one reconciliation. Adapters sharing an
+    /// endpoint should override this to use a single coherent broker response.
+    fn fetch_trade_activities(
+        &self,
+        trade: &Trade,
+        account: &Account,
+    ) -> Result<TradeActivities, Box<dyn Error>> {
+        Ok(TradeActivities {
+            executions: self.fetch_executions(trade, account, None)?,
+            fees: self.fetch_fee_activities(trade, account, None)?,
+        })
     }
 
     /// Fetch broker executions (fills) for a trade since an optional timestamp.

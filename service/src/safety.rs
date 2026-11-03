@@ -374,7 +374,16 @@ pub fn dispatch(
             }
             portfolio::check_existing(&candidate, &trades(domain, &account)?, Utc::now())
                 .map_err(risk_error)?;
-            // A complete broker snapshot alone is insufficient when local fills disagree.
+            // A complete position snapshot cannot resolve a failed execution/fee feed.
+            for trade in trades(domain, &account)? {
+                if domain
+                    .facade
+                    .broker_reconciliation_incomplete(trade.id)
+                    .map_err(domain::domain_error)?
+                {
+                    return Err(error("recovery_evidence_incomplete"));
+                }
+            }
             verify_reconciled(&candidate, &trades(domain, &account)?)?;
             state.halt = None;
         }

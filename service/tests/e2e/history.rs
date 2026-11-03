@@ -3,7 +3,7 @@ use super::{json, Fixture, Gateway};
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn history_pages_match_over_mcp_http_and_restart_and_account_units_are_explicit() {
     let gateway = Gateway::start().await;
-    let f = Fixture::new(10000, 32);
+    let f = Fixture::new(45000, 32);
     let mut process = f.start(&gateway).await;
     for (index, tax, earnings) in [(0, "-1", "0"), (1, "80", "80")] {
         let reply = f.call(&process, "account_create", json!({

@@ -1017,8 +1017,8 @@ fn cancel_trade_resolves_order_id_from_order_ref_before_delete() {
     ));
     let canceled = server.expect(MockExpectation::json(
         "GET",
-        "/v1/api/iserver/account/U1234567/order/status/7001",
-        json!({ "order_id": "7001", "status": "Canceled", "cum_fill": "0" }),
+        "/v1/api/iserver/account/order/status/7001",
+        json!({ "account": "U1234567", "order_id": "7001", "order_status": "Cancelled", "cum_fill": "0" }),
     ));
 
     with_mock_gateway(&server, || {
@@ -1224,22 +1224,19 @@ fn market_data_and_execution_endpoints_are_normalized() {
         let trade_tick = broker.get_latest_trade("AAPL", &account).unwrap();
         assert_eq!(trade_tick.price, dec!(100.2));
 
-        let executions = broker.fetch_executions(&trade, &account, None).unwrap();
+        let activities = broker.fetch_trade_activities(&trade, &account).unwrap();
+        let executions = activities.executions;
         assert_eq!(executions.len(), 1);
-        let expected_order_ref = trade.entry.id.to_string();
-        assert_eq!(
-            executions[0].broker_order_id.as_deref(),
-            Some(expected_order_ref.as_str())
-        );
+        assert_eq!(executions[0].broker_order_id, trade.entry.broker_order_id);
 
-        let fees = broker.fetch_fee_activities(&trade, &account, None).unwrap();
+        let fees = activities.fees;
         assert_eq!(fees.len(), 1);
         assert_eq!(fees[0].amount, dec!(1.25));
     });
 
     history.assert();
     assert_eq!(snapshot.hits(), 2);
-    assert_eq!(account_trades.hits(), 2);
+    assert_eq!(account_trades.hits(), 1);
 }
 
 #[test]

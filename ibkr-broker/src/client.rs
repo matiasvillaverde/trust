@@ -1,3 +1,7 @@
+mod cancellation;
+mod pacing;
+#[cfg(test)]
+mod recovery_tests;
 use crate::config::ConnectionConfig;
 use crate::orders::find_live_order_by_ref;
 use crate::parsing::{decimal_field_optional_any, string_field_optional};
@@ -36,6 +40,7 @@ fn endpoint(path: &str) -> &'static str {
 }
 
 fn observe_request<T>(
+    pacer: &pacing::Pacer,
     method: &'static str,
     path: &str,
     request: RequestBuilder,
@@ -43,7 +48,7 @@ fn observe_request<T>(
 ) -> Result<T, Box<dyn Error>> {
     let start = Instant::now();
     // Observe the existing single attempt; instrumentation must never introduce retries.
-    let response = request.send();
+    let response = pacer.send(path, request);
     let status = response
         .as_ref()
         .map_or(0, |response| response.status().as_u16());
@@ -62,6 +67,7 @@ fn observe_request<T>(
 pub(crate) struct IbkrClient {
     http: Client,
     config: ConnectionConfig,
+    pacer: pacing::Pacer,
 }
 
 impl IbkrClient {
@@ -81,7 +87,11 @@ impl IbkrClient {
             .redirect(reqwest::redirect::Policy::none())
             .timeout(Duration::from_secs(20))
             .build()?;
-        Ok(Self { http, config })
+        Ok(Self {
+            pacer: pacing::Pacer::for_gateway(&config.base_url)?,
+            http,
+            config,
+        })
     }
 
     pub(crate) fn prepare_trading_session(
@@ -167,52 +177,13 @@ impl IbkrClient {
         order_id: &str,
         order_ref: &str,
     ) -> Result<(), Box<dyn Error>> {
-        let account_id = crate::support::broker_account_id(account)?;
-        let path = format!("/iserver/account/{account_id}/order/status/{order_id}");
-        for _ in 0..LIVE_ORDER_LOOKUP_RETRIES {
-            let order = self.get_json_value(&path, &[])?;
-            let status = string_field_optional(&order, "status")
-                .or_else(|| string_field_optional(&order, "order_status"))
-                .unwrap_or_default()
-                .to_ascii_lowercase();
-            if matches!(
-                status.as_str(),
-                "cancelled" | "canceled" | "api_cancelled" | "apicancelled"
-            ) {
-                let filled_quantity = decimal_field_optional_any(
-                    &order,
-                    &[
-                        "cum_fill",
-                        "cumFill",
-                        "filledQuantity",
-                        "filled_quantity",
-                        "filled",
-                    ],
-                );
-                if filled_quantity == Some(Decimal::ZERO) {
-                    return Ok(());
-                }
-                return Err(format!(
-                    "IBKR order '{order_ref}' was canceled but its filled quantity was nonzero or unavailable; funds must not be released; reconcile executions"
-                )
-                .into());
-            }
-            if matches!(status.as_str(), "filled" | "partially_filled") {
-                return Err(format!(
-                    "IBKR order '{order_ref}' became '{status}' while cancellation was pending; funds must not be released"
-                )
-                .into());
-            }
-            sleep(Duration::from_millis(LIVE_ORDER_LOOKUP_DELAY_MS));
-        }
-        Err(format!(
-            "IBKR did not confirm cancellation of order '{order_ref}'; funds must not be released"
-        )
-        .into())
+        // DELETE already ran. A status-read failure cannot guarantee no mutation.
+        cancellation::confirm(self, account, order_id, order_ref)
+            .map_err(|error| format!("IBKR cancellation outcome is unconfirmed: {error}").into())
     }
 
     pub(crate) fn account_trades(&self) -> Result<Vec<Value>, Box<dyn Error>> {
-        let response = self.get_json_value("/iserver/account/trades", &[])?;
+        let response = self.get_json_value("/iserver/account/trades", &[("days", "7".into())])?;
         response
             .as_array()
             .cloned()
@@ -246,7 +217,7 @@ impl IbkrClient {
         query: &[(&str, String)],
     ) -> Result<Value, Box<dyn Error>> {
         let request = self.http.get(self.url(path)).query(query);
-        observe_request("GET", path, request, |response| {
+        observe_request(&self.pacer, "GET", path, request, |response| {
             parse_json_response("GET", path, response)
         })
     }
@@ -257,7 +228,7 @@ impl IbkrClient {
         body: &Value,
     ) -> Result<Value, Box<dyn Error>> {
         let request = self.http.post(self.url(path)).json(body);
-        observe_request("POST", path, request, |response| {
+        observe_request(&self.pacer, "POST", path, request, |response| {
             parse_json_response("POST", path, response)
         })
     }
@@ -275,6 +246,7 @@ impl IbkrClient {
 
     pub(crate) fn delete_no_content(&self, path: &str) -> Result<(), Box<dyn Error>> {
         observe_request(
+            &self.pacer,
             "DELETE",
             path,
             self.http.delete(self.url(path)),
@@ -532,7 +504,7 @@ fn truncate_utf8(value: &str, max_bytes: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{redacted_json_string, reject_order_reply, reply_messages, IbkrClient};
+    use super::{pacing, redacted_json_string, reject_order_reply, reply_messages, IbkrClient};
     use crate::config::ConnectionConfig;
     use model::Account;
     use reqwest::blocking::Client;
@@ -608,6 +580,7 @@ mod tests {
     fn client_url_joins_base_and_path_without_double_slashes() {
         let client = IbkrClient {
             http: Client::new(),
+            pacer: pacing::Pacer::for_gateway("https://ibkr.local").unwrap(),
             config: ConnectionConfig::new("https://ibkr.local/v1/api/", false)
                 .expect("valid secure config"),
         };
@@ -979,24 +952,20 @@ mod tests {
     fn cancellation_confirmation_accepts_canceled_and_rejects_fill_race() {
         for (response, should_succeed) in [
             (
-                r#"{"order_ref":"entry-ref","status":"Canceled","cum_fill":"0"}"#,
+                r#"{"account":"U1234567","order_id":"9001","order_ref":"entry-ref","status":"Canceled","cum_fill":"0"}"#,
                 true,
             ),
             (
-                r#"{"order_ref":"entry-ref","status":"Canceled","cum_fill":"2"}"#,
+                r#"{"account":"U1234567","order_id":"9001","order_ref":"entry-ref","status":"Canceled","cum_fill":"2"}"#,
                 false,
             ),
             (
-                r#"{"order_ref":"entry-ref","status":"Filled","filledQuantity":5}"#,
+                r#"{"account":"U1234567","order_id":"9001","order_ref":"entry-ref","status":"Filled","filledQuantity":5}"#,
                 false,
             ),
         ] {
             with_test_server(
-                vec![(
-                    "GET /iserver/account/U1234567/order/status/9001",
-                    200,
-                    response,
-                )],
+                vec![("GET /iserver/account/order/status/9001", 200, response)],
                 |base_url| {
                     let client = test_client(&base_url);
                     let account = Account {
@@ -1165,6 +1134,7 @@ mod tests {
     fn test_client(base_url: &str) -> IbkrClient {
         IbkrClient {
             http: Client::new(),
+            pacer: pacing::Pacer::for_gateway(base_url).unwrap(),
             config: ConnectionConfig::new(base_url, false).expect("valid loopback config"),
         }
     }

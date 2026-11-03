@@ -23,7 +23,7 @@ fn money(value: &Value) -> rust_decimal::Decimal {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn discovery_resolves_exact_instruments_and_previews_without_committing_cash_or_orders() {
     let gateway = Gateway::start().await;
-    let f = Fixture::new(10000, 32);
+    let f = Fixture::new(45000, 32);
     let mut p = f.start(&gateway).await;
     let (account, trade) = f.seed(&p, "long", "1", "discovery").await;
     let original = f
@@ -195,7 +195,7 @@ async fn discovery_resolves_exact_instruments_and_previews_without_committing_ca
 
 #[tokio::test]
 async fn invalid_operator_configuration_stops_before_readiness_or_financial_storage() {
-    let f = Fixture::new(10000, 32);
+    let f = Fixture::new(45000, 32);
     let valid: Value =
         serde_json::from_slice(&std::fs::read(f.dir.path().join("config.json")).unwrap()).unwrap();
     for (case, expected) in [

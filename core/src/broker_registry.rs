@@ -202,6 +202,15 @@ impl Broker for BrokerRegistry {
         )
     }
 
+    fn fetch_trade_activities(
+        &self,
+        trade: &Trade,
+        account: &Account,
+    ) -> Result<model::broker::TradeActivities, Box<dyn Error>> {
+        self.broker_for_account(account)?
+            .fetch_trade_activities(trade, account)
+    }
+
     fn fetch_executions(
         &self,
         trade: &Trade,

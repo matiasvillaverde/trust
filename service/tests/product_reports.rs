@@ -70,7 +70,7 @@ async fn record_close(
 async fn reports_reconcile_realized_fees_open_exposure_and_account_scope_after_restart() {
     for side in ["long", "short"] {
         let gateway = Gateway::start().await;
-        let f = Fixture::new(10000, 32);
+        let f = Fixture::new(45000, 32);
         let mut p = f.start(&gateway).await;
         let (account, winner) = f.seed(&p, side, "1", side).await;
         let instrument = f
@@ -242,7 +242,7 @@ async fn reports_reconcile_realized_fees_open_exposure_and_account_scope_after_r
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn reports_reject_missing_accounts_and_mixed_currencies_instead_of_plausible_totals() {
     let gateway = Gateway::start().await;
-    let f = Fixture::new(10000, 32);
+    let f = Fixture::new(45000, 32);
     let mut p = f.start(&gateway).await;
     let account = f.ok(&p,"account_create",json!({"name":"multi-currency","description":"report bounds","environment":"paper","broker":"ibkr","broker_account_id":"DU_TEST","idempotency_key":"product-account"})).await["id"].clone();
     let empty = report(&f, &p, &account, "summary").await;
