@@ -11,6 +11,24 @@ use model::{
 use serde_json::Value;
 use std::error::Error;
 
+pub(crate) fn client_for(trade: &Trade, account: &Account) -> Result<IbkrClient, Box<dyn Error>> {
+    ensure_trade_account(trade, account)?;
+    let client = IbkrClient::for_account(account)?;
+    client.prepare_trading_session(Some(account))?;
+    Ok(client)
+}
+
+pub(crate) fn fetch_trade_activities(
+    trade: &Trade,
+    account: &Account,
+) -> Result<model::broker::TradeActivities, Box<dyn Error>> {
+    let rows = client_for(trade, account)?.account_trades()?;
+    Ok(model::broker::TradeActivities {
+        executions: executions_from_rows(rows.clone(), trade, account, None)?,
+        fees: fee_activities_from_rows(rows, trade, account, None)?,
+    })
+}
+
 pub(crate) fn fetch_executions(
     client: &IbkrClient,
     trade: &Trade,

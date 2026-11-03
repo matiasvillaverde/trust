@@ -390,28 +390,38 @@ impl Broker for IbkrBroker {
         get_latest_trade(&client, symbol)
     }
 
+    fn fetch_trade_activities(
+        &self,
+        trade: &Trade,
+        account: &Account,
+    ) -> Result<model::broker::TradeActivities, Box<dyn Error>> {
+        executions::fetch_trade_activities(trade, account)
+    }
     fn fetch_executions(
         &self,
         trade: &Trade,
         account: &Account,
         after: Option<DateTime<Utc>>,
     ) -> Result<Vec<model::Execution>, Box<dyn Error>> {
-        ensure_trade_account(trade, account)?;
-        let client = IbkrClient::for_account(account)?;
-        client.prepare_trading_session(Some(account))?;
-        fetch_executions(&client, trade, account, after)
+        fetch_executions(
+            &executions::client_for(trade, account)?,
+            trade,
+            account,
+            after,
+        )
     }
-
     fn fetch_fee_activities(
         &self,
         trade: &Trade,
         account: &Account,
         after: Option<DateTime<Utc>>,
     ) -> Result<Vec<model::FeeActivity>, Box<dyn Error>> {
-        ensure_trade_account(trade, account)?;
-        let client = IbkrClient::for_account(account)?;
-        client.prepare_trading_session(Some(account))?;
-        fetch_fee_activities(&client, trade, account, after)
+        fetch_fee_activities(
+            &executions::client_for(trade, account)?,
+            trade,
+            account,
+            after,
+        )
     }
 }
 

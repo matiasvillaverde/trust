@@ -636,12 +636,12 @@ fn test_sync_server_error_leaves_trade_unchanged() {
 }
 
 // ===========================================================================
-// 2. EXECUTION/FEE FETCH FAILURE — Sync succeeds but execution feed is down
-//    Verify: trade transitions normally, fees/executions can be retried later
+// 2. EXECUTION/FEE FETCH FAILURE — Confirmed order updates survive incomplete sync
+//    Verify: trade transitions persist, and failed evidence reads require recovery
 // ===========================================================================
 
 #[test]
-fn test_execution_fetch_failure_does_not_block_sync() {
+fn test_execution_fetch_failure_retains_fill_and_reports_incomplete_sync() {
     let broker = ExecutionFetchFailsBroker::new(|trade| {
         let entry = Order {
             id: trade.entry.id,
@@ -670,12 +670,8 @@ fn test_execution_fetch_failure_does_not_block_sync() {
     let account = setup_account(&mut trust, dec!(50000));
     let trade = create_submitted_trade(&mut trust, &account);
 
-    // Should succeed despite execution/fee fetch failures (best-effort)
-    let result = trust.sync_trade(&trade, &account);
-    assert!(
-        result.is_ok(),
-        "sync should succeed even when execution fetch fails"
-    );
+    let error = trust.sync_trade(&trade, &account).unwrap_err();
+    assert!(error.is::<core::broker_reconciliation::IncompleteEvidence>());
 
     // Trade should be Filled
     let filled = trust.search_trades(account.id, Status::Filled).unwrap();
@@ -687,7 +683,7 @@ fn test_execution_fetch_failure_does_not_block_sync() {
 }
 
 #[test]
-fn test_fee_fetch_failure_does_not_block_close() {
+fn test_activity_fetch_failure_retains_close_and_reports_incomplete_sync() {
     let broker = ExecutionFetchFailsBroker::new(|trade| {
         let entry = Order {
             id: trade.entry.id,
@@ -719,11 +715,8 @@ fn test_fee_fetch_failure_does_not_block_close() {
     let account = setup_account(&mut trust, dec!(50000));
     let trade = create_submitted_trade(&mut trust, &account);
 
-    let result = trust.sync_trade(&trade, &account);
-    assert!(
-        result.is_ok(),
-        "close should succeed even when fee fetch fails"
-    );
+    let error = trust.sync_trade(&trade, &account).unwrap_err();
+    assert!(error.is::<core::broker_reconciliation::IncompleteEvidence>());
 
     let closed = trust
         .search_trades(account.id, Status::ClosedTarget)

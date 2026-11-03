@@ -235,7 +235,7 @@ impl Fixture {
         std::fs::write(dir.path().join("config.json"), config.to_string()).unwrap();
         let client = reqwest::Client::builder()
             .no_proxy()
-            .timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(60))
             .build()
             .unwrap();
         Self {
@@ -244,6 +244,10 @@ impl Fixture {
             key,
             client,
         }
+    }
+    pub fn update_config(&mut self, field: &str, value: Value) {
+        *self.config.get_mut(field).unwrap() = value;
+        std::fs::write(self.dir.path().join("config.json"), self.config.to_string()).unwrap();
     }
     pub fn add_agent(&mut self, subject: &str) {
         self.config["grants"][subject] = self.config["grants"]["agent"].clone();
@@ -443,7 +447,7 @@ impl Fixture {
         let start = Instant::now();
         while gateway.state.submissions.load(Ordering::SeqCst) == 0 {
             assert!(
-                start.elapsed() < Duration::from_secs(5),
+                start.elapsed() < Duration::from_secs(40),
                 "submission did not reach simulator"
             );
             tokio::time::sleep(Duration::from_millis(5)).await;

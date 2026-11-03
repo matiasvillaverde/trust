@@ -1,4 +1,5 @@
 //! A single worker owns synchronous, non-Send domain dependencies and durable intent.
+mod reconciliation;
 use crate::{
     auth::{Grant, Identity},
     catalog::{self, Operation},
@@ -8,6 +9,7 @@ use crate::{
     journal::{AuditContext, Claim, Journal, Reply},
     metrics::{self, Metrics, Stage},
 };
+use reconciliation::{reconcile, ReconcileCursor};
 use serde_json::{json, Value};
 use std::{
     fs::File,
@@ -122,7 +124,7 @@ impl Service {
                 worker_ready.store(true, Ordering::Release);
                 let _ = startup_tx.send(Ok(()));
                 let mut next_reconcile = Instant::now();
-                let mut reconcile_cursor = None;
+                let mut reconcile_cursor = ReconcileCursor::default();
                 let mut safety_cursor = None;
                 while !worker_stopping.load(Ordering::Acquire) {
                     match receiver.recv_timeout(Duration::from_millis(250)) {
@@ -590,131 +592,4 @@ fn execute_inner(
             .map_err(|_| audit_unavailable())?;
     }
     Ok(reply)
-}
-
-fn reconcile(
-    domain: &mut Domain,
-    journal: &mut Journal,
-    cursor: &mut Option<(Uuid, Uuid)>,
-    safety_cursor: &mut Option<Uuid>,
-    metrics: &Metrics,
-) -> Result<()> {
-    if let Some(account) = crate::safety::background_account(domain, journal, *safety_cursor)? {
-        *safety_cursor = Some(account);
-        let scopes = std::collections::BTreeSet::from(["trust:reconcile".to_owned()]);
-        let identity = Identity {
-            subject: "system:reconciler".into(),
-            client_id: None,
-            expires_at: u64::MAX,
-            owner_authenticated_until: None,
-            scopes: scopes.clone(),
-            grant: Grant {
-                role: crate::auth::Role::Agent,
-                accounts: Default::default(),
-                all_accounts: true,
-                scopes,
-                allow_live: domain.config.allow_live,
-            },
-        };
-        let result = execute(
-            domain,
-            journal,
-            &identity,
-            "account_refresh",
-            &json!({"account_id":account,"idempotency_key":Uuid::new_v4().to_string()}),
-            Uuid::new_v4(),
-            Observation {
-                source: Source::Background,
-                wait: Duration::ZERO,
-                metrics,
-            },
-        );
-        if let Err(error) = result {
-            if matches!(
-                error.code.as_str(),
-                "audit_unavailable" | "audit_integrity_failed"
-            ) {
-                return Err(error);
-            }
-        }
-    }
-    let accounts = match domain.facade.search_all_accounts() {
-        Ok(accounts) => accounts,
-        Err(_) => {
-            tracing::warn!(
-                event = "reconciliation_failed",
-                "Cannot read accounts for reconciliation"
-            );
-            return Ok(());
-        }
-    };
-    let scopes: std::collections::BTreeSet<_> =
-        ["trust:reconcile".to_owned()].into_iter().collect();
-    let identity = Identity {
-        subject: "system:reconciler".into(),
-        client_id: None,
-        expires_at: u64::MAX,
-        owner_authenticated_until: None,
-        scopes: scopes.clone(),
-        grant: Grant {
-            role: crate::auth::Role::Agent,
-            accounts: Default::default(),
-            all_accounts: true,
-            scopes,
-            allow_live: domain.config.allow_live,
-        },
-    };
-    let mut candidates = Vec::new();
-    for account in accounts {
-        if account.environment == model::Environment::Live && !domain.config.allow_live {
-            continue;
-        }
-        match domain.facade.account_trades(account.id) {
-            Ok(trades) => candidates.extend(
-                trades
-                    .into_iter()
-                    .filter(|t| domain::active(t.status))
-                    .map(|t| (account.id, t.id)),
-            ),
-            Err(_) => {
-                tracing::warn!(event="reconciliation_failed",account_id=%account.id,"Cannot enumerate trades")
-            }
-        }
-    }
-    candidates.sort_unstable();
-    let next = candidates
-        .iter()
-        .find(|id| cursor.is_none_or(|last| **id > last))
-        .or_else(|| candidates.first())
-        .copied();
-    if let Some((account, trade)) = next {
-        *cursor = Some((account, trade));
-        let args = json!({"account_id":account,"trade_id":trade,"idempotency_key":Uuid::new_v4().to_string()});
-        metrics::increment(&metrics.active, 1);
-        let result = execute(
-            domain,
-            journal,
-            &identity,
-            "trade_reconcile",
-            &args,
-            Uuid::new_v4(),
-            Observation {
-                source: Source::Background,
-                wait: Duration::ZERO,
-                metrics,
-            },
-        );
-        metrics::decrement(&metrics.active);
-        match result {
-            Err(error) if error.code == "audit_unavailable" => return Err(error),
-            Err(_) => {
-                tracing::warn!(event="reconciliation_failed",account_id=%account,trade_id=%trade,"Background reconciliation failed")
-            }
-            Ok(reply) if reply.error.is_some() => {
-                tracing::warn!(event="reconciliation_failed",account_id=%account,trade_id=%trade,"Background reconciliation did not confirm an outcome")
-            }
-            Ok(_) => {}
-        }
-    }
-    Ok(())
 }

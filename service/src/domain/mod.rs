@@ -340,6 +340,10 @@ pub fn paginate(value: Value, args: &Value) -> Value {
 }
 
 pub(crate) fn domain_error(error: Box<dyn std::error::Error>) -> ServiceError {
+    if error.is::<trust_core::broker_reconciliation::IncompleteEvidence>() {
+        return ServiceError::new("reconciliation_incomplete", error.to_string(),
+            "Inspect trade_get and broker activity, then reconcile with a new key. The owner must verify recovery before account_resume.");
+    }
     if error
         .downcast_ref::<model::percentage::InvalidPercentage>()
         .is_some()

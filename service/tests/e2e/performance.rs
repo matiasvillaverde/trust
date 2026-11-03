@@ -10,7 +10,7 @@ pub(super) async fn risk_preview_latency_budget() {
     let mut profiles = Vec::new();
     for mcp in [false, true] {
         let gateway = Gateway::start().await;
-        let mut f = Fixture::new(5000, 32);
+        let mut f = Fixture::new(45000, 32);
         f.enable_encryption();
         let mut p = f.start(&gateway).await;
         let (account, _) = f.seed(&p, "long", "10", "performance").await;

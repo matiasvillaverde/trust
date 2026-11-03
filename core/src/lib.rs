@@ -58,7 +58,7 @@ use model::{
     DatabaseFactory, DistributionHistory, DistributionResult, DistributionRules, DraftTrade,
     Environment, Execution, Level, LevelAdjustmentRules, LevelChange, LevelTrigger, MarketBar,
     MarketDataChannel, MarketDataStreamEvent, MarketSnapshot, MarketSnapshotSource,
-    MarketSnapshotV2, Mistake, Order, OrderCategory, Rule, RuleLevel, RuleName, SessionPlan,
+    MarketSnapshotV2, Mistake, OrderCategory, Rule, RuleLevel, RuleName, SessionPlan,
     SessionPlanClose, Status, Trade, TradeBalance, TradeEvent, TradeEventSeverity,
     TradeEventSource, TradeEventType, TradingVehicle, TradingVehicleCategory, Transaction,
     TransactionCategory,
@@ -1468,77 +1468,6 @@ impl TrustFacade {
         audit::verification(trade_id, &logs)
     }
 
-    /// Synchronize trade status with the broker.
-    ///
-    /// # Arguments
-    ///
-    /// * `trade` - The trade to synchronize
-    /// * `account` - The account associated with the trade
-    ///
-    /// # Returns
-    ///
-    /// Returns a tuple of the updated status, orders, and broker log.
-    pub fn sync_trade(
-        &mut self,
-        trade: &Trade,
-        account: &Account,
-    ) -> Result<(Status, Vec<Order>, BrokerLog), Box<dyn std::error::Error>> {
-        let (status, orders, log, transitioned_to_closed, persisted_trade) =
-            commands::trade::sync_with_broker(
-                trade,
-                account,
-                &mut *self.factory,
-                &mut *self.broker,
-            )?;
-
-        let is_closed = status == Status::ClosedTarget || status == Status::ClosedStopLoss;
-        if is_closed {
-            self.financial_transaction(CLOSE_PROCESSING_SAVEPOINT, |facade| {
-                // Claim post-close work under the same writer reservation as its marker.
-                let processing_complete = facade
-                    .factory
-                    .log_read()
-                    .read_all_logs_for_trade(persisted_trade.id)?
-                    .iter()
-                    .any(|entry| entry.log == CLOSE_PROCESSING_COMPLETE_LOG);
-                if !processing_complete {
-                    let close_reason = synced_close_reason(status, persisted_trade.target.category);
-                    facade.handle_trade_closed_event_from_trade(&persisted_trade, close_reason)?;
-                    facade
-                        .factory
-                        .log_write()
-                        .create_log(CLOSE_PROCESSING_COMPLETE_LOG, &persisted_trade)?;
-                }
-                Ok(())
-            })?;
-        }
-
-        if transitioned_to_closed {
-            // Auto-grading on close is enabled by default; we keep it best-effort for sync reliability.
-            let has_grade = match self
-                .factory
-                .trade_grade_read()
-                .read_latest_for_trade(trade.id)
-            {
-                Ok(opt) => opt.is_some(),
-                Err(_) => true, // Can't read grades; treat as "don't try" to keep sync reliable.
-            };
-
-            if !has_grade {
-                let mut grader = crate::services::grading::TradeGradeService::new(
-                    &mut *self.factory,
-                    &mut *self.broker,
-                );
-                let _ = grader.grade_trade(
-                    trade.id,
-                    crate::services::grading::GradingWeightsPermille::default(),
-                );
-            }
-        }
-
-        Ok((status, orders, log))
-    }
-
     /// Grade a closed trade and persist its grade.
     pub fn grade_trade(
         &mut self,
@@ -2507,6 +2436,7 @@ fn verify_distribution_password(
 mod tests {
     use super::*;
     use chrono::{Duration, TimeZone, Utc};
+    use model::Order;
     use model::OrderIds;
 
     #[test]
@@ -3131,6 +3061,7 @@ mod tests {
 }
 
 mod audit;
+pub mod broker_reconciliation;
 mod broker_registry;
 mod calculators_account;
 pub mod calculators_advanced_metrics;

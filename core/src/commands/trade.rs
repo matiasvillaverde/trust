@@ -983,33 +983,23 @@ pub fn sync_with_broker(
         .broker_kind
         .as_str()
         .to_string();
-    // Best-effort execution reconciliation window.
-    // This is intentionally outside the DB savepoint because it may involve broker I/O.
-    let after = database
-        .execution_read()
-        .latest_trade_execution_at(trade.id)?;
-    let after =
-        after.map(|t| chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(t, chrono::Utc));
+    // Replay the available activity window. Snapshot-derived fills and delayed
+    // native executions may share timestamps; identity-based upserts deduplicate.
     // 1. Sync Trade with Broker
     let (status, orders, log) = broker.sync_trade(trade, account)?;
     let operation_id = Uuid::new_v4();
 
-    let reconciled_executions = match broker.fetch_executions(trade, account, after) {
-        Ok(executions) => executions,
+    let (activities, evidence_incomplete) = match broker.fetch_trade_activities(trade, account) {
+        Ok(activities) => (activities, false),
         Err(_) => {
-            // Execution ingestion must never block core sync reliability.
-            // We still persist the normal trade/order snapshot. The reconciliation can be retried.
-            log_reconciliation_failure("execution_reconciliation_failed", trade.id);
-            vec![]
+            log_reconciliation_failure("activity_reconciliation_failed", trade.id);
+            (model::broker::TradeActivities::default(), true)
         }
     };
-    let fees = match broker.fetch_fee_activities(trade, account, None) {
-        Ok(fees) => fees,
-        Err(_) => {
-            log_reconciliation_failure("fee_reconciliation_failed", trade.id);
-            vec![]
-        }
-    };
+    let model::broker::TradeActivities {
+        executions: reconciled_executions,
+        fees,
+    } = activities;
     // 2. Persist the whole sync lifecycle atomically.
     let (transitioned_to_closed, persisted_trade) = with_savepoint(
         database,
@@ -1140,7 +1130,11 @@ pub fn sync_with_broker(
                 AuditRecord {
                     operation_id,
                     event_type: "trade.sync",
-                    outcome: "reconciled",
+                    outcome: if evidence_incomplete {
+                        "incomplete"
+                    } else {
+                        "reconciled"
+                    },
                     prior_status: trade_with_synced_orders.status,
                     resulting_status: trade.status,
                     details: &details,
@@ -1150,6 +1144,9 @@ pub fn sync_with_broker(
         },
     )?;
 
+    if evidence_incomplete {
+        return Err(Box::new(crate::broker_reconciliation::IncompleteEvidence));
+    }
     Ok((
         persisted_trade.status,
         orders,

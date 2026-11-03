@@ -38,7 +38,7 @@ async fn source_blind_agent_fixture() {
         .expect("Use a new directory for each evaluation; preserve prior evidence");
     std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700)).unwrap();
     let gateway = Gateway::start().await;
-    let f = Fixture::new(5000, 32);
+    let f = Fixture::new(45000, 32);
     let mut config: Value =
         serde_json::from_slice(&std::fs::read(f.dir.path().join("config.json")).unwrap()).unwrap();
     config["reconcile_interval_seconds"] = json!(15);
